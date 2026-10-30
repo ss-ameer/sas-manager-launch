@@ -50,6 +50,7 @@ import SaveToCatalogModal, {
   syncLineItemToCatalogProduct
 } from '../SaveToCatalogModal';
 import CompositePackageEditor from './CompositePackageEditor';
+import LineItemImageOptionsPopover from '../common/LineItemImageOptionsPopover';
 import { db } from '../../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import {
@@ -2901,6 +2902,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             package_pricing_mode: li.package_pricing_mode,
             attributes: itemAttrs,
             image_url: li.image_url,
+            secondary_image_url: li.secondary_image_url,
+            image_caption: li.image_caption,
+            secondary_image_caption: li.secondary_image_caption,
+            image_adjustments: li.image_adjustments,
+            image_display_override: li.image_display_override,
+            image_size_override: li.image_size_override,
+            image_aspect_override: li.image_aspect_override,
             datasheet_attachment: li.datasheet_attachment,
             include_datasheet_in_quote: li.include_datasheet_in_quote !== false,
             page_break_after: li.page_break_after,
@@ -2934,9 +2942,27 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           ? itemPageBreaks[itemKey]
           : Boolean(item.page_break_after);
       const resolvedImageUrl =
-        itemImageOverrides[itemKey] !== undefined
+        compOverride.image_url !== undefined
+          ? compOverride.image_url
+          : itemImageOverrides[itemKey] !== undefined
           ? itemImageOverrides[itemKey]
           : item.image_url || matchedCatalogProduct?.image_url;
+      const resolvedSecondaryImageUrl =
+        compOverride.secondary_image_url !== undefined
+          ? compOverride.secondary_image_url
+          : item.secondary_image_url ?? matchedCatalogProduct?.secondary_image_url;
+      const resolvedImageCaption =
+        compOverride.image_caption !== undefined
+          ? compOverride.image_caption
+          : item.image_caption ?? matchedCatalogProduct?.image_caption;
+      const resolvedSecondaryImageCaption =
+        compOverride.secondary_image_caption !== undefined
+          ? compOverride.secondary_image_caption
+          : item.secondary_image_caption ?? matchedCatalogProduct?.secondary_image_caption;
+      const resolvedImageAdjustments =
+        compOverride.image_adjustments !== undefined
+          ? compOverride.image_adjustments
+          : item.image_adjustments ?? matchedCatalogProduct?.image_adjustments;
       const resolvedDatasheet =
         item.datasheet_attachment || matchedCatalogProduct?.datasheet_attachment;
       const resolvedIncludeDatasheet =
@@ -2968,6 +2994,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         country_of_origin: item.country_of_origin || matchedCatalogProduct?.country_of_origin,
         hs_code: compOverride.hs_code ?? item.hs_code ?? matchedCatalogProduct?.hs_code,
         image_url: resolvedImageUrl,
+        secondary_image_url: resolvedSecondaryImageUrl,
+        image_caption: resolvedImageCaption,
+        secondary_image_caption: resolvedSecondaryImageCaption,
+        image_adjustments: resolvedImageAdjustments,
+        image_display_override: compOverride.image_display_override ?? item.image_display_override,
+        image_size_override: compOverride.image_size_override ?? item.image_size_override,
+        image_aspect_override: compOverride.image_aspect_override ?? item.image_aspect_override,
         datasheet_attachment: resolvedDatasheet,
         include_datasheet_in_quote: resolvedIncludeDatasheet,
         is_optional: resolvedOptional,
@@ -3879,14 +3912,39 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     [omittedFields]
   );
 
+  const triggerPrintAfterImagesDecode = useCallback(async () => {
+    try {
+      const portalEl = document.getElementById('quotation-print-portal') || document.getElementById('quotation-printable-document');
+      if (portalEl) {
+        const imgs = Array.from(portalEl.querySelectorAll('img'));
+        await Promise.all(
+          imgs.map((img) => {
+            if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+            if (typeof img.decode === 'function') {
+              return img.decode().catch(() => {});
+            }
+            return new Promise<void>((resolve) => {
+              img.addEventListener('load', () => resolve(), { once: true });
+              img.addEventListener('error', () => resolve(), { once: true });
+              window.setTimeout(resolve, 1500);
+            });
+          })
+        );
+      }
+    } catch {
+      // ignore image decode timeout
+    }
+    window.print();
+  }, []);
+
   const handleRequestPrint = useCallback(() => {
     const warnings = findUnknownAtTokensInQuotation(liveQuotation);
     if (warnings.length > 0) {
       setPendingPrintWarnings(warnings);
     } else {
-      window.print();
+      triggerPrintAfterImagesDecode();
     }
-  }, [liveQuotation]);
+  }, [liveQuotation, triggerPrintAfterImagesDecode]);
 
   // Direct On-Canvas Click-to-Edit Handler for Focused Section / Block Text
   const handleInlineFieldEdit = useCallback(
@@ -9529,26 +9587,47 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       </div>
 
                       {visibleColumns.showLineItemImages && (
-                        <div className="space-y-2 pt-0.5">
-                          {/* Layout Mode: Inline Thumbnail vs Dedicated Column */}
+                        <div className="space-y-3 pt-1">
+                          {/* 1. Image Placement Mode (5 Distinct B2B Modes in clean 2-col grid) */}
                           <div>
-                            <label className="block text-[10.5px] font-semibold text-slate-600 mb-1">
+                            <label className="block text-[10.5px] font-semibold text-slate-600 mb-1.5">
                               Image Placement Mode
                             </label>
                             <div className="grid grid-cols-2 gap-1.5">
                               {[
                                 {
-                                  id: 'inline' as const,
-                                  label: 'Inline Thumbnail',
-                                  desc: 'Beside item title & specs'
+                                  id: 'inline_left' as const,
+                                  matchIds: ['inline', 'inline_left'],
+                                  label: 'Inline Left',
+                                  desc: 'Beside title & specs'
+                                },
+                                {
+                                  id: 'inline_right' as const,
+                                  matchIds: ['inline_right'],
+                                  label: 'Inline Right',
+                                  desc: 'Floated right of specs'
                                 },
                                 {
                                   id: 'column' as const,
+                                  matchIds: ['column'],
                                   label: 'Dedicated Column',
-                                  desc: 'Separate Image column'
+                                  desc: 'Separate table column'
+                                },
+                                {
+                                  id: 'below_specs' as const,
+                                  matchIds: ['below_specs'],
+                                  label: 'Below Specs Banner',
+                                  desc: 'Wide diagram card'
+                                },
+                                {
+                                  id: 'photo_schedule' as const,
+                                  matchIds: ['photo_schedule'],
+                                  label: 'Bottom Photo Grid',
+                                  desc: '2/3-col visual schedule'
                                 }
-                              ].map((mode) => {
-                                const isSel = (visibleColumns.lineItemImageLayout || 'inline') === mode.id;
+                              ].map((mode, mIdx) => {
+                                const curLayout = visibleColumns.lineItemImageLayout || 'inline_left';
+                                const isSel = mode.matchIds.includes(curLayout);
                                 return (
                                   <button
                                     key={mode.id}
@@ -9560,31 +9639,144 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       }))
                                     }
                                     className={`p-2 rounded-xl border text-left transition cursor-pointer ${
+                                      mIdx === 4 ? 'col-span-2' : ''
+                                    } ${
                                       isSel
                                         ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-600/20'
                                         : 'border-slate-200 hover:border-slate-300 bg-white'
                                     }`}
                                   >
-                                    <span className={`text-[11px] font-semibold block ${isSel ? 'text-blue-700' : 'text-slate-800'}`}>
+                                    <span
+                                      className={`text-[11px] font-semibold block leading-tight ${
+                                        isSel ? 'text-blue-700' : 'text-slate-800'
+                                      }`}
+                                    >
                                       {mode.label}
                                     </span>
-                                    <span className="text-[9.5px] text-slate-400 block mt-0.5">{mode.desc}</span>
+                                    <span className="text-[9.5px] text-slate-400 block mt-0.5 leading-tight">
+                                      {mode.desc}
+                                    </span>
                                   </button>
                                 );
                               })}
                             </div>
                           </div>
 
-                          {/* Image Size Control */}
+                          {/* Conditional Sub-Controls for Dedicated Column */}
+                          {visibleColumns.lineItemImageLayout === 'column' && (
+                            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+                              <div className="grid grid-cols-2 gap-1.5">
+                                {[
+                                  { id: 'before_desc' as const, label: 'Before Description' },
+                                  { id: 'after_desc' as const, label: 'After Description' }
+                                ].map((pos) => {
+                                  const isSel =
+                                    (visibleColumns.lineItemImageColumnPosition || 'before_desc') === pos.id;
+                                  return (
+                                    <button
+                                      key={pos.id}
+                                      type="button"
+                                      onClick={() =>
+                                        setVisibleColumns((prev) => ({
+                                          ...prev,
+                                          lineItemImageColumnPosition: pos.id
+                                        }))
+                                      }
+                                      className={`py-1.5 px-2 rounded-lg text-[10px] font-semibold border transition cursor-pointer whitespace-nowrap ${
+                                        isSel
+                                          ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                                          : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                                      }`}
+                                    >
+                                      {pos.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <label className="flex items-center justify-between gap-2 text-[10px] text-slate-600 cursor-pointer pt-0.5">
+                                <span>Auto-collapse column if zero items have photos</span>
+                                <input
+                                  type="checkbox"
+                                  checked={visibleColumns.lineItemImageAutoCollapseColumn !== false}
+                                  onChange={(e) =>
+                                    setVisibleColumns((prev) => ({
+                                      ...prev,
+                                      lineItemImageAutoCollapseColumn: e.target.checked
+                                    }))
+                                  }
+                                  className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                />
+                              </label>
+                            </div>
+                          )}
+
+                          {/* Conditional Sub-Controls for Photo Schedule */}
+                          {visibleColumns.lineItemImageLayout === 'photo_schedule' && (
+                            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+                              <div className="grid grid-cols-2 gap-1.5">
+                                {[
+                                  { cols: 2 as const, label: '2 Columns Grid' },
+                                  { cols: 3 as const, label: '3 Columns Grid' }
+                                ].map((c) => {
+                                  const isSel = (visibleColumns.photoScheduleColumns || 3) === c.cols;
+                                  return (
+                                    <button
+                                      key={c.cols}
+                                      type="button"
+                                      onClick={() =>
+                                        setVisibleColumns((prev) => ({
+                                          ...prev,
+                                          photoScheduleColumns: c.cols
+                                        }))
+                                      }
+                                      className={`py-1.5 px-2 rounded-lg text-[10px] font-semibold border transition cursor-pointer whitespace-nowrap ${
+                                        isSel
+                                          ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                                          : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                                      }`}
+                                    >
+                                      {c.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <label className="flex items-center justify-between gap-2 text-[10px] text-slate-600 cursor-pointer pt-0.5">
+                                <span>Start Photo Schedule on dedicated new Annex page</span>
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(visibleColumns.photoScheduleNewPage)}
+                                  onChange={(e) =>
+                                    setVisibleColumns((prev) => ({
+                                      ...prev,
+                                      photoScheduleNewPage: e.target.checked
+                                    }))
+                                  }
+                                  className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                />
+                              </label>
+                            </div>
+                          )}
+
+                          {/* 2. Expanded Image Size Presets (XS to XL + Custom Slider) */}
                           <div>
-                            <label className="block text-[10.5px] font-semibold text-slate-600 mb-1">
-                              Product Image Size
-                            </label>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="text-[10.5px] font-semibold text-slate-600">
+                                Product Image Size
+                              </label>
+                              <span className="text-[9.5px] font-mono text-blue-600 font-bold">
+                                {visibleColumns.lineItemImageSize === 'custom'
+                                  ? `${visibleColumns.lineItemImageCustomWidthPx || 84}px`
+                                  : (visibleColumns.lineItemImageSize || 'md').toUpperCase()}
+                              </span>
+                            </div>
                             <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
                               {[
-                                { id: 'sm' as const, label: 'Small', px: '36px' },
-                                { id: 'md' as const, label: 'Medium', px: '50px' },
-                                { id: 'lg' as const, label: 'Large', px: '68px' }
+                                { id: 'xs' as const, label: 'XS (32px)' },
+                                { id: 'sm' as const, label: 'SM (48px)' },
+                                { id: 'md' as const, label: 'MD (72px)' },
+                                { id: 'lg' as const, label: 'LG (110px)' },
+                                { id: 'xl' as const, label: 'XL (160px)' },
+                                { id: 'custom' as const, label: 'Custom px' }
                               ].map((sz) => {
                                 const isSel = (visibleColumns.lineItemImageSize || 'md') === sz.id;
                                 return (
@@ -9594,16 +9786,158 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     onClick={() =>
                                       setVisibleColumns((prev) => ({
                                         ...prev,
-                                        lineItemImageSize: sz.id
+                                        lineItemImageSize: sz.id,
+                                        ...(sz.id === 'custom' && !prev.lineItemImageCustomWidthPx
+                                          ? { lineItemImageCustomWidthPx: 84 }
+                                          : {})
                                       }))
                                     }
-                                    className={`py-1.5 rounded-lg text-[10.5px] font-semibold transition cursor-pointer ${
+                                    className={`py-1.5 px-1 rounded-lg text-[10px] font-semibold transition cursor-pointer whitespace-nowrap ${
                                       isSel
                                         ? 'bg-blue-600 text-white shadow-2xs'
                                         : 'text-slate-600 hover:bg-white'
                                     }`}
                                   >
-                                    {sz.label} ({sz.px})
+                                    {sz.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {visibleColumns.lineItemImageSize === 'custom' && (
+                              <div className="pt-2 px-1">
+                                <input
+                                  type="range"
+                                  min={24}
+                                  max={220}
+                                  step={4}
+                                  value={visibleColumns.lineItemImageCustomWidthPx || 84}
+                                  onChange={(e) =>
+                                    setVisibleColumns((prev) => ({
+                                      ...prev,
+                                      lineItemImageCustomWidthPx: Number(e.target.value) || 84
+                                    }))
+                                  }
+                                  className="w-full accent-blue-600 cursor-pointer h-1.5 bg-slate-200 rounded-lg"
+                                />
+                                <div className="flex justify-between text-[9px] font-mono text-slate-400 mt-0.5">
+                                  <span>24px</span>
+                                  <span>{visibleColumns.lineItemImageCustomWidthPx || 84}px</span>
+                                  <span>220px</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* 3. Clean 2-Column Grid for Aspect Ratio, Frame, Fit & Background */}
+                          <div className="grid grid-cols-2 gap-2 pt-0.5">
+                            <div>
+                              <label className="block text-[9.5px] font-mono font-bold text-slate-500 uppercase mb-1">
+                                Aspect Ratio
+                              </label>
+                              <select
+                                value={visibleColumns.lineItemImageAspectRatio || '1:1'}
+                                onChange={(e) =>
+                                  setVisibleColumns((prev) => ({
+                                    ...prev,
+                                    lineItemImageAspectRatio: e.target.value as any
+                                  }))
+                                }
+                                className="w-full px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-[10.5px] font-semibold text-slate-700 cursor-pointer"
+                              >
+                                <option value="1:1">1:1 Square</option>
+                                <option value="4:3">4:3 Standard</option>
+                                <option value="16:9">16:9 Wide</option>
+                                <option value="auto">Auto Natural</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-[9.5px] font-mono font-bold text-slate-500 uppercase mb-1">
+                                Frame Style
+                              </label>
+                              <select
+                                value={visibleColumns.lineItemImageFrame || 'card'}
+                                onChange={(e) =>
+                                  setVisibleColumns((prev) => ({
+                                    ...prev,
+                                    lineItemImageFrame: e.target.value as any
+                                  }))
+                                }
+                                className="w-full px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-[10.5px] font-semibold text-slate-700 cursor-pointer"
+                              >
+                                <option value="card">Bordered Card</option>
+                                <option value="rounded">Soft Rounded</option>
+                                <option value="minimal">Borderless</option>
+                                <option value="shadow">Elevated Shadow</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-[9.5px] font-mono font-bold text-slate-500 uppercase mb-1">
+                                Image Fit
+                              </label>
+                              <select
+                                value={visibleColumns.lineItemImageObjectFit || 'contain'}
+                                onChange={(e) =>
+                                  setVisibleColumns((prev) => ({
+                                    ...prev,
+                                    lineItemImageObjectFit: e.target.value as any
+                                  }))
+                                }
+                                className="w-full px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-[10.5px] font-semibold text-slate-700 cursor-pointer"
+                              >
+                                <option value="contain">Contain (Full Part)</option>
+                                <option value="cover">Cover (Fill Box)</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-[9.5px] font-mono font-bold text-slate-500 uppercase mb-1">
+                                Background Fill
+                              </label>
+                              <select
+                                value={visibleColumns.lineItemImageBgFill || 'white'}
+                                onChange={(e) =>
+                                  setVisibleColumns((prev) => ({
+                                    ...prev,
+                                    lineItemImageBgFill: e.target.value as any
+                                  }))
+                                }
+                                className="w-full px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-[10.5px] font-semibold text-slate-700 cursor-pointer"
+                              >
+                                <option value="white">Pure White</option>
+                                <option value="slate">Soft Neutral</option>
+                                <option value="transparent">Transparent</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* 4. BOM Sub-Component Images Mode */}
+                          <div>
+                            <label className="block text-[9.5px] font-mono font-bold text-slate-500 uppercase mb-1">
+                              BOM Sub-Component (1.1..1.N) Photos
+                            </label>
+                            <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                              {[
+                                { id: 'off' as const, label: 'Hidden' },
+                                { id: 'small' as const, label: 'Small (30px)' },
+                                { id: 'match_parent' as const, label: 'Match Parent' }
+                              ].map((bm) => {
+                                const isSel = (visibleColumns.bomSubComponentImageMode || 'small') === bm.id;
+                                return (
+                                  <button
+                                    key={bm.id}
+                                    type="button"
+                                    onClick={() =>
+                                      setVisibleColumns((prev) => ({
+                                        ...prev,
+                                        bomSubComponentImageMode: bm.id
+                                      }))
+                                    }
+                                    className={`py-1 px-1 rounded-lg text-[10px] font-semibold transition cursor-pointer whitespace-nowrap ${
+                                      isSel
+                                        ? 'bg-blue-600 text-white shadow-2xs'
+                                        : 'text-slate-600 hover:bg-white'
+                                    }`}
+                                  >
+                                    {bm.label}
                                   </button>
                                 );
                               })}
@@ -9612,8 +9946,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         </div>
                       )}
 
-                      {/* Per-Item Image Upload, Datasheet Annex Toggle, Catalog Sync & Live Stock Badges */}
-                      <div className="space-y-1.5 max-h-72 overflow-y-auto pr-0.5 pt-1">
+                      {/* Per-Item Progressive Disclosure Image Controls, Datasheet Toggle, Catalog Sync & BOM */}
+                      <div className="space-y-2 max-h-80 overflow-y-auto pr-0.5 pt-1">
                         {quotationLineItems.map((item, idx) => {
                           const itemKey = item.id || `item_${idx}`;
                           const matchedProd = workspaceProducts.find(
@@ -9635,94 +9969,99 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           return (
                             <div
                               key={itemKey}
-                              className="p-2 rounded-xl border border-slate-200 bg-slate-50/70 space-y-1.5"
+                              className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2"
                             >
                               <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  {item.image_url ? (
-                                    <img
-                                      src={item.image_url}
-                                      alt={item.item_name}
-                                      className="w-8 h-8 rounded border border-slate-200 bg-white object-contain p-0.5 shrink-0"
-                                      referrerPolicy="no-referrer"
-                                    />
-                                  ) : (
-                                    <div className="w-8 h-8 rounded border border-dashed border-slate-300 bg-white flex items-center justify-center text-slate-400 shrink-0">
-                                      <ImageIcon className="w-3.5 h-3.5" />
-                                    </div>
-                                  )}
-                                  <div className="min-w-0">
-                                    <span className="font-semibold text-slate-800 text-[11px] block truncate" title={item.item_name}>
-                                      #{idx + 1} {item.item_name}
-                                    </span>
-                                    <div className="flex items-center gap-1 flex-wrap mt-0.5">
-                                      {isTracked && (
-                                        <span
-                                          className={`inline-block text-[9.5px] font-bold px-1.5 py-0.2 rounded ${
-                                            currentStock <= 0
-                                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                                              : reorderLvl > 0 && currentStock <= reorderLvl
-                                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                          }`}
-                                        >
-                                          {currentStock <= 0
-                                            ? 'Out of Stock (0)'
-                                            : `In Stock: ${currentStock} ${matchedProd?.unit || matchedProd?.uom || item.unit || 'pcs'}`}
-                                        </span>
-                                      )}
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setItemOptionalOverrides((prev) => ({
-                                            ...prev,
-                                            [itemKey]: !item.is_optional
-                                          }))
-                                        }
-                                        className={`text-[9.5px] font-semibold px-1.5 py-0.2 rounded border transition cursor-pointer ${
-                                          item.is_optional
-                                            ? 'bg-amber-50 text-amber-800 border-amber-300'
-                                            : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                                <div className="min-w-0 flex-1">
+                                  <span className="font-semibold text-slate-800 text-[11px] block truncate" title={item.item_name}>
+                                    #{idx + 1} {item.item_name}
+                                  </span>
+                                  <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                                    {isTracked && (
+                                      <span
+                                        className={`inline-block text-[9.5px] font-bold px-1.5 py-0.2 rounded ${
+                                          currentStock <= 0
+                                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                            : reorderLvl > 0 && currentStock <= reorderLvl
+                                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                         }`}
-                                        title="Toggle whether this item is Optional / Excluded from Baseline Subtotal"
                                       >
-                                        {item.is_optional ? 'Optional (Excl. Total)' : 'Baseline Item'}
-                                      </button>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-1 shrink-0">
-                                  <label className="px-2 py-1 rounded-lg bg-white hover:bg-blue-50 text-blue-700 border border-slate-200 text-[10px] font-semibold cursor-pointer transition">
-                                    {item.image_url ? 'Change' : '+ Photo'}
-                                    <input
-                                      type="file"
-                                      accept="image/*"
-                                      className="hidden"
-                                      onChange={(e) => {
-                                        const f = e.target.files?.[0];
-                                        e.target.value = '';
-                                        if (f) handleUploadLineItemImage(itemKey, f);
-                                      }}
-                                    />
-                                  </label>
-                                  {item.image_url && (
+                                        {currentStock <= 0
+                                          ? 'Out of Stock (0)'
+                                          : `In Stock: ${currentStock} ${matchedProd?.unit || matchedProd?.uom || item.unit || 'pcs'}`}
+                                      </span>
+                                    )}
                                     <button
                                       type="button"
                                       onClick={() =>
-                                        setItemImageOverrides((prev) => ({
+                                        setItemOptionalOverrides((prev) => ({
                                           ...prev,
-                                          [itemKey]: ''
+                                          [itemKey]: !item.is_optional
                                         }))
                                       }
-                                      className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
-                                      title="Remove item image"
+                                      className={`text-[9.5px] font-semibold px-1.5 py-0.2 rounded border transition cursor-pointer ${
+                                        item.is_optional
+                                          ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                          : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                                      }`}
+                                      title="Toggle whether this item is Optional / Excluded from Baseline Subtotal"
                                     >
-                                      <X className="w-3.5 h-3.5" />
+                                      {item.is_optional ? 'Optional (Excl. Total)' : 'Baseline Item'}
                                     </button>
-                                  )}
+                                  </div>
                                 </div>
                               </div>
+
+                              {/* Progressive Disclosure Image Thumbnail + Options Popover */}
+                              <LineItemImageOptionsPopover
+                                itemTitle={`#${idx + 1} ${item.item_name}`}
+                                imageUrl={item.image_url}
+                                secondaryImageUrl={item.secondary_image_url}
+                                imageCaption={item.image_caption}
+                                secondaryImageCaption={item.secondary_image_caption}
+                                imageAdjustments={item.image_adjustments}
+                                displayOverride={item.image_display_override || 'inherit'}
+                                sizeOverride={item.image_size_override || 'inherit'}
+                                aspectOverride={item.image_aspect_override || 'inherit'}
+                                showPerItemLayoutOverrides={true}
+                                activeWorkspace={activeWorkspace}
+                                canSyncToCatalog={Boolean(matchedProd)}
+                                onSyncToCatalog={
+                                  matchedProd
+                                    ? async () => {
+                                        const updated = await syncLineItemToCatalogProduct(
+                                          item,
+                                          matchedProd,
+                                          setWorkspaceProducts,
+                                          triggerToast,
+                                          liveQuotation.currency
+                                        );
+                                        if (updated && propSetProducts) {
+                                          propSetProducts((prev) =>
+                                            prev.map((p) => (p.id === updated.id ? updated : p))
+                                          );
+                                        }
+                                      }
+                                    : undefined
+                                }
+                                onChange={(patch) => {
+                                  if (patch.image_url !== undefined) {
+                                    setItemImageOverrides((prev) => ({
+                                      ...prev,
+                                      [itemKey]: patch.image_url || ''
+                                    }));
+                                    if (patch.image_url) {
+                                      setVisibleColumns((prev) => ({
+                                        ...prev,
+                                        showLineItemImages: true
+                                      }));
+                                    }
+                                  }
+                                  handleUpdateTopItemRowOption(itemKey, patch);
+                                }}
+                                compact
+                              />
 
                               {/* Two-Way Catalog Sync Actions */}
                               <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60">
@@ -9843,6 +10182,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       parentQuantity={item.quantity || 1}
                                       currency={(enquiry?.currency as string) || 'USD'}
                                       products={workspaceProducts}
+                                      activeWorkspace={activeWorkspace}
                                       tokenContext={studioTokenContext}
                                       onChange={(patch) =>
                                         setItemCompositeOverrides((prev) => ({
@@ -14841,8 +15181,29 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                                         {/* 7. IMAGE PIECE EDITOR */}
                                         {piece.type === 'image' && (
-                                          <div className="space-y-2">
-                                            <div className="flex items-center gap-2">
+                                          <div
+                                            className="space-y-2"
+                                            onPaste={async (e) => {
+                                              const items = e.clipboardData?.items;
+                                              if (!items) return;
+                                              for (let i = 0; i < items.length; i++) {
+                                                if (items[i].type.startsWith('image/')) {
+                                                  const file = items[i].getAsFile();
+                                                  if (file) {
+                                                    e.preventDefault();
+                                                    await handleUploadCustomPieceImage(
+                                                      selectedBlock.id,
+                                                      piece.id,
+                                                      file
+                                                    );
+                                                    return;
+                                                  }
+                                                }
+                                              }
+                                            }}
+                                          >
+                                            {/* Primary Image Row */}
+                                            <div className="flex items-center gap-1.5">
                                               <input
                                                 type="text"
                                                 value={piece.imageUrl || ''}
@@ -14852,8 +15213,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                                     imageUrl: e.target.value
                                                   }))
                                                 }
-                                                placeholder="Image URL or upload ->"
-                                                className="flex-1 px-2 py-1 rounded border border-slate-300 text-[10.5px]"
+                                                placeholder="Primary Image URL or Ctrl+V paste"
+                                                className="flex-1 min-w-0 px-2 py-1 rounded border border-slate-300 text-[10.5px]"
                                               />
                                               <label className="px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-[10px] cursor-pointer shrink-0 border border-indigo-200">
                                                 Upload
@@ -14871,7 +15232,63 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                                 />
                                               </label>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-2">
+
+                                            {/* Secondary Side-by-Side Image Row */}
+                                            <div className="flex items-center gap-1.5">
+                                              <input
+                                                type="text"
+                                                value={piece.imageSecondaryUrl || ''}
+                                                onChange={(e) =>
+                                                  handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                    ...p,
+                                                    imageSecondaryUrl: e.target.value
+                                                  }))
+                                                }
+                                                placeholder="2nd Side-by-Side Image URL (optional)"
+                                                className="flex-1 min-w-0 px-2 py-1 rounded border border-slate-300 text-[10.5px]"
+                                              />
+                                              <label className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[10px] cursor-pointer shrink-0 border border-slate-200">
+                                                + 2nd Img
+                                                <input
+                                                  type="file"
+                                                  accept="image/*"
+                                                  className="hidden"
+                                                  onChange={async (e) => {
+                                                    const f = e.target.files?.[0];
+                                                    e.target.value = '';
+                                                    if (!f) return;
+                                                    try {
+                                                      const uploaded = await uploadWorkspaceMediaAsset(
+                                                        f,
+                                                        'branding/custom_blocks',
+                                                        activeWorkspace,
+                                                        {
+                                                          maxWidth: 900,
+                                                          maxHeight: 600,
+                                                          quality: 0.85,
+                                                          preserveTransparency: true
+                                                        }
+                                                      );
+                                                      if (uploaded.url) {
+                                                        handleUpdatePieceInBlock(
+                                                          selectedBlock.id,
+                                                          piece.id,
+                                                          (p) => ({
+                                                            ...p,
+                                                            imageSecondaryUrl: uploaded.url
+                                                          })
+                                                        );
+                                                      }
+                                                    } catch {
+                                                      // ignore
+                                                    }
+                                                  }}
+                                                />
+                                              </label>
+                                            </div>
+
+                                            {/* Captions & Height */}
+                                            <div className="grid grid-cols-2 gap-1.5">
                                               <input
                                                 type="text"
                                                 value={piece.imageCaption || ''}
@@ -14881,24 +15298,100 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                                     imageCaption: e.target.value
                                                   }))
                                                 }
-                                                placeholder="Caption (optional)"
+                                                placeholder="Caption 1 (optional)"
                                                 className="px-2 py-1 rounded border border-slate-300 text-[10.5px]"
                                               />
-                                              <div className="flex items-center gap-1">
-                                                <span className="text-[10px] text-slate-500">H(mm):</span>
-                                                <input
-                                                  type="number"
-                                                  min={8}
-                                                  max={80}
-                                                  value={piece.imageHeightMm || 22}
+                                              <input
+                                                type="text"
+                                                value={piece.imageSecondaryCaption || ''}
+                                                onChange={(e) =>
+                                                  handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                    ...p,
+                                                    imageSecondaryCaption: e.target.value
+                                                  }))
+                                                }
+                                                placeholder="Caption 2 (optional)"
+                                                className="px-2 py-1 rounded border border-slate-300 text-[10.5px]"
+                                              />
+                                            </div>
+
+                                            {/* Width %, Height mm, Frame Style & Fit */}
+                                            <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                                              <div>
+                                                <label className="block text-[9px] font-mono font-bold text-slate-400 uppercase mb-0.5">
+                                                  Width %
+                                                </label>
+                                                <select
+                                                  value={piece.imageWidthPercent || 100}
                                                   onChange={(e) =>
                                                     handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
                                                       ...p,
-                                                      imageHeightMm: Number(e.target.value) || 22
+                                                      imageWidthPercent: Number(e.target.value) as 25 | 50 | 75 | 100
                                                     }))
                                                   }
-                                                  className="w-16 px-1.5 py-1 rounded border border-slate-300 text-[10.5px]"
+                                                  className="w-full px-1.5 py-1 rounded border border-slate-300 bg-white text-[10px] font-semibold text-slate-700"
+                                                >
+                                                  <option value={25}>25% Width</option>
+                                                  <option value={50}>50% Half</option>
+                                                  <option value={75}>75% Wide</option>
+                                                  <option value={100}>100% Full</option>
+                                                </select>
+                                              </div>
+                                              <div>
+                                                <label className="block text-[9px] font-mono font-bold text-slate-400 uppercase mb-0.5">
+                                                  Height (mm)
+                                                </label>
+                                                <input
+                                                  type="number"
+                                                  min={8}
+                                                  max={120}
+                                                  value={piece.imageHeightMm || 28}
+                                                  onChange={(e) =>
+                                                    handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                      ...p,
+                                                      imageHeightMm: Number(e.target.value) || 28
+                                                    }))
+                                                  }
+                                                  className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[10.5px]"
                                                 />
+                                              </div>
+                                              <div>
+                                                <label className="block text-[9px] font-mono font-bold text-slate-400 uppercase mb-0.5">
+                                                  Frame Style
+                                                </label>
+                                                <select
+                                                  value={piece.imageFrameStyle || 'card'}
+                                                  onChange={(e) =>
+                                                    handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                      ...p,
+                                                      imageFrameStyle: e.target.value as any
+                                                    }))
+                                                  }
+                                                  className="w-full px-1.5 py-1 rounded border border-slate-300 bg-white text-[10px] font-semibold text-slate-700"
+                                                >
+                                                  <option value="card">Bordered Card</option>
+                                                  <option value="rounded">Soft Rounded</option>
+                                                  <option value="minimal">Borderless</option>
+                                                  <option value="shadow">Elevated Shadow</option>
+                                                </select>
+                                              </div>
+                                              <div>
+                                                <label className="block text-[9px] font-mono font-bold text-slate-400 uppercase mb-0.5">
+                                                  Object Fit
+                                                </label>
+                                                <select
+                                                  value={piece.imageObjectFit || 'contain'}
+                                                  onChange={(e) =>
+                                                    handleUpdatePieceInBlock(selectedBlock.id, piece.id, (p) => ({
+                                                      ...p,
+                                                      imageObjectFit: e.target.value as any
+                                                    }))
+                                                  }
+                                                  className="w-full px-1.5 py-1 rounded border border-slate-300 bg-white text-[10px] font-semibold text-slate-700"
+                                                >
+                                                  <option value="contain">Contain</option>
+                                                  <option value="cover">Cover</option>
+                                                </select>
                                               </div>
                                             </div>
                                           </div>
@@ -15313,7 +15806,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 type="button"
                 onClick={() => {
                   setPendingPrintWarnings(null);
-                  window.setTimeout(() => window.print(), 60);
+                  window.setTimeout(() => triggerPrintAfterImagesDecode(), 60);
                 }}
                 className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
               >

@@ -347,6 +347,36 @@ export interface ProductAttribute {
   value: string;
 }
 
+export interface ImageAdjustmentConfig {
+  rotation?: 0 | 90 | 180 | 270;
+  scale?: number; // e.g., 0.75 to 1.5 (1 = 100%)
+  bgFill?: 'transparent' | 'white' | 'slate';
+  objectFit?: 'contain' | 'cover';
+}
+
+export type LineItemImageDisplayOverride =
+  | 'inherit'
+  | 'column'
+  | 'inline_left'
+  | 'inline_right'
+  | 'below_specs'
+  | 'hidden';
+
+export type LineItemImageSizeOverride =
+  | 'inherit'
+  | 'xs'
+  | 'sm'
+  | 'md'
+  | 'lg'
+  | 'xl';
+
+export type LineItemImageAspectOverride =
+  | 'inherit'
+  | '1:1'
+  | '4:3'
+  | '16:9'
+  | 'auto';
+
 export interface LineItemComponent {
   id: string;
   sn?: string;
@@ -362,6 +392,9 @@ export interface LineItemComponent {
   is_included_accessory?: boolean;
   product_id?: string;
   sku?: string;
+  image_url?: string;
+  image_caption?: string;
+  image_adjustments?: ImageAdjustmentConfig;
   specifications?: Record<string, string>;
   page_break_after?: boolean;
   row_spacer_after_mm?: number;
@@ -398,6 +431,13 @@ export interface LineItem {
   country_of_origin?: string;
   hs_code?: string;
   image_url?: string;
+  secondary_image_url?: string;
+  image_caption?: string;
+  secondary_image_caption?: string;
+  image_adjustments?: ImageAdjustmentConfig;
+  image_display_override?: LineItemImageDisplayOverride;
+  image_size_override?: LineItemImageSizeOverride;
+  image_aspect_override?: LineItemImageAspectOverride;
   datasheet_attachment?: Attachment;
   include_datasheet_in_quote?: boolean;
   attributes?: ProductAttribute[];
@@ -800,6 +840,10 @@ export interface Product extends SoftDeleteFields {
   model_part_no?: string;
   default_availability?: string;
   image_url?: string;
+  secondary_image_url?: string;
+  image_caption?: string;
+  secondary_image_caption?: string;
+  image_adjustments?: ImageAdjustmentConfig;
   datasheet_attachment?: Attachment;
   createdAt?: string;
   updatedAt?: string;
@@ -1103,6 +1147,13 @@ export interface QuotationLineItem {
   hs_code?: string;
   availability?: string;
   image_url?: string;
+  secondary_image_url?: string;
+  image_caption?: string;
+  secondary_image_caption?: string;
+  image_adjustments?: ImageAdjustmentConfig;
+  image_display_override?: LineItemImageDisplayOverride;
+  image_size_override?: LineItemImageSizeOverride;
+  image_aspect_override?: LineItemImageAspectOverride;
   datasheet_attachment?: Attachment;
   include_datasheet_in_quote?: boolean;
   is_optional?: boolean;
@@ -1257,8 +1308,18 @@ export interface QuotationPresetColumns {
   hiddenAttributeKeys?: string[];
   showAmountInWords?: boolean;
   showLineItemImages?: boolean;
-  lineItemImageLayout?: 'column' | 'inline';
-  lineItemImageSize?: 'sm' | 'md' | 'lg';
+  lineItemImageLayout?: 'column' | 'inline' | 'inline_left' | 'inline_right' | 'below_specs' | 'photo_schedule';
+  lineItemImageColumnPosition?: 'before_desc' | 'after_desc';
+  lineItemImageAutoCollapseColumn?: boolean;
+  lineItemImageSize?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'custom';
+  lineItemImageCustomWidthPx?: number;
+  lineItemImageAspectRatio?: '1:1' | '4:3' | '16:9' | 'auto';
+  lineItemImageObjectFit?: 'contain' | 'cover';
+  lineItemImageBgFill?: 'transparent' | 'white' | 'slate';
+  lineItemImageFrame?: 'card' | 'rounded' | 'minimal' | 'shadow';
+  bomSubComponentImageMode?: 'off' | 'small' | 'match_parent';
+  photoScheduleColumns?: 2 | 3;
+  photoScheduleNewPage?: boolean;
 }
 
 export type QuotationColumnConfig = QuotationPresetColumns;
@@ -1347,10 +1408,15 @@ export interface QuotationBlockPiece {
   // Image / Stamp / Logo
   imageSource?: 'company_logo' | 'company_seal' | 'signature' | 'custom_upload';
   imageUrl?: string;
+  imageSecondaryUrl?: string;
   imageHeightPx?: number;
   imageHeightMm?: number;
+  imageWidthPercent?: 25 | 50 | 75 | 100;
   imageAlign?: 'left' | 'center' | 'right';
+  imageFrameStyle?: 'card' | 'rounded' | 'minimal' | 'shadow';
+  imageObjectFit?: 'contain' | 'cover';
   imageCaption?: string;
+  imageSecondaryCaption?: string;
   // Signature & Stamp Box
   signatureLayout?: 'single' | 'dual';
   leftTitle?: string;

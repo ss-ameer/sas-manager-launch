@@ -23,6 +23,8 @@ import { CreateCompanyModal } from './companies/CreateCompanyModal';
 import SaveToCatalogModal, { parseLineItemTitleAndSpec, hasCatalogDrift, syncLineItemToCatalogProduct } from './SaveToCatalogModal';
 import CompositePackageEditor from './quotations/CompositePackageEditor';
 import { cloneLineItemToNextOption, recalculateCompositeItemTotals, isOptionActiveForInventoryAndBaseline } from '../utils/compositeBomUtils';
+import LineItemImageOptionsPopover from './common/LineItemImageOptionsPopover';
+import ImageLightboxModal from './common/ImageLightboxModal';
 import { recordAuditLog } from '../utils/auditLogger';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { reserveEnquiryStock, releaseEnquiryStock, isWonStatus, isLostOrCancelledStatus } from '../services/inventoryService';
@@ -184,6 +186,11 @@ export default function EnquiryDetail({
   const [showQuoteSyncPrompt, setShowQuoteSyncPrompt] = useState(false);
   const [isSyncingQuoteItems, setIsSyncingQuoteItems] = useState(false);
   const [isUploadingDetailAttachment, setIsUploadingDetailAttachment] = useState(false);
+  const [lightboxItemState, setLightboxItemState] = useState<{
+    origIdx: number;
+    item: LineItem;
+    matchedProduct?: Product;
+  } | null>(null);
 
   // Synchronize local enquiry when prop updates
   useEffect(() => {
@@ -1578,6 +1585,10 @@ export default function EnquiryDetail({
       country_of_origin: p.country_of_origin || undefined,
       hs_code: p.hs_code || undefined,
       image_url: p.image_url || undefined,
+      secondary_image_url: p.secondary_image_url || undefined,
+      image_caption: p.image_caption || undefined,
+      secondary_image_caption: p.secondary_image_caption || undefined,
+      image_adjustments: p.image_adjustments || undefined,
       datasheet_attachment: p.datasheet_attachment || undefined,
       include_datasheet_in_quote: p.datasheet_attachment ? true : undefined,
       lead_time_note: defaultLead,
@@ -1757,6 +1768,13 @@ export default function EnquiryDetail({
           option_group: rawOpt && rawOpt !== 'Default / Included' && rawOpt !== 'Baseline / All' ? rawOpt : undefined,
           attributes: li.attributes || [],
           image_url: li.image_url,
+          secondary_image_url: li.secondary_image_url,
+          image_caption: li.image_caption,
+          secondary_image_caption: li.secondary_image_caption,
+          image_adjustments: li.image_adjustments,
+          image_display_override: li.image_display_override,
+          image_size_override: li.image_size_override,
+          image_aspect_override: li.image_aspect_override,
           datasheet_attachment: li.datasheet_attachment,
           include_datasheet_in_quote: li.include_datasheet_in_quote !== false,
           ...(li.is_composite_set ? { is_composite_set: true } : {}),
@@ -4608,66 +4626,88 @@ export default function EnquiryDetail({
                           </div>
                         </div>
 
-                        {/* Row 4B: Media Upload Actions, Annex Datasheet Toggle & Line Total Bar */}
-                        <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl px-3 py-2 flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <label className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 rounded-lg text-[11px] font-semibold cursor-pointer flex items-center gap-1.5 border border-slate-200 shadow-2xs transition">
-                              {uploadingInlineItemMedia?.idx === idx && uploadingInlineItemMedia?.type === 'image' ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
-                              ) : (
-                                <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
-                              )}
-                              <span>{item.image_url ? 'Change Image' : '+ Image'}</span>
-                              <input
-                                type="file"
-                                accept="image/*"
-                                className="hidden"
-                                onChange={(e) => {
-                                  const f = e.target.files?.[0];
-                                  if (f) handleInlineItemMediaUpload(idx, f, 'image');
-                                  e.target.value = '';
-                                }}
-                              />
-                            </label>
-
-                            <label className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 rounded-lg text-[11px] font-semibold cursor-pointer flex items-center gap-1.5 border border-slate-200 shadow-2xs transition">
-                              {uploadingInlineItemMedia?.idx === idx && uploadingInlineItemMedia?.type === 'datasheet' ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
-                              ) : (
-                                <FileText className="w-3.5 h-3.5 text-indigo-600" />
-                              )}
-                              <span>{item.datasheet_attachment?.url ? 'Change Datasheet' : '+ Datasheet'}</span>
-                              <input
-                                type="file"
-                                accept=".pdf,image/*"
-                                className="hidden"
-                                onChange={(e) => {
-                                  const f = e.target.files?.[0];
-                                  if (f) handleInlineItemMediaUpload(idx, f, 'datasheet');
-                                  e.target.value = '';
-                                }}
-                              />
-                            </label>
-
-                            {(item.datasheet_attachment?.url || matchedProduct?.datasheet_attachment?.url) && (
-                              <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-indigo-700 bg-indigo-50/70 border border-indigo-200/80 px-2.5 py-1 rounded-lg cursor-pointer">
+                        {/* Row 4B: Progressive Image Options Popover, Annex Datasheet Toggle & Line Total Bar */}
+                        <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl px-3 py-2 space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <label className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 rounded-lg text-[11px] font-semibold cursor-pointer flex items-center gap-1.5 border border-slate-200 shadow-2xs transition">
+                                {uploadingInlineItemMedia?.idx === idx && uploadingInlineItemMedia?.type === 'datasheet' ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                                ) : (
+                                  <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                                )}
+                                <span>{item.datasheet_attachment?.url ? 'Change Datasheet' : '+ Datasheet'}</span>
                                 <input
-                                  type="checkbox"
-                                  checked={item.include_datasheet_in_quote !== false}
-                                  onChange={(e) => handleDraftItemChange(idx, 'include_datasheet_in_quote', e.target.checked)}
-                                  className="rounded border-indigo-300 text-indigo-600"
+                                  type="file"
+                                  accept=".pdf,image/*"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    if (f) handleInlineItemMediaUpload(idx, f, 'datasheet');
+                                    e.target.value = '';
+                                  }}
                                 />
-                                <span>Annex Datasheet</span>
                               </label>
-                            )}
+
+                              {(item.datasheet_attachment?.url || matchedProduct?.datasheet_attachment?.url) && (
+                                <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-indigo-700 bg-indigo-50/70 border border-indigo-200/80 px-2.5 py-1 rounded-lg cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={item.include_datasheet_in_quote !== false}
+                                    onChange={(e) => handleDraftItemChange(idx, 'include_datasheet_in_quote', e.target.checked)}
+                                    className="rounded border-indigo-300 text-indigo-600"
+                                  />
+                                  <span>Annex Datasheet</span>
+                                </label>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2 ml-auto">
+                              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-semibold">Line Total:</span>
+                              <span className="text-sm font-mono tabular-nums font-bold text-blue-600">
+                                {formatCurrency(item.total_price)}
+                              </span>
+                            </div>
                           </div>
 
-                          <div className="flex items-center gap-2 ml-auto">
-                            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-semibold">Line Total:</span>
-                            <span className="text-sm font-mono tabular-nums font-bold text-blue-600">
-                              {formatCurrency(item.total_price)}
-                            </span>
-                          </div>
+                          <LineItemImageOptionsPopover
+                            itemTitle={item.item_name || item.description || `Item #${idx + 1}`}
+                            imageUrl={thumbUrl}
+                            secondaryImageUrl={item.secondary_image_url || matchedProduct?.secondary_image_url}
+                            imageCaption={item.image_caption ?? matchedProduct?.image_caption}
+                            secondaryImageCaption={item.secondary_image_caption ?? matchedProduct?.secondary_image_caption}
+                            imageAdjustments={item.image_adjustments || matchedProduct?.image_adjustments}
+                            displayOverride={item.image_display_override || 'inherit'}
+                            sizeOverride={item.image_size_override || 'inherit'}
+                            aspectOverride={item.image_aspect_override || 'inherit'}
+                            activeWorkspace={activeWorkspace}
+                            triggerToast={triggerToast}
+                            showOverrideControls={true}
+                            canSyncToCatalog={Boolean(matchedProduct)}
+                            onSyncToCatalog={
+                              matchedProduct
+                                ? async () => {
+                                    await syncLineItemToCatalogProduct(
+                                      item,
+                                      matchedProduct,
+                                      setProducts,
+                                      triggerToast,
+                                      currentEnquiry.currency
+                                    );
+                                  }
+                                : undefined
+                            }
+                            onChange={(patch) => {
+                              setDraftLineItems((prev) => {
+                                const next = [...prev];
+                                next[idx] = {
+                                  ...next[idx],
+                                  ...patch
+                                };
+                                return next;
+                              });
+                            }}
+                          />
                         </div>
 
                         {/* Row 5: Technical Specification Attributes (Key/Value Pills) */}
@@ -4838,12 +4878,34 @@ export default function EnquiryDetail({
                               </div>
 
                               {thumbUrl ? (
-                                <img
-                                  src={thumbUrl}
-                                  alt={parsedDisplay.title || 'Product'}
-                                  className="w-9 h-9 rounded-lg object-contain bg-white border border-slate-200 p-0.5 shrink-0"
-                                  referrerPolicy="no-referrer"
-                                />
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setLightboxItemState({
+                                      origIdx: origIdx >= 0 ? origIdx : idx,
+                                      item,
+                                      matchedProduct
+                                    });
+                                  }}
+                                  className="relative group/thumb shrink-0 cursor-pointer"
+                                  title="Click to zoom & inspect item photo / diagram"
+                                >
+                                  <img
+                                    src={thumbUrl}
+                                    alt={parsedDisplay.title || 'Product'}
+                                    className="w-9 h-9 rounded-lg object-contain bg-white border border-slate-200 group-hover/thumb:border-blue-400 p-0.5 shrink-0 transition"
+                                    style={{
+                                      transform: `rotate(${(item.image_adjustments || matchedProduct?.image_adjustments)?.rotation || 0}deg) scale(${(item.image_adjustments || matchedProduct?.image_adjustments)?.scale || 1})`
+                                    }}
+                                    referrerPolicy="no-referrer"
+                                  />
+                                  {(item.secondary_image_url || matchedProduct?.secondary_image_url) && (
+                                    <span className="absolute -top-1 -right-1 px-1 py-0.2 rounded-full bg-indigo-600 text-white text-[8px] font-mono font-bold shadow-xs">
+                                      2
+                                    </span>
+                                  )}
+                                </button>
                               ) : (
                                 <span className="text-xs bg-white border border-slate-200 text-slate-500 px-2 py-0.5 rounded font-mono font-bold shrink-0">
                                   #{origIdx >= 0 ? origIdx + 1 : idx + 1}
@@ -6569,26 +6631,98 @@ export default function EnquiryDetail({
                 product_type: newProduct.product_type || nextItems[idx].product_type,
                 brand_make: newProduct.brand_make || nextItems[idx].brand_make,
                 model_part_no: newProduct.model_part_no || nextItems[idx].model_part_no,
-                country_of_origin: newProduct.country_of_origin || nextItems[idx].country_of_origin,
-                hs_code: newProduct.hs_code || nextItems[idx].hs_code,
-                image_url: newProduct.image_url || nextItems[idx].image_url,
-                datasheet_attachment: newProduct.datasheet_attachment || nextItems[idx].datasheet_attachment
-              };
-              const updatedEnq = { ...currentEnquiry, line_items: nextItems, updatedAt: new Date().toISOString() };
-              setCurrentEnquiry(updatedEnq);
-              setDraftLineItems(nextItems);
-              if (onUpdateEnquiry) onUpdateEnquiry(updatedEnq);
-              if (setEnquiries) setEnquiries((prev) => prev.map((e) => (e.id === currentEnquiry.id ? updatedEnq : e)));
-              try {
-                await safeUpdateDoc('enquiries', currentEnquiry.id, { line_items: nextItems, updatedAt: updatedEnq.updatedAt });
-                await EnquiryRepository.save(updatedEnq);
-              } catch (err) {
-                console.warn('Failed linking saved product back to enquiry line item:', err);
+                  country_of_origin: newProduct.country_of_origin || nextItems[idx].country_of_origin,
+                  hs_code: newProduct.hs_code || nextItems[idx].hs_code,
+                  image_url: newProduct.image_url || nextItems[idx].image_url,
+                  secondary_image_url: newProduct.secondary_image_url || nextItems[idx].secondary_image_url,
+                  image_caption: newProduct.image_caption || nextItems[idx].image_caption,
+                  secondary_image_caption: newProduct.secondary_image_caption || nextItems[idx].secondary_image_caption,
+                  image_adjustments: newProduct.image_adjustments || nextItems[idx].image_adjustments,
+                  datasheet_attachment: newProduct.datasheet_attachment || nextItems[idx].datasheet_attachment
+                };
+                const updatedEnq = { ...currentEnquiry, line_items: nextItems, updatedAt: new Date().toISOString() };
+                setCurrentEnquiry(updatedEnq);
+                setDraftLineItems(nextItems);
+                if (onUpdateEnquiry) onUpdateEnquiry(updatedEnq);
+                if (setEnquiries) setEnquiries((prev) => prev.map((e) => (e.id === currentEnquiry.id ? updatedEnq : e)));
+                try {
+                  await safeUpdateDoc('enquiries', currentEnquiry.id, { line_items: nextItems, updatedAt: updatedEnq.updatedAt });
+                  await EnquiryRepository.save(updatedEnq);
+                } catch (err) {
+                  console.warn('Failed linking saved product back to enquiry line item:', err);
+                }
               }
             }
+          }}
+        />
+
+      {lightboxItemState && (
+        <ImageLightboxModal
+          isOpen={true}
+          onClose={() => setLightboxItemState(null)}
+          title={
+            lightboxItemState.item.item_name ||
+            lightboxItemState.item.description ||
+            `Line Item #${lightboxItemState.origIdx + 1}`
           }
-        }}
-      />
+          imageUrl={
+            lightboxItemState.item.image_url ||
+            lightboxItemState.matchedProduct?.image_url ||
+            ''
+          }
+          secondaryImageUrl={
+            lightboxItemState.item.secondary_image_url ||
+            lightboxItemState.matchedProduct?.secondary_image_url
+          }
+          caption={
+            lightboxItemState.item.image_caption ??
+            lightboxItemState.matchedProduct?.image_caption
+          }
+          secondaryCaption={
+            lightboxItemState.item.secondary_image_caption ??
+            lightboxItemState.matchedProduct?.secondary_image_caption
+          }
+          adjustments={
+            lightboxItemState.item.image_adjustments ||
+            lightboxItemState.matchedProduct?.image_adjustments
+          }
+          activeWorkspace={activeWorkspace}
+          triggerToast={triggerToast}
+          canEdit={canEditEnquiry(user, activeWorkspace, currentEnquiry)}
+          onSaveChanges={async (updates) => {
+            if (!currentEnquiry.id || !currentEnquiry.line_items) return;
+            const targetIdx = lightboxItemState.origIdx;
+            const nextItems = [...currentEnquiry.line_items];
+            if (!nextItems[targetIdx]) return;
+            nextItems[targetIdx] = {
+              ...nextItems[targetIdx],
+              ...updates
+            };
+            const updatedEnq = {
+              ...currentEnquiry,
+              line_items: nextItems,
+              updatedAt: new Date().toISOString()
+            };
+            setCurrentEnquiry(updatedEnq);
+            setDraftLineItems(nextItems);
+            setLightboxItemState({
+              ...lightboxItemState,
+              item: nextItems[targetIdx]
+            });
+            if (onUpdateEnquiry) onUpdateEnquiry(updatedEnq);
+            if (setEnquiries) {
+              setEnquiries((prev) =>
+                prev.map((e) => (e.id === currentEnquiry.id ? updatedEnq : e))
+              );
+            }
+            await safeUpdateDoc('enquiries', currentEnquiry.id, {
+              line_items: nextItems,
+              updatedAt: updatedEnq.updatedAt
+            });
+            await EnquiryRepository.save(updatedEnq);
+          }}
+        />
+      )}
     </div>
   );
 }

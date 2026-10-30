@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for widening the Quotation Studio Modal (1600px) and Right Inspector Drawer (400px), redesigning the Piece Typography & Style editor into a clean single-row Word-style formatting ribbon with labeled dropdowns below, and enabling inline text selection formatting (Bold, Italic, Underline, Highlight) alongside whole-piece formatting.",
-  "updatedAt":  "2026-10-30T13:15:24.163116218Z",
+  "summary":  "Comprehensive 7-pillar implementation plan for upgrading app-wide image systems, quotation line-item image placement modes, per-item progressive disclosure overrides, BOM sub-component images, clipboard paste & lightbox adjustments, custom block image controls, and A4 pagination & print reliability.",
+  "updatedAt":  "2026-10-30T14:26:54.361968240Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

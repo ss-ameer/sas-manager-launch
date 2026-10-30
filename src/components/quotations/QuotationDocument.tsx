@@ -175,7 +175,7 @@ export interface QuotationSheetPartition {
 
 export function splitLineItemsIntoChunks(
   lineItems: QuotationLineItem[] = [],
-  options?: { autoPaginate?: boolean }
+  options?: { autoPaginate?: boolean; columnConfig?: QuotationPresetColumns }
 ): QuotationTableChunk[] {
   if (!Array.isArray(lineItems) || lineItems.length === 0) {
     return [
@@ -188,6 +188,32 @@ export function splitLineItemsIntoChunks(
   }
 
   const autoPaginate = Boolean(options?.autoPaginate);
+  const colCfg = options?.columnConfig || {};
+  const showImgs = Boolean(colCfg.showLineItemImages);
+  const baseImgLayout = colCfg.lineItemImageLayout || 'inline_left';
+  const baseImgSize = colCfg.lineItemImageSize || 'md';
+  const customWidthPx = colCfg.lineItemImageCustomWidthPx || 72;
+  const bomSubImgMode = colCfg.bomSubComponentImageMode || 'off';
+
+  const resolveSizePx = (sizeKey?: string): number => {
+    switch (sizeKey) {
+      case 'xs':
+        return 32;
+      case 'sm':
+        return 48;
+      case 'md':
+        return 72;
+      case 'lg':
+        return 110;
+      case 'xl':
+        return 160;
+      case 'custom':
+        return Math.min(260, Math.max(24, Number(customWidthPx) || 72));
+      default:
+        return 72;
+    }
+  };
+
   const SHEET_1_BUDGET_MM = 175;
   const CONTINUATION_SHEET_BUDGET_MM = 220;
 
@@ -198,7 +224,36 @@ export function splitLineItemsIntoChunks(
     const noteLines = noteLen > 0 ? Math.ceil(noteLen / 75) : 0;
     const hasSubs = Array.isArray(item.sub_components) && item.sub_components.length > 0;
     const spacerMm = !hasSubs ? Number(item.row_spacer_after_mm || 0) : 0;
-    return 11 + descLines * 3.5 + (noteLines > 0 ? Math.max(4, noteLines * 3.5) : 0) + spacerMm;
+    const textHeightMm =
+      11 + descLines * 3.5 + (noteLines > 0 ? Math.max(4, noteLines * 3.5) : 0);
+
+    const itemOverride = item.image_display_override || 'inherit';
+    const effectiveLayout =
+      itemOverride !== 'inherit'
+        ? itemOverride
+        : showImgs
+        ? baseImgLayout === 'inline'
+          ? 'inline_left'
+          : baseImgLayout
+        : 'hidden';
+
+    const hasVisual = Boolean(item.image_url || item.secondary_image_url);
+    if (!hasVisual || effectiveLayout === 'hidden' || effectiveLayout === 'photo_schedule') {
+      return textHeightMm + spacerMm;
+    }
+
+    const effSizeKey =
+      item.image_size_override && item.image_size_override !== 'inherit'
+        ? item.image_size_override
+        : baseImgSize;
+    const px = resolveSizePx(effSizeKey);
+    const captionExtraMm = item.image_caption || item.secondary_image_caption ? 4.5 : 0;
+    const imgHeightMm = Math.ceil(px / 3.78) + 3 + captionExtraMm;
+
+    if (effectiveLayout === 'below_specs') {
+      return textHeightMm + imgHeightMm + spacerMm;
+    }
+    return Math.max(textHeightMm, imgHeightMm + 3) + spacerMm;
   };
 
   const estimateSubRowHeightMm = (sub: {
@@ -206,13 +261,16 @@ export function splitLineItemsIntoChunks(
     remark?: string;
     row_note?: string;
     row_spacer_after_mm?: number;
+    image_url?: string;
   }): number => {
     const nameLines = Math.max(1, Math.ceil((sub.item_name || '').trim().length / 75));
     const remarkMm = sub.remark && sub.remark.trim() ? 3.5 : 0;
     const noteLen = (sub.row_note || '').trim().length;
     const noteMm = noteLen > 0 ? Math.max(3.5, Math.ceil(noteLen / 75) * 3.5) : 0;
     const spacerMm = Number(sub.row_spacer_after_mm || 0);
-    return 7.5 + Math.max(0, nameLines - 1) * 3.2 + remarkMm + noteMm + spacerMm;
+    const baseSubMm = 7.5 + Math.max(0, nameLines - 1) * 3.2 + remarkMm + noteMm;
+    const subHasImg = bomSubImgMode !== 'off' && Boolean(sub.image_url);
+    return (subHasImg ? Math.max(baseSubMm, 11.5) : baseSubMm) + spacerMm;
   };
 
   // Pre-pass: assign stable parentItemNumber, globalOptionItemNumber, and sub_component IDs
@@ -382,7 +440,7 @@ export function splitLineItemsIntoChunks(
 export function partitionBlocksIntoSheets(
   blocks: QuotationBlockConfig[],
   lineItems?: QuotationLineItem[],
-  options?: { autoPaginate?: boolean }
+  options?: { autoPaginate?: boolean; columnConfig?: QuotationPresetColumns }
 ): QuotationSheetPartition[] {
   const activeBlocks = (blocks || []).filter(
     (b) => b.enabled !== false && b.is_visible !== false
@@ -790,7 +848,7 @@ export function resolveDocumentPaginationWithAnnexes(
   lineItems?: QuotationLineItem[],
   flyerAttachments?: Attachment[],
   showSubmittalsIndex: boolean = true,
-  options?: { autoPaginate?: boolean }
+  options?: { autoPaginate?: boolean; columnConfig?: QuotationPresetColumns }
 ): {
   coverSheetAttachments: Attachment[];
   coverSheets: QuotationCoverSheetDescriptor[];
@@ -956,14 +1014,19 @@ export function resolveDocumentPaginationWithAnnexes(
   };
 }
 
-export function resolveTableColumnLayout(columnConfig?: QuotationPresetColumns): {
+export function resolveTableColumnLayout(
+  columnConfig?: QuotationPresetColumns,
+  itemsInTable?: QuotationLineItem[]
+): {
   showUnitPrice: boolean;
   showUom: boolean;
   showLineTotal: boolean;
   showItemAttributes: boolean;
   showLineItemImages: boolean;
-  lineItemImageLayout: 'column' | 'inline';
-  lineItemImageSize: 'sm' | 'md' | 'lg';
+  lineItemImageLayout: 'column' | 'inline' | 'inline_left' | 'inline_right' | 'below_specs' | 'photo_schedule';
+  lineItemImageColumnPosition: 'before_desc' | 'after_desc';
+  lineItemImageSize: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'custom';
+  lineItemImagePx: number;
   showImageColumn: boolean;
   widths: {
     sl: string;
@@ -983,25 +1046,72 @@ export function resolveTableColumnLayout(columnConfig?: QuotationPresetColumns):
   const showLineTotal = cfg.showLineTotal !== false;
   const showItemAttributes = cfg.showItemAttributes !== false;
   const showLineItemImages = Boolean(cfg.showLineItemImages);
-  const lineItemImageLayout: 'column' | 'inline' =
-    cfg.lineItemImageLayout === 'column' ? 'column' : 'inline';
-  const lineItemImageSize: 'sm' | 'md' | 'lg' = cfg.lineItemImageSize || 'md';
-  const showImageColumn = showLineItemImages && lineItemImageLayout === 'column';
+  const rawLayout = cfg.lineItemImageLayout || 'inline_left';
+  const lineItemImageLayout: 'column' | 'inline' | 'inline_left' | 'inline_right' | 'below_specs' | 'photo_schedule' =
+    rawLayout;
+  const lineItemImageColumnPosition: 'before_desc' | 'after_desc' =
+    cfg.lineItemImageColumnPosition === 'after_desc' ? 'after_desc' : 'before_desc';
+  const lineItemImageSize: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'custom' =
+    cfg.lineItemImageSize || 'md';
+
+  const lineItemImagePx =
+    lineItemImageSize === 'xs'
+      ? 32
+      : lineItemImageSize === 'sm'
+      ? 48
+      : lineItemImageSize === 'md'
+      ? 72
+      : lineItemImageSize === 'lg'
+      ? 110
+      : lineItemImageSize === 'xl'
+      ? 160
+      : Math.min(260, Math.max(24, Number(cfg.lineItemImageCustomWidthPx) || 72));
+
+  const autoCollapseEmptyCol = cfg.lineItemImageAutoCollapseColumn !== false;
+  const bomSubImgMode = cfg.bomSubComponentImageMode || 'off';
+
+  const anyItemNeedsImageColumn = (() => {
+    if (!Array.isArray(itemsInTable) || itemsInTable.length === 0) {
+      return showLineItemImages && lineItemImageLayout === 'column';
+    }
+    return itemsInTable.some((it) => {
+      const ovr = it.image_display_override || 'inherit';
+      if (ovr === 'hidden') return false;
+      const usesCol = ovr === 'column' || (ovr === 'inherit' && showLineItemImages && lineItemImageLayout === 'column');
+      if (!usesCol) return false;
+      if (!autoCollapseEmptyCol) return true;
+      const hasParentImg = Boolean(it.image_url || it.secondary_image_url);
+      const hasSubImg =
+        bomSubImgMode !== 'off' &&
+        Array.isArray(it.sub_components) &&
+        it.sub_components.some((s) => Boolean(s.image_url));
+      return hasParentImg || hasSubImg;
+    });
+  })();
+
+  const showImageColumn = anyItemNeedsImageColumn;
 
   const slWidth = 5;
+  // Strictly cap image column width so numeric columns (Qty, UOM, Unit Price, Total) are NEVER crushed
   const imageWidth = showImageColumn
-    ? lineItemImageSize === 'lg'
-      ? 11
-      : lineItemImageSize === 'sm'
+    ? lineItemImagePx >= 130
+      ? 15
+      : lineItemImagePx >= 95
+      ? 13
+      : lineItemImagePx >= 64
+      ? 10
+      : lineItemImagePx <= 36
       ? 7
-      : 9
+      : 8
     : 0;
   const qtyWidth = 7;
-  const uomWidth = showUom ? 10 : 0;
-  const unitPriceWidth = showUnitPrice ? 12 : 0;
+  const uomWidth = showUom ? 9 : 0;
+  const unitPriceWidth = showUnitPrice ? 13 : 0;
   const lineTotalWidth = showLineTotal ? 14 : 0;
-  const descriptionWidth =
-    100 - (slWidth + imageWidth + qtyWidth + uomWidth + unitPriceWidth + lineTotalWidth);
+  const descriptionWidth = Math.max(
+    32,
+    100 - (slWidth + imageWidth + qtyWidth + uomWidth + unitPriceWidth + lineTotalWidth)
+  );
 
   const activeColumnCount =
     2 +
@@ -1018,7 +1128,9 @@ export function resolveTableColumnLayout(columnConfig?: QuotationPresetColumns):
     showItemAttributes,
     showLineItemImages,
     lineItemImageLayout,
+    lineItemImageColumnPosition,
     lineItemImageSize,
+    lineItemImagePx,
     showImageColumn,
     widths: {
       sl: `${slWidth}%`,
@@ -2439,17 +2551,27 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const showModel = columnConfig.model ?? true;
   const showOrigin = columnConfig.origin ?? true;
   const showAvailability = columnConfig.availability ?? true;
-  const tableColLayout = React.useMemo(() => resolveTableColumnLayout(columnConfig), [columnConfig]);
+  const tableColLayout = React.useMemo(
+    () => resolveTableColumnLayout(columnConfig, rawLineItems),
+    [columnConfig, rawLineItems]
+  );
   const showUnitPrice = tableColLayout.showUnitPrice;
   const showUom = tableColLayout.showUom;
   const showLineTotal = tableColLayout.showLineTotal;
   const showItemAttributes = tableColLayout.showItemAttributes;
   const showLineItemImages = tableColLayout.showLineItemImages;
   const lineItemImageLayout = tableColLayout.lineItemImageLayout;
+  const lineItemImageColumnPosition = tableColLayout.lineItemImageColumnPosition;
   const lineItemImageSize = tableColLayout.lineItemImageSize;
   const showImageColumn = tableColLayout.showImageColumn;
-  const lineItemImagePx =
-    lineItemImageSize === 'lg' ? 68 : lineItemImageSize === 'sm' ? 36 : 50;
+  const lineItemImagePx = tableColLayout.lineItemImagePx;
+  const lineItemImageAspectRatio = columnConfig.lineItemImageAspectRatio || '1:1';
+  const lineItemImageObjectFit = columnConfig.lineItemImageObjectFit || 'contain';
+  const lineItemImageBgFill = columnConfig.lineItemImageBgFill || 'white';
+  const lineItemImageFrame = columnConfig.lineItemImageFrame || 'card';
+  const bomSubComponentImageMode = columnConfig.bomSubComponentImageMode || 'off';
+  const photoScheduleColumns = columnConfig.photoScheduleColumns || 2;
+  const photoScheduleNewPage = Boolean(columnConfig.photoScheduleNewPage);
   const attributeDisplayFormat = columnConfig.attributeDisplayFormat || 'pills';
   const hiddenAttributeKeys: string[] = columnConfig.hiddenAttributeKeys || [];
 
@@ -2928,7 +3050,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       rawLineItems,
       quotation.flyer_attachments,
       quotation.show_submittals_index !== false,
-      { autoPaginate: Boolean(quotation.auto_paginate_items) }
+      { autoPaginate: Boolean(quotation.auto_paginate_items), columnConfig }
     );
   }, [
     resolvedBlocks,
@@ -2936,6 +3058,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     quotation.flyer_attachments,
     quotation.show_submittals_index,
     quotation.auto_paginate_items,
+    columnConfig,
     layoutBlocks,
     quotation.layout_blocks,
     (quotation as any).presentation_preset?.layout_blocks,
@@ -4885,29 +5008,78 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             : piece.imageSource === 'signature'
             ? stampSigOverlay.activeSignatureUrl
             : piece.imageUrl || '';
+        const secondarySrc = piece.imageSecondaryUrl || '';
         const hPx =
           piece.imageHeightPx ||
-          (piece.imageHeightMm ? Math.round(piece.imageHeightMm * 3.2) : 64);
+          (piece.imageHeightMm ? Math.round(piece.imageHeightMm * 3.2) : 84);
+        const widthPct = piece.imageWidthPercent || 100;
         const alignCls =
           piece.imageAlign === 'center'
-            ? 'items-center text-center'
+            ? 'items-center text-center mx-auto'
             : piece.imageAlign === 'right'
-            ? 'items-end text-right'
-            : 'items-start text-left';
+            ? 'items-end text-right ml-auto'
+            : 'items-start text-left mr-auto';
+        const frameCls =
+          piece.imageFrameStyle === 'card'
+            ? 'rounded-lg border border-slate-200 bg-white p-1.5'
+            : piece.imageFrameStyle === 'rounded'
+            ? 'rounded-xl overflow-hidden border border-slate-200/70'
+            : piece.imageFrameStyle === 'shadow'
+            ? 'rounded-lg border border-slate-200 bg-white p-1.5 shadow-sm'
+            : '';
+        const fitCls = piece.imageObjectFit === 'cover' ? 'object-cover' : 'object-contain';
 
         return (
-          <div key={piece.id} className={`flex flex-col ${alignCls} gap-1 my-1`}>
-            {src ? (
-              <img
-                src={src}
-                alt={piece.imageCaption || 'Block Visual'}
-                style={{ height: `${hPx}px` }}
-                className="w-auto max-w-full object-contain"
-              />
+          <div
+            key={piece.id}
+            style={{ width: `${widthPct}%`, maxWidth: '100%' }}
+            className={`flex flex-col ${alignCls} gap-1.5 my-1`}
+          >
+            {src || secondarySrc ? (
+              <div
+                className={`w-full ${
+                  secondarySrc ? 'grid grid-cols-2 gap-3 items-start' : 'flex flex-col'
+                } ${alignCls}`}
+              >
+                {src && (
+                  <div className={`flex flex-col ${alignCls} gap-1 w-full`}>
+                    <div className={`w-full flex ${piece.imageAlign === 'center' ? 'justify-center' : piece.imageAlign === 'right' ? 'justify-end' : 'justify-start'} ${frameCls}`}>
+                      <img
+                        src={src}
+                        alt={piece.imageCaption || 'Block Visual'}
+                        style={{ maxHeight: `${hPx}px` }}
+                        className={`w-auto max-w-full ${fitCls}`}
+                      />
+                    </div>
+                    {piece.imageCaption && (
+                      <span className="text-[calc(var(--block-base)*0.86)] text-slate-500 italic">
+                        {renderFormattedInlineSegment(piece.imageCaption)}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {secondarySrc && (
+                  <div className={`flex flex-col ${alignCls} gap-1 w-full`}>
+                    <div className={`w-full flex ${piece.imageAlign === 'center' ? 'justify-center' : piece.imageAlign === 'right' ? 'justify-end' : 'justify-start'} ${frameCls}`}>
+                      <img
+                        src={secondarySrc}
+                        alt={piece.imageSecondaryCaption || 'Secondary Visual'}
+                        style={{ maxHeight: `${hPx}px` }}
+                        className={`w-auto max-w-full ${fitCls}`}
+                      />
+                    </div>
+                    {piece.imageSecondaryCaption && (
+                      <span className="text-[calc(var(--block-base)*0.86)] text-slate-500 italic">
+                        {renderFormattedInlineSegment(piece.imageSecondaryCaption)}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
             ) : (
               <div
                 style={{ height: `${hPx}px` }}
-                className="px-4 rounded border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-[10px] font-mono text-slate-400"
+                className="px-4 rounded border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-[10px] font-mono text-slate-400 print:hidden"
               >
                 {piece.imageSource === 'company_seal'
                   ? 'Company Seal Placeholder'
@@ -4917,11 +5089,6 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   ? 'Company Logo Placeholder'
                   : 'Upload Custom Image in Inspector'}
               </div>
-            )}
-            {piece.imageCaption && (
-              <span className="text-[calc(var(--block-base)*0.86)] text-slate-500 italic">
-                {renderFormattedInlineSegment(piece.imageCaption)}
-              </span>
             )}
           </div>
         );
@@ -6512,6 +6679,192 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               .map((it) => (it.option_scope_notes || '').trim())
               .filter(Boolean);
 
+            const isImgColBeforeDesc = lineItemImageColumnPosition !== 'after_desc';
+
+            const resolveItemEffectiveLayout = (
+              it: QuotationLineItem
+            ): 'column' | 'inline_left' | 'inline_right' | 'below_specs' | 'photo_schedule' | 'hidden' => {
+              const ovr = it.image_display_override || 'inherit';
+              if (ovr !== 'inherit') return ovr;
+              if (!showLineItemImages) return 'hidden';
+              if (lineItemImageLayout === 'inline') return 'inline_left';
+              return lineItemImageLayout;
+            };
+
+            const resolveItemImageDimensions = (
+              it: QuotationLineItem,
+              mode: 'column' | 'inline_left' | 'inline_right' | 'below_specs' | 'photo_schedule'
+            ): { widthPx: number; heightPx?: number; aspectRatio: '1:1' | '4:3' | '16:9' | 'auto' } => {
+              const sizeKey =
+                it.image_size_override && it.image_size_override !== 'inherit'
+                  ? it.image_size_override
+                  : lineItemImageSize;
+              const widthPx =
+                sizeKey === 'xs'
+                  ? 32
+                  : sizeKey === 'sm'
+                  ? 48
+                  : sizeKey === 'md'
+                  ? 72
+                  : sizeKey === 'lg'
+                  ? 110
+                  : sizeKey === 'xl'
+                  ? 160
+                  : lineItemImagePx;
+              const aspectRatio: '1:1' | '4:3' | '16:9' | 'auto' =
+                it.image_aspect_override && it.image_aspect_override !== 'inherit'
+                  ? it.image_aspect_override
+                  : lineItemImageAspectRatio;
+
+              if (aspectRatio === 'auto') {
+                return { widthPx, heightPx: undefined, aspectRatio };
+              }
+              const ratioFactor =
+                aspectRatio === '16:9' ? 9 / 16 : aspectRatio === '4:3' ? 3 / 4 : 1;
+              // In dedicated column mode, cap width so it never overflows the column
+              const effectiveW = mode === 'column' ? Math.min(widthPx, 108) : widthPx;
+              return {
+                widthPx: effectiveW,
+                heightPx: Math.round(effectiveW * ratioFactor),
+                aspectRatio
+              };
+            };
+
+            const getFrameClasses = (it: QuotationLineItem) => {
+              const bgFill = it.image_adjustments?.bgFill || lineItemImageBgFill || 'white';
+              const bgCls =
+                bgFill === 'transparent'
+                  ? 'bg-transparent'
+                  : bgFill === 'slate'
+                  ? 'bg-slate-50'
+                  : 'bg-white';
+              const frame = lineItemImageFrame || 'card';
+              const borderCls =
+                frame === 'minimal'
+                  ? 'rounded-xs'
+                  : frame === 'rounded'
+                  ? 'rounded-lg border border-slate-200/80 p-0.5'
+                  : frame === 'shadow'
+                  ? 'rounded-md border border-slate-200 p-0.5 shadow-2xs'
+                  : 'rounded border border-slate-200 p-0.5';
+              return `${bgCls} ${borderCls} overflow-hidden flex items-center justify-center`;
+            };
+
+            const renderItemVisualBlock = (
+              it: QuotationLineItem,
+              itemNumber: number,
+              mode: 'column' | 'inline_left' | 'inline_right' | 'below_specs'
+            ) => {
+              const hasPrimary = Boolean(it.image_url);
+              const hasSecondary = Boolean(it.secondary_image_url);
+              if (!hasPrimary && !hasSecondary) return null;
+
+              const { widthPx, heightPx } = resolveItemImageDimensions(it, mode);
+              const frameCls = getFrameClasses(it);
+              const fitMode = it.image_adjustments?.objectFit || lineItemImageObjectFit || 'contain';
+              const fitCls = fitMode === 'cover' ? 'object-cover' : 'object-contain';
+              const rot = it.image_adjustments?.rotation || 0;
+              const scl = it.image_adjustments?.scale || 1;
+              const transformStyle =
+                rot !== 0 || scl !== 1
+                  ? { transform: `rotate(${rot}deg) scale(${scl})` }
+                  : undefined;
+
+              const isBelowBanner = mode === 'below_specs';
+
+              return (
+                <div
+                  className={`${
+                    mode === 'inline_right'
+                      ? 'float-right ml-3 mb-1.5 shrink-0'
+                      : mode === 'inline_left'
+                      ? 'shrink-0 mt-0.5'
+                      : mode === 'below_specs'
+                      ? 'mt-2 pt-1.5 border-t border-slate-100 w-full'
+                      : 'mx-auto'
+                  } flex flex-col ${mode === 'column' ? 'items-center' : 'items-start'} gap-1`}
+                >
+                  <div
+                    className={`flex flex-wrap ${
+                      mode === 'column' ? 'justify-center' : 'justify-start'
+                    } items-start gap-2`}
+                  >
+                    {hasPrimary && (
+                      <div className="flex flex-col items-center max-w-full">
+                        <div
+                          className={frameCls}
+                          style={{
+                            width: isBelowBanner && widthPx >= 110 ? `${widthPx}px` : `${widthPx}px`,
+                            height: heightPx ? `${heightPx}px` : undefined,
+                            maxHeight: !heightPx ? `${Math.round(widthPx * 1.15)}px` : undefined
+                          }}
+                        >
+                          <img
+                            src={it.image_url}
+                            alt={it.item_name || `Item ${itemNumber}`}
+                            className={`w-full h-full ${fitCls}`}
+                            style={transformStyle}
+                          />
+                        </div>
+                        {it.image_caption && (
+                          <span
+                            className="text-[8px] leading-tight text-slate-500 italic mt-0.5 text-center break-words"
+                            style={{ maxWidth: `${Math.max(widthPx, 80)}px` }}
+                          >
+                            {it.image_caption}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {hasSecondary && (
+                      <div className="flex flex-col items-center max-w-full">
+                        <div
+                          className={frameCls}
+                          style={{
+                            width: `${widthPx}px`,
+                            height: heightPx ? `${heightPx}px` : undefined,
+                            maxHeight: !heightPx ? `${Math.round(widthPx * 1.15)}px` : undefined
+                          }}
+                        >
+                          <img
+                            src={it.secondary_image_url}
+                            alt={`${it.item_name || `Item ${itemNumber}`} Diagram`}
+                            className={`w-full h-full ${fitCls}`}
+                          />
+                        </div>
+                        {(it.secondary_image_caption || (!it.image_caption && isBelowBanner)) && (
+                          <span
+                            className="text-[8px] leading-tight text-slate-500 italic mt-0.5 text-center break-words"
+                            style={{ maxWidth: `${Math.max(widthPx, 80)}px` }}
+                          >
+                            {it.secondary_image_caption || 'Technical Diagram'}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            };
+
+            // Collect items for Bottom Photo Schedule if enabled (either table-wide or on final chunk)
+            const photoScheduleItems = isFinalChunkForGroup
+              ? rawLineItems
+                  .filter((rawIt) => {
+                    if (rawIt.isCompositeContinuation) return false;
+                    if (shouldSplitByOptionTables) {
+                      const opt = String(rawIt.option || rawIt.option_group || '').trim();
+                      const key = /^option\s*[a-z0-9]/i.test(opt) ? opt.toLowerCase() : 'baseline';
+                      if (key !== normGroupKey) return false;
+                    }
+                    const effMode = resolveItemEffectiveLayout(rawIt);
+                    return (
+                      effMode === 'photo_schedule' &&
+                      Boolean(rawIt.image_url || rawIt.secondary_image_url)
+                    );
+                  })
+              : [];
+
             return (
               <div
                 key={group.optionKey || groupIdx}
@@ -6545,8 +6898,13 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 >
                   <colgroup>
                     <col style={{ width: tableColLayout.widths.sl }} />
-                    {showImageColumn && <col style={{ width: tableColLayout.widths.image }} />}
+                    {showImageColumn && isImgColBeforeDesc && (
+                      <col style={{ width: tableColLayout.widths.image }} />
+                    )}
                     <col style={{ width: tableColLayout.widths.description }} />
+                    {showImageColumn && !isImgColBeforeDesc && (
+                      <col style={{ width: tableColLayout.widths.image }} />
+                    )}
                     <col style={{ width: tableColLayout.widths.qty }} />
                     {showUom && <col style={{ width: tableColLayout.widths.uom }} />}
                     {showUnitPrice && <col style={{ width: tableColLayout.widths.unitPrice }} />}
@@ -6603,7 +6961,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                           >
                             #
                           </th>
-                          {showImageColumn && (
+                          {showImageColumn && isImgColBeforeDesc && (
                             <th
                               className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center whitespace-nowrap`}
                               style={{ color: thTextColor }}
@@ -6617,6 +6975,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                           >
                             Description &amp; Technical Specifications
                           </th>
+                          {showImageColumn && !isImgColBeforeDesc && (
+                            <th
+                              className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center whitespace-nowrap`}
+                              style={{ color: thTextColor }}
+                            >
+                              Image
+                            </th>
+                          )}
                           <th
                             className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center font-mono whitespace-nowrap`}
                             style={{ color: thTextColor }}
@@ -6668,6 +7034,20 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                         const isItemizedSet =
                           hasCompositeSubRows && item.package_pricing_mode !== 'lump_sum';
                         const isSetContinuation = Boolean(item.isCompositeContinuation);
+                        const itemEffLayout = resolveItemEffectiveLayout(item);
+                        const hasAnyItemImage = Boolean(item.image_url || item.secondary_image_url);
+
+                        const renderDedicatedImageCell = () => (
+                          <td className={`${tdPad} px-1.5 text-center align-top`}>
+                            {itemEffLayout === 'column' && hasAnyItemImage ? (
+                              renderItemVisualBlock(item, itemNumber, 'column')
+                            ) : (
+                              <span className="text-[9px] font-mono text-slate-300 print:hidden select-none">
+                                —
+                              </span>
+                            )}
+                          </td>
+                        );
 
                         return (
                           <React.Fragment key={`${item.id || itemNumber}_${item.subComponentStartIndex || 0}`}>
@@ -6679,7 +7059,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                                 <td className={`${tdPad} px-1.5 text-center font-mono text-slate-600 font-bold align-top ${typoScale.sub} whitespace-nowrap`}>
                                   {itemNumber} (Cont.)
                                 </td>
-                                {showImageColumn && <td className={`${tdPad} px-1.5`} />}
+                                {showImageColumn && isImgColBeforeDesc && <td className={`${tdPad} px-1.5`} />}
                                 <td className={`${tdPad} px-2.5 align-top break-words`}>
                                   <div className={`font-bold text-slate-800 flex flex-wrap items-center gap-1.5 leading-snug ${tableFontSize}`}>
                                     <span>{item.item_name || 'Composite Package'} (Continued)</span>
@@ -6688,6 +7068,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                                     </span>
                                   </div>
                                 </td>
+                                {showImageColumn && !isImgColBeforeDesc && <td className={`${tdPad} px-1.5`} />}
                                 <td className={`${tdPad} px-1 text-center font-mono text-slate-400 align-top ${tableFontSize}`}>
                                   —
                                 </td>
@@ -6729,43 +7110,21 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                                 <td className={`${tdPad} px-1.5 text-center font-mono text-slate-600 font-bold align-top ${tableFontSize} whitespace-nowrap`}>
                                   {itemNumber}
                                 </td>
-                                {showImageColumn && (
-                                  <td className={`${tdPad} px-1.5 text-center align-top`}>
-                                    {item.image_url ? (
-                                      <div
-                                        className="mx-auto rounded border border-slate-200 bg-white overflow-hidden flex items-center justify-center p-0.5"
-                                        style={{ width: `${lineItemImagePx}px`, height: `${lineItemImagePx}px` }}
-                                      >
-                                        <img
-                                          src={item.image_url}
-                                          alt={item.item_name || `Item ${itemNumber}`}
-                                          className="w-full h-full object-contain"
-                                        />
-                                      </div>
-                                    ) : (
-                                      <div
-                                        className="mx-auto rounded border border-dashed border-slate-200 bg-slate-50/60 flex items-center justify-center text-[8px] font-mono text-slate-400"
-                                        style={{ width: `${lineItemImagePx}px`, height: `${lineItemImagePx}px` }}
-                                      >
-                                        —
-                                      </div>
-                                    )}
-                                  </td>
-                                )}
+                                {showImageColumn && isImgColBeforeDesc && renderDedicatedImageCell()}
                                 <td className={`${tdPad} px-2.5 align-top break-words`}>
-                                  <div className={showLineItemImages && lineItemImageLayout === 'inline' && item.image_url ? 'flex items-start gap-2.5' : ''}>
-                                    {showLineItemImages && lineItemImageLayout === 'inline' && item.image_url && (
-                                      <div
-                                        className="shrink-0 rounded border border-slate-200 bg-white overflow-hidden flex items-center justify-center p-0.5 mt-0.5"
-                                        style={{ width: `${lineItemImagePx}px`, height: `${lineItemImagePx}px` }}
-                                      >
-                                        <img
-                                          src={item.image_url}
-                                          alt={item.item_name || `Item ${itemNumber}`}
-                                          className="w-full h-full object-contain"
-                                        />
-                                      </div>
-                                    )}
+                                  <div
+                                    className={
+                                      itemEffLayout === 'inline_left' && hasAnyItemImage
+                                        ? 'flex items-start gap-2.5'
+                                        : 'block clearfix'
+                                    }
+                                  >
+                                    {itemEffLayout === 'inline_left' &&
+                                      hasAnyItemImage &&
+                                      renderItemVisualBlock(item, itemNumber, 'inline_left')}
+                                    {itemEffLayout === 'inline_right' &&
+                                      hasAnyItemImage &&
+                                      renderItemVisualBlock(item, itemNumber, 'inline_right')}
                                     <div className="min-w-0 flex-1">
                                       <div className={`font-bold text-slate-900 flex flex-wrap items-center gap-1.5 leading-snug ${tableFontSize} break-words`}>
                                         <span>{item.item_name || 'Standard Line Item'}</span>
@@ -6931,12 +7290,18 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                                                 </div>
                                               );
                                             })()}
+
+                                            {/* Below Description Technical Diagram / Showcase Banner */}
+                                            {itemEffLayout === 'below_specs' &&
+                                              hasAnyItemImage &&
+                                              renderItemVisualBlock(item, itemNumber, 'below_specs')}
                                           </>
                                         );
                                       })()}
                                     </div>
                                   </div>
                                 </td>
+                                {showImageColumn && !isImgColBeforeDesc && renderDedicatedImageCell()}
                                 <td className={`${tdPad} px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
                                   {isItemizedSet ? '' : item.quantity}
                                 </td>
@@ -7007,6 +7372,30 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                                   sub.row_spacer_after_mm && sub.row_spacer_after_mm > 0
                                     ? sub.row_spacer_after_mm
                                     : 0;
+                                const showSubImg =
+                                  bomSubComponentImageMode !== 'off' && Boolean(sub.image_url);
+                                const subImgPx =
+                                  bomSubComponentImageMode === 'match_parent'
+                                    ? Math.min(lineItemImagePx, 56)
+                                    : 30;
+
+                                const renderSubImageCell = () => (
+                                  <td className="py-1.5 px-1.5 text-center align-top">
+                                    {showSubImg && sub.image_url ? (
+                                      <div
+                                        className="mx-auto rounded border border-slate-200 bg-white overflow-hidden flex items-center justify-center p-0.5"
+                                        style={{ width: `${subImgPx}px`, height: `${subImgPx}px` }}
+                                      >
+                                        <img
+                                          src={sub.image_url}
+                                          alt={sub.item_name || subSn}
+                                          className="w-full h-full object-contain"
+                                        />
+                                      </div>
+                                    ) : null}
+                                  </td>
+                                );
+
                                 return (
                                   <React.Fragment key={sub.id || subSn}>
                                     <tr
@@ -7022,22 +7411,44 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                                       <td className={`py-1.5 px-1.5 text-center font-mono ${sub.row_bold ? 'text-slate-700 font-bold' : 'text-slate-400'} align-top ${typoScale.sub} whitespace-nowrap`}>
                                         {subSn}
                                       </td>
-                                      {showImageColumn && <td className="py-1.5 px-1.5" />}
+                                      {showImageColumn && isImgColBeforeDesc && renderSubImageCell()}
                                       <td className="py-1.5 px-2.5 pl-4 align-top break-words">
-                                        <div className={`${tableFontSize} ${sub.row_bold ? 'font-bold text-slate-950' : 'font-medium text-slate-800'} leading-snug`}>
-                                          {sub.item_name}
+                                        <div className={!showImageColumn && showSubImg ? 'flex items-start gap-2' : ''}>
+                                          {!showImageColumn && showSubImg && sub.image_url && (
+                                            <div
+                                              className="shrink-0 rounded border border-slate-200 bg-white overflow-hidden flex items-center justify-center p-0.5 mt-0.5"
+                                              style={{ width: `${subImgPx}px`, height: `${subImgPx}px` }}
+                                            >
+                                              <img
+                                                src={sub.image_url}
+                                                alt={sub.item_name || subSn}
+                                                className="w-full h-full object-contain"
+                                              />
+                                            </div>
+                                          )}
+                                          <div className="min-w-0 flex-1">
+                                            <div className={`${tableFontSize} ${sub.row_bold ? 'font-bold text-slate-950' : 'font-medium text-slate-800'} leading-snug`}>
+                                              {sub.item_name}
+                                            </div>
+                                            {sub.remark && (
+                                              <div className={`${typoScale.sub} font-bold text-slate-700 mt-0.5`}>
+                                                Remark : {renderResolvedQuotationText(sub.remark, tokenContext)}
+                                              </div>
+                                            )}
+                                            {sub.row_note && sub.row_note.trim() && (
+                                              <div className={`${typoScale.sub} italic text-slate-700 mt-0.5 pl-2 border-l-2 border-amber-400/80 leading-snug whitespace-pre-line font-normal`}>
+                                                Note: {renderResolvedQuotationText(sub.row_note, tokenContext)}
+                                              </div>
+                                            )}
+                                            {sub.image_caption && showSubImg && (
+                                              <div className="text-[8px] text-slate-500 italic mt-0.5">
+                                                {sub.image_caption}
+                                              </div>
+                                            )}
+                                          </div>
                                         </div>
-                                        {sub.remark && (
-                                          <div className={`${typoScale.sub} font-bold text-slate-700 mt-0.5`}>
-                                            Remark : {renderResolvedQuotationText(sub.remark, tokenContext)}
-                                          </div>
-                                        )}
-                                        {sub.row_note && sub.row_note.trim() && (
-                                          <div className={`${typoScale.sub} italic text-slate-700 mt-0.5 pl-2 border-l-2 border-amber-400/80 leading-snug whitespace-pre-line font-normal`}>
-                                            Note: {renderResolvedQuotationText(sub.row_note, tokenContext)}
-                                          </div>
-                                        )}
                                       </td>
+                                      {showImageColumn && !isImgColBeforeDesc && renderSubImageCell()}
                                       <td className={`py-1.5 px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
                                         {Number(sub.quantity || 0).toLocaleString('en-US', {
                                           minimumFractionDigits: sub.quantity % 1 === 0 ? 0 : 2,
@@ -7200,6 +7611,118 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     </div>
                     <div className={`${typoScale.sub} text-slate-700 whitespace-pre-line leading-relaxed`}>
                       {renderResolvedQuotationText(groupScopeNotes.join('\n'), tokenContext)}
+                    </div>
+                  </div>
+                )}
+
+                {/* Bottom Photo Schedule / Visual Grid (when Photo Schedule mode is active) */}
+                {photoScheduleItems.length > 0 && (
+                  <div
+                    className={`p-3 bg-slate-50/50 border-t border-slate-200 ${
+                      photoScheduleNewPage ? 'break-before-page page-break-before-always' : 'break-inside-avoid'
+                    }`}
+                  >
+                    <div
+                      className={`text-[10px] font-extrabold uppercase tracking-wider mb-2.5 pb-1 border-b border-slate-200 flex items-center justify-between`}
+                      style={{ color: themePalette.textAccent }}
+                    >
+                      <span>Product Visual &amp; Technical Photo Schedule</span>
+                      <span className="font-mono text-[9px] text-slate-500">
+                        {photoScheduleItems.length} {photoScheduleItems.length === 1 ? 'Visual Item' : 'Visual Items'}
+                      </span>
+                    </div>
+                    <div
+                      className={`grid ${
+                        photoScheduleColumns === 3 ? 'grid-cols-3' : 'grid-cols-2'
+                      } gap-3`}
+                    >
+                      {photoScheduleItems.map((schedItem, sIdx) => {
+                        const schedItemNum = shouldSplitByOptionTables
+                          ? schedItem.globalOptionItemNumber || sIdx + 1
+                          : schedItem.parentItemNumber || sIdx + 1;
+                        return (
+                          <div
+                            key={schedItem.id || `sched_${schedItemNum}`}
+                            className="rounded-lg border border-slate-200 bg-white p-2.5 flex flex-col justify-between break-inside-avoid"
+                          >
+                            <div className="flex items-start justify-between gap-2 mb-2 pb-1 border-b border-slate-100">
+                              <div className="min-w-0">
+                                <span
+                                  className="inline-block px-1.5 py-0.5 rounded text-[8.5px] font-mono font-bold mr-1.5"
+                                  style={{
+                                    backgroundColor: themePalette.tintStrongBg,
+                                    color: themePalette.textAccent
+                                  }}
+                                >
+                                  Item #{schedItemNum}
+                                </span>
+                                <span className={`font-bold text-slate-900 ${typoScale.body}`}>
+                                  {schedItem.item_name}
+                                </span>
+                              </div>
+                              {(schedItem.model_part_no || schedItem.sku) && (
+                                <span className="text-[8.5px] font-mono text-slate-500 shrink-0">
+                                  {schedItem.model_part_no || schedItem.sku}
+                                </span>
+                              )}
+                            </div>
+
+                            <div
+                              className={`grid ${
+                                schedItem.image_url && schedItem.secondary_image_url
+                                  ? 'grid-cols-2 gap-2'
+                                  : 'grid-cols-1'
+                              } items-center my-1`}
+                            >
+                              {schedItem.image_url && (
+                                <div className="flex flex-col items-center">
+                                  <div
+                                    className="w-full rounded border border-slate-100 bg-white flex items-center justify-center p-1 overflow-hidden"
+                                    style={{ height: `${Math.max(lineItemImagePx, 96)}px` }}
+                                  >
+                                    <img
+                                      src={schedItem.image_url}
+                                      alt={schedItem.item_name}
+                                      className="max-w-full max-h-full object-contain"
+                                      style={
+                                        schedItem.image_adjustments?.rotation
+                                          ? {
+                                              transform: `rotate(${schedItem.image_adjustments.rotation}deg) scale(${
+                                                schedItem.image_adjustments.scale || 1
+                                              })`
+                                            }
+                                          : undefined
+                                      }
+                                    />
+                                  </div>
+                                  {schedItem.image_caption && (
+                                    <span className="text-[8.5px] text-slate-500 italic mt-1 text-center">
+                                      {schedItem.image_caption}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                              {schedItem.secondary_image_url && (
+                                <div className="flex flex-col items-center">
+                                  <div
+                                    className="w-full rounded border border-slate-100 bg-white flex items-center justify-center p-1 overflow-hidden"
+                                    style={{ height: `${Math.max(lineItemImagePx, 96)}px` }}
+                                  >
+                                    <img
+                                      src={schedItem.secondary_image_url}
+                                      alt={`${schedItem.item_name} Diagram`}
+                                      className="max-w-full max-h-full object-contain"
+                                    />
+                                  </div>
+                                  <span className="text-[8.5px] text-slate-500 italic mt-1 text-center">
+                                    {schedItem.secondary_image_caption || 'Technical Diagram'}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

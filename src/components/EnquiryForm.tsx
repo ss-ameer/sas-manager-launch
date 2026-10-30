@@ -18,6 +18,7 @@ import { extractEnquiryClientSide, AVAILABLE_GEMINI_MODELS } from '../utils/aiEx
 import { getUserWorkspaceRole, canEditEnquiry } from '../utils/permissions';
 import CompositePackageEditor from './quotations/CompositePackageEditor';
 import { cloneLineItemToNextOption, recalculateCompositeItemTotals } from '../utils/compositeBomUtils';
+import LineItemImageOptionsPopover from './common/LineItemImageOptionsPopover';
 import {
   FileText,
   Building,
@@ -1515,6 +1516,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           country_of_origin: item.country_of_origin || current.country_of_origin,
           hs_code: item.hs_code || current.hs_code,
           image_url: item.image_url || current.image_url,
+          secondary_image_url: item.secondary_image_url || current.secondary_image_url,
+          image_caption: item.image_caption || current.image_caption,
+          secondary_image_caption: item.secondary_image_caption || current.secondary_image_caption,
+          image_adjustments: item.image_adjustments || current.image_adjustments,
           datasheet_attachment: item.datasheet_attachment || current.datasheet_attachment,
           include_datasheet_in_quote:
             item.datasheet_attachment || current.datasheet_attachment
@@ -1552,6 +1557,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         country_of_origin: item.country_of_origin || undefined,
         hs_code: item.hs_code || undefined,
         image_url: item.image_url || undefined,
+        secondary_image_url: item.secondary_image_url || undefined,
+        image_caption: item.image_caption || undefined,
+        secondary_image_caption: item.secondary_image_caption || undefined,
+        image_adjustments: item.image_adjustments || undefined,
         datasheet_attachment: item.datasheet_attachment || undefined,
         include_datasheet_in_quote: item.datasheet_attachment ? true : undefined,
         lead_time_note: item.lead_time_note || '',
@@ -5608,80 +5617,65 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
                             />
                           </div>
-                          <div className="col-span-1 sm:col-span-4 min-w-0">
-                            <div className="flex items-center justify-between h-5 mb-1">
+                          <div className="col-span-2 sm:col-span-4 min-w-0">
+                            <div className="flex items-center justify-between h-5 mb-1 gap-2">
                               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate">
-                                Media & Datasheet
+                                Media &amp; Datasheet
                               </label>
-                            </div>
-                            <div className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg py-1 px-2.5 min-h-[32px]">
-                              <div className="flex items-center gap-2 min-w-0">
-                                {effectiveImageUrl ? (
-                                  <img
-                                    src={effectiveImageUrl}
-                                    alt="Item"
-                                    className="w-6 h-6 rounded object-contain bg-white border border-slate-200 shrink-0"
-                                    referrerPolicy="no-referrer"
+                              {effectiveDatasheet && (
+                                <label className="flex items-center gap-1 text-[10px] text-indigo-700 font-semibold cursor-pointer truncate shrink-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={item.include_datasheet_in_quote !== false}
+                                    onChange={(e) =>
+                                      handleLineItemChange(index, 'include_datasheet_in_quote', e.target.checked)
+                                    }
+                                    className="w-3 h-3 rounded text-indigo-600"
                                   />
-                                ) : (
-                                  <div className="w-6 h-6 rounded bg-white border border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
-                                    <Package className="w-3.5 h-3.5" />
-                                  </div>
-                                )}
-                                <div className="min-w-0 flex items-center gap-2">
-                                  <label className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 cursor-pointer block truncate">
-                                    {effectiveImageUrl ? 'Change Photo' : '+ Product Photo'}
-                                    <input
-                                      type="file"
-                                      accept="image/*"
-                                      className="hidden"
-                                      onChange={async (e) => {
-                                        const f = e.target.files?.[0];
-                                        e.target.value = '';
-                                        if (!f) return;
-                                        try {
-                                          const up = await uploadWorkspaceMediaAsset(
-                                            f,
-                                            'products/images',
-                                            activeWorkspace?.settings || activeWorkspace,
-                                            { compressImage: true, maxDimension: 650, quality: 0.84 }
-                                          );
-                                          handleLineItemChange(index, 'image_url', up.url);
-                                          if (triggerToast) triggerToast('Line item photo uploaded.', 'success');
-                                        } catch (err: any) {
-                                          if (triggerToast) triggerToast('Photo upload failed.', 'error');
-                                        }
-                                      }}
-                                    />
-                                  </label>
-                                  {effectiveDatasheet && (
-                                    <label className="flex items-center gap-1 text-[10px] text-indigo-700 font-medium cursor-pointer truncate border-l border-slate-200 pl-2">
-                                      <input
-                                        type="checkbox"
-                                        checked={item.include_datasheet_in_quote !== false}
-                                        onChange={(e) =>
-                                          handleLineItemChange(index, 'include_datasheet_in_quote', e.target.checked)
-                                        }
-                                        className="w-3 h-3 rounded text-indigo-600"
-                                      />
-                                      <span className="truncate" title={effectiveDatasheet.name}>
-                                        Annex PDF
-                                      </span>
-                                    </label>
-                                  )}
-                                </div>
-                              </div>
-                              {effectiveImageUrl && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleLineItemChange(index, 'image_url', '')}
-                                  className="text-slate-400 hover:text-rose-500 p-0.5 shrink-0"
-                                  title="Clear item photo"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
+                                  <span className="truncate" title={effectiveDatasheet.name}>
+                                    Annex PDF
+                                  </span>
+                                </label>
                               )}
                             </div>
+                            <LineItemImageOptionsPopover
+                              itemTitle={item.item_name || item.description || `Item #${index + 1}`}
+                              imageUrl={effectiveImageUrl}
+                              secondaryImageUrl={item.secondary_image_url || matchedProd?.secondary_image_url}
+                              imageCaption={item.image_caption ?? matchedProd?.image_caption}
+                              secondaryImageCaption={item.secondary_image_caption ?? matchedProd?.secondary_image_caption}
+                              imageAdjustments={item.image_adjustments || matchedProd?.image_adjustments}
+                              displayOverride={item.image_display_override || 'inherit'}
+                              sizeOverride={item.image_size_override || 'inherit'}
+                              aspectOverride={item.image_aspect_override || 'inherit'}
+                              activeWorkspace={activeWorkspace}
+                              triggerToast={triggerToast}
+                              showOverrideControls={true}
+                              canSyncToCatalog={Boolean(matchedProd)}
+                              onSyncToCatalog={
+                                matchedProd
+                                  ? async () => {
+                                      await syncLineItemToCatalogProduct(
+                                        item,
+                                        matchedProd,
+                                        setProducts,
+                                        triggerToast,
+                                        formCurrency
+                                      );
+                                    }
+                                  : undefined
+                              }
+                              onChange={(patch) => {
+                                setLineItems((prev) => {
+                                  const next = [...prev];
+                                  next[index] = {
+                                    ...next[index],
+                                    ...patch
+                                  };
+                                  return next;
+                                });
+                              }}
+                            />
                           </div>
                         </div>
                       );

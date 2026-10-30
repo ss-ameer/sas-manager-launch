@@ -27,9 +27,13 @@ import {
   Bold,
   EyeOff,
   MessageSquarePlus,
+  Image as ImageIcon,
+  ZoomIn,
 } from 'lucide-react';
 import { AtMentionInput, AtMentionTextarea } from './AtMentionField';
 import { QuotationTokenContext } from '../../utils/quotationTokenResolver';
+import { uploadWorkspaceMediaAsset } from '../../services/attachmentStorage';
+import ImageLightboxModal from '../common/ImageLightboxModal';
 
 interface CompositePackageEditorProps {
   item?: {
@@ -54,6 +58,7 @@ interface CompositePackageEditorProps {
   parentQuantity?: number;
   currency?: string;
   products?: Product[];
+  activeWorkspace?: any;
   onChange: (patch: {
     is_composite_set: boolean;
     sub_components: LineItemComponent[];
@@ -78,6 +83,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
   parentQuantity: propParentQuantity,
   currency = 'AED',
   products = [],
+  activeWorkspace,
   onChange,
   compact = false,
   tokenContext,
@@ -95,16 +101,109 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
   const [showCatalogPickerForRow, setShowCatalogPickerForRow] = useState<string | 'NEW' | null>(null);
   const [catalogSearchQuery, setCatalogSearchQuery] = useState<string>('');
   const [expandedRowNotes, setExpandedRowNotes] = useState<Record<string, boolean>>({});
+  const [lightboxSubComp, setLightboxSubComp] = useState<LineItemComponent | null>(null);
   const effectiveTokenContext = useMemo<QuotationTokenContext>(
     () => tokenContext || {},
     [tokenContext]
   );
 
+  const handleUploadSubImage = async (compId: string, file?: File) => {
+    if (!file || !file.type.startsWith('image/')) return;
+    try {
+      const uploaded = await uploadWorkspaceMediaAsset(
+        file,
+        'products/images',
+        activeWorkspace?.settings || activeWorkspace,
+        { compressImage: true, maxDimension: 700, quality: 0.84 }
+      );
+      if (uploaded.url) {
+        handleUpdateSub(compId, 'image_url', uploaded.url);
+      }
+    } catch {
+      // ignore upload error
+    }
+  };
+
   const renderSubRowCustomizationBar = (comp: LineItemComponent, rowNumLabel: string) => {
     const isNoteOpen = Boolean(expandedRowNotes[comp.id] || (comp.row_note && comp.row_note.trim()));
     return (
-      <div className="mt-1.5 pt-1.5 border-t border-slate-100 flex flex-col gap-1.5">
+      <div
+        className="mt-1.5 pt-1.5 border-t border-slate-100 flex flex-col gap-1.5"
+        onPaste={(e) => {
+          const items = e.clipboardData?.items;
+          if (!items) return;
+          for (let i = 0; i < items.length; i++) {
+            if (items[i].type.startsWith('image/')) {
+              const file = items[i].getAsFile();
+              if (file) {
+                e.preventDefault();
+                handleUploadSubImage(comp.id, file);
+                return;
+              }
+            }
+          }
+        }}
+      >
         <div className="flex flex-wrap items-center gap-1.5">
+          {/* Compact 28x28px Sub-Component Photo Thumbnail + Upload Trigger */}
+          <div className="inline-flex items-center gap-1 pr-1 border-r border-slate-200">
+            {comp.image_url ? (
+              <div className="relative group inline-flex items-center">
+                <button
+                  type="button"
+                  onClick={() => setLightboxSubComp(comp)}
+                  className="w-7 h-7 rounded border border-slate-200 bg-white overflow-hidden flex items-center justify-center cursor-pointer relative"
+                  title="Click to inspect or rotate sub-component photo"
+                >
+                  <img
+                    src={comp.image_url}
+                    alt={comp.item_name || rowNumLabel}
+                    className="w-full h-full object-contain p-0.5"
+                    style={{
+                      transform: [
+                        comp.image_adjustments?.rotation ? `rotate(${comp.image_adjustments.rotation}deg)` : '',
+                        comp.image_adjustments?.scale && comp.image_adjustments.scale !== 1
+                          ? `scale(${comp.image_adjustments.scale})`
+                          : ''
+                      ]
+                        .filter(Boolean)
+                        .join(' ') || undefined
+                    }}
+                    referrerPolicy="no-referrer"
+                  />
+                  <span className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition">
+                    <ZoomIn className="w-3 h-3" />
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleUpdateSub(comp.id, 'image_url', '')}
+                  className="ml-0.5 p-0.5 text-slate-400 hover:text-rose-600 cursor-pointer"
+                  title="Remove sub-component photo"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </div>
+            ) : (
+              <label
+                className="px-1.5 py-0.5 rounded bg-slate-50 hover:bg-blue-50 text-slate-600 hover:text-blue-700 border border-slate-200 text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition"
+                title="Upload sub-component photo (or Ctrl+V paste on this row)"
+              >
+                <ImageIcon className="w-2.5 h-2.5 text-blue-600" />
+                <span>+ Photo</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = '';
+                    if (f) handleUploadSubImage(comp.id, f);
+                  }}
+                />
+              </label>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => handleUpdateSub(comp.id, 'page_break_after', !comp.page_break_after)}
@@ -337,6 +436,9 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
         item_name: prod.name || prod.product_type || 'Catalog Component',
         remark: specSummary,
         description: prod.description || '',
+        image_url: prod.image_url,
+        image_caption: prod.image_caption,
+        image_adjustments: prod.image_adjustments,
         quantity: 1,
         unit: cleanUnit,
         cost_price: snapCostPrice,
@@ -360,6 +462,9 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
           sku: prod.sku,
           item_name: prod.name || c.item_name,
           remark: c.remark || specSummary,
+          image_url: c.image_url || prod.image_url,
+          image_caption: c.image_caption || prod.image_caption,
+          image_adjustments: c.image_adjustments || prod.image_adjustments,
           unit: cleanUnit,
           cost_price: cPrice,
           unit_price: uPrice,
@@ -387,6 +492,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
       return {
         ...c,
         sku: prod.sku || c.sku,
+        image_url: c.image_url || prod.image_url,
         cost_price: cPrice,
         unit_price: uPrice,
         total_price: tot,
@@ -411,6 +517,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
       return {
         ...c,
         sku: prod.sku || c.sku,
+        image_url: c.image_url || prod.image_url,
         cost_price: cPrice,
         unit_price: uPrice,
         total_price: tot,
@@ -1231,6 +1338,33 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
           />
         </div>
       </div>
+
+      {lightboxSubComp && (
+        <ImageLightboxModal
+          isOpen={Boolean(lightboxSubComp)}
+          onClose={() => setLightboxSubComp(null)}
+          title={lightboxSubComp.item_name || 'Sub-Component Photo'}
+          imageUrl={lightboxSubComp.image_url}
+          imageCaption={lightboxSubComp.image_caption}
+          adjustments={lightboxSubComp.image_adjustments}
+          activeWorkspace={activeWorkspace}
+          onSaveChanges={(patch) => {
+            const updated = subComponents.map((c) =>
+              c.id === lightboxSubComp.id
+                ? {
+                    ...c,
+                    ...(patch.image_url !== undefined ? { image_url: patch.image_url } : {}),
+                    ...(patch.image_caption !== undefined ? { image_caption: patch.image_caption } : {}),
+                    ...(patch.image_adjustments !== undefined
+                      ? { image_adjustments: patch.image_adjustments }
+                      : {})
+                  }
+                : c
+            );
+            commitComponents(updated);
+          }}
+        />
+      )}
     </div>
   );
 };

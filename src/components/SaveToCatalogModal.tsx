@@ -5,12 +5,14 @@ import {
   Attachment,
   Workspace,
   DropdownOption,
-  CATEGORY_SUGGESTED_ATTRIBUTES
+  CATEGORY_SUGGESTED_ATTRIBUTES,
+  ImageAdjustmentConfig
 } from '../types';
 import { safeAddDoc, safeUpdateDoc } from '../firebase';
 import { generateProductSearchTerms } from '../utils/defaults';
 import { UNIVERSAL_CATEGORIES, UNIVERSAL_UNITS } from '../constants';
 import { uploadWorkspaceMediaAsset } from '../services/attachmentStorage';
+import LineItemImageOptionsPopover from './common/LineItemImageOptionsPopover';
 import {
   Package,
   Plus,
@@ -154,6 +156,24 @@ export function hasCatalogDrift(item: any, product?: Product | null, currency?: 
   const prodImg = (product.image_url ?? '').trim();
   if (itemImg && itemImg !== prodImg) return true;
 
+  const itemSecImg = (item.secondary_image_url ?? '').trim();
+  const prodSecImg = (product.secondary_image_url ?? '').trim();
+  if (itemSecImg && itemSecImg !== prodSecImg) return true;
+
+  const itemCap = (item.image_caption ?? '').trim();
+  const prodCap = (product.image_caption ?? '').trim();
+  if (itemCap && itemCap !== prodCap) return true;
+
+  const itemSecCap = (item.secondary_image_caption ?? '').trim();
+  const prodSecCap = (product.secondary_image_caption ?? '').trim();
+  if (itemSecCap && itemSecCap !== prodSecCap) return true;
+
+  if (item.image_adjustments) {
+    const itemAdjJson = JSON.stringify(item.image_adjustments);
+    const prodAdjJson = JSON.stringify(product.image_adjustments || {});
+    if (itemAdjJson !== prodAdjJson) return true;
+  }
+
   const itemDsUrl = (item.datasheet_attachment?.url ?? '').trim();
   const prodDsUrl = (product.datasheet_attachment?.url ?? '').trim();
   if (itemDsUrl && itemDsUrl !== prodDsUrl) return true;
@@ -223,6 +243,10 @@ export async function syncLineItemToCatalogProduct(
   const updatedOrigin = (item.country_of_origin ?? item.origin ?? product.country_of_origin ?? '').trim() || undefined;
   const updatedHs = (item.hs_code ?? product.hs_code ?? '').trim() || undefined;
   const updatedImage = (item.image_url ?? product.image_url ?? '').trim() || undefined;
+  const updatedSecondaryImage = (item.secondary_image_url ?? product.secondary_image_url ?? '').trim() || undefined;
+  const updatedImageCaption = (item.image_caption ?? product.image_caption ?? '').trim() || undefined;
+  const updatedSecondaryCaption = (item.secondary_image_caption ?? product.secondary_image_caption ?? '').trim() || undefined;
+  const updatedImageAdjustments = item.image_adjustments || product.image_adjustments || undefined;
   const updatedDatasheet = item.datasheet_attachment || product.datasheet_attachment || undefined;
   const updatedAttributes: ProductAttribute[] = Array.isArray(item.attributes)
     ? item.attributes
@@ -269,6 +293,10 @@ export async function syncLineItemToCatalogProduct(
     country_of_origin: updatedOrigin,
     hs_code: updatedHs,
     image_url: updatedImage,
+    ...(updatedSecondaryImage !== undefined ? { secondary_image_url: updatedSecondaryImage } : {}),
+    ...(updatedImageCaption !== undefined ? { image_caption: updatedImageCaption } : {}),
+    ...(updatedSecondaryCaption !== undefined ? { secondary_image_caption: updatedSecondaryCaption } : {}),
+    ...(updatedImageAdjustments !== undefined ? { image_adjustments: updatedImageAdjustments } : {}),
     datasheet_attachment: updatedDatasheet,
     attributes: updatedAttributes,
     ...(item.is_composite_set !== undefined ? { is_composite_set: Boolean(item.is_composite_set) } : {}),
@@ -314,6 +342,10 @@ export interface SaveToCatalogLineItemInput {
   origin?: string;
   hs_code?: string;
   image_url?: string;
+  secondary_image_url?: string;
+  image_caption?: string;
+  secondary_image_caption?: string;
+  image_adjustments?: ImageAdjustmentConfig;
   datasheet_attachment?: Attachment;
   attributes?: ProductAttribute[];
   is_composite_set?: boolean;
@@ -390,6 +422,10 @@ export default function SaveToCatalogModal({
   const [countryOfOrigin, setCountryOfOrigin] = useState('');
   const [hsCode, setHsCode] = useState('');
   const [imageUrl, setImageUrl] = useState('');
+  const [secondaryImageUrl, setSecondaryImageUrl] = useState('');
+  const [imageCaption, setImageCaption] = useState('');
+  const [secondaryImageCaption, setSecondaryImageCaption] = useState('');
+  const [imageAdjustments, setImageAdjustments] = useState<ImageAdjustmentConfig | undefined>(undefined);
   const [datasheetAttachment, setDatasheetAttachment] = useState<Attachment | undefined>(undefined);
   const [attributes, setAttributes] = useState<ProductAttribute[]>([]);
 
@@ -451,6 +487,10 @@ export default function SaveToCatalogModal({
     setCountryOfOrigin(lineItem.country_of_origin || lineItem.origin || '');
     setHsCode(lineItem.hs_code || '');
     setImageUrl(lineItem.image_url || '');
+    setSecondaryImageUrl(lineItem.secondary_image_url || '');
+    setImageCaption(lineItem.image_caption || '');
+    setSecondaryImageCaption(lineItem.secondary_image_caption || '');
+    setImageAdjustments(lineItem.image_adjustments);
     setDatasheetAttachment(lineItem.datasheet_attachment);
     setAttributes(attrs.map((a) => ({ key: a.key ?? '', value: a.value ?? '' })));
     setIsCreatingCategory(false);
@@ -613,6 +653,10 @@ export default function SaveToCatalogModal({
         country_of_origin: countryOfOrigin.trim() || undefined,
         hs_code: hsCode.trim() || undefined,
         image_url: imageUrl.trim() || undefined,
+        ...(secondaryImageUrl.trim() ? { secondary_image_url: secondaryImageUrl.trim() } : {}),
+        ...(imageCaption.trim() ? { image_caption: imageCaption.trim() } : {}),
+        ...(secondaryImageCaption.trim() ? { secondary_image_caption: secondaryImageCaption.trim() } : {}),
+        ...(imageAdjustments ? { image_adjustments: imageAdjustments } : {}),
         datasheet_attachment: datasheetAttachment || undefined,
         attributes: cleanAttrs,
         ...(isComposite ? { is_composite_set: true } : {}),
@@ -980,53 +1024,26 @@ export default function SaveToCatalogModal({
             <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2">
               <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                 <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
-                <span>Product Image</span>
+                <span>Product Image &amp; Diagram</span>
               </span>
-              {imageUrl ? (
-                <div className="flex items-center gap-2.5 bg-white p-2 rounded-lg border border-slate-200">
-                  <img
-                    src={imageUrl}
-                    alt="Product"
-                    className="w-11 h-11 rounded object-contain border border-slate-100 shrink-0"
-                    referrerPolicy="no-referrer"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <span className="text-[11px] font-semibold text-emerald-700 block truncate">Image Attached</span>
-                    <button
-                      type="button"
-                      onClick={() => setImageUrl('')}
-                      className="text-[10px] text-rose-600 hover:underline font-semibold cursor-pointer"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  <label className="w-full py-2 px-3 border border-dashed border-slate-300 hover:border-blue-400 bg-white rounded-lg text-xs font-semibold text-slate-700 flex items-center justify-center gap-1.5 cursor-pointer transition">
-                    <UploadCloud className="w-3.5 h-3.5 text-blue-500" />
-                    <span>{isUploadingImage ? 'Uploading...' : 'Upload Photo to Bucket'}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      disabled={isUploadingImage}
-                      className="hidden"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) handleUploadImage(f);
-                        e.target.value = '';
-                      }}
-                    />
-                  </label>
-                  <input
-                    type="url"
-                    value={imageUrl ?? ''}
-                    onChange={(e) => setImageUrl(e.target.value)}
-                    placeholder="Or paste direct image URL..."
-                    className="w-full bg-white border border-slate-200 rounded-lg py-1 px-2 text-[11px] text-slate-700 focus:outline-none"
-                  />
-                </div>
-              )}
+              <LineItemImageOptionsPopover
+                itemTitle={name || 'Catalog Product'}
+                imageUrl={imageUrl}
+                secondaryImageUrl={secondaryImageUrl}
+                imageCaption={imageCaption}
+                secondaryImageCaption={secondaryImageCaption}
+                imageAdjustments={imageAdjustments}
+                activeWorkspace={activeWorkspace}
+                triggerToast={triggerToast}
+                showOverrideControls={false}
+                onChange={(patch) => {
+                  if ('image_url' in patch) setImageUrl(patch.image_url || '');
+                  if ('secondary_image_url' in patch) setSecondaryImageUrl(patch.secondary_image_url || '');
+                  if ('image_caption' in patch) setImageCaption(patch.image_caption || '');
+                  if ('secondary_image_caption' in patch) setSecondaryImageCaption(patch.secondary_image_caption || '');
+                  if ('image_adjustments' in patch) setImageAdjustments(patch.image_adjustments);
+                }}
+              />
             </div>
 
             <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2">

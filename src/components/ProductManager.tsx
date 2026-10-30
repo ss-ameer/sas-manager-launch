@@ -13,7 +13,8 @@ import {
   StockAdjustmentData,
   StockAdjustmentMode,
   Attachment,
-  LineItemComponent
+  LineItemComponent,
+  ImageAdjustmentConfig
 } from '../types';
 import { safeAddDoc, safeUpdateDoc } from '../firebase';
 import { generateProductSearchTerms } from '../utils/defaults';
@@ -22,6 +23,8 @@ import { processStockGrn, processStockAdjustment, subscribeStockMovements } from
 import { uploadWorkspaceMediaAsset } from '../services/attachmentStorage';
 import CompositePackageEditor from './quotations/CompositePackageEditor';
 import { recalculateCompositeItemTotals } from '../utils/compositeBomUtils';
+import LineItemImageOptionsPopover from './common/LineItemImageOptionsPopover';
+import ImageLightboxModal from './common/ImageLightboxModal';
 import {
   Package,
   Plus,
@@ -138,6 +141,11 @@ export default function ProductManager({
   const [formDescription, setFormDescription] = useState('');
   const [formAttributes, setFormAttributes] = useState<ProductAttribute[]>([]);
   const [formImageUrl, setFormImageUrl] = useState<string>('');
+  const [formSecondaryImageUrl, setFormSecondaryImageUrl] = useState<string>('');
+  const [formImageCaption, setFormImageCaption] = useState<string>('');
+  const [formSecondaryImageCaption, setFormSecondaryImageCaption] = useState<string>('');
+  const [formImageAdjustments, setFormImageAdjustments] = useState<ImageAdjustmentConfig | undefined>(undefined);
+  const [lightboxProduct, setLightboxProduct] = useState<Product | null>(null);
   const [formDatasheetAttachment, setFormDatasheetAttachment] = useState<Attachment | undefined>(undefined);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [imageUploadProgress, setImageUploadProgress] = useState<number | null>(null);
@@ -764,6 +772,10 @@ export default function ProductManager({
     setFormModelPartNo('');
     setFormDefaultAvailability('');
     setFormImageUrl('');
+    setFormSecondaryImageUrl('');
+    setFormImageCaption('');
+    setFormSecondaryImageCaption('');
+    setFormImageAdjustments(undefined);
     setFormDatasheetAttachment(undefined);
     setFormAttributes([]);
     setFormIsInventoried(false);
@@ -796,6 +808,10 @@ export default function ProductManager({
     setFormModelPartNo(p.model_part_no || modelAttr || '');
     setFormDefaultAvailability(p.default_availability || (p as any).lead_time_note || '');
     setFormImageUrl(p.image_url || '');
+    setFormSecondaryImageUrl(p.secondary_image_url || '');
+    setFormImageCaption(p.image_caption || '');
+    setFormSecondaryImageCaption(p.secondary_image_caption || '');
+    setFormImageAdjustments(p.image_adjustments);
     setFormDatasheetAttachment(p.datasheet_attachment);
     setFormAttributes(p.attributes || []);
     setFormIsInventoried(Boolean(p.is_inventoried));
@@ -827,6 +843,10 @@ export default function ProductManager({
     setFormModelPartNo(p.model_part_no || '');
     setFormDefaultAvailability(p.default_availability || '');
     setFormImageUrl(p.image_url || '');
+    setFormSecondaryImageUrl(p.secondary_image_url || '');
+    setFormImageCaption(p.image_caption || '');
+    setFormSecondaryImageCaption(p.secondary_image_caption || '');
+    setFormImageAdjustments(p.image_adjustments);
     setFormDatasheetAttachment(p.datasheet_attachment);
     setFormAttributes((p.attributes || []).map((a) => ({ ...a })));
     setFormIsInventoried(Boolean(p.is_inventoried));
@@ -928,6 +948,10 @@ export default function ProductManager({
       model_part_no: resolvedModel,
       default_availability: formDefaultAvailability.trim() || undefined,
       image_url: formImageUrl.trim() || undefined,
+      secondary_image_url: formSecondaryImageUrl.trim() || undefined,
+      image_caption: formImageCaption.trim() || undefined,
+      secondary_image_caption: formSecondaryImageCaption.trim() || undefined,
+      image_adjustments: formImageAdjustments || undefined,
       datasheet_attachment: formDatasheetAttachment || undefined,
       attributes: cleanAttributes,
       search_terms: searchTerms,
@@ -1247,17 +1271,43 @@ export default function ProductManager({
                             <div className="flex items-start gap-3.5">
                               {/* Product Image Thumbnail or Clean Placeholder */}
                               {p.image_url ? (
-                                <img
-                                  src={p.image_url}
-                                  alt={p.name || p.description}
-                                  className="w-11 h-11 rounded-xl object-contain bg-white border border-slate-200 p-0.5 shrink-0 shadow-2xs"
-                                  referrerPolicy="no-referrer"
-                                />
-                              ) : (
-                                <div className="w-11 h-11 rounded-xl bg-slate-100 border border-slate-200/80 flex items-center justify-center text-slate-400 shrink-0">
-                                  <Package className="w-5 h-5" />
-                                </div>
-                              )}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setLightboxProduct(p);
+                                    }}
+                                    className="relative group/thumb shrink-0 cursor-pointer"
+                                    title="Click to inspect photo, rotate, or add technical diagram"
+                                  >
+                                    <img
+                                      src={p.image_url}
+                                      alt={p.name || p.description}
+                                      className="w-11 h-11 rounded-xl object-contain bg-white border border-slate-200 group-hover/thumb:border-blue-400 p-0.5 shrink-0 shadow-2xs transition"
+                                      style={{
+                                        transform: `rotate(${p.image_adjustments?.rotation || 0}deg) scale(${p.image_adjustments?.scale || 1})`
+                                      }}
+                                      referrerPolicy="no-referrer"
+                                    />
+                                    {p.secondary_image_url && (
+                                      <span className="absolute -top-1 -right-1 px-1 py-0.2 rounded-full bg-indigo-600 text-white text-[8px] font-mono font-bold shadow-xs">
+                                        2
+                                      </span>
+                                    )}
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setLightboxProduct(p);
+                                    }}
+                                    className="w-11 h-11 rounded-xl bg-slate-100 hover:bg-blue-50 border border-slate-200/80 hover:border-blue-300 flex items-center justify-center text-slate-400 hover:text-blue-600 shrink-0 cursor-pointer transition"
+                                    title="Click to upload or paste product image"
+                                  >
+                                    <Package className="w-5 h-5" />
+                                  </button>
+                                )}
 
                               <div className="space-y-1 min-w-0 flex-1">
                                 <div className="flex items-center gap-2 flex-wrap">
@@ -2043,16 +2093,16 @@ export default function ProductManager({
                   <div className="space-y-5">
                     {/* Product Image & Technical Datasheet Upload Row (Custom Bucket Storage) */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {/* Product Photo Card */}
+                      {/* Product Photo & Secondary Technical Diagram Card */}
                       <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 flex flex-col justify-between space-y-3">
                         <div className="flex items-start justify-between">
                           <div>
                             <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                               <ImageIcon className="w-4 h-4 text-blue-600" />
-                              <span>Product Image (Quotation Line Item)</span>
+                              <span>Product Image &amp; Technical Diagram</span>
                             </span>
                             <p className="text-[11px] text-slate-500 mt-0.5">
-                              Renders automatically in Quotation Line Items when enabled. Stored in Custom Bucket.
+                              Primary photo + optional 2nd diagram, captions &amp; rotation. Click, drop, or press Ctrl+V to paste.
                             </p>
                           </div>
                           {formImageUrl && (
@@ -2078,66 +2128,24 @@ export default function ProductManager({
                           )}
                         </div>
 
-                        {formImageUrl ? (
-                          <div className="flex items-center gap-3 bg-white p-2.5 rounded-xl border border-slate-200">
-                            <img
-                              src={formImageUrl}
-                              alt="Product"
-                              className="w-16 h-16 rounded-lg object-contain border border-slate-100 bg-slate-50 p-1 shrink-0"
-                              referrerPolicy="no-referrer"
-                            />
-                            <div className="flex-1 min-w-0 space-y-1.5">
-                              <span className="text-xs font-semibold text-emerald-700 block truncate">
-                                Product Image Ready
-                              </span>
-                              <div className="flex items-center gap-2">
-                                <label className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-semibold cursor-pointer transition">
-                                  Replace
-                                  <input
-                                    type="file"
-                                    accept="image/*"
-                                    className="hidden"
-                                    onChange={(e) => {
-                                      const f = e.target.files?.[0];
-                                      if (f) handleProductImageUpload(f);
-                                      e.target.value = '';
-                                    }}
-                                  />
-                                </label>
-                                <button
-                                  type="button"
-                                  onClick={() => setFormImageUrl('')}
-                                  className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-[11px] font-semibold cursor-pointer transition"
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          <label className="border-2 border-dashed border-slate-300 hover:border-blue-400 bg-white rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer transition">
-                            <UploadCloud className="w-6 h-6 text-blue-500 mb-1" />
-                            <span className="text-xs font-bold text-slate-700">
-                              {isUploadingImage
-                                ? `Uploading (${imageUploadProgress ?? 0}%)...`
-                                : 'Click to Upload Product Image'}
-                            </span>
-                            <span className="text-[10px] text-slate-400 mt-0.5">
-                              PNG, JPG, WebP or SVG • Auto-optimized for PDF Quotes
-                            </span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              disabled={isUploadingImage}
-                              className="hidden"
-                              onChange={(e) => {
-                                const f = e.target.files?.[0];
-                                if (f) handleProductImageUpload(f);
-                                e.target.value = '';
-                              }}
-                            />
-                          </label>
-                        )}
+                        <LineItemImageOptionsPopover
+                          itemTitle={formName || 'Catalog Product'}
+                          imageUrl={formImageUrl}
+                          secondaryImageUrl={formSecondaryImageUrl}
+                          imageCaption={formImageCaption}
+                          secondaryImageCaption={formSecondaryImageCaption}
+                          imageAdjustments={formImageAdjustments}
+                          activeWorkspace={activeWorkspace}
+                          triggerToast={triggerToast}
+                          showOverrideControls={false}
+                          onChange={(patch) => {
+                            if ('image_url' in patch) setFormImageUrl(patch.image_url || '');
+                            if ('secondary_image_url' in patch) setFormSecondaryImageUrl(patch.secondary_image_url || '');
+                            if ('image_caption' in patch) setFormImageCaption(patch.image_caption || '');
+                            if ('secondary_image_caption' in patch) setFormSecondaryImageCaption(patch.secondary_image_caption || '');
+                            if ('image_adjustments' in patch) setFormImageAdjustments(patch.image_adjustments);
+                          }}
+                        />
                       </div>
 
                       {/* Technical Datasheet / Spec Sheet Card */}
@@ -2537,6 +2545,40 @@ export default function ProductManager({
               </div>
             </form>
           </div>
+        )}
+
+        {/* Catalog Product Lightbox & Quick Image Inspector */}
+        {lightboxProduct && (
+          <ImageLightboxModal
+            isOpen={true}
+            onClose={() => setLightboxProduct(null)}
+            title={lightboxProduct.name || lightboxProduct.description || 'Catalog Product'}
+            imageUrl={lightboxProduct.image_url || ''}
+            secondaryImageUrl={lightboxProduct.secondary_image_url}
+            caption={lightboxProduct.image_caption}
+            secondaryCaption={lightboxProduct.secondary_image_caption}
+            adjustments={lightboxProduct.image_adjustments}
+            activeWorkspace={activeWorkspace}
+            triggerToast={triggerToast}
+            canEdit={isEditable}
+            onSaveChanges={async (updates) => {
+              if (!lightboxProduct.id) return;
+              const patch: Partial<Product> = {
+                ...('image_url' in updates ? { image_url: updates.image_url || undefined } : {}),
+                ...('secondary_image_url' in updates ? { secondary_image_url: updates.secondary_image_url || undefined } : {}),
+                ...('image_caption' in updates ? { image_caption: updates.image_caption || undefined } : {}),
+                ...('secondary_image_caption' in updates ? { secondary_image_caption: updates.secondary_image_caption || undefined } : {}),
+                ...('image_adjustments' in updates ? { image_adjustments: updates.image_adjustments } : {}),
+                updatedAt: new Date().toISOString()
+              };
+              const updatedProd = { ...lightboxProduct, ...patch };
+              setLightboxProduct(updatedProd);
+              if (setProducts) {
+                setProducts((prev) => prev.map((prod) => (prod.id === lightboxProduct.id ? updatedProd : prod)));
+              }
+              await safeUpdateDoc('products', lightboxProduct.id, patch);
+            }}
+          />
         )}
 
         {/* Confirmation Dialog overlay */}
