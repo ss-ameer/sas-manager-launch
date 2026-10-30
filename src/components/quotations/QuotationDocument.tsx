@@ -39,6 +39,13 @@ import {
   amountInWordsAED,
   formatAmountInWords
 } from '../../utils/numberToWords';
+import {
+  QuotationTokenContext,
+  resolveQuotationTokens,
+  renderResolvedQuotationText,
+  shouldHideCustomRow,
+  isFieldOmitted
+} from '../../utils/quotationTokenResolver';
 export { amountToWords, amountToWordsAED, amountInWordsAED, formatAmountInWords };
 import {
   FileText,
@@ -1693,6 +1700,7 @@ interface EditableCanvasTextProps {
   className?: string;
   multiline?: boolean;
   placeholder?: string;
+  renderedDisplay?: React.ReactNode;
 }
 
 const EditableCanvasText: React.FC<EditableCanvasTextProps> = ({
@@ -1702,7 +1710,8 @@ const EditableCanvasText: React.FC<EditableCanvasTextProps> = ({
   onCommit,
   className = '',
   multiline = false,
-  placeholder = 'Click to edit...'
+  placeholder = 'Click to edit...',
+  renderedDisplay
 }) => {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(value || '');
@@ -1713,8 +1722,10 @@ const EditableCanvasText: React.FC<EditableCanvasTextProps> = ({
     }
   }, [value, editing]);
 
+  const displayNode = renderedDisplay !== undefined ? renderedDisplay : value;
+
   if (!canEdit || !onCommit) {
-    return <span className={className}>{value}</span>;
+    return <span className={className}>{displayNode}</span>;
   }
 
   if (editing) {
@@ -1782,7 +1793,7 @@ const EditableCanvasText: React.FC<EditableCanvasTextProps> = ({
       }}
       className={`cursor-text border-b border-dashed border-blue-400/70 hover:bg-blue-50/70 hover:border-blue-600 rounded-xs px-0.5 -mx-0.5 transition-colors print:border-none print:bg-transparent print:p-0 print:m-0 ${className}`}
     >
-      {value || <span className="text-slate-400 italic print:hidden">{placeholder}</span>}
+      {value ? displayNode : <span className="text-slate-400 italic print:hidden">{placeholder}</span>}
     </span>
   );
 };
@@ -2476,13 +2487,30 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     signatoryType
   ]);
 
+  const omittedFields = quotation.omitted_fields || {};
+
+  const tokenContext = React.useMemo<QuotationTokenContext>(
+    () => ({
+      quotation,
+      enquiry,
+      profile,
+      omittedFields: quotation.omitted_fields,
+      activeBank: resolvedBank || undefined,
+      amountInWordsText: amountToWords(Number(quotation.grand_total || 0), currency)
+    }),
+    [quotation, enquiry, profile, resolvedBank, currency]
+  );
+
   // Compact corporate running header rendered on Page 2+ (continuation sheets)
   const renderCompactRunningHeader = (pageNumber = 2, total = 2, extraClass = '') => {
     if (!repeatHeaderOnSubsequentPages || headerBranding.continuationHeaderMode === 'none') {
       return null;
     }
     const quoteRef = quotation.formatted_quote_ref || quotation.quote_number || 'QT-DRAFT';
-    const subjectText = (quotation.subject || enquiry?.subject || '').trim();
+    const subjectText = resolveQuotationTokens(
+      (quotation.subject || enquiry?.subject || '').trim(),
+      tokenContext
+    );
     const contLogoHeight = headerBranding.continuationLogoHeightPx || 20;
     const dividerClass = headerBranding.showContinuationDivider
       ? 'border-b border-slate-200 pb-1.5'
@@ -2611,7 +2639,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     footerPresentation.customFooterPills.forEach((pill, pIdx) => {
       metaTokens.push(
         <span key={`custom_pill_${pIdx}`} className="font-medium text-slate-500">
-          {pill}
+          {renderResolvedQuotationText(pill, tokenContext)}
         </span>
       );
     });
@@ -2685,6 +2713,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             <span className="mt-1 sm:mt-0 italic">
               <EditableCanvasText
                 value={footerPresentation.customDisclaimer}
+                renderedDisplay={renderResolvedQuotationText(
+                  footerPresentation.customDisclaimer,
+                  tokenContext
+                )}
                 fieldKey="footer_disclaimer"
                 canEdit={canEditCanvasInline && isFooterSelected}
                 onCommit={onInlineFieldEdit}
@@ -2871,14 +2903,14 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             style={{ color: blockHdr.style.color || blockHdr.iconColor }}
           >
             {showIcon && <IconComp className="w-3.5 h-3.5 shrink-0" style={{ color: blockHdr.iconColor }} />}
-            <span>{titleText}</span>
+            <span>{renderResolvedQuotationText(titleText, tokenContext)}</span>
           </span>
           {subtitleText && (
             <span
               className="text-[calc(var(--block-base)*0.85)] italic opacity-80 shrink-0"
               style={{ color: blockHdr.style.color || undefined }}
             >
-              {subtitleText}
+              {renderResolvedQuotationText(subtitleText, tokenContext)}
             </span>
           )}
         </div>
@@ -3042,13 +3074,16 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         { key: string; label: string; value: React.ReactNode; isMono?: boolean; isBold?: boolean } | null
       > = {
         price_basis:
-          vis.price_basis !== false && priceBasis
+          vis.price_basis !== false &&
+          !isFieldOmitted('price_basis', omittedFields) &&
+          priceBasis
             ? {
                 key: 'price_basis',
                 label: labels.price_basis || 'Price Basis',
                 value: (
                   <EditableCanvasText
                     value={priceBasis}
+                    renderedDisplay={renderResolvedQuotationText(priceBasis, tokenContext)}
                     fieldKey="price_basis"
                     canEdit={canEditCanvasInline && isTermsBlockSelected}
                     onCommit={onInlineFieldEdit}
@@ -3057,13 +3092,16 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               }
             : null,
         payment_terms:
-          vis.payment_terms !== false && paymentTerms
+          vis.payment_terms !== false &&
+          !isFieldOmitted('payment_terms', omittedFields) &&
+          paymentTerms
             ? {
                 key: 'payment_terms',
                 label: labels.payment_terms || 'Payment Terms',
                 value: (
                   <EditableCanvasText
                     value={paymentTerms}
+                    renderedDisplay={renderResolvedQuotationText(paymentTerms, tokenContext)}
                     fieldKey="payment_terms"
                     canEdit={canEditCanvasInline && isTermsBlockSelected}
                     onCommit={onInlineFieldEdit}
@@ -3072,7 +3110,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               }
             : null,
         validity:
-          vis.validity !== false && validityText
+          vis.validity !== false &&
+          !isFieldOmitted('quote_validity', omittedFields) &&
+          validityText
             ? {
                 key: 'validity',
                 label: labels.validity || 'Validity',
@@ -3097,11 +3137,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       });
 
       (blockConfig?.customRows || []).forEach((cr) => {
-        if (cr.enabled !== false && (cr.label || cr.value)) {
+        if (!shouldHideCustomRow(cr, tokenContext) && (cr.label || cr.value)) {
           orderedRows.push({
             key: cr.id,
-            label: cr.label || 'Term',
-            value: cr.value
+            label: resolveQuotationTokens(cr.label || 'Term', tokenContext),
+            value: renderResolvedQuotationText(cr.value, tokenContext)
           });
         }
       });
@@ -3129,6 +3169,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               >
                 <EditableCanvasText
                   value={customNotes}
+                  renderedDisplay={renderResolvedQuotationText(customNotes, tokenContext)}
                   fieldKey="custom_notes"
                   canEdit={canEditCanvasInline && isTermsBlockSelected}
                   onCommit={onInlineFieldEdit}
@@ -3309,15 +3350,15 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
                       {/* Custom Financial Rows (e.g. Discount, Handling, Packing) */}
                       {(blockConfig?.customRows || []).map((cr) => {
-                        if (cr.enabled === false || (!cr.label && !cr.value)) return null;
+                        if (shouldHideCustomRow(cr, tokenContext) || (!cr.label && !cr.value)) return null;
                         return (
                           <div
                             key={cr.id}
                             className={`flex justify-between text-slate-600 py-0.5 ${rowBorderClass} text-[var(--block-base)]`}
                           >
-                            <span>{cr.label}:</span>
+                            <span>{resolveQuotationTokens(cr.label, tokenContext)}:</span>
                             <span className="font-mono tabular-nums font-semibold text-slate-800">
-                              {cr.value}
+                              {renderResolvedQuotationText(cr.value, tokenContext)}
                             </span>
                           </div>
                         );
@@ -3411,33 +3452,44 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       > = resolvedBank
         ? {
             bankName:
-              vis.bankName !== false && resolvedBank.bankName
+              vis.bankName !== false &&
+              vis.bank_name !== false &&
+              !isFieldOmitted('bank_name', omittedFields) &&
+              resolvedBank.bankName
                 ? {
                     key: 'bankName',
-                    label: labels.bankName || 'Bank',
+                    label: labels.bankName || labels.bank_name || 'Bank',
                     value: resolvedBank.bankName,
                     isBold: true
                   }
                 : null,
             beneficiaryName:
-              vis.beneficiaryName !== false && resolvedBank.beneficiaryName
+              vis.beneficiaryName !== false &&
+              vis.beneficiary !== false &&
+              !isFieldOmitted('account_name', omittedFields) &&
+              resolvedBank.beneficiaryName
                 ? {
                     key: 'beneficiaryName',
-                    label: labels.beneficiaryName || 'Beneficiary',
+                    label: labels.beneficiaryName || labels.beneficiary || 'Beneficiary',
                     value: resolvedBank.beneficiaryName
                   }
                 : null,
             accountNumber:
-              vis.accountNumber !== false && resolvedBank.accountNumber
+              vis.accountNumber !== false &&
+              vis.account_number !== false &&
+              !isFieldOmitted('account_no', omittedFields) &&
+              resolvedBank.accountNumber
                 ? {
                     key: 'accountNumber',
-                    label: labels.accountNumber || 'Account No',
+                    label: labels.accountNumber || labels.account_number || 'Account No',
                     value: resolvedBank.accountNumber,
                     isMono: true
                   }
                 : null,
             iban:
-              vis.iban !== false && resolvedBank.iban
+              vis.iban !== false &&
+              !isFieldOmitted('iban', omittedFields) &&
+              resolvedBank.iban
                 ? {
                     key: 'iban',
                     label: labels.iban || 'IBAN',
@@ -3447,19 +3499,24 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   }
                 : null,
             swiftCode:
-              vis.swiftCode !== false && resolvedBank.swiftCode
+              vis.swiftCode !== false &&
+              vis.swift !== false &&
+              !isFieldOmitted('swift', omittedFields) &&
+              resolvedBank.swiftCode
                 ? {
                     key: 'swiftCode',
-                    label: labels.swiftCode || 'SWIFT / BIC',
+                    label: labels.swiftCode || labels.swift || 'SWIFT / BIC',
                     value: resolvedBank.swiftCode,
                     isMono: true
                   }
                 : null,
             branchName:
-              vis.branchName !== false && resolvedBank.branchName
+              vis.branchName !== false &&
+              vis.branch !== false &&
+              resolvedBank.branchName
                 ? {
                     key: 'branchName',
-                    label: labels.branchName || 'Branch',
+                    label: labels.branchName || labels.branch || 'Branch',
                     value: resolvedBank.branchName
                   }
                 : null,
@@ -3500,11 +3557,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       });
 
       (blockConfig?.customRows || []).forEach((cr) => {
-        if (cr.enabled !== false && (cr.label || cr.value)) {
+        if (!shouldHideCustomRow(cr, tokenContext) && (cr.label || cr.value)) {
           orderedBankRows.push({
             key: cr.id,
-            label: cr.label || 'Detail',
-            value: cr.value
+            label: resolveQuotationTokens(cr.label || 'Detail', tokenContext),
+            value: renderResolvedQuotationText(cr.value, tokenContext)
           });
         }
       });
@@ -3530,7 +3587,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             )}
             {blockConfig?.customNote && blockConfig.customNote.trim() !== '' && (
               <p className="text-[calc(var(--block-base)*0.9)] text-slate-600 mt-2 pt-1.5 border-t border-slate-200/60 whitespace-pre-line">
-                {blockConfig.customNote}
+                {renderResolvedQuotationText(blockConfig.customNote, tokenContext)}
               </p>
             )}
           </div>
@@ -3570,9 +3627,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           ? resolvedFooterConfig.showForAndOnBehalf
           : footerLayoutMode === 'seller_only';
 
-      const forAndOnBehalfText =
+      const forAndOnBehalfText = renderResolvedQuotationText(
         (resolvedFooterConfig.forAndOnBehalfText && resolvedFooterConfig.forAndOnBehalfText.trim()) ||
-        `For and on behalf of ${senderEntityName || 'Company'}`;
+          `For and on behalf of ${senderEntityName || 'Company'}`,
+        tokenContext
+      );
 
       const showDateSignedLine = Boolean(resolvedFooterConfig.showDateSignedLine);
       const showSignatoryPhone = Boolean(resolvedFooterConfig.showSignatoryPhone);
@@ -3816,11 +3875,13 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   >
                     {line.label && contactFormat !== 'plain' ? (
                       <>
-                        <span className="text-slate-400 font-medium">{line.label}: </span>
-                        <span>{line.value}</span>
+                        <span className="text-slate-400 font-medium">
+                          {resolveQuotationTokens(line.label, tokenContext)}:{' '}
+                        </span>
+                        <span>{renderResolvedQuotationText(line.value, tokenContext)}</span>
                       </>
                     ) : (
-                      <span>{line.value}</span>
+                      <span>{renderResolvedQuotationText(line.value, tokenContext)}</span>
                     )}
                   </p>
                 ))}
@@ -4012,10 +4073,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       );
 
       (blockConfig?.customRows || []).forEach((cr) => {
-        if (cr.enabled !== false && (cr.label || cr.value)) {
+        if (!shouldHideCustomRow(cr, tokenContext) && (cr.label || cr.value)) {
           activeSlots.push({
             key: cr.id,
-            label: cr.label || cr.value || 'Field',
+            label: resolveQuotationTokens(cr.label || cr.value || 'Field', tokenContext),
             dotted: false,
             defaultOn: true
           });
@@ -4051,7 +4112,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               <p className="text-[var(--block-base)] text-slate-600 my-1 leading-snug">
                 {blockConfig?.acceptanceStatementOverride &&
                 blockConfig.acceptanceStatementOverride.trim() !== '' ? (
-                  blockConfig.acceptanceStatementOverride
+                  renderResolvedQuotationText(
+                    blockConfig.acceptanceStatementOverride,
+                    tokenContext
+                  )
                 ) : (
                   <>
                     We hereby accept and approve this commercial offer{' '}
@@ -4784,10 +4848,24 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       resolvedCardsOrder
     );
 
-    const showAttention = resolvedRecipientConfig.showAttention !== false;
-    const showSalesRep = resolvedRecipientConfig.showSalesRep !== false;
-    const showValidity = resolvedRecipientConfig.showValidity !== false;
-    const showEnquiryRef = resolvedRecipientConfig.showEnquiryRef !== false;
+    const showAttention =
+      resolvedRecipientConfig.showAttention !== false &&
+      !isFieldOmitted('contact_person', omittedFields);
+    const showSalesRep =
+      resolvedRecipientConfig.showSalesRep !== false &&
+      !isFieldOmitted('sales_person', omittedFields);
+    const showValidity =
+      resolvedRecipientConfig.showValidity !== false &&
+      !isFieldOmitted('valid_until', omittedFields);
+    const showEnquiryRef =
+      resolvedRecipientConfig.showEnquiryRef !== false &&
+      !isFieldOmitted('enquiry_ref', omittedFields);
+    const showClientTrn =
+      resolvedRecipientConfig.showCustomerTrn !== false &&
+      !isFieldOmitted('client_trn', omittedFields);
+    const showClientAddress = !isFieldOmitted('client_address', omittedFields);
+    const showClientPhone = !isFieldOmitted('client_phone', omittedFields);
+    const showClientEmail = !isFieldOmitted('client_email', omittedFields);
 
     const recipientCardBase = topCardsLayout.recipientCardClassName;
     const offerCardBase = topCardsLayout.offerCardClassName;
@@ -4795,10 +4873,15 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     const isOfferFullWidth = topCardsLayout.offerPlacement === 'full';
 
     const renderSubjectBanner = () => {
-      if (!Boolean(quotation.subject || enquiry?.subject) || resolvedRecipientConfig.showSubject === false) {
+      if (
+        !Boolean(quotation.subject || enquiry?.subject) ||
+        resolvedRecipientConfig.showSubject === false ||
+        isFieldOmitted('scope_summary', omittedFields)
+      ) {
         return null;
       }
       const isSubjectSelected = activeSelectedSection === 'subject';
+      const rawSubj = quotation.subject || enquiry?.subject || '';
       return (
         <div
           className={`mb-3 ${
@@ -4840,7 +4923,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           </span>
           <span className="text-slate-800 font-semibold">
             <EditableCanvasText
-              value={quotation.subject || enquiry?.subject || ''}
+              value={rawSubj}
+              renderedDisplay={renderResolvedQuotationText(rawSubj, tokenContext)}
               fieldKey="subject"
               canEdit={canEditCanvasInline && isSubjectSelected}
               onCommit={onInlineFieldEdit}
@@ -4909,32 +4993,38 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     </span>
                   </span>
                 )}
-                <p className={`${typoScale.body} text-slate-600 mt-0.5`}>
-                  <EditableCanvasText
-                    value={clientAddress}
-                    fieldKey="client_address"
-                    canEdit={canEditCanvasInline && isRecipientSelected}
-                    onCommit={onInlineFieldEdit}
-                  />
-                </p>
+                {showClientAddress && (
+                  <p className={`${typoScale.body} text-slate-600 mt-0.5`}>
+                    <EditableCanvasText
+                      value={clientAddress}
+                      fieldKey="client_address"
+                      canEdit={canEditCanvasInline && isRecipientSelected}
+                      onCommit={onInlineFieldEdit}
+                    />
+                  </p>
+                )}
               </div>
               <div className={`text-right shrink-0 ${typoScale.body} text-slate-600 space-y-0.5`}>
-                <p>
-                  <span className={`${typoScale.sub} text-slate-500 font-medium`}>
-                    TRN:{' '}
-                    <span className="text-slate-700 font-mono">
-                      <EditableCanvasText
-                        value={clientTrn || 'Not Registered'}
-                        fieldKey="client_trn"
-                        canEdit={canEditCanvasInline && isRecipientSelected}
-                        onCommit={onInlineFieldEdit}
-                      />
+                {showClientTrn && (
+                  <p>
+                    <span className={`${typoScale.sub} text-slate-500 font-medium`}>
+                      TRN:{' '}
+                      <span className="text-slate-700 font-mono">
+                        <EditableCanvasText
+                          value={clientTrn || 'Not Registered'}
+                          fieldKey="client_trn"
+                          canEdit={canEditCanvasInline && isRecipientSelected}
+                          onCommit={onInlineFieldEdit}
+                        />
+                      </span>
                     </span>
-                  </span>
-                </p>
-                {(clientPhone || clientEmail) && (
+                  </p>
+                )}
+                {((showClientPhone && clientPhone) || (showClientEmail && clientEmail)) && (
                   <p className={`text-slate-500 ${typoScale.sub}`}>
-                    {[clientPhone, clientEmail].filter(Boolean).join(' • ')}
+                    {[showClientPhone ? clientPhone : '', showClientEmail ? clientEmail : '']
+                      .filter(Boolean)
+                      .join(' • ')}
                   </p>
                 )}
               </div>
@@ -4950,14 +5040,16 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               >
                 Submitted To / Attention To
               </div>
-              <h3 className={`${typoScale.entityTitle} font-bold text-slate-900`}>
-                <EditableCanvasText
-                  value={clientEntityName}
-                  fieldKey="client_name"
-                  canEdit={canEditCanvasInline && isRecipientSelected}
-                  onCommit={onInlineFieldEdit}
-                />
-              </h3>
+              {!isFieldOmitted('client_name', omittedFields) && (
+                <h3 className={`${typoScale.entityTitle} font-bold text-slate-900`}>
+                  <EditableCanvasText
+                    value={clientEntityName}
+                    fieldKey="client_name"
+                    canEdit={canEditCanvasInline && isRecipientSelected}
+                    onCommit={onInlineFieldEdit}
+                  />
+                </h3>
+              )}
               {showAttention && (
                 <p className={`${typoScale.body} text-slate-700 font-medium mt-0.5`}>
                   Attn:{' '}
@@ -4971,35 +5063,43 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   </span>
                 </p>
               )}
-              <p className={`${typoScale.body} text-slate-600 mt-0.5`}>
-                <EditableCanvasText
-                  value={clientAddress}
-                  fieldKey="client_address"
-                  canEdit={canEditCanvasInline && isRecipientSelected}
-                  onCommit={onInlineFieldEdit}
-                />
-              </p>
-            </div>
-            <div className={`${typoScale.body} text-slate-600 space-y-0.5 ${isMinimal ? 'pt-1 mt-1' : 'pt-1.5 mt-1.5 border-t border-slate-200/60'}`}>
-              <p>
-                <span className={`${typoScale.sub} text-slate-500 font-medium`}>
-                  TRN:{' '}
-                  <span className="text-slate-700">
-                    <EditableCanvasText
-                      value={clientTrn || 'Not Registered'}
-                      fieldKey="client_trn"
-                      canEdit={canEditCanvasInline && isRecipientSelected}
-                      onCommit={onInlineFieldEdit}
-                    />
-                  </span>
-                </span>
-              </p>
-              {(clientPhone || clientEmail) && (
-                <p className={`text-slate-500 ${typoScale.sub}`}>
-                  {[clientPhone, clientEmail].filter(Boolean).join(' • ')}
+              {showClientAddress && (
+                <p className={`${typoScale.body} text-slate-600 mt-0.5`}>
+                  <EditableCanvasText
+                    value={clientAddress}
+                    fieldKey="client_address"
+                    canEdit={canEditCanvasInline && isRecipientSelected}
+                    onCommit={onInlineFieldEdit}
+                  />
                 </p>
               )}
             </div>
+            {(showClientTrn || (showClientPhone && clientPhone) || (showClientEmail && clientEmail)) && (
+              <div className={`${typoScale.body} text-slate-600 space-y-0.5 ${isMinimal ? 'pt-1 mt-1' : 'pt-1.5 mt-1.5 border-t border-slate-200/60'}`}>
+                {showClientTrn && (
+                  <p>
+                    <span className={`${typoScale.sub} text-slate-500 font-medium`}>
+                      TRN:{' '}
+                      <span className="text-slate-700">
+                        <EditableCanvasText
+                          value={clientTrn || 'Not Registered'}
+                          fieldKey="client_trn"
+                          canEdit={canEditCanvasInline && isRecipientSelected}
+                          onCommit={onInlineFieldEdit}
+                        />
+                      </span>
+                    </span>
+                  </p>
+                )}
+                {((showClientPhone && clientPhone) || (showClientEmail && clientEmail)) && (
+                  <p className={`text-slate-500 ${typoScale.sub}`}>
+                    {[showClientPhone ? clientPhone : '', showClientEmail ? clientEmail : '']
+                      .filter(Boolean)
+                      .join(' • ')}
+                  </p>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -5542,7 +5642,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                                     <>
                                       {cleanDescription && (
                                         <div className={`${tableFontSize} text-slate-600 mt-1 leading-snug break-words whitespace-pre-line font-normal`}>
-                                          {cleanDescription}
+                                          {renderResolvedQuotationText(cleanDescription, tokenContext)}
                                         </div>
                                       )}
                                       {/* Technical Specifications & Attributes Block */}
@@ -5823,7 +5923,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                                     Technical Scope &amp; Material Notes ({item.option || item.item_name}):
                                   </div>
                                   <div className={`${typoScale.sub} text-slate-700 whitespace-pre-line leading-relaxed`}>
-                                    {item.option_scope_notes}
+                                    {renderResolvedQuotationText(item.option_scope_notes, tokenContext)}
                                   </div>
                                 </td>
                               </tr>
@@ -5890,7 +5990,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                       Note ({group.optionKey}):
                     </div>
                     <div className={`${typoScale.sub} text-slate-700 whitespace-pre-line leading-relaxed`}>
-                      {groupScopeNotes.join('\n')}
+                      {renderResolvedQuotationText(groupScopeNotes.join('\n'), tokenContext)}
                     </div>
                   </div>
                 )}

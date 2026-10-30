@@ -55,8 +55,17 @@ import {
   DEFAULT_FOOTER_CONFIG,
   extractLineItemAttributesAndCleanDescription,
   resolveHeaderFields,
-  resolveStampSignatureOverlayConfig
+  resolveStampSignatureOverlayConfig,
+  amountToWords
 } from './QuotationDocument';
+import { AtMentionInput, AtMentionTextarea } from './AtMentionField';
+import {
+  QUOTATION_AT_TAGS,
+  QuotationTokenContext,
+  QuotationAtTagDefinition,
+  buildQuotationTokenMap,
+  findUnknownAtTokensInQuotation
+} from '../../utils/quotationTokenResolver';
 import {
   X,
   FileText,
@@ -105,7 +114,12 @@ import {
   Trash2,
   Star,
   Paperclip,
-  Upload
+  Upload,
+  AtSign,
+  Copy,
+  Eye,
+  EyeOff,
+  AlertTriangle
 } from 'lucide-react';
 
 export interface QuotationStudioModalProps {
@@ -475,6 +489,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
   const [activeLeftTab, setActiveLeftTab] = useState<'structure' | 'content'>('structure');
   const [showPageBreakGuides, setShowPageBreakGuides] = useState<boolean>(true);
+  const [omittedFields, setOmittedFields] = useState<Record<string, boolean>>(() =>
+    editingQuotation?.omitted_fields ? { ...editingQuotation.omitted_fields } : {}
+  );
+  const [isIncludeOmitOpen, setIsIncludeOmitOpen] = useState<boolean>(true);
+  const [copiedTagKey, setCopiedTagKey] = useState<string | null>(null);
+  const [pendingPrintWarnings, setPendingPrintWarnings] = useState<
+    Array<{ token: string; location: string }> | null
+  >(null);
 
   const handleToggleBlockEnabled = (id: QuotationBlockId, enabled: boolean) => {
     setLayoutBlocks((prev) =>
@@ -1111,6 +1133,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       if (hydrated.customThemeColor !== undefined) {
         setCustomThemeColor(hydrated.customThemeColor || '');
       }
+      setOmittedFields(hydrated.omittedFields ? { ...hydrated.omittedFields } : {});
 
       if (targetQuote) {
         setClientContactPerson(
@@ -1798,6 +1821,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     if (preset.option_group_titles) setOptionGroupTitles(preset.option_group_titles);
     if (typeof preset.show_combined_options_total === 'boolean') {
       setShowCombinedOptionsTotal(preset.show_combined_options_total);
+    }
+    if (preset.omitted_fields) {
+      setOmittedFields({ ...preset.omitted_fields });
     }
   };
 
@@ -2611,6 +2637,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         ...(signatureImageUrl ? { signatureImageUrl } : {})
       },
       visible_columns: visibleColumns,
+      omitted_fields: omittedFields,
       created_at: editingQuotation?.created_at || new Date().toISOString(),
       valid_until: validUntilDate,
       currency: (enquiry.currency as string) || activeBankAccount?.currency || 'AED'
@@ -2661,6 +2688,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     recipientConfig,
     footerConfig,
     visibleColumns,
+    omittedFields,
     clientContactPerson,
     clientNameOverride,
     clientAddressOverride,
@@ -2677,6 +2705,104 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     formattedQuoteRefOverride,
     quotationStatus
   ]);
+
+  // Smart '@' Token Resolution Context & Map
+  const studioTokenContext = useMemo<QuotationTokenContext>(
+    () => ({
+      quotation: liveQuotation,
+      enquiry,
+      profile: activeProfile,
+      omittedFields,
+      activeBank: activeBankAccount || undefined,
+      amountInWordsText: amountToWords(
+        Number(liveQuotation.grand_total || 0),
+        liveQuotation.currency || 'AED'
+      )
+    }),
+    [liveQuotation, enquiry, activeProfile, omittedFields, activeBankAccount]
+  );
+
+  const studioTokenMap = useMemo(
+    () => buildQuotationTokenMap(studioTokenContext),
+    [studioTokenContext]
+  );
+
+  // 2-Way Synchronized Field Omission Toggle: updates omittedFields AND structural card/block visibility
+  const handleToggleFieldOmission = useCallback(
+    (tagDef: QuotationAtTagDefinition) => {
+      const willBeOmitted = !omittedFields[tagDef.key];
+      const willBeVisible = !willBeOmitted;
+      setOmittedFields((prev) => ({
+        ...prev,
+        [tagDef.key]: willBeOmitted
+      }));
+
+      const sync = tagDef.structuralSyncTarget;
+      if (!sync) return;
+
+      if (sync === 'recipient.contact_person') {
+        setRecipientConfig((prev) => ({ ...prev, showAttention: willBeVisible }));
+      } else if (sync === 'recipient.trn') {
+        setRecipientConfig((prev) => ({ ...prev, showCustomerTrn: willBeVisible }));
+      } else if (sync === 'offer.enquiry_ref') {
+        setRecipientConfig((prev) => ({ ...prev, showEnquiryRef: willBeVisible }));
+      } else if (sync === 'offer.valid_until') {
+        setRecipientConfig((prev) => ({ ...prev, showValidity: willBeVisible }));
+      } else if (sync === 'offer.sales_person') {
+        setRecipientConfig((prev) => ({ ...prev, showSalesRep: willBeVisible }));
+      } else if (sync === 'subject.banner') {
+        setRecipientConfig((prev) => ({ ...prev, showSubject: willBeVisible }));
+      } else if (sync === 'header.company_name') {
+        setHeaderConfig((prev) => ({ ...prev, showCompanyName: willBeVisible }));
+      } else if (sync === 'header.trn') {
+        setHeaderConfig((prev) => ({ ...prev, showTrn: willBeVisible }));
+      } else if (sync === 'header.phone') {
+        setHeaderConfig((prev) => ({ ...prev, showPhone: willBeVisible }));
+      } else if (sync === 'header.email') {
+        setHeaderConfig((prev) => ({ ...prev, showEmail: willBeVisible }));
+      } else if (sync.startsWith('terms.')) {
+        const fieldKey = sync.replace('terms.', '');
+        setLayoutBlocks((prev) =>
+          prev.map((b) =>
+            b.id === 'terms'
+              ? {
+                  ...b,
+                  visibleFields: {
+                    ...(b.visibleFields || {}),
+                    [fieldKey]: willBeVisible
+                  }
+                }
+              : b
+          )
+        );
+      } else if (sync.startsWith('remittance.')) {
+        const fieldKey = sync.replace('remittance.', '');
+        setLayoutBlocks((prev) =>
+          prev.map((b) =>
+            b.id === 'remittance'
+              ? {
+                  ...b,
+                  visibleFields: {
+                    ...(b.visibleFields || {}),
+                    [fieldKey]: willBeVisible
+                  }
+                }
+              : b
+          )
+        );
+      }
+    },
+    [omittedFields]
+  );
+
+  const handleRequestPrint = useCallback(() => {
+    const warnings = findUnknownAtTokensInQuotation(liveQuotation);
+    if (warnings.length > 0) {
+      setPendingPrintWarnings(warnings);
+    } else {
+      window.print();
+    }
+  }, [liveQuotation]);
 
   // Direct On-Canvas Click-to-Edit Handler for Focused Section / Block Text
   const handleInlineFieldEdit = useCallback(
@@ -2765,11 +2891,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     );
   };
 
-  // One-click deep-clone revision handler (R1 -> R2, etc.)
+  // One-click deep-clone revision handler (R1 -> R2, etc.) — refreshes snapshot from live enquiry/profile for the new Draft revision
   const handleCloneAsNextRevision = () => {
     const cloned = QuotationRepository.cloneQuotationAsNextRevision(
       liveQuotation,
-      enquiryRevisions
+      enquiryRevisions,
+      { enquiry, profile: activeProfile }
     );
     setEnquiryRevisions((prev) => {
       const withCurrent = prev.some((q) => q.id === liveQuotation.id)
@@ -2887,6 +3014,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           ...(signatureImageUrl ? { signatureImageUrl } : {})
         },
         visible_columns: visibleColumns as any,
+        omitted_fields: omittedFields,
         created_at: editingQuotation?.created_at || new Date().toISOString(),
         valid_until: liveQuotation.valid_until,
         currency: liveQuotation.currency
@@ -3022,7 +3150,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         selectedBank: activeBankProfile,
         ...(companySealUrl ? { companySealUrl } : {}),
         ...(signatureImageUrl ? { signatureImageUrl } : {})
-      }
+      },
+      omitted_fields: omittedFields
     });
   };
 
@@ -4458,6 +4587,180 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               ) : (
                 <>
                   {/* TAB 2: Deal Data & Content */}
+                  {/* Card 0: Smart '@' Fields — Include / Omit Checklist */}
+                  <div className="border border-blue-200/90 rounded-xl bg-white shadow-2xs overflow-hidden text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setIsIncludeOmitOpen((prev) => !prev)}
+                      className="w-full px-4 py-3 bg-blue-50/60 hover:bg-blue-50/90 border-b border-blue-100 flex items-center justify-between gap-2 transition cursor-pointer text-left"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-6 h-6 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0">
+                          <AtSign className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="min-w-0">
+                          <span className="font-bold text-slate-900 text-xs block leading-tight">
+                            Document Data &amp; <span className="font-mono text-blue-700">@</span> Fields (Include / Omit)
+                          </span>
+                          <span className="text-[10px] text-slate-500 block mt-0.5 truncate">
+                            Type <span className="font-mono font-semibold text-blue-700">@</span> in any field or toggle visibility below
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {(() => {
+                          const omittedCount = QUOTATION_AT_TAGS.filter((t) => Boolean(omittedFields[t.key])).length;
+                          const includedCount = QUOTATION_AT_TAGS.length - omittedCount;
+                          return (
+                            <span className="px-2 py-0.5 rounded-md bg-white border border-blue-200 text-[10px] font-mono font-semibold text-blue-800">
+                              {includedCount} Active{omittedCount > 0 ? ` • ${omittedCount} Omitted` : ''}
+                            </span>
+                          );
+                        })()}
+                        {isIncludeOmitOpen ? (
+                          <ChevronUp className="w-4 h-4 text-slate-500" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4 text-slate-500" />
+                        )}
+                      </div>
+                    </button>
+
+                    {isIncludeOmitOpen && (
+                      <div className="p-3.5 space-y-3">
+                        <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200/80 flex items-center justify-between gap-2 text-[10.5px] text-slate-600">
+                          <span>
+                            Omitted or empty <span className="font-mono font-semibold text-blue-700">@tags</span> resolve cleanly to <strong className="font-mono text-slate-800">—</strong> on the quote and sync with card field visibility.
+                          </span>
+                          {Object.values(omittedFields).some(Boolean) && (
+                            <button
+                              type="button"
+                              onClick={() => setOmittedFields({})}
+                              className="px-2 py-0.5 rounded bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 font-semibold text-[10px] shrink-0 cursor-pointer"
+                            >
+                              Include All
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="max-h-72 overflow-y-auto pr-0.5 space-y-3">
+                          {(
+                            [
+                              'Dates',
+                              'Client & Project',
+                              'Our Company & Quote',
+                              'Commercial, Bank & Totals'
+                            ] as const
+                          ).map((cat) => {
+                            const items = QUOTATION_AT_TAGS.filter((t) => t.category === cat);
+                            if (items.length === 0) return null;
+                            return (
+                              <div key={cat} className="space-y-1">
+                                <div className="text-[9.5px] font-mono font-bold uppercase tracking-wider text-slate-400 px-1">
+                                  {cat}
+                                </div>
+                                <div className="space-y-1">
+                                  {items.map((item) => {
+                                    const isOmitted = Boolean(omittedFields[item.key]);
+                                    const rawVal = studioTokenMap[item.key] || '';
+                                    const isCopied = copiedTagKey === item.key;
+                                    return (
+                                      <div
+                                        key={item.key}
+                                        className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border transition ${
+                                          isOmitted
+                                            ? 'bg-amber-50/40 border-amber-200/80 opacity-75'
+                                            : 'bg-slate-50/70 hover:bg-slate-50 border-slate-200/80'
+                                        }`}
+                                      >
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="font-mono font-bold text-[10.5px] text-blue-700">
+                                              @{item.key}
+                                            </span>
+                                            <span className="text-[10.5px] font-medium text-slate-700 truncate">
+                                              {item.label}
+                                            </span>
+                                          </div>
+                                          <div className="text-[10px] font-mono truncate mt-0.5">
+                                            {isOmitted ? (
+                                              <span className="text-amber-700 font-semibold">
+                                                — (Omitted on Quote)
+                                              </span>
+                                            ) : rawVal ? (
+                                              <span className="text-slate-600">{rawVal}</span>
+                                            ) : (
+                                              <span className="text-slate-400 italic">— (Empty)</span>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              navigator.clipboard?.writeText(`@${item.key}`);
+                                              setCopiedTagKey(item.key);
+                                              window.setTimeout(() => {
+                                                setCopiedTagKey((prev) =>
+                                                  prev === item.key ? null : prev
+                                                );
+                                              }, 1400);
+                                            }}
+                                            title={`Copy @${item.key}`}
+                                            className="px-1.5 py-1 rounded-md bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 text-[9.5px] font-mono flex items-center gap-0.5 cursor-pointer transition"
+                                          >
+                                            {isCopied ? (
+                                              <>
+                                                <Check className="w-2.5 h-2.5 text-emerald-600" />
+                                                <span className="text-emerald-700 font-semibold">Copied</span>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Copy className="w-2.5 h-2.5" />
+                                                <span>Copy</span>
+                                              </>
+                                            )}
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            onClick={() => handleToggleFieldOmission(item)}
+                                            title={
+                                              isOmitted
+                                                ? `Click to Include @${item.key} on Quote`
+                                                : `Click to Omit @${item.key} (resolves to — and hides linked card field)`
+                                            }
+                                            className={`px-2 py-1 rounded-md border text-[9.5px] font-semibold flex items-center gap-1 cursor-pointer transition ${
+                                              isOmitted
+                                                ? 'bg-amber-100/80 border-amber-300 text-amber-900 hover:bg-amber-200/70'
+                                                : 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                                            }`}
+                                          >
+                                            {isOmitted ? (
+                                              <>
+                                                <EyeOff className="w-3 h-3 text-amber-700" />
+                                                <span>Omitted</span>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Eye className="w-3 h-3 text-emerald-600" />
+                                                <span>Included</span>
+                                              </>
+                                            )}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Card 1: Tax & Financial Adjustments */}
                   <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-3.5">
                     <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
@@ -4503,30 +4806,46 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Card 2: Commercial Terms & Validity */}
+                  {/* Card 2: Subject, Commercial Terms & Validity */}
                   <div className="border border-slate-200 rounded-xl p-4 bg-white space-y-3 text-xs shadow-2xs">
                     <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
                       <FileCheck className="w-3.5 h-3.5 text-blue-600" />
-                      Commercial Terms &amp; Validity
+                      Subject, Commercial Terms &amp; Validity
                     </span>
                     <div>
-                      <label className="block text-slate-500 font-medium mb-1">Price Basis</label>
-                      <input
-                        type="text"
-                        value={priceBasis}
-                        onChange={(e) => setPriceBasis(e.target.value)}
-                        placeholder="e.g., Ex-Works Dubai / Delivered Site"
-                        className="w-full rounded-lg border border-slate-300 p-2 text-slate-800"
+                      <label className="block text-slate-500 font-medium mb-1">
+                        Quotation Subject / Project Scope <span className="text-[10px] font-mono text-blue-600">(Type @ for tags)</span>
+                      </label>
+                      <AtMentionInput
+                        value={quotationSubject}
+                        onChange={setQuotationSubject}
+                        tokenContext={studioTokenContext}
+                        placeholder="e.g., Supply of RO Equipment for @project_name — Ref @enquiry_ref"
+                        className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
                       />
                     </div>
                     <div>
-                      <label className="block text-slate-500 font-medium mb-1">Payment Terms</label>
-                      <input
-                        type="text"
+                      <label className="block text-slate-500 font-medium mb-1">
+                        Price Basis <span className="text-[10px] font-mono text-blue-600">(Type @ for tags)</span>
+                      </label>
+                      <AtMentionInput
+                        value={priceBasis}
+                        onChange={setPriceBasis}
+                        tokenContext={studioTokenContext}
+                        placeholder="e.g., Ex-Works Dubai / Delivered to @project_location"
+                        className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-500 font-medium mb-1">
+                        Payment Terms <span className="text-[10px] font-mono text-blue-600">(Type @ for tags)</span>
+                      </label>
+                      <AtMentionInput
                         value={paymentTerms}
-                        onChange={(e) => setPaymentTerms(e.target.value)}
+                        onChange={setPaymentTerms}
+                        tokenContext={studioTokenContext}
                         placeholder="e.g., 100% Advance / 30 Days Net"
-                        className="w-full rounded-lg border border-slate-300 p-2 text-slate-800"
+                        className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
                       />
                     </div>
                     <div>
@@ -4541,12 +4860,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       />
                     </div>
                     <div>
-                      <label className="block text-slate-500 font-medium mb-1">Custom Notes / Scope Disclaimer</label>
-                      <textarea
+                      <label className="block text-slate-500 font-medium mb-1">
+                        Custom Notes / Scope Disclaimer <span className="text-[10px] font-mono text-blue-600">(Type @ for tags)</span>
+                      </label>
+                      <AtMentionTextarea
                         rows={3}
                         value={customNotes}
-                        onChange={(e) => setCustomNotes(e.target.value)}
-                        placeholder="Optional remarks, warranty periods, delivery timeline..."
+                        onChange={setCustomNotes}
+                        tokenContext={studioTokenContext}
+                        placeholder="Optional remarks, warranty periods, delivery timeline... Type @ to insert live fields like @valid_until or @bank_iban"
                         className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
                       />
                     </div>
@@ -5273,7 +5595,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 {/* Print Document */}
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={handleRequestPrint}
                   className="px-2.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 font-semibold rounded-lg text-xs flex items-center gap-1.5 transition ml-1 shadow-2xs cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5 text-slate-500" />
@@ -7142,15 +7464,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       <p className="text-[10.5px] text-slate-500 leading-normal">
                         Concise summary of project scope, enquiry equipment or job reference.
                       </p>
-                      <textarea
+                      <AtMentionTextarea
                         rows={3}
                         value={quotationSubject}
-                        onChange={(e) => setQuotationSubject(e.target.value)}
-                        placeholder="e.g. Proposal for RO Equipment – Job 3463"
+                        onChange={setQuotationSubject}
+                        tokenContext={studioTokenContext}
+                        placeholder="e.g. Proposal for RO Equipment – @project_name"
                         className="w-full px-2.5 py-2 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs leading-relaxed resize-none"
                       />
                       <p className="text-[10px] text-slate-400">
-                        Inherited automatically from customer enquiry subject if available.
+                        Inherited automatically from customer enquiry subject if available. Type <span className="font-mono text-blue-600">@</span> to insert live fields.
                       </p>
                     </div>
 
@@ -7507,17 +7830,18 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       <p className="text-[10.5px] text-slate-500 leading-normal">
                         Custom legal baseline text printed at the bottom of each page.
                       </p>
-                      <textarea
+                      <AtMentionTextarea
                         rows={3}
                         value={footerConfig.customDisclaimer ?? DEFAULT_FOOTER_CONFIG.customDisclaimer ?? ''}
-                        onChange={(e) =>
+                        onChange={(nextVal) =>
                           setFooterConfig((prev) => ({
                             ...prev,
-                            customDisclaimer: e.target.value
+                            customDisclaimer: nextVal
                           }))
                         }
+                        tokenContext={studioTokenContext}
                         className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition resize-none"
-                        placeholder="Enter custom micro-footer disclaimer..."
+                        placeholder="Enter custom micro-footer disclaimer... Type @ for live tags"
                       />
                     </div>
 
@@ -8969,19 +9293,20 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 </label>
                               </div>
 
-                              <div className="grid grid-cols-2 gap-1.5">
+                                <div className="grid grid-cols-2 gap-1.5">
                                 <div>
                                   <label className="block text-[9.5px] font-semibold text-slate-500 mb-0.5">
                                     Section Heading
                                   </label>
-                                  <input
-                                    type="text"
+                                  <AtMentionInput
                                     value={selectedBlock.titleOverride ?? ''}
-                                    onChange={(e) =>
+                                    onChange={(val) =>
                                       handleUpdateBlockConfig(selectedBlock.id, {
-                                        titleOverride: e.target.value
+                                        titleOverride: val
                                       })
                                     }
+                                    tokenContext={studioTokenContext}
+                                    compact
                                     placeholder={
                                       selectedBlock.id === 'terms'
                                         ? 'Commercial Terms & Conditions'
@@ -9000,14 +9325,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   <label className="block text-[9.5px] font-semibold text-slate-500 mb-0.5">
                                     Right Subtitle (opt)
                                   </label>
-                                  <input
-                                    type="text"
+                                  <AtMentionInput
                                     value={selectedBlock.subtitleOverride ?? ''}
-                                    onChange={(e) =>
+                                    onChange={(val) =>
                                       handleUpdateBlockConfig(selectedBlock.id, {
-                                        subtitleOverride: e.target.value
+                                        subtitleOverride: val
                                       })
                                     }
+                                    tokenContext={studioTokenContext}
+                                    compact
                                     placeholder={
                                       selectedBlock.id === 'acceptance'
                                         ? 'Sign & Return Copy with PO'
@@ -9281,16 +9607,28 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                             </div>
                                             {isChecked && (
                                               <div className="flex items-center gap-1.5">
-                                                <input
-                                                  type={meta.isNumber ? 'number' : 'text'}
-                                                  value={meta.value ?? ''}
-                                                  onChange={(e) => meta.onChange(e.target.value)}
-                                                  className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[11px] text-slate-800"
-                                                />
-                                                {meta.isNumber && (
-                                                  <span className="text-[10px] font-semibold text-slate-500 shrink-0">
-                                                    Days
-                                                  </span>
+                                                {meta.isNumber ? (
+                                                  <>
+                                                    <input
+                                                      type="number"
+                                                      value={meta.value ?? ''}
+                                                      onChange={(e) => meta.onChange(e.target.value)}
+                                                      className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[11px] text-slate-800"
+                                                    />
+                                                    <span className="text-[10px] font-semibold text-slate-500 shrink-0">
+                                                      Days
+                                                    </span>
+                                                  </>
+                                                ) : (
+                                                  <div className="w-full">
+                                                    <AtMentionInput
+                                                      value={meta.value ?? ''}
+                                                      onChange={(val) => meta.onChange(val)}
+                                                      tokenContext={studioTokenContext}
+                                                      compact
+                                                      className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[11px] text-slate-800"
+                                                    />
+                                                  </div>
                                                 )}
                                               </div>
                                             )}
@@ -9319,11 +9657,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         />
                                       </label>
                                       {vis.clauses !== false && (
-                                        <textarea
+                                        <AtMentionTextarea
                                           rows={3}
                                           value={customNotes ?? ''}
-                                          onChange={(e) => setCustomNotes(e.target.value)}
-                                          placeholder="1. All supplied items carry standard warranty..."
+                                          onChange={setCustomNotes}
+                                          tokenContext={studioTokenContext}
+                                          compact
+                                          placeholder="1. All supplied items carry standard warranty... Type @ for tags"
                                           className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
                                         />
                                       )}
@@ -9385,18 +9725,42 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       placeholder="Label"
                                       className="w-24 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-700"
                                     />
-                                    <input
-                                      type="text"
-                                      value={row.value ?? ''}
-                                      onChange={(e) => {
+                                    <div className="flex-1 min-w-0">
+                                      <AtMentionInput
+                                        value={row.value ?? ''}
+                                        onChange={(val) => {
+                                          const updated = (selectedBlock.customRows || []).map((item, i) =>
+                                            i === rIdx ? { ...item, value: val } : item
+                                          );
+                                          handleUpdateBlockConfig('terms', { customRows: updated });
+                                        }}
+                                        tokenContext={studioTokenContext}
+                                        compact
+                                        placeholder="Value or @tag"
+                                        className="w-full px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-800"
+                                      />
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
                                         const updated = (selectedBlock.customRows || []).map((item, i) =>
-                                          i === rIdx ? { ...item, value: e.target.value } : item
+                                          i === rIdx ? { ...item, hideIfEmpty: !item.hideIfEmpty } : item
                                         );
                                         handleUpdateBlockConfig('terms', { customRows: updated });
                                       }}
-                                      placeholder="Value"
-                                      className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-800"
-                                    />
+                                      title={
+                                        row.hideIfEmpty
+                                          ? 'Row auto-hides when @tag is empty/omitted (Click to show — dash instead)'
+                                          : 'Row shows — dash when @tag is empty/omitted (Click to auto-hide row if empty)'
+                                      }
+                                      className={`px-1 py-0.5 rounded text-[9px] font-mono border cursor-pointer shrink-0 ${
+                                        row.hideIfEmpty
+                                          ? 'bg-amber-50 border-amber-300 text-amber-800 font-semibold'
+                                          : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
+                                      }`}
+                                    >
+                                      {row.hideIfEmpty ? 'Hide ∅' : 'Show —'}
+                                    </button>
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -9526,18 +9890,42 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       placeholder="Label"
                                       className="w-28 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-700"
                                     />
-                                    <input
-                                      type="text"
-                                      value={row.value ?? ''}
-                                      onChange={(e) => {
+                                    <div className="flex-1 min-w-0">
+                                      <AtMentionInput
+                                        value={row.value ?? ''}
+                                        onChange={(val) => {
+                                          const updated = (selectedBlock.customRows || []).map((item, i) =>
+                                            i === rIdx ? { ...item, value: val } : item
+                                          );
+                                          handleUpdateBlockConfig('totals', { customRows: updated });
+                                        }}
+                                        tokenContext={studioTokenContext}
+                                        compact
+                                        placeholder="Value or @tag"
+                                        className="w-full px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-800"
+                                      />
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
                                         const updated = (selectedBlock.customRows || []).map((item, i) =>
-                                          i === rIdx ? { ...item, value: e.target.value } : item
+                                          i === rIdx ? { ...item, hideIfEmpty: !item.hideIfEmpty } : item
                                         );
                                         handleUpdateBlockConfig('totals', { customRows: updated });
                                       }}
-                                      placeholder="Value"
-                                      className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-800"
-                                    />
+                                      title={
+                                        row.hideIfEmpty
+                                          ? 'Row auto-hides when @tag is empty/omitted (Click to show — dash instead)'
+                                          : 'Row shows — dash when @tag is empty/omitted (Click to auto-hide row if empty)'
+                                      }
+                                      className={`px-1 py-0.5 rounded text-[9px] font-mono border cursor-pointer shrink-0 ${
+                                        row.hideIfEmpty
+                                          ? 'bg-amber-50 border-amber-300 text-amber-800 font-semibold'
+                                          : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
+                                      }`}
+                                    >
+                                      {row.hideIfEmpty ? 'Hide ∅' : 'Show —'}
+                                    </button>
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -9613,15 +10001,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   />
                                 </label>
                                 {(selectedBlock.visibleFields || {}).statement !== false && (
-                                  <textarea
+                                  <AtMentionTextarea
                                     rows={2}
                                     value={selectedBlock.acceptanceStatementOverride ?? ''}
-                                    onChange={(e) =>
+                                    onChange={(val) =>
                                       handleUpdateBlockConfig('acceptance', {
-                                        acceptanceStatementOverride: e.target.value
+                                        acceptanceStatementOverride: val
                                       })
                                     }
-                                    placeholder="We hereby accept the above commercial offer..."
+                                    tokenContext={studioTokenContext}
+                                    compact
+                                    placeholder="We hereby accept the above commercial offer... Type @ for tags"
                                     className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
                                   />
                                 )}
@@ -9709,18 +10099,21 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     key={row.id || rIdx}
                                     className="flex items-center gap-1 bg-slate-50 p-1.5 rounded border border-slate-200"
                                   >
-                                    <input
-                                      type="text"
-                                      value={row.label ?? ''}
-                                      onChange={(e) => {
-                                        const updated = (selectedBlock.customRows || []).map((item, i) =>
-                                          i === rIdx ? { ...item, label: e.target.value } : item
-                                        );
-                                        handleUpdateBlockConfig('acceptance', { customRows: updated });
-                                      }}
-                                      placeholder="Slot Label"
-                                      className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-700"
-                                    />
+                                    <div className="flex-1 min-w-0">
+                                      <AtMentionInput
+                                        value={row.label ?? ''}
+                                        onChange={(val) => {
+                                          const updated = (selectedBlock.customRows || []).map((item, i) =>
+                                            i === rIdx ? { ...item, label: val } : item
+                                          );
+                                          handleUpdateBlockConfig('acceptance', { customRows: updated });
+                                        }}
+                                        tokenContext={studioTokenContext}
+                                        compact
+                                        placeholder="Slot Label or @tag"
+                                        className="w-full px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-700"
+                                      />
+                                    </div>
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -10605,20 +10998,21 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   </label>
 
                                   {footerConfig.showForAndOnBehalf && (
-                                    <input
-                                      type="text"
+                                    <AtMentionInput
                                       value={footerConfig.forAndOnBehalfText || ''}
-                                      onChange={(e) =>
+                                      onChange={(val) =>
                                         setFooterConfig((prev) => ({
                                           ...prev,
-                                          forAndOnBehalfText: e.target.value
+                                          forAndOnBehalfText: val
                                         }))
                                       }
+                                      tokenContext={studioTokenContext}
+                                      compact
                                       placeholder={`For and on behalf of ${
                                         headerConfig.companyNameOverride ||
                                         activeProfile?.company_name ||
                                         activeWorkspace?.company_name ||
-                                        'Company'
+                                        '@our_company'
                                       }`}
                                       className="w-full px-2 py-1 rounded-md border border-slate-300 bg-white text-[11px] text-slate-800"
                                     />
@@ -10723,21 +11117,23 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                             placeholder="Label (opt)"
                                             className="w-20 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-700"
                                           />
-                                          <input
-                                            type="text"
-                                            value={line.value ?? ''}
-                                            onChange={(e) => {
-                                              const val = e.target.value;
-                                              setFooterConfig((prev) => ({
-                                                ...prev,
-                                                signatoryCustomLines: (prev.signatoryCustomLines || []).map(
-                                                  (item, i) => (i === lIdx ? { ...item, value: val } : item)
-                                                )
-                                              }));
-                                            }}
-                                            placeholder="Value (e.g. Eng. Dept)"
-                                            className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-800"
-                                          />
+                                          <div className="flex-1 min-w-0">
+                                            <AtMentionInput
+                                              value={line.value ?? ''}
+                                              onChange={(val) => {
+                                                setFooterConfig((prev) => ({
+                                                  ...prev,
+                                                  signatoryCustomLines: (prev.signatoryCustomLines || []).map(
+                                                    (item, i) => (i === lIdx ? { ...item, value: val } : item)
+                                                  )
+                                                }));
+                                              }}
+                                              tokenContext={studioTokenContext}
+                                              compact
+                                              placeholder="Value or @tag"
+                                              className="w-full px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-800"
+                                            />
+                                          </div>
                                           <button
                                             type="button"
                                             onClick={() =>
@@ -11018,18 +11414,42 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       placeholder="Label"
                                       className="w-24 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-700"
                                     />
-                                    <input
-                                      type="text"
-                                      value={row.value ?? ''}
-                                      onChange={(e) => {
+                                    <div className="flex-1 min-w-0">
+                                      <AtMentionInput
+                                        value={row.value ?? ''}
+                                        onChange={(val) => {
+                                          const updated = (selectedBlock.customRows || []).map((item, i) =>
+                                            i === rIdx ? { ...item, value: val } : item
+                                          );
+                                          handleUpdateBlockConfig('remittance', { customRows: updated });
+                                        }}
+                                        tokenContext={studioTokenContext}
+                                        compact
+                                        placeholder="Value or @tag"
+                                        className="w-full px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-800"
+                                      />
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
                                         const updated = (selectedBlock.customRows || []).map((item, i) =>
-                                          i === rIdx ? { ...item, value: e.target.value } : item
+                                          i === rIdx ? { ...item, hideIfEmpty: !item.hideIfEmpty } : item
                                         );
                                         handleUpdateBlockConfig('remittance', { customRows: updated });
                                       }}
-                                      placeholder="Value"
-                                      className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-800"
-                                    />
+                                      title={
+                                        row.hideIfEmpty
+                                          ? 'Row auto-hides when @tag is empty/omitted (Click to show — dash instead)'
+                                          : 'Row shows — dash when @tag is empty/omitted (Click to auto-hide row if empty)'
+                                      }
+                                      className={`px-1 py-0.5 rounded text-[9px] font-mono border cursor-pointer shrink-0 ${
+                                        row.hideIfEmpty
+                                          ? 'bg-amber-50 border-amber-300 text-amber-800 font-semibold'
+                                          : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
+                                      }`}
+                                    >
+                                      {row.hideIfEmpty ? 'Hide ∅' : 'Show —'}
+                                    </button>
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -11051,15 +11471,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 <label className="block text-[10px] font-semibold text-slate-600">
                                   Remittance Footer Note (opt)
                                 </label>
-                                <input
-                                  type="text"
+                                <AtMentionInput
                                   value={selectedBlock.customNote ?? ''}
-                                  onChange={(e) =>
+                                  onChange={(val) =>
                                     handleUpdateBlockConfig('remittance', {
-                                      customNote: e.target.value
+                                      customNote: val
                                     })
                                   }
-                                  placeholder="e.g. Please quote Quotation Ref on wire transfer."
+                                  tokenContext={studioTokenContext}
+                                  compact
+                                  placeholder="e.g. Please quote @quote_ref on wire transfer."
                                   className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
                                 />
                               </div>
@@ -11188,6 +11609,73 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           </div>
         </div>
       )}
+      {/* Pre-Print Unknown @Tag Warning Modal */}
+      {pendingPrintWarnings && pendingPrintWarnings.length > 0 && (
+        <div className="fixed inset-0 z-70 bg-slate-900/60 backdrop-blur-2xs flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-rose-200 p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">
+                    Unrecognized <span className="font-mono text-rose-600">@tag</span> Detected
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Review before printing or exporting to PDF
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingPrintWarnings(null)}
+                className="text-slate-400 hover:text-slate-700 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              The following <span className="font-mono font-semibold text-rose-700">@tags</span> do not match any known Quotation Studio field and may be typos:
+            </p>
+
+            <div className="max-h-44 overflow-y-auto space-y-1.5 bg-rose-50/50 border border-rose-200/80 rounded-xl p-3">
+              {pendingPrintWarnings.map((w, idx) => (
+                <div
+                  key={`${w.token}_${idx}`}
+                  className="flex items-center justify-between gap-2 text-xs bg-white px-2.5 py-1.5 rounded-lg border border-rose-200"
+                >
+                  <span className="font-mono font-bold text-rose-700">{w.token}</span>
+                  <span className="text-[11px] text-slate-500 truncate">{w.location}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setPendingPrintWarnings(null)}
+                className="px-3.5 py-2 border border-slate-300 text-slate-700 text-xs font-semibold rounded-xl hover:bg-slate-50 transition cursor-pointer"
+              >
+                Cancel &amp; Fix Tags
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingPrintWarnings(null);
+                  window.setTimeout(() => window.print(), 60);
+                }}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Anyway</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Save Line Item to Catalog Modal */}
       <SaveToCatalogModal
         isOpen={Boolean(catalogModalTarget)}

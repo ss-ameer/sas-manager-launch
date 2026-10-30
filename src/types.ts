@@ -1406,6 +1406,7 @@ export interface QuotationBlockCustomRow {
   label: string;
   value: string;
   enabled?: boolean;
+  hideIfEmpty?: boolean;
 }
 
 export interface QuotationBlockConfig {
@@ -1507,6 +1508,7 @@ export interface QuotationPreset extends SoftDeleteFields {
   option_display_mode?: QuotationOptionDisplayMode;
   option_group_titles?: Record<string, string>;
   show_combined_options_total?: boolean;
+  omitted_fields?: Record<string, boolean>;
   custom_notes?: string;
   is_default?: boolean;
   is_deleted?: boolean;
@@ -1643,6 +1645,7 @@ export interface Quotation extends SoftDeleteFields {
   deleted_at?: any;
   deleted_by_id?: string | null;
   deleted_by_name?: string | null;
+  omitted_fields?: Record<string, boolean>;
 }
 
 export interface EnquiryQuotationSyncPayload {

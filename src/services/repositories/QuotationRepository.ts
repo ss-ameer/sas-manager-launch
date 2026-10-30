@@ -388,7 +388,11 @@ export class QuotationRepository {
 
   public static cloneQuotationAsNextRevision(
     source: Quotation,
-    existingRevisions?: Quotation[]
+    existingRevisions?: Quotation[],
+    liveRefreshContext?: {
+      enquiry?: any;
+      profile?: Partial<WorkspaceDocumentProfile> | null;
+    }
   ): Quotation {
     const nextRev =
       Math.max(
@@ -529,13 +533,64 @@ export class QuotationRepository {
       ? source.signatories.map((sig) => ({ ...sig }))
       : undefined;
 
+    const liveEnq = liveRefreshContext?.enquiry;
+    const liveProf = liveRefreshContext?.profile;
+
     const clonedClientSnapshot = source.client_snapshot
-      ? { ...source.client_snapshot }
-      : { entity_name: 'Valued Client' };
+      ? {
+          ...source.client_snapshot,
+          ...(liveEnq
+            ? {
+                entity_name:
+                  liveEnq.company_name ||
+                  liveEnq.client_company ||
+                  source.client_snapshot.entity_name,
+                contact_person:
+                  liveEnq.contact_person_name ||
+                  source.client_snapshot.contact_person,
+                client_contact_person:
+                  liveEnq.contact_person_name ||
+                  source.client_snapshot.client_contact_person ||
+                  source.client_snapshot.contact_person,
+                address:
+                  liveEnq.project_location ||
+                  source.client_snapshot.address,
+                client_address:
+                  liveEnq.project_location ||
+                  source.client_snapshot.client_address ||
+                  source.client_snapshot.address
+              }
+            : {})
+        }
+      : { entity_name: liveEnq?.company_name || liveEnq?.client_company || 'Valued Client' };
 
     const clonedSenderSnapshot = source.sender_snapshot
-      ? { ...source.sender_snapshot }
-      : { entity_name: 'Commercial Entity' };
+      ? {
+          ...source.sender_snapshot,
+          ...(liveProf
+            ? {
+                entity_name:
+                  liveProf.legal_entity_name || source.sender_snapshot.entity_name,
+                email: liveProf.email || source.sender_snapshot.email,
+                phone: liveProf.phone || source.sender_snapshot.phone,
+                address:
+                  [
+                    liveProf.address_line_1,
+                    liveProf.address_line_2,
+                    liveProf.city,
+                    liveProf.country
+                  ]
+                    .filter(Boolean)
+                    .join(', ') || source.sender_snapshot.address,
+                trn: liveProf.trn || source.sender_snapshot.trn
+              }
+            : {})
+        }
+      : { entity_name: liveProf?.legal_entity_name || 'Commercial Entity' };
+
+    const clonedOmittedFields = source.omitted_fields
+      ? { ...source.omitted_fields }
+      : undefined;
 
     const now = new Date().toISOString();
 
@@ -553,6 +608,7 @@ export class QuotationRepository {
       superseded_by_id: undefined,
       client_snapshot: clonedClientSnapshot,
       sender_snapshot: clonedSenderSnapshot,
+      omitted_fields: clonedOmittedFields,
       line_items: clonedLineItems,
       layout_blocks: clonedLayoutBlocks,
       visible_columns: clonedVisibleColumns,
@@ -902,7 +958,8 @@ export class QuotationRepository {
           profile?.company_seal_url ||
           profile?.stamp_seal_url ||
           '',
-        signatureImageUrl: fromPreset.signatureImageUrl || profile?.signature_image_url || ''
+        signatureImageUrl: fromPreset.signatureImageUrl || profile?.signature_image_url || '',
+        omittedFields: { ...(fromPreset.omittedFields || {}) }
       };
     }
 
@@ -1054,7 +1111,8 @@ export class QuotationRepository {
         quotation?.signature_image_url ||
         quotation?.signatories?.[0]?.signature_url ||
         profile?.signature_image_url ||
-        ''
+        '',
+      omittedFields: quotation?.omitted_fields ? { ...quotation.omitted_fields } : {}
     };
   }
 
@@ -1713,6 +1771,7 @@ export class QuotationRepository {
       company_seal_url: resolvedSealUrl,
       signature_image_url: input.signature_image_url,
       customThemeColor: input.customThemeColor,
+      omitted_fields: input.omitted_fields ? { ...input.omitted_fields } : undefined,
       header_config: normalizedHeaderConfig,
       footer_config: {
         ...normalizedFooterConfig,
@@ -1767,7 +1826,8 @@ export class QuotationRepository {
       customThemeColor: serialized.customThemeColor,
       companyLogoUrl: serialized.company_logo_url || serialized.header_config?.logoUrl || '',
       companySealUrl: serialized.company_seal_url || serialized.footer_config?.companySealUrl || '',
-      signatureImageUrl: serialized.signature_image_url || ''
+      signatureImageUrl: serialized.signature_image_url || '',
+      omittedFields: serialized.omitted_fields ? { ...serialized.omitted_fields } : {}
     };
   }
 
