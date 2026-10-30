@@ -22,7 +22,14 @@ import {
   X,
   Check,
   AlertTriangle,
+  Scissors,
+  Sparkles,
+  Bold,
+  EyeOff,
+  MessageSquarePlus,
 } from 'lucide-react';
+import { AtMentionInput, AtMentionTextarea } from './AtMentionField';
+import { QuotationTokenContext } from '../../utils/quotationTokenResolver';
 
 interface CompositePackageEditorProps {
   item?: {
@@ -57,6 +64,7 @@ interface CompositePackageEditorProps {
     total_price?: number;
   }) => void;
   compact?: boolean;
+  tokenContext?: QuotationTokenContext;
 }
 
 const AED_TO_USD_RATE = 3.6725;
@@ -72,6 +80,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
   products = [],
   onChange,
   compact = false,
+  tokenContext,
 }) => {
   const isCompositeSet = propIsCompositeSet ?? Boolean(item?.is_composite_set);
   const subComponents = propSubComponents ?? item?.sub_components ?? [];
@@ -85,6 +94,141 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
   const [bulkPasteAsAccessory, setBulkPasteAsAccessory] = useState<boolean>(false);
   const [showCatalogPickerForRow, setShowCatalogPickerForRow] = useState<string | 'NEW' | null>(null);
   const [catalogSearchQuery, setCatalogSearchQuery] = useState<string>('');
+  const [expandedRowNotes, setExpandedRowNotes] = useState<Record<string, boolean>>({});
+  const effectiveTokenContext = useMemo<QuotationTokenContext>(
+    () => tokenContext || {},
+    [tokenContext]
+  );
+
+  const renderSubRowCustomizationBar = (comp: LineItemComponent, rowNumLabel: string) => {
+    const isNoteOpen = Boolean(expandedRowNotes[comp.id] || (comp.row_note && comp.row_note.trim()));
+    return (
+      <div className="mt-1.5 pt-1.5 border-t border-slate-100 flex flex-col gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => handleUpdateSub(comp.id, 'page_break_after', !comp.page_break_after)}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold border flex items-center gap-1 transition cursor-pointer ${
+              comp.page_break_after
+                ? 'bg-amber-100 text-amber-900 border-amber-400 shadow-2xs'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+            }`}
+            title={`Force a new A4 page after sub-component ${rowNumLabel}`}
+          >
+            <Scissors className="w-2.5 h-2.5" />
+            <span>{comp.page_break_after ? 'Page Break After' : 'Break'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleUpdateSub(comp.id, 'row_highlight', !comp.row_highlight)}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border flex items-center gap-1 transition cursor-pointer ${
+              comp.row_highlight
+                ? 'bg-amber-100 text-amber-900 border-amber-400 shadow-2xs'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+            }`}
+            title="Highlight this sub-component row in soft amber on the quotation"
+          >
+            <Sparkles className="w-2.5 h-2.5" />
+            <span>Highlight</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleUpdateSub(comp.id, 'row_bold', !comp.row_bold)}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border flex items-center gap-1 transition cursor-pointer ${
+              comp.row_bold
+                ? 'bg-indigo-100 text-indigo-900 border-indigo-300 shadow-2xs'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+            }`}
+            title="Render this sub-component row in bold text"
+          >
+            <Bold className="w-2.5 h-2.5" />
+            <span>Bold</span>
+          </button>
+
+          {!comp.is_included_accessory && (
+            <button
+              type="button"
+              onClick={() => handleUpdateSub(comp.id, 'hide_row_price', !comp.hide_row_price)}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border flex items-center gap-1 transition cursor-pointer ${
+                comp.hide_row_price
+                  ? 'bg-emerald-100 text-emerald-900 border-emerald-300 shadow-2xs'
+                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+              }`}
+              title="Mask individual price on this row (shows 'Included' visually while keeping its value in the Set total)"
+            >
+              <EyeOff className="w-2.5 h-2.5" />
+              <span>{comp.hide_row_price ? 'Price Hidden (Included)' : 'Hide Price'}</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() =>
+              setExpandedRowNotes((prev) => ({
+                ...prev,
+                [comp.id]: !isNoteOpen,
+              }))
+            }
+            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border flex items-center gap-1 transition cursor-pointer ${
+              isNoteOpen
+                ? 'bg-blue-100 text-blue-900 border-blue-300 shadow-2xs'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+            }`}
+            title="Add or edit a custom row note (supports @tags)"
+          >
+            <MessageSquarePlus className="w-2.5 h-2.5" />
+            <span>{comp.row_note ? 'Edit Note' : '+ Note'}</span>
+          </button>
+
+          <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-50 border border-slate-200 text-[10px] font-mono text-slate-600">
+            <span>Spacer:</span>
+            <input
+              type="number"
+              min={0}
+              max={120}
+              value={comp.row_spacer_after_mm || ''}
+              placeholder="0"
+              onChange={(e) => {
+                const v = Math.max(0, Math.min(120, Number(e.target.value) || 0));
+                handleUpdateSub(comp.id, 'row_spacer_after_mm', v > 0 ? v : undefined);
+              }}
+              className="w-10 bg-white border border-slate-200 rounded px-1 py-0 text-[10px] font-mono text-center text-slate-800"
+            />
+            <span>mm</span>
+          </div>
+        </div>
+
+        {isNoteOpen && (
+          <div className="flex items-center gap-1.5">
+            <div className="flex-1">
+              <AtMentionInput
+                value={comp.row_note || ''}
+                onChange={(val) => handleUpdateSub(comp.id, 'row_note', val)}
+                tokenContext={effectiveTokenContext}
+                placeholder="Custom row note (type @ for live tags, e.g. @delivery_location)..."
+                className="w-full rounded border border-blue-200 bg-blue-50/30 px-2 py-1 text-[11px] text-slate-800 focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+            {comp.row_note && (
+              <button
+                type="button"
+                onClick={() => {
+                  handleUpdateSub(comp.id, 'row_note', '');
+                  setExpandedRowNotes((prev) => ({ ...prev, [comp.id]: false }));
+                }}
+                className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
+                title="Clear row note"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const activeCatalogProducts = useMemo(
     () => (products || []).filter((p) => !p.is_deleted),
@@ -857,6 +1001,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                           )
                         )}
                       </div>
+                      {renderSubRowCustomizationBar(comp, `#${idx + 1}`)}
                     </td>
                     <td className="py-1.5 px-2">
                       <input
@@ -1010,6 +1155,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                             placeholder="e.g. Fasteners, Interconnecting Piping, Manhole, Level Indicator"
                             className="w-full bg-transparent border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-800 dark:text-slate-200"
                           />
+                          {renderSubRowCustomizationBar(comp, 'Acc')}
                         </td>
                         <td className="py-1.5 px-2">
                           <input
@@ -1068,18 +1214,19 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
               3. Package / Option Scope Notes (Material Standards, Warranties, Exclusions)
             </span>
           </label>
-          <textarea
+          <AtMentionTextarea
             rows={3}
             value={optionScopeNotes}
-            onChange={(e) =>
+            tokenContext={effectiveTokenContext}
+            onChange={(val) =>
               commitComponents(
                 subComponents,
                 packagePricingMode,
-                e.target.value,
+                val,
                 true
               )
             }
-            placeholder="e.g. Materials of construction, warranty terms, testing standards, or client-scope exclusions..."
+            placeholder="e.g. Materials of construction, warranty terms, testing standards, or client-scope exclusions (type @ for live tags)..."
             className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:border-indigo-500"
           />
         </div>

@@ -429,6 +429,21 @@ export class QuotationRepository {
           const clonedSpecs = Array.isArray(itemAny.specs)
             ? itemAny.specs.map((s: any) => ({ ...s }))
             : undefined;
+          const clonedSubComponents = Array.isArray(item.sub_components)
+            ? item.sub_components.map((sub, sIdx) => ({
+                ...sub,
+                id: sub.id || `${item.id || 'item'}_sub_${sIdx}`,
+                page_break_after: Boolean(sub.page_break_after),
+                ...(typeof sub.row_spacer_after_mm === 'number'
+                  ? { row_spacer_after_mm: sub.row_spacer_after_mm }
+                  : {}),
+                ...(sub.row_note !== undefined ? { row_note: sub.row_note } : {}),
+                row_highlight: Boolean(sub.row_highlight),
+                row_bold: Boolean(sub.row_bold),
+                hide_row_price: Boolean(sub.hide_row_price),
+                ...(sub.specifications ? { specifications: { ...sub.specifications } } : {})
+              }))
+            : undefined;
           return {
             ...item,
             ...(clonedAttributes !== undefined ? { attributes: clonedAttributes } : {}),
@@ -442,10 +457,15 @@ export class QuotationRepository {
               ? { hidden_attributes: [...item.hidden_attributes] }
               : {}),
             ...(clonedSpecs !== undefined ? { specs: clonedSpecs } : {}),
+            ...(clonedSubComponents !== undefined ? { sub_components: clonedSubComponents } : {}),
             page_break_after: Boolean(item.page_break_after),
             ...(typeof item.row_spacer_after_mm === 'number'
               ? { row_spacer_after_mm: item.row_spacer_after_mm }
               : {}),
+            ...(item.row_note !== undefined ? { row_note: item.row_note } : {}),
+            row_highlight: Boolean(item.row_highlight),
+            row_bold: Boolean(item.row_bold),
+            hide_row_price: Boolean(item.hide_row_price),
             is_optional: Boolean(item.is_optional)
           };
         })
@@ -609,6 +629,7 @@ export class QuotationRepository {
       client_snapshot: clonedClientSnapshot,
       sender_snapshot: clonedSenderSnapshot,
       omitted_fields: clonedOmittedFields,
+      auto_paginate_items: Boolean(source.auto_paginate_items),
       line_items: clonedLineItems,
       layout_blocks: clonedLayoutBlocks,
       visible_columns: clonedVisibleColumns,
@@ -959,7 +980,8 @@ export class QuotationRepository {
           profile?.stamp_seal_url ||
           '',
         signatureImageUrl: fromPreset.signatureImageUrl || profile?.signature_image_url || '',
-        omittedFields: { ...(fromPreset.omittedFields || {}) }
+        omittedFields: { ...(fromPreset.omittedFields || {}) },
+        autoPaginateItems: Boolean(fromPreset.autoPaginateItems)
       };
     }
 
@@ -1112,7 +1134,8 @@ export class QuotationRepository {
         quotation?.signatories?.[0]?.signature_url ||
         profile?.signature_image_url ||
         '',
-      omittedFields: quotation?.omitted_fields ? { ...quotation.omitted_fields } : {}
+      omittedFields: quotation?.omitted_fields ? { ...quotation.omitted_fields } : {},
+      autoPaginateItems: Boolean(quotation?.auto_paginate_items)
     };
   }
 
@@ -1772,6 +1795,7 @@ export class QuotationRepository {
       signature_image_url: input.signature_image_url,
       customThemeColor: input.customThemeColor,
       omitted_fields: input.omitted_fields ? { ...input.omitted_fields } : undefined,
+      auto_paginate_items: Boolean(input.auto_paginate_items),
       header_config: normalizedHeaderConfig,
       footer_config: {
         ...normalizedFooterConfig,
@@ -1827,7 +1851,8 @@ export class QuotationRepository {
       companyLogoUrl: serialized.company_logo_url || serialized.header_config?.logoUrl || '',
       companySealUrl: serialized.company_seal_url || serialized.footer_config?.companySealUrl || '',
       signatureImageUrl: serialized.signature_image_url || '',
-      omittedFields: serialized.omitted_fields ? { ...serialized.omitted_fields } : {}
+      omittedFields: serialized.omitted_fields ? { ...serialized.omitted_fields } : {},
+      autoPaginateItems: Boolean(serialized.auto_paginate_items)
     };
   }
 

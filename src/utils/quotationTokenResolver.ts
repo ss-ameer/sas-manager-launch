@@ -892,7 +892,14 @@ export function findUnknownAtTokensInQuotation(
   if (Array.isArray(quotation.line_items)) {
     quotation.line_items.forEach((item, idx) => {
       addFromText(item.description, `Line Item #${idx + 1} Description`);
+      addFromText(item.row_note, `Line Item #${idx + 1} Row Note`);
       addFromText(item.option_scope_notes, `Line Item #${idx + 1} Scope Note`);
+      if (Array.isArray(item.sub_components)) {
+        item.sub_components.forEach((sub, sIdx) => {
+          addFromText(sub.row_note, `Sub-Component #${idx + 1}.${sIdx + 1} Row Note`);
+          addFromText(sub.remark, `Sub-Component #${idx + 1}.${sIdx + 1} Remark`);
+        });
+      }
     });
   }
 

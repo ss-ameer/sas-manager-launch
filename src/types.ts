@@ -363,6 +363,12 @@ export interface LineItemComponent {
   product_id?: string;
   sku?: string;
   specifications?: Record<string, string>;
+  page_break_after?: boolean;
+  row_spacer_after_mm?: number;
+  row_note?: string;
+  row_highlight?: boolean;
+  row_bold?: boolean;
+  hide_row_price?: boolean;
 }
 
 export type QuotationOptionDisplayMode =
@@ -405,6 +411,10 @@ export interface LineItem {
   specifications?: Record<string, string>;
   page_break_after?: boolean;
   row_spacer_after_mm?: number;
+  row_note?: string;
+  row_highlight?: boolean;
+  row_bold?: boolean;
+  hide_row_price?: boolean;
 }
 
 export type StockMovementType = 'STOCK_IN' | 'STOCK_RESERVE' | 'STOCK_RELEASE' | 'STOCK_OUT' | 'ADJUSTMENT';
@@ -1109,6 +1119,15 @@ export interface QuotationLineItem {
   hidden_attributes?: string[];
   page_break_after?: boolean;
   row_spacer_after_mm?: number;
+  row_note?: string;
+  row_highlight?: boolean;
+  row_bold?: boolean;
+  hide_row_price?: boolean;
+  isCompositeContinuation?: boolean;
+  hasMoreSubComponentsAfter?: boolean;
+  subComponentStartIndex?: number;
+  parentItemNumber?: number;
+  globalOptionItemNumber?: number;
 }
 
 export type QuotationItem = QuotationLineItem;
@@ -1509,6 +1528,7 @@ export interface QuotationPreset extends SoftDeleteFields {
   option_group_titles?: Record<string, string>;
   show_combined_options_total?: boolean;
   omitted_fields?: Record<string, boolean>;
+  auto_paginate_items?: boolean;
   custom_notes?: string;
   is_default?: boolean;
   is_deleted?: boolean;
@@ -1646,6 +1666,7 @@ export interface Quotation extends SoftDeleteFields {
   deleted_by_id?: string | null;
   deleted_by_name?: string | null;
   omitted_fields?: Record<string, boolean>;
+  auto_paginate_items?: boolean;
 }
 
 export interface EnquiryQuotationSyncPayload {

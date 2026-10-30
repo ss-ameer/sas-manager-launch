@@ -29,6 +29,7 @@ import {
   QuotationFooterConfig,
   QuotationItemAttribute,
   QuotationLineItem,
+  LineItemComponent,
   QuotationPageMode,
   QuotationHeaderFieldItem,
   Attachment,
@@ -805,6 +806,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     return initialMap;
   });
 
+  // Auto-paginate long tables & BOM sets across A4 sheets
+  const [autoPaginateItems, setAutoPaginateItems] = useState<boolean>(() =>
+    Boolean(editingQuotation?.auto_paginate_items)
+  );
+  // Expanded state for custom row notes in the right inspector
+  const [expandedInspectorRowNotes, setExpandedInspectorRowNotes] = useState<Record<string, boolean>>({});
+
   // Per-item product image URL override mapping: itemId -> string
   const [itemImageOverrides, setItemImageOverrides] = useState<Record<string, string>>({});
   // Per-item technical datasheet inclusion toggle mapping: itemId -> boolean
@@ -1134,6 +1142,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         setCustomThemeColor(hydrated.customThemeColor || '');
       }
       setOmittedFields(hydrated.omittedFields ? { ...hydrated.omittedFields } : {});
+      setAutoPaginateItems(Boolean(hydrated.autoPaginateItems));
 
       if (targetQuote) {
         setClientContactPerson(
@@ -1298,6 +1307,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         });
         setItemVisibleAttributes(initialMap);
         setItemPageBreaks(initialBreaks);
+        setItemCompositeOverrides({});
 
         if (targetQuote.selectedBank || targetQuote.applied_bank_account) {
           const b: any = targetQuote.selectedBank || targetQuote.applied_bank_account;
@@ -1352,6 +1362,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         });
         setItemVisibleAttributes({});
         setItemPageBreaks(initialBreaks);
+        setItemCompositeOverrides({});
         setCustomBankOverride(null);
       }
     },
@@ -1825,6 +1836,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     if (preset.omitted_fields) {
       setOmittedFields({ ...preset.omitted_fields });
     }
+    if (typeof preset.auto_paginate_items === 'boolean') {
+      setAutoPaginateItems(preset.auto_paginate_items);
+    }
   };
 
   const [optionDisplayMode, setOptionDisplayMode] = useState<QuotationOptionDisplayMode>(
@@ -2020,7 +2034,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             datasheet_attachment: li.datasheet_attachment,
             include_datasheet_in_quote: li.include_datasheet_in_quote !== false,
             page_break_after: li.page_break_after,
-            row_spacer_after_mm: li.row_spacer_after_mm
+            row_spacer_after_mm: li.row_spacer_after_mm,
+            row_note: li.row_note,
+            row_highlight: li.row_highlight,
+            row_bold: li.row_bold,
+            hide_row_price: li.hide_row_price
           };
         });
       }
@@ -2038,8 +2056,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       );
 
       const customVisible = itemVisibleAttributes[itemKey] ?? item.visible_attributes;
+      const compOverride = itemCompositeOverrides[itemKey] || {};
       const customPageBreak =
-        itemPageBreaks[itemKey] !== undefined
+        compOverride.page_break_after !== undefined
+          ? compOverride.page_break_after
+          : itemPageBreaks[itemKey] !== undefined
           ? itemPageBreaks[itemKey]
           : Boolean(item.page_break_after);
       const resolvedImageUrl =
@@ -2056,7 +2077,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         itemOptionalOverrides[itemKey] !== undefined
           ? itemOptionalOverrides[itemKey]
           : Boolean(item.is_optional);
-      const compOverride = itemCompositeOverrides[itemKey] || {};
+
+      const rawSubComponents =
+        compOverride.sub_components ??
+        item.sub_components ??
+        matchedCatalogProduct?.sub_components;
+      const normalizedSubComponents = Array.isArray(rawSubComponents)
+        ? rawSubComponents.map((sub, sIdx) => ({
+            ...sub,
+            id: sub.id || `${itemKey}_sub_${sIdx}`
+          }))
+        : undefined;
 
       return {
         ...item,
@@ -2072,14 +2103,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         is_optional: resolvedOptional,
         visible_attributes: customVisible,
         page_break_after: customPageBreak,
+        row_spacer_after_mm: compOverride.row_spacer_after_mm ?? item.row_spacer_after_mm,
+        row_note: compOverride.row_note ?? item.row_note,
+        row_highlight: compOverride.row_highlight ?? item.row_highlight,
+        row_bold: compOverride.row_bold ?? item.row_bold,
+        hide_row_price: compOverride.hide_row_price ?? item.hide_row_price,
         is_composite_set:
           compOverride.is_composite_set ??
           item.is_composite_set ??
           matchedCatalogProduct?.is_composite_set,
-        sub_components:
-          compOverride.sub_components ??
-          item.sub_components ??
-          matchedCatalogProduct?.sub_components,
+        sub_components: normalizedSubComponents,
         package_pricing_mode:
           compOverride.package_pricing_mode ??
           item.package_pricing_mode ??
@@ -2233,13 +2266,85 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   };
 
   const toggleItemPageBreak = (itemKey: string, currentVal?: boolean) => {
-    setItemPageBreaks((prev) => {
-      const active = prev[itemKey] !== undefined ? prev[itemKey] : Boolean(currentVal);
-      return {
+    const nextVal = !(itemPageBreaks[itemKey] !== undefined ? itemPageBreaks[itemKey] : Boolean(currentVal));
+    setItemPageBreaks((prev) => ({
+      ...prev,
+      [itemKey]: nextVal
+    }));
+    setItemCompositeOverrides((prev) => ({
+      ...prev,
+      [itemKey]: {
+        ...(prev[itemKey] || {}),
+        page_break_after: nextVal
+      }
+    }));
+    if (customStudioLineItems) {
+      setCustomStudioLineItems((prev) =>
+        prev
+          ? prev.map((it, i) => ((it.id || `item_${i}`) === itemKey ? { ...it, page_break_after: nextVal } : it))
+          : prev
+      );
+    }
+  };
+
+  const handleUpdateTopItemRowOption = (
+    itemKey: string,
+    patch: Partial<QuotationLineItem>
+  ) => {
+    if (patch.page_break_after !== undefined) {
+      setItemPageBreaks((prev) => ({
         ...prev,
-        [itemKey]: !active
-      };
-    });
+        [itemKey]: Boolean(patch.page_break_after)
+      }));
+    }
+    setItemCompositeOverrides((prev) => ({
+      ...prev,
+      [itemKey]: {
+        ...(prev[itemKey] || {}),
+        ...patch
+      }
+    }));
+    if (customStudioLineItems) {
+      setCustomStudioLineItems((prev) =>
+        prev
+          ? prev.map((it, i) => ((it.id || `item_${i}`) === itemKey ? { ...it, ...patch } : it))
+          : prev
+      );
+    }
+  };
+
+  const handleUpdateSubComponentRowOption = (
+    itemKey: string,
+    item: QuotationLineItem,
+    subIdx: number,
+    patch: Partial<LineItemComponent>
+  ) => {
+    const currentSubs = Array.isArray(item.sub_components) ? item.sub_components : [];
+    const nextSubs = currentSubs.map((sub, i) =>
+      i === subIdx
+        ? {
+            ...sub,
+            id: sub.id || `${itemKey}_sub_${i}`,
+            ...patch
+          }
+        : sub
+    );
+    setItemCompositeOverrides((prev) => ({
+      ...prev,
+      [itemKey]: {
+        ...(prev[itemKey] || {}),
+        sub_components: nextSubs
+      }
+    }));
+    if (customStudioLineItems) {
+      setCustomStudioLineItems((prev) =>
+        prev
+          ? prev.map((it, i) =>
+              (it.id || `item_${i}`) === itemKey ? { ...it, sub_components: nextSubs } : it
+            )
+          : prev
+      );
+    }
   };
 
   // Calculate live financial figures based on active optionDisplayMode
@@ -2638,6 +2743,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       },
       visible_columns: visibleColumns,
       omitted_fields: omittedFields,
+      auto_paginate_items: autoPaginateItems,
       created_at: editingQuotation?.created_at || new Date().toISOString(),
       valid_until: validUntilDate,
       currency: (enquiry.currency as string) || activeBankAccount?.currency || 'AED'
@@ -2689,6 +2795,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     footerConfig,
     visibleColumns,
     omittedFields,
+    autoPaginateItems,
     clientContactPerson,
     clientNameOverride,
     clientAddressOverride,
@@ -3015,6 +3122,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         },
         visible_columns: visibleColumns as any,
         omitted_fields: omittedFields,
+        auto_paginate_items: autoPaginateItems,
         created_at: editingQuotation?.created_at || new Date().toISOString(),
         valid_until: liveQuotation.valid_until,
         currency: liveQuotation.currency
@@ -3151,7 +3259,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         ...(companySealUrl ? { companySealUrl } : {}),
         ...(signatureImageUrl ? { signatureImageUrl } : {})
       },
-      omitted_fields: omittedFields
+      omitted_fields: omittedFields,
+      auto_paginate_items: autoPaginateItems
     });
   };
 
@@ -8470,6 +8579,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       parentQuantity={item.quantity || 1}
                                       currency={(enquiry?.currency as string) || 'USD'}
                                       products={workspaceProducts}
+                                      tokenContext={studioTokenContext}
                                       onChange={(patch) =>
                                         setItemCompositeOverrides((prev) => ({
                                           ...prev,
@@ -8489,31 +8599,71 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Line-Item Row Page Breaks ("Split Table Here") Inspector Section */}
-                    <div className="pt-2 border-t border-slate-100 space-y-2">
+                    {/* Line-Item Pagination, Spacing & Row Options ("Split Table Here" + Sub-Components 1.1..1.N) */}
+                    <div className="pt-2 border-t border-slate-100 space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
                           <Scissors className="w-3.5 h-3.5 text-amber-600" />
-                          Line-Item Row Page Breaks
+                          Line-Item Pagination, Spacing &amp; Row Options
                         </span>
                         <span className="text-[10px] font-mono text-slate-400">
-                          {quotationLineItems.filter((it) => it.page_break_after).length} Active
+                          {quotationLineItems.reduce(
+                            (acc, it) =>
+                              acc +
+                              (it.page_break_after ? 1 : 0) +
+                              (Array.isArray(it.sub_components)
+                                ? it.sub_components.filter((s) => s.page_break_after).length
+                                : 0),
+                            0
+                          )}{' '}
+                          Breaks
                         </span>
                       </div>
                       <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Split long quotation tables cleanly onto a new A4 sheet after any line item row (or after the last item to push closing blocks onto a new sheet).
+                        Configure manual page breaks, row spacing, highlight/bold styling, price masking, and @tag row notes on any line item or BOM Set sub-component (1.1, 1.2, ...).
                       </p>
 
-                      <div className="space-y-2 pt-1 max-h-60 overflow-y-auto pr-1">
+                      {/* Auto-Paginate Long Tables & Sets Master Toggle */}
+                      <div
+                        className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                          autoPaginateItems
+                            ? 'bg-amber-50/70 border-amber-300 shadow-2xs'
+                            : 'bg-white border-slate-200'
+                        }`}
+                      >
+                        <div className="min-w-0 pr-1">
+                          <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                            Auto-Paginate Long Tables &amp; Sets
+                          </span>
+                          <span className="text-[10px] text-slate-500 block mt-0.5 leading-snug">
+                            Automatically split long item tables &amp; multi-part BOM Sets across A4 sheets (keeps Set header + 1.1 together)
+                          </span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                          <input
+                            type="checkbox"
+                            checked={autoPaginateItems}
+                            onChange={(e) => setAutoPaginateItems(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-amber-600"></div>
+                        </label>
+                      </div>
+
+                      <div className="space-y-2 pt-1 max-h-96 overflow-y-auto pr-1">
                         {quotationLineItems.map((item, idx) => {
                           const itemKey = item.id || `item_${idx}`;
                           const isLastItem = idx === quotationLineItems.length - 1;
                           const hasBreakAfter = Boolean(item.page_break_after);
+                          const hasSubComponents =
+                            Array.isArray(item.sub_components) && item.sub_components.length > 0;
+                          const isTopNoteOpen =
+                            Boolean(expandedInspectorRowNotes[itemKey]) || Boolean(item.row_note);
 
                           return (
                             <div
                               key={itemKey}
-                              className={`p-2.5 rounded-xl border transition space-y-1.5 ${
+                              className={`p-2.5 rounded-xl border transition space-y-2 ${
                                 hasBreakAfter
                                   ? 'bg-amber-50/80 border-amber-300 shadow-2xs'
                                   : 'bg-slate-50/70 border-slate-200/90'
@@ -8524,7 +8674,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-700 text-[9px] font-mono font-bold flex items-center justify-center shrink-0">
                                     {idx + 1}
                                   </span>
-                                  <span className="font-semibold text-slate-800 text-[11px] truncate" title={item.item_name}>
+                                  <span
+                                    className="font-semibold text-slate-800 text-[11px] truncate"
+                                    title={item.item_name}
+                                  >
                                     {item.item_name}
                                   </span>
                                 </div>
@@ -8538,9 +8691,116 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   }`}
                                 >
                                   <Scissors className="w-3 h-3" />
-                                  <span>{isLastItem ? '✂ Break After Table' : '✂ Page Break After Item'}</span>
+                                  <span>
+                                    {isLastItem ? '✂ Break After Table' : '✂ Page Break After Item'}
+                                  </span>
                                 </button>
                               </div>
+
+                              {/* Top-Level Item Row Customization Pill Bar */}
+                              <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdateTopItemRowOption(itemKey, {
+                                      row_highlight: !item.row_highlight
+                                    })
+                                  }
+                                  className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold border transition cursor-pointer ${
+                                    item.row_highlight
+                                      ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                      : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300'
+                                  }`}
+                                  title="Soft amber highlight on this row"
+                                >
+                                  🎨 Highlight
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdateTopItemRowOption(itemKey, {
+                                      row_bold: !item.row_bold
+                                    })
+                                  }
+                                  className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold border transition cursor-pointer ${
+                                    item.row_bold
+                                      ? 'bg-slate-800 text-white border-slate-800'
+                                      : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                                  }`}
+                                  title="Bold emphasis on this row"
+                                >
+                                  B Bold
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdateTopItemRowOption(itemKey, {
+                                      hide_row_price: !item.hide_row_price
+                                    })
+                                  }
+                                  className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold border transition cursor-pointer ${
+                                    item.hide_row_price
+                                      ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                                      : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'
+                                  }`}
+                                  title="Visually show 'Included' on this row while keeping its price in the total"
+                                >
+                                  {item.hide_row_price ? 'Price: Included' : 'Hide Price'}
+                                </button>
+
+                                <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white border border-slate-200 text-[9.5px] text-slate-600">
+                                  <span>Spacer:</span>
+                                  <select
+                                    value={Number(item.row_spacer_after_mm) || 0}
+                                    onChange={(e) =>
+                                      handleUpdateTopItemRowOption(itemKey, {
+                                        row_spacer_after_mm: Number(e.target.value) || undefined
+                                      })
+                                    }
+                                    className="bg-transparent font-mono font-semibold text-slate-800 focus:outline-none cursor-pointer"
+                                  >
+                                    <option value={0}>0mm</option>
+                                    <option value={4}>4mm</option>
+                                    <option value={8}>8mm</option>
+                                    <option value={12}>12mm</option>
+                                    <option value={16}>16mm</option>
+                                  </select>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedInspectorRowNotes((prev) => ({
+                                      ...prev,
+                                      [itemKey]: !isTopNoteOpen
+                                    }))
+                                  }
+                                  className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold border transition cursor-pointer ${
+                                    isTopNoteOpen || item.row_note
+                                      ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                      : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+                                  }`}
+                                >
+                                  {item.row_note ? '✎ Note Active' : '+ Note'}
+                                </button>
+                              </div>
+
+                              {isTopNoteOpen && (
+                                <div className="pt-0.5">
+                                  <AtMentionInput
+                                    value={item.row_note || ''}
+                                    onChange={(nextVal) =>
+                                      handleUpdateTopItemRowOption(itemKey, { row_note: nextVal })
+                                    }
+                                    tokenContext={studioTokenContext}
+                                    placeholder={`Custom note for Item #${idx + 1} (type @ for live tags)...`}
+                                    className="w-full bg-white border border-blue-200 focus:border-blue-500 rounded-md px-2 py-1 text-[10px] text-slate-700 focus:outline-none"
+                                  />
+                                </div>
+                              )}
+
                               {hasBreakAfter && (
                                 <div className="px-2 py-1 rounded-md bg-amber-100/90 border border-amber-300 text-amber-900 text-[10px] font-mono font-semibold flex items-center justify-between">
                                   <span>
@@ -8549,6 +8809,211 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       : `📄 Splits Table to Next Page After Item #${idx + 1}`}
                                   </span>
                                   <span className="text-[9px] text-amber-700">Sheet Break</span>
+                                </div>
+                              )}
+
+                              {/* Nested BOM Set Sub-Components (1.1, 1.2, ..., 1.N) Row Options */}
+                              {hasSubComponents && (
+                                <div className="mt-1.5 pt-2 border-t border-slate-200/80 pl-2.5 border-l-2 border-l-indigo-300 space-y-1.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[9.5px] font-mono font-bold uppercase tracking-wider text-indigo-700">
+                                      Set Sub-Components ({item.sub_components!.length} Rows)
+                                    </span>
+                                    <span className="text-[9px] text-slate-400 font-mono">
+                                      {idx + 1}.1 – {idx + 1}.{item.sub_components!.length}
+                                    </span>
+                                  </div>
+
+                                  {item.sub_components!.map((sub, subIdx) => {
+                                    const subNumberLabel = `${idx + 1}.${subIdx + 1}`;
+                                    const subNoteKey = `${itemKey}_sub_note_${subIdx}`;
+                                    const isSubNoteOpen =
+                                      Boolean(expandedInspectorRowNotes[subNoteKey]) ||
+                                      Boolean(sub.row_note);
+                                    const isLastSubOfLastItem =
+                                      isLastItem && subIdx === item.sub_components!.length - 1;
+
+                                    return (
+                                      <div
+                                        key={sub.id || `${itemKey}_sub_${subIdx}`}
+                                        className={`p-2 rounded-lg border transition space-y-1.5 ${
+                                          sub.page_break_after
+                                            ? 'bg-amber-50/90 border-amber-300'
+                                            : 'bg-white border-slate-200/90'
+                                        }`}
+                                      >
+                                        <div className="flex items-center justify-between gap-1.5">
+                                          <div className="min-w-0 flex items-center gap-1.5 flex-1">
+                                            <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 text-[9px] font-mono font-bold shrink-0">
+                                              {subNumberLabel}
+                                            </span>
+                                            <span
+                                              className="font-medium text-slate-700 text-[10.5px] truncate"
+                                              title={sub.name}
+                                            >
+                                              {sub.name || `Sub-Component ${subNumberLabel}`}
+                                            </span>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleUpdateSubComponentRowOption(
+                                                itemKey,
+                                                item,
+                                                subIdx,
+                                                { page_break_after: !sub.page_break_after }
+                                              )
+                                            }
+                                            className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold flex items-center gap-1 shrink-0 transition cursor-pointer ${
+                                              sub.page_break_after
+                                                ? 'bg-amber-600 text-white shadow-2xs'
+                                                : 'bg-slate-50 hover:bg-amber-50 text-slate-700 hover:text-amber-800 border border-slate-200'
+                                            }`}
+                                          >
+                                            <Scissors className="w-2.5 h-2.5" />
+                                            <span>
+                                              {isLastSubOfLastItem
+                                                ? `✂ Break After Table`
+                                                : `✂ Break After ${subNumberLabel}`}
+                                            </span>
+                                          </button>
+                                        </div>
+
+                                        <div className="flex flex-wrap items-center gap-1">
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleUpdateSubComponentRowOption(
+                                                itemKey,
+                                                item,
+                                                subIdx,
+                                                { row_highlight: !sub.row_highlight }
+                                              )
+                                            }
+                                            className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border transition cursor-pointer ${
+                                              sub.row_highlight
+                                                ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-amber-300'
+                                            }`}
+                                          >
+                                            🎨 Highlight
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleUpdateSubComponentRowOption(
+                                                itemKey,
+                                                item,
+                                                subIdx,
+                                                { row_bold: !sub.row_bold }
+                                              )
+                                            }
+                                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold border transition cursor-pointer ${
+                                              sub.row_bold
+                                                ? 'bg-slate-800 text-white border-slate-800'
+                                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-slate-300'
+                                            }`}
+                                          >
+                                            B Bold
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleUpdateSubComponentRowOption(
+                                                itemKey,
+                                                item,
+                                                subIdx,
+                                                { hide_row_price: !sub.hide_row_price }
+                                              )
+                                            }
+                                            className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border transition cursor-pointer ${
+                                              sub.hide_row_price
+                                                ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-indigo-300'
+                                            }`}
+                                          >
+                                            {sub.hide_row_price ? 'Price: Included' : 'Hide Price'}
+                                          </button>
+
+                                          <div className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-slate-50 border border-slate-200 text-[9px] text-slate-600">
+                                            <span>Spacer:</span>
+                                            <select
+                                              value={Number(sub.row_spacer_after_mm) || 0}
+                                              onChange={(e) =>
+                                                handleUpdateSubComponentRowOption(
+                                                  itemKey,
+                                                  item,
+                                                  subIdx,
+                                                  {
+                                                    row_spacer_after_mm:
+                                                      Number(e.target.value) || undefined
+                                                  }
+                                                )
+                                              }
+                                              className="bg-transparent font-mono font-semibold text-slate-800 focus:outline-none cursor-pointer"
+                                            >
+                                              <option value={0}>0mm</option>
+                                              <option value={4}>4mm</option>
+                                              <option value={8}>8mm</option>
+                                              <option value={12}>12mm</option>
+                                              <option value={16}>16mm</option>
+                                            </select>
+                                          </div>
+
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setExpandedInspectorRowNotes((prev) => ({
+                                                ...prev,
+                                                [subNoteKey]: !isSubNoteOpen
+                                              }))
+                                            }
+                                            className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border transition cursor-pointer ${
+                                              isSubNoteOpen || sub.row_note
+                                                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-blue-300'
+                                            }`}
+                                          >
+                                            {sub.row_note ? '✎ Note' : '+ Note'}
+                                          </button>
+                                        </div>
+
+                                        {isSubNoteOpen && (
+                                          <div className="pt-0.5">
+                                            <AtMentionInput
+                                              value={sub.row_note || ''}
+                                              onChange={(nextVal) =>
+                                                handleUpdateSubComponentRowOption(
+                                                  itemKey,
+                                                  item,
+                                                  subIdx,
+                                                  { row_note: nextVal }
+                                                )
+                                              }
+                                              tokenContext={studioTokenContext}
+                                              placeholder={`Custom note for ${subNumberLabel} (type @ for live tags)...`}
+                                              className="w-full bg-slate-50 border border-blue-200 focus:border-blue-500 rounded-md px-2 py-1 text-[10px] text-slate-700 focus:outline-none"
+                                            />
+                                          </div>
+                                        )}
+
+                                        {sub.page_break_after && (
+                                          <div className="px-2 py-0.5 rounded bg-amber-100/90 border border-amber-300 text-amber-900 text-[9.5px] font-mono font-semibold flex items-center justify-between">
+                                            <span>
+                                              {isLastSubOfLastItem
+                                                ? `📄 Splits Closing Blocks to Next Page After ${subNumberLabel}`
+                                                : `📄 Splits Set #${idx + 1} to Next Page After ${subNumberLabel}`}
+                                            </span>
+                                            <span className="text-[8.5px] text-amber-700">
+                                              Set Cont.
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               )}
                             </div>

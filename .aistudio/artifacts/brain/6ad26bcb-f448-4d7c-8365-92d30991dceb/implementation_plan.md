@@ -1,129 +1,127 @@
-# Quotation Studio 2.0 — Phase 3: Smart `@` Tag Autocomplete, Snapshot Resolution & Field Include/Omit System
+# Quotation Studio 2.0 — Phase 1: Granular Set Sub-Component Row Options & Multi-Page Pagination Engine
 
-## 1. Architectural Vision & Core Principles
+Deliver per-row customization and pagination controls (`✂ Page Break`, `Spacer (mm)`, `🎨 Highlight`, `B Bold`, `Hide Price`, and `@tag`-enabled `+ Row Note`) across both top-level line items and every nested sub-component (`1.1`, `1.2`, ..., `1.50`) inside Composite BOM Sets, paired with an optional Auto-Paginate engine and multi-page BOM/Option table continuation safeguards.
 
-This phase upgrades Quotation Studio 2.0 with a smart `@` variable autocomplete and token resolution engine that bridges live deal data with frozen revision snapshots and per-quote field omission controls:
+## User Review & Critical Decisions
 
-- **Snapshot-First Immutability**: Sent, approved, or locked quotations resolve `@` tokens exclusively from their frozen party and commercial snapshots so subsequent edits to an enquiry or company profile never alter historical quotes. New Draft revisions (`R0 -> R1`) refresh their snapshot from the live deal and company profile while preserving prior revisions untouched.
-- **Email-Safe Token Parsing**: `@tag` matching activates only at the start of text or after whitespace or opening punctuation (`(`, `[`, `{`, `"`, `'`), ensuring email addresses (`sales@aventura.ae`, `info@client_name.com`) remain completely untouched. Double-curly `{{tag_name}}` syntax is also supported as a clean alias.
-- **Choice A2 Empty/Omitted Fallback**: When a whitelisted `@` tag resolves to an empty value or is marked as omitted in the quote's checklist, it resolves to an em-dash (`—`) so labeled rows remain visible as `Label: —` unless `hideIfEmpty` is explicitly enabled on that row.
-- **Unknown `@` Tag Detection & Pre-Print Guard**: Unrecognized `@tags` (such as typos like `@clinet_name`) are highlighted with a red warning pill on the live Studio preview canvas and trigger a confirmation prompt before PDF print/export, while stripping the warning border cleanly if printed.
+> [!IMPORTANT]
+> The following product and accounting behaviors have been confirmed during Phase 1 alignment:
+
+- **Confirmed Decision 1 — Visual-Only Price Masking (`Hide Price`)**: Toggling `Hide Price` on a top-level line item or Set sub-component renders `Included` (for sub-components) or `—` (for top-level unit/total cells) visually on the A4 quotation while keeping the row's numeric price inside the Set/Option financial rollup so package and grand totals remain 100% accurate.
+- **Confirmed Decision 2 — Smart `@Tag` Autocomplete in Row Notes (`+ Note`)**: Custom row notes on both top-level items and Set sub-components use `<AtMentionInput />` and resolve through the frozen quotation snapshot (`renderResolvedQuotationText`), supporting live `@delivery_lead_time`, `@warranty_period`, `@project_location`, and all 38 commercial `@tags`.
+- **Confirmed Decision 3 — Orphan-Free Set Header Guard in Auto-Paginate Mode**: When `Auto-Paginate Long Tables & Sets` (`auto_paginate_items`) is enabled, a Composite BOM Set header row and its first sub-component (`1.1`) are always kept together on the same A4 sheet; if both do not fit in the remaining vertical budget of the current sheet, the entire Set starts cleanly at the top of the next continuation sheet.
+
+---
+
+## 1. Overview & Core Concept
+
+- **What It Does**:
+  - Elevates every sub-component (`1.1`, `1.2`, ..., `1.50`) inside a Composite BOM Set to a first-class customizable row with its own page break toggle, bottom spacer in millimeters, custom `@tag`-resolvable row note, amber/brand row highlight, bold typography toggle, and price visibility mask.
+  - Upgrades the A4 pagination engine so a 50-item BOM Set or Multi-Option schedule can split cleanly across multiple A4 sheets—either at exact manual cut points (`✂ Break After 1.x`) or automatically via `Auto-Paginate Long Tables & Sets`—with automatic `(Continued)` Set headers, continuous `1.11`, `1.12` numbering, zero double-counting of split Set prices, and preserved Option table grouping across all sheets.
+- **Target Audience / Persona**: Commercial estimators, proposals engineers, and sales managers preparing complex multi-page engineering BOMs and multi-option commercial offers.
+- **Key Value**: Eliminates awkward mid-table clipping and manual workarounds on large BOM sets while guaranteeing mathematical accuracy across multi-page option schedules.
+
+---
+
+## 2. User Experience & Visual Design
+
+- **Key User Flows**:
+  1. **Right Inspector (`items_table` -> Line-Item Pagination, Spacing & Row Options)**:
+     - At the top of the section, users can toggle **`Auto-Paginate Long Tables & Sets`** (`auto_paginate_items`). When enabled, long tables and BOM sets automatically split across A4 sheets based on measured row height budgets while honoring any manual `✂ Break` flags as forced cut points.
+     - Each top-level item row displays a compact action bar: `✂ Break` (`Break After Table` on the final item), `Spacer (mm)` stepper, `🎨 Highlight`, `B Bold`, `Hide Price`, and `+ Note`.
+     - If an item is a Composite Set (`sub_components.length > 0`), an expandable indented sub-tree lists all sub-components (`1.1`, `1.2`, ..., `1.50`), each equipped with the exact same 6 controls (`✂ Break After 1.x`, `Spacer (mm)`, `🎨 Highlight`, `B Bold`, `Hide Price`, `+ Note`).
+  2. **Left Panel Line-Item Cards & `CompositePackageEditor`**:
+     - Inside the Left Panel's line-item list and inside `CompositePackageEditor`, each sub-component row includes compact quick toggles for `✂ Break After Row`, `🎨 Highlight`, `B Bold`, `Hide Price`, `Spacer`, and `+ Row Note` (with `@tag` autocomplete) so engineers can configure pagination and notes while editing a 50-row BOM.
+  3. **Live A4 Multi-Page Preview & Print Canvas**:
+     - When a BOM Set splits after sub-component `1.10`, Sheet 1 renders `1.1` through `1.10` followed by a subtle footer notice: `↳ Set #1 continued on next page...` (suppressing premature scope notes until the final slice).
+     - Sheet 2 opens with a continuation table header and a dedicated **Set Continuation Header Row**: `#` column shows `1 (Cont.)`, description shows `<Item Name> (Continued)` badge without repeating parent specs/descriptions, and Qty/UOM/Price cells show `—` / `Included above`, followed immediately by `1.11`, `1.12`, etc.
+     - For Multi-Option tables (`all_separate_tables`), if Option B spans Sheet 1 and Sheet 2, Sheet 1's Option B table footer displays `OPTION B — Continued on next page (Page Subtotal: AED ...)` and Sheet 2's Option B table footer displays the true cumulative `OPTION B TOTAL (AED ...)`.
+
+- **Visual Identity & Theme**:
+  - **Aesthetic Direction**: High-density enterprise light-mode studio controls (`bg-white`, `bg-slate-50/70`, `border-slate-200`) paired with crisp, print-faithful A4 commercial typography.
+  - **Color Palette & Mood**:
+    - Active page break badges & indicators: Amber accent (`bg-amber-50/90 text-amber-800 border-amber-300`).
+    - Highlighted table rows (`row_highlight`): Soft warm tint (`bg-amber-50/60 print:bg-amber-50/50`) that prints cleanly without obscuring text contrast.
+    - Set Continuation banners: Subtle slate/indigo structural tint (`bg-slate-100/80 text-slate-700 border-slate-200`).
+  - **Typography & Hierarchy**: Monospace tabular numerals (`font-mono tabular-nums`) for all `#`, `1.x` sub-indices, quantities, spacer millimeter inputs, unit rates, and subtotals; clean sans-serif hierarchy for item titles and italic resolved `@tag` row notes.
+
+---
+
+## 3. Key Product Decisions & Trade-Offs
+
+- **Decision 1: Stable Composite Keys Over Positional Array Indices**
+  - *Chosen Approach*: Key all row overrides (`itemPageBreaks`, `itemRowSpacers`, and per-row style/note overrides) by stable `item.id` (for top-level items) and `${item.id}::${sub.id}` (for sub-components), while syncing directly onto the serialized `line_items` and `sub_components` objects.
+  - *Why*: Reordering items or inserting a new sub-component at row `1.5` never shifts page breaks, spacers, or notes onto the wrong row.
+- **Decision 2: Global Pre-Pass Before Sheet Chunking**
+  - *Chosen Approach*: Compute `distinctOptionGroupsAll`, `parentItemNumber`, `globalOptionItemNumber`, `fullOptionGroupTotals`, and `finalChunkIndexByOptionKey` across the full unchunked `lineItems` array before `splitLineItemsIntoChunks` slices items across sheets.
+  - *Why*: Prevents a continuation sheet that only contains `Option B` rows from losing its `Option B` table banner or resetting item numbering to `1`, and guarantees that split Composite Sets are never double-counted in option or grand totals.
+- **Decision 3: Hybrid Manual + Auto-Pagination Engine**
+  - *Chosen Approach*: Keep `auto_paginate_items` optional (default `false` for backward compatibility with existing saved quotes) and treat manual `page_break_after` flags as hard cut points that reset the running sheet height counter during auto-pagination.
+  - *Why*: Existing quotations preserve their exact page count and layout, while users with 30–100+ row BOMs can turn on `Auto-Paginate` with 1 click and still fine-tune specific breaks manually.
+
+---
+
+## 4. Technical Architecture & Data Strategy *(Technical Reference)*
+
+### Architecture & Component Diagram
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                        QUOTATION STUDIO 2.0 (PHASE 3)                        │
-├──────────────────────────────────────┬───────────────────────────────────────┤
-│  STUDIO CONTROLS & INPUTS            │  CENTRAL @ TOKEN RESOLVER             │
-│  ┌────────────────────────────────┐  │  ┌─────────────────────────────────┐  │
-│  │ Floating @ Autocomplete Input  │  │  │ Snapshot vs. Live Deal Selector │  │
-│  │ • Grouped by 4 Categories      ├──┼─►│ • Locked/Sent -> Frozen Snapshot│  │
-│  │ • Shows Live Resolved Value    │  │  │ • Draft -> Snapshot + Fallback  │  │
-│  │ • 1-Click "+ @ Insert Tag" Btn │  │  └───────────────┬─────────────────┘  │
-│  └────────────────────────────────┘  │                  ▼                    │
-│  ┌────────────────────────────────┐  │  ┌─────────────────────────────────┐  │
-│  │ Include / Omit Field Checklist │  │  │ Safe Parser & Choice A2 Engine  │  │
-│  │ • 1-Click Eye Toggle (Omit)    ├──┼─►│ • Protects user@domain.com      │  │
-│  │ • Syncs Card Visibility + @Tag │  │  │ • Omitted/Empty -> "—" (A2)     │  │
-│  │ • 1-Click Copy @tag Button     │  │  │ • Flags Unknown @typos          │  │
-│  └────────────────────────────────┘  │  └─────────────────────────────────┘  │
-└──────────────────────────────────────┴───────────────────────────────────────┘
+│                        QuotationStudioModal (State)                          │
+│  • autoPaginateItems (boolean)                                               │
+│  • itemPageBreaks / itemRowSpacers / itemRowCustomizations (stable ID keys)  │
+│  • itemCompositeOverrides (sub_components with per-row break/spacer/style)   │
+└───────────────┬──────────────────────────────────────────────┬───────────────┘
+                │                                              │
+                ▼                                              ▼
+┌───────────────────────────────────────┐      ┌───────────────────────────────┐
+│   Right Inspector & Left BOM Editor   │      │       QuotationDocument       │
+│  • Auto-Paginate Master Toggle        │      │  1. Global Pre-Pass:          │
+│  • Top-Level Row Options Bar          │      │     - distinctOptionGroupsAll │
+│  • Expandable 1.1..1.N Sub-Row Tree   │      │     - parentItemNumber &      │
+│  • CompositePackageEditor Quick Tools │      │       globalOptionItemNumber  │
+│  • @Tag-Enabled Row Note Inputs       │      │     - fullOptionGroupTotals   │
+└───────────────────────────────────────┘      │  2. splitLineItemsIntoChunks: │
+                                               │     - Manual item & 1.x cuts  │
+                                               │     - Auto-Paginate height    │
+                                               │       budget (parent+1.1 kept │
+                                               │       together)               │
+                                               │  3. renderItemsTable:         │
+                                               │     - Set (Cont.) Header Row  │
+                                               │     - 1.11..1.N numbering     │
+                                               │     - Page Subtotal vs Final  │
+                                               │       Option Total Footers    │
+                                               └───────────────────────────────┘
 ```
 
----
+### Data Model & State
+- **Per-Row Customization Fields (on `LineItemComponent`, `LineItem`, and `QuotationLineItem`)**:
+  - `page_break_after?: boolean`
+  - `row_spacer_after_mm?: number`
+  - `row_note?: string`
+  - `row_highlight?: boolean`
+  - `row_bold?: boolean`
+  - `hide_row_price?: boolean`
+- **Runtime Continuation Metadata (on `QuotationLineItem`)**:
+  - `isCompositeContinuation?: boolean`
+  - `hasMoreSubComponentsAfter?: boolean`
+  - `subComponentStartIndex?: number`
+  - `parentItemNumber?: number`
+  - `globalOptionItemNumber?: number`
+- **Quotation & Preset Setting**:
+  - `auto_paginate_items?: boolean` on `Quotation` and `QuotationPreset`, hydrated and persisted via `QuotationRepository`.
 
-## 2. User Review & Critical Decisions
-
-- **Unrecognized `@tag` Handling**: Unrecognized `@tags` (e.g., `@clinet_name`) are highlighted with a high-contrast crimson warning badge (`Unknown @tag: @clinet_name`) in the live Studio preview canvas and trigger a pre-print confirmation dialog before PDF export/print if any unresolved typos remain.
-- **Synchronized Field Include / Omit Toggles**: Toggling a field between **Included** and **Omitted** in the **Document Data & `@` Fields** checklist updates `omitted_fields[key]` (causing `@tag` references to resolve to `—`) **and** synchronizes the corresponding structural visibility toggle on the Header, Recipient, or Terms cards without deleting any underlying Enquiry or Company data.
-- **Snapshot Lifecycle Across Revisions**: Sent, accepted, rejected, or locked quotations strictly resolve from their frozen `client_snapshot` and `sender_snapshot`. Creating a new Draft revision (`R0 -> R1`) refreshes the snapshot from the live Enquiry and Company Profile while deep-cloning `omitted_fields` and preserving the historical revision untouched.
-
----
-
-## 3. Canonical `@` Tag Catalog & Resolution Matrix
-
-All 38 canonical tags are organized into four functional groups for both the floating `@` autocomplete menu and the central resolver:
-
-```
-┌─────────────────────────┬──────────────────────────────┬──────────────────────────────────────────────────────┐
-│ Category                │ Supported @ Tags             │ Resolution Priority (Snapshot -> Draft Fallback)     │
-├─────────────────────────┼──────────────────────────────┼──────────────────────────────────────────────────────┤
-│ 1. Dates                │ @quote_date                  │ Quote issue date (created_at)                        │
-│                         │ @valid_until                 │ Calculated/explicit expiry date (valid_until)        │
-│                         │ @enquiry_date                │ enquiry_date -> logged_date                          │
-│                         │ @projected_order_date        │ projected_order_date                                 │
-│                         │ @followup_date               │ next_followup_date                                   │
-├─────────────────────────┼──────────────────────────────┼──────────────────────────────────────────────────────┤
-│ 2. Client & Project     │ @client_name                 │ client_snapshot.entity_name -> company_name          │
-│                         │ @contact_person              │ client_snapshot.contact_person -> contact_person_name│
-│                         │ @client_trn                  │ client_snapshot.trn -> client_trn                    │
-│                         │ @client_phone                │ client_snapshot.phone -> client_phone                │
-│                         │ @client_email                │ client_snapshot.email -> client_email                │
-│                         │ @client_address              │ client_snapshot.address -> client_address            │
-│                         │ @project_location            │ project_location -> client_snapshot.city             │
-│                         │ @project_number              │ project_number                                       │
-│                         │ @customer_ref                │ customer_reference_code                              │
-│                         │ @enquiry_ref                 │ quote_ref_no                                         │
-├─────────────────────────┼──────────────────────────────┼──────────────────────────────────────────────────────┤
-│ 3. Our Company & Quote  │ @quote_ref                   │ formatted_quote_ref -> quote_number                  │
-│                         │ @revision_no                 │ R + revision_number (e.g., R0, R1)                   │
-│                         │ @our_company                 │ companyNameOverride -> sender_snapshot.entity_name   │
-│                         │ @our_trn                     │ sender_snapshot.trn -> profile.trn                   │
-│                         │ @our_phone                   │ sender_snapshot.phone -> profile.phone               │
-│                         │ @our_email                   │ sender_snapshot.email -> profile.email               │
-│                         │ @our_address                 │ sender_snapshot.address -> profile.address_line_1    │
-│                         │ @sales_person                │ prepared_by -> sales_person -> assigned_to           │
-│                         │ @signatory_name              │ primary_signatory_name -> profile.signatory_name     │
-│                         │ @signatory_role              │ primary_signatory_title -> profile.signatory_title   │
-├─────────────────────────┼──────────────────────────────┼──────────────────────────────────────────────────────┤
-│ 4. Commercial, Bank     │ @price_basis                 │ price_basis -> termsConfig.priceBasis                │
-│    & Totals             │ @payment_terms               │ payment_terms -> termsConfig.paymentTerms            │
-│                         │ @delivery_lead_time          │ termsConfig.deliveryLeadTime                         │
-│                         │ @quote_validity              │ validity_days (formatted as "X Days")                │
-│                         │ @warranty_period             │ termsConfig.warrantyPeriod                           │
-│                         │ @currency                    │ currency (e.g., AED, USD)                            │
-│                         │ @subtotal                    │ Formatted currency + subtotal                        │
-│                         │ @freight_amount              │ Formatted currency + freight_amount                  │
-│                         │ @vat_amount                  │ Formatted currency + tax_amount                      │
-│                         │ @grand_total                 │ Formatted currency + grand_total                     │
-│                         │ @amount_in_words             │ Full amount in words for grand_total                 │
-│                         │ @bank_name, @account_name    │ Active bank override -> selected bank account        │
-│                         │ @account_no, @iban, @swift   │ Active bank override -> selected bank account        │
-│                         │ @item_count, @scope_summary  │ Line item count & comma-joined item titles           │
-└─────────────────────────┴──────────────────────────────┴──────────────────────────────────────────────────────┘
-```
-
----
-
-## 4. Implementation Workstreams
-
-### Workstream 1: Data Model & Revision Snapshot Persistence
-- Extend the quotation and preset schemas with `omitted_fields?: Record<string, boolean>` to store per-quote and per-preset field inclusion/omission states.
-- Update quotation serialization, hydration, and preset application so `omitted_fields` is preserved across save/load cycles and deep-cloned when creating a new revision.
-- Update revision cloning (`R0 -> R1`) so that when a new Draft revision is spun up from an existing quote, fresh `client_snapshot` and `sender_snapshot` objects are captured when live Enquiry / Company Profile context is available, while locked/sent revisions retain their original frozen snapshots.
-
-### Workstream 2: Central `@` Token Resolver & Document Rendering Engine
-- Build the central token resolution module implementing:
-  - **Snapshot-Aware Value Lookup**: Inspects `quotation.status` (`Draft` vs. locked states) to determine whether missing snapshot fields can fall back to live `enquiry` / `profile` values, and checks `omitted_fields[tagKey]` first.
-  - **Email-Safe Regex Parser**: Matches `(^|[\s(\[{"'])@([a-zA-Z_][a-zA-Z0-9_]*)` and `\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}` so emails like `sales@aventura.ae` or `info@client_name.com` are never mistaken for tokens.
-  - **Choice A2 Empty/Omit Resolution**: Resolves empty or omitted whitelisted tokens to `'—'`, and provides a helper for custom key-value rows (`resolveCustomRowValue`) that hides the row only when `row.hideIfEmpty === true` and the resolved value is empty or `'—'`.
-  - **Unknown Token Inspector (`findUnknownAtTokens` & React Renderer)**: Identifies unrecognized `@tags` across all active text fields in the quotation and renders them in the live preview canvas with a subtle red warning badge (`print:bg-transparent print:border-none print:text-inherit print:p-0`).
-- Integrate token resolution across all text regions of the A4 quotation document:
-  - Project Subject Banner (`subject`)
-  - Commercial Terms (`priceBasis`, `paymentTerms`, `deliveryLeadTime`, `warrantyPeriod`, `customNotes`, `applied_terms`, and `termsConfig.customRows`)
-  - Remittance Instructions (`remittanceConfig.customNote` and `remittanceConfig.customRows`)
-  - Client Acceptance Block (`acceptanceConfig.acceptanceStatementOverride` and `acceptanceConfig.customRows`)
-  - Authorized Signatory Block (`footerConfig.forAndOnBehalfText` and `footerConfig.signatoryCustomLines`)
-  - Footer Legal Disclaimer & Pills (`footerConfig.customDisclaimer` and `footerConfig.customFooterPills`)
-  - Line Items Table (`item.description` and `item.option_scope_notes`)
-- Enforce `omitted_fields` on structural document cards (Recipient Card, Header Meta Card, Commercial Terms, and Remittance rows) so omitting a field in the checklist hides or masks its structural row in lockstep with `@tag` resolution.
-
-### Workstream 3: Floating `@` Autocomplete Input & Include/Omit Checklist UI
-- Create reusable `<AtMentionInput />` and `<AtMentionTextarea />` components inside Quotation Studio:
-  - Detect when the user types `@` at the start of the field or after whitespace/opening punctuation, opening a floating popover filterable by typing (`@cli` filters to `@client_name`, `@client_trn`, etc.) with keyboard navigation (`ArrowUp`, `ArrowDown`, `Enter`/`Tab`, `Escape`) and click-to-insert.
-  - Provide a compact `+ @ Insert Tag` button in the field label/header bar for 1-click browsing and insertion at the current cursor position.
-  - Render each menu item with its monospace `@tag`, human label, and live resolved value badge (`@client_name — Al Futtaim Engineering` or `Omitted (—)` if omitted).
-- Upgrade Studio text inputs across Left Panel Tab 2, Right Inspector Cards, and Line Item Row Notes to use `<AtMentionInput />` / `<AtMentionTextarea />`.
-- Add the collapsible **"Document Data & `@` Fields (Include / Omit)"** card at the top of Left Panel Tab 2 (`Deal Data & Content`):
-  - Displays active fields grouped by category with their live resolved value, a 1-click **Copy `@tag`** pill, and a 1-click **Included / Omitted** Eye button.
-  - Toggling a field updates `omittedFields[key]` and synchronizes the matching structural toggle on `recipientConfig`, `headerConfig`, or `termsConfig`.
-- Add a pre-print validation check on the **Print / Save PDF** action that scans the quotation for unknown `@tags` and prompts the user with the specific typo(s) found before opening the print dialog.
+### Interactive Component & State Mapping
+1. **Global Pre-Pass & Sub-Component Chunking**:
+   - Before splitting `lineItems`, annotate each item with `parentItemNumber` (`1..N`), `globalOptionItemNumber` (`1..M` within its option group), and ensure every sub-component has a deterministic ID (`sub.id || `${item.id}_sub_${sIdx}``).
+   - Calculate `fullOptionGroupTotals[optionKey]` and `finalChunkIndexByOptionKey[optionKey]` across non-continuation items.
+   - In `splitLineItemsIntoChunks(lineItems, { autoPaginate })`:
+     - Support splitting an item across multiple chunks whenever any sub-component `k < sub_components.length - 1` has `sub.page_break_after === true` OR when `autoPaginate` exceeds the current sheet's height budget (~175mm on Sheet 1, ~220mm on Sheet 2+).
+     - Enforce the **Orphan-Free Set Header Guard**: estimate the parent row + first sub-component (`1.1`) height together before starting a Set on the current sheet; if their combined height exceeds the remaining budget on a non-empty chunk, flush the current chunk first so the Set header and `1.1` start together on the next sheet.
+     - If the final sub-component (`k === sub_components.length - 1`) has `page_break_after === true`, promote it to `page_break_after: true` on that final item slice (including triggering the `Break After Table` sheet split when it is the last item in the quotation).
+2. **Table Rendering (`renderItemsTable`)**:
+   - Use `distinctOptionGroupsAll.length > 1` so continuation sheets with a single option group retain their Option banner and structure.
+   - Skip `it.isCompositeContinuation` in all subtotal/group reducers so split Sets are never double-counted.
+   - Render Set Continuation Header rows (`#1 (Cont.)`, `<Item Name> (Continued)`, `Included above` in price cells) when `item.isCompositeContinuation === true`.
+   - Render sub-components using `subSn = ${item.parentItemNumber || itemNumber}.${(item.subComponentStartIndex || 0) + subIdx + 1}`, applying `row_highlight`, `row_bold`, `hide_row_price`, `@tag`-resolved `row_note`, and `row_spacer_after_mm` to both parent rows and sub-component rows.
+   - Render `↳ Set #X continued on next page...` when `item.hasMoreSubComponentsAfter === true`, and render Option continuation footers (`Page Subtotal` vs final `OPTION X TOTAL`) based on `finalChunkIndexByOptionKey`.
