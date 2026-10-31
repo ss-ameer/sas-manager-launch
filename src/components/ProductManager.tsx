@@ -20,7 +20,7 @@ import { safeAddDoc, safeUpdateDoc } from '../firebase';
 import { generateProductSearchTerms } from '../utils/defaults';
 import { UNIVERSAL_UNITS, UNIVERSAL_CATEGORIES } from '../constants';
 import { processStockGrn, processStockAdjustment, subscribeStockMovements } from '../services/inventoryService';
-import { uploadWorkspaceMediaAsset } from '../services/attachmentStorage';
+import { uploadWorkspaceMediaAsset, deleteFromStorageBucket, formatByteSize } from '../services/attachmentStorage';
 import CompositePackageEditor from './quotations/CompositePackageEditor';
 import { recalculateCompositeItemTotals } from '../utils/compositeBomUtils';
 import LineItemImageOptionsPopover from './common/LineItemImageOptionsPopover';
@@ -52,7 +52,8 @@ import {
   Clock,
   Sparkles,
   Cloud,
-  HardDrive
+  HardDrive,
+  ShoppingBag
 } from 'lucide-react';
 import SearchResultCounter from './common/SearchResultCounter';
 import HoverScrollText from './common/HoverScrollText';
@@ -90,6 +91,7 @@ interface ProductManagerProps {
   setUnits?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   activeWorkspace?: Workspace;
   onOpenMobileMenu?: () => void;
+  onOpenProcurement?: () => void;
   companies?: Company[];
   triggerToast?: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
@@ -104,6 +106,7 @@ export default function ProductManager({
   setUnits,
   activeWorkspace,
   onOpenMobileMenu,
+  onOpenProcurement,
   companies,
   triggerToast
 }: ProductManagerProps) {
@@ -629,8 +632,9 @@ export default function ProductManager({
         (activeWorkspace as any)?.settings || activeWorkspace,
         {
           compressImage: true,
-          maxDimension: 650,
-          quality: 0.84,
+          maxDimension: 800,
+          quality: 0.78,
+          previousUrlToDelete: formImageUrl || undefined,
           onProgress: (pct) => setImageUploadProgress(pct)
         }
       );
@@ -666,15 +670,19 @@ export default function ProductManager({
         (activeWorkspace as any)?.settings || activeWorkspace,
         {
           compressImage: file.type.startsWith('image/'),
-          maxDimension: 1400,
-          quality: 0.86,
+          maxDimension: 1200,
+          quality: 0.78,
+          pdfCompressionPreset: 'standard',
+          previousUrlToDelete: formDatasheetAttachment?.url,
           onProgress: (pct) => setDatasheetUploadProgress(pct)
         }
       );
       const attachment: Attachment = {
         id: `ds_${Date.now()}`,
         name: file.name,
-        size: uploaded.size || file.size,
+        size: uploaded.compressedSize || uploaded.size || file.size,
+        original_size_bytes: uploaded.originalSize,
+        compressed_size_bytes: uploaded.compressedSize,
         type: uploaded.type || file.type || 'application/pdf',
         url: uploaded.url,
         uploadedAt: new Date().toISOString(),
@@ -685,7 +693,9 @@ export default function ProductManager({
       setFormDatasheetAttachment(attachment);
       if (triggerToast) {
         triggerToast(
-          uploaded.storageProvider === 'supabase'
+          uploaded.wasCompressed
+            ? `Datasheet compressed (${formatByteSize(uploaded.originalSize)} → ${formatByteSize(uploaded.compressedSize)}) & uploaded.`
+            : uploaded.storageProvider === 'supabase'
             ? `Technical datasheet "${file.name}" uploaded to Custom Storage Bucket.`
             : `Technical datasheet "${file.name}" attached.`,
           'success'
@@ -1088,6 +1098,16 @@ export default function ProductManager({
             : undefined
         }
         secondaryActions={[
+          ...(onOpenProcurement
+            ? [
+                {
+                  label: 'Procurement & Payables',
+                  icon: ShoppingBag,
+                  onClick: onOpenProcurement,
+                  variant: 'outline' as const
+                }
+              ]
+            : []),
           ...(isEditable
             ? [
                 {
@@ -1461,6 +1481,14 @@ export default function ProductManager({
                                     }`}
                                   >
                                     {marginPct}% margin
+                                  </span>
+                                )}
+                                {p.last_landed_cost !== undefined && p.last_landed_cost > 0 && (
+                                  <span
+                                    className="block text-[9.5px] font-mono text-indigo-700 mt-0.5"
+                                    title={p.last_grn_ref ? `Last Landed Cost from ${p.last_grn_ref}` : 'Last Landed Unit Cost'}
+                                  >
+                                    Landed: {p.last_landed_cost.toFixed(2)}
                                   </span>
                                 )}
                               </div>
@@ -2141,8 +2169,18 @@ export default function ProductManager({
                           triggerToast={triggerToast}
                           showOverrideControls={false}
                           onChange={(patch) => {
-                            if ('image_url' in patch) setFormImageUrl(patch.image_url || '');
-                            if ('secondary_image_url' in patch) setFormSecondaryImageUrl(patch.secondary_image_url || '');
+                            if ('image_url' in patch) {
+                              if (formImageUrl && formImageUrl !== patch.image_url) {
+                                deleteFromStorageBucket(formImageUrl).catch(() => {});
+                              }
+                              setFormImageUrl(patch.image_url || '');
+                            }
+                            if ('secondary_image_url' in patch) {
+                              if (formSecondaryImageUrl && formSecondaryImageUrl !== patch.secondary_image_url) {
+                                deleteFromStorageBucket(formSecondaryImageUrl).catch(() => {});
+                              }
+                              setFormSecondaryImageUrl(patch.secondary_image_url || '');
+                            }
                             if ('image_caption' in patch) setFormImageCaption(patch.image_caption || '');
                             if ('secondary_image_caption' in patch) setFormSecondaryImageCaption(patch.secondary_image_caption || '');
                             if ('image_adjustments' in patch) setFormImageAdjustments(patch.image_adjustments);
@@ -2207,9 +2245,14 @@ export default function ProductManager({
                               )}
                               <button
                                 type="button"
-                                onClick={() => setFormDatasheetAttachment(undefined)}
+                                onClick={() => {
+                                  if (formDatasheetAttachment?.url) {
+                                    deleteFromStorageBucket(formDatasheetAttachment.url).catch(() => {});
+                                  }
+                                  setFormDatasheetAttachment(undefined);
+                                }}
                                 className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                                title="Remove Datasheet"
+                                title="Remove Datasheet & Delete from Cloud Bucket"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>

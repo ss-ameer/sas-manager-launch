@@ -14,6 +14,7 @@ import {
   Attachment
 } from '../../types';
 import { QuotationRepository, DEFAULT_QUOTATION_BLOCKS } from '../../services/repositories/QuotationRepository';
+import { deleteFromStorageBucket } from '../../services/attachmentStorage';
 import { QuotationDocument } from '../quotations/QuotationDocument';
 import { QuotationStudioModal } from '../quotations/QuotationStudioModal';
 import {
@@ -608,7 +609,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
           );
           setBankAccounts(normalizedBanks);
         } else {
-          setLegalEntityName(activeWorkspace?.name || 'ADVANCED NIRVANA WATER TREATMENT EQUIPMENT TRADING LLC');
+          setLegalEntityName(activeWorkspace?.name || 'Corporate Legal Entity');
           setCountry('United Arab Emirates');
           setCity('Dubai');
           setPrimarySignatoryName(user?.displayName || user?.name || 'Commercial Director');
@@ -719,12 +720,21 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
         quality: 0.84
       });
       if (target === 'logo') {
+        if (logoUrl && logoUrl.startsWith('http') && logoUrl !== dataUri) {
+          deleteFromStorageBucket(logoUrl, activeWorkspace || undefined).catch(() => {});
+        }
         setLogoUrl(dataUri);
         if (logoDisplayMode === 'no_logo') setLogoDisplayMode('logo_and_name');
       } else if (target === 'seal') {
+        if (stampSealUrl && stampSealUrl.startsWith('http') && stampSealUrl !== dataUri) {
+          deleteFromStorageBucket(stampSealUrl, activeWorkspace || undefined).catch(() => {});
+        }
         setStampSealUrl(dataUri);
         setShowCompanySeal(true);
       } else if (target === 'signature') {
+        if (signatureImageUrl && signatureImageUrl.startsWith('http') && signatureImageUrl !== dataUri) {
+          deleteFromStorageBucket(signatureImageUrl, activeWorkspace || undefined).catch(() => {});
+        }
         setSignatureImageUrl(dataUri);
         setSignatureStyle('image');
       }
@@ -740,10 +750,25 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
     setSavingProfile(true);
 
     try {
+      const prevLogo = rawProfileSnapshot?.logo_url || rawProfileSnapshot?.header_config?.logoUrl || '';
+      const prevSeal = rawProfileSnapshot?.company_seal_url || rawProfileSnapshot?.stamp_seal_url || '';
+      const prevSign = rawProfileSnapshot?.signature_image_url || '';
+
       const payload = buildMergedProfilePayload();
       const saved = await QuotationRepository.saveWorkspaceDocumentProfile(payload);
       setRawProfileSnapshot(saved);
       setProfileId(saved.id || '');
+
+      if (prevLogo && prevLogo.startsWith('http') && prevLogo !== logoUrl) {
+        deleteFromStorageBucket(prevLogo, activeWorkspace || undefined).catch(() => {});
+      }
+      if (prevSeal && prevSeal.startsWith('http') && prevSeal !== stampSealUrl) {
+        deleteFromStorageBucket(prevSeal, activeWorkspace || undefined).catch(() => {});
+      }
+      if (prevSign && prevSign.startsWith('http') && prevSign !== signatureImageUrl) {
+        deleteFromStorageBucket(prevSign, activeWorkspace || undefined).catch(() => {});
+      }
+
       if (triggerToast) {
         triggerToast('Workspace document branding & Studio defaults saved!', 'success');
       }
@@ -1503,7 +1528,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                 disabled={!isAdmin}
                 value={legalEntityName}
                 onChange={(e) => setLegalEntityName(e.target.value)}
-                placeholder="e.g. ADVANCED NIRVANA WATER TREATMENT EQUIPMENT TRADING LLC"
+                placeholder="e.g. Global Industrial Equipment Trading LLC"
                 className="w-full rounded-xl border border-slate-300 p-2.5 text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-hidden disabled:bg-slate-50"
               />
             </div>
@@ -1640,7 +1665,12 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                     {isAdmin && logoUrl && (
                       <button
                         type="button"
-                        onClick={() => setLogoUrl('')}
+                        onClick={() => {
+                          if (logoUrl.startsWith('http')) {
+                            deleteFromStorageBucket(logoUrl, activeWorkspace || undefined).catch(() => {});
+                          }
+                          setLogoUrl('');
+                        }}
                         className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-bold rounded-lg flex items-center gap-1 cursor-pointer transition"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1703,7 +1733,12 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                     {isAdmin && stampSealUrl && (
                       <button
                         type="button"
-                        onClick={() => setStampSealUrl('')}
+                        onClick={() => {
+                          if (stampSealUrl.startsWith('http')) {
+                            deleteFromStorageBucket(stampSealUrl, activeWorkspace || undefined).catch(() => {});
+                          }
+                          setStampSealUrl('');
+                        }}
                         className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-bold rounded-lg flex items-center gap-1 cursor-pointer transition"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1825,7 +1860,12 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                     {signatureImageUrl && (
                       <button
                         type="button"
-                        onClick={() => setSignatureImageUrl('')}
+                        onClick={() => {
+                          if (signatureImageUrl.startsWith('http')) {
+                            deleteFromStorageBucket(signatureImageUrl, activeWorkspace || undefined).catch(() => {});
+                          }
+                          setSignatureImageUrl('');
+                        }}
                         className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />

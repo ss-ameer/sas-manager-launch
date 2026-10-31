@@ -19,7 +19,8 @@ import {
   ChevronDown,
   Trash2,
   X,
-  Briefcase
+  Briefcase,
+  ShoppingBag
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -88,6 +89,7 @@ export default function Sidebar({
       moduleKey: 'enquiriesEnabled'
     },
     { id: 'projects', label: 'Projects / Operations', icon: Briefcase, role: 'Viewer' },
+    { id: 'procurement', label: 'Procurement & Payables', icon: ShoppingBag, role: 'Viewer' },
     { id: 'companies', label: 'Companies & Contacts', icon: Building2, role: 'Viewer' },
     { id: 'salespersons', label: 'Team', icon: Users2, role: 'Viewer' },
     { id: 'products', label: 'Products Catalog', icon: Package, role: 'Viewer' },

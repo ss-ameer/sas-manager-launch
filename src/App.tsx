@@ -22,6 +22,7 @@ import EnquiryForm from './components/EnquiryForm';
 import EnquiryDetail from './components/EnquiryDetail';
 import ProductManager from './components/ProductManager';
 import ProjectRegistry from './components/ProjectRegistry';
+import ProcurementPayablesHub from './components/ProcurementPayablesHub';
 import SettingsHub from './components/SettingsHub';
 import CloudSyncHub from './components/CloudSyncHub';
 import WorkspaceManagerModal from './components/WorkspaceManagerModal';
@@ -2135,6 +2136,21 @@ export default function App() {
           />
         )}
 
+        {currentTab === 'procurement' && (
+          <ProcurementPayablesHub
+            activeWorkspace={activeWorkspace}
+            user={user}
+            companies={workspaceCompanies}
+            products={workspaceProducts}
+            setProducts={setProducts}
+            enquiries={visibleEnquiries}
+            projects={workspaceProjects}
+            onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+            onSelectEnquiry={(enqId) => setSelectedEnquiryId(enqId)}
+            triggerToast={triggerToast}
+          />
+        )}
+
         {currentTab === 'products' && (
           <ProductManager 
             products={workspaceProducts} 
@@ -2146,6 +2162,7 @@ export default function App() {
             setUnits={setUnits}
             activeWorkspace={activeWorkspace}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+            onOpenProcurement={() => setCurrentTab('procurement')}
             companies={workspaceCompanies}
             triggerToast={triggerToast}
           />

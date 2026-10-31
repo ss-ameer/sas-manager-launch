@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Project, Product, Workspace, UserProfile, LineItem, ProjectMilestone, Enquiry, Salesperson, getInitials } from '../types';
+import { Project, Product, Workspace, UserProfile, LineItem, ProjectMilestone, Enquiry, Salesperson, Quotation, SupplierBill, getInitials } from '../types';
 import { dispatchProjectStock } from '../services/inventoryService';
 import { updateProjectStatus, updateProjectMetadata, softDeleteProject } from '../services/projectService';
+import { ProcurementRepository } from '../services/repositories/ProcurementRepository';
 import { safeUpdateDoc, safeAddDoc, db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { PageHeader, PageBody, CardPanel, KpiStatCard } from './layout/UiContainer';
@@ -100,6 +101,27 @@ export default function ProjectRegistry({
     targetTitle: string;
     precedingTitle: string;
   } | null>(null);
+
+  const [workspaceProcurementDocs, setWorkspaceProcurementDocs] = useState<Quotation[]>([]);
+  const [workspaceSupplierBills, setWorkspaceSupplierBills] = useState<SupplierBill[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    const wsId = activeWorkspace?.id || 'ws_default';
+    ProcurementRepository.getWorkspaceProcurementDocuments(wsId)
+      .then((docs) => {
+        if (mounted) setWorkspaceProcurementDocs(docs);
+      })
+      .catch(() => {});
+    ProcurementRepository.getWorkspaceSupplierBills(wsId)
+      .then((bills) => {
+        if (mounted) setWorkspaceSupplierBills(bills);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, [activeWorkspace?.id, selectedProject?.id]);
 
   // Sync inline metadata editor fields when selectedProject changes
   useEffect(() => {
@@ -1155,6 +1177,103 @@ export default function ProjectRegistry({
                   </div>
                 </div>
               </div>
+
+              {/* Project Procurement, GRN & Realized Net Margin Rollup */}
+              {(() => {
+                const estCatalogCost = (selectedProject.line_items || []).reduce((s, li) => {
+                  const qty = Number(li.quantity) || 1;
+                  const prod = li.product_id ? productMap.get(li.product_id) : null;
+                  const unitCost =
+                    li.cost_price !== undefined && Number(li.cost_price) > 0
+                      ? Number(li.cost_price)
+                      : Number(prod?.cost_price) || 0;
+                  return s + qty * unitCost;
+                }, 0);
+                const rollup = ProcurementRepository.computeProcurementRollup({
+                  enquiryId: selectedProject.enquiry_id,
+                  projectId: selectedProject.id,
+                  clientContractValueAed: Number(selectedProject.contract_value) || 0,
+                  estimatedCatalogCostAed: estCatalogCost,
+                  procurementDocs: workspaceProcurementDocs,
+                  supplierBills: workspaceSupplierBills
+                });
+
+                return (
+                  <div className="p-4 rounded-2xl bg-indigo-50/40 border border-indigo-200/80 space-y-2.5">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <span className="text-[10px] font-mono uppercase tracking-widest text-indigo-800 font-bold">
+                        Procurement, Landed Cost &amp; Realized Project Margin
+                      </span>
+                      <span className="text-[11px] font-mono text-slate-500">
+                        {rollup.linkedPos.length} PO(s) • {rollup.linkedBills.length} Bill(s) •{' '}
+                        {rollup.linkedPaymentVouchers.length} PV(s)
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
+                      <div className="p-2.5 rounded-xl bg-white border border-slate-200/80">
+                        <span className="text-[10px] font-mono uppercase text-slate-400 block">
+                          POs Committed
+                        </span>
+                        <span className="font-mono font-bold text-indigo-700">
+                          AED{' '}
+                          {rollup.poCommittedTotalAed.toLocaleString('en-US', {
+                            minimumFractionDigits: 2
+                          })}
+                        </span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white border border-slate-200/80">
+                        <span className="text-[10px] font-mono uppercase text-slate-400 block">
+                          Actual / Landed Cost
+                        </span>
+                        <span className="font-mono font-bold text-slate-900">
+                          AED{' '}
+                          {rollup.netActualProcurementCostAed.toLocaleString('en-US', {
+                            minimumFractionDigits: 2
+                          })}
+                        </span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white border border-slate-200/80">
+                        <span className="text-[10px] font-mono uppercase text-slate-400 block">
+                          Vendor Credits (DN)
+                        </span>
+                        <span className="font-mono font-bold text-purple-700">
+                          AED{' '}
+                          {rollup.debitNoteCreditsAed.toLocaleString('en-US', {
+                            minimumFractionDigits: 2
+                          })}
+                        </span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white border border-slate-200/80">
+                        <span className="text-[10px] font-mono uppercase text-slate-400 block">
+                          Paid Out (PVs)
+                        </span>
+                        <span className="font-mono font-bold text-amber-700">
+                          AED{' '}
+                          {rollup.totalPaidOutAed.toLocaleString('en-US', {
+                            minimumFractionDigits: 2
+                          })}
+                        </span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white border border-slate-200/80">
+                        <span className="text-[10px] font-mono uppercase text-slate-400 block">
+                          Realized Net Margin
+                        </span>
+                        <span
+                          className={`font-mono font-extrabold ${
+                            rollup.realizedNetMarginAed >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                          }`}
+                        >
+                          AED{' '}
+                          {rollup.realizedNetMarginAed.toLocaleString('en-US', {
+                            minimumFractionDigits: 2
+                          })}{' '}
+                          ({rollup.realizedNetMarginPct}%)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Secondary Operational Metadata Strip (with inline Edit toggle) */}
               <div className="space-y-3">

@@ -113,6 +113,8 @@ export class QuotationRepository {
       delivery_metadata: data.delivery_metadata ? { ...data.delivery_metadata } : undefined,
       purchase_order_metadata: data.purchase_order_metadata ? { ...data.purchase_order_metadata } : undefined,
       receipt_metadata: data.receipt_metadata ? { ...data.receipt_metadata } : undefined,
+      payment_voucher_metadata: data.payment_voucher_metadata ? { ...data.payment_voucher_metadata } : undefined,
+      vendor_return_metadata: data.vendor_return_metadata ? { ...data.vendor_return_metadata } : undefined,
       revision_number: typeof data.revision_number === 'number' ? data.revision_number : 0,
       status: data.status || 'Draft',
       parent_quotation_id: parentId,
@@ -148,7 +150,10 @@ export class QuotationRepository {
       purchase_order: 'PO',
       receipt: 'REC',
       proforma_invoice: 'PI',
-      tax_invoice: 'INV'
+      tax_invoice: 'INV',
+      payment_voucher: 'PV',
+      material_return_note: 'MRN',
+      debit_note: 'DN'
     };
     const prefix = prefixMap[targetType] || 'DOC';
     const rawClean = String(baseRef || '')
@@ -854,7 +859,7 @@ export class QuotationRepository {
    * Creates a new initial quotation (Revision 0 / R0).
    */
   public static async createQuotation(
-    data: Omit<Quotation, 'id' | 'created_at' | 'revision_number' | 'formatted_quote_ref'> & {
+    data: Partial<Quotation> & {
       id?: string;
       revision_number?: number;
       formatted_quote_ref?: string;
@@ -871,6 +876,10 @@ export class QuotationRepository {
     const quotationId = data.id || `quote_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
     const newQuotation: Quotation = this.sanitizePayloadForFirestoreLimit({
+      enquiry_id: data.enquiry_id || '',
+      client_snapshot: data.client_snapshot || { entity_name: 'Client' },
+      line_items: data.line_items || [],
+      tax_mode: data.tax_mode || 'taxes_extra',
       ...data,
       id: quotationId,
       workspace_id: wsId,
@@ -1038,7 +1047,9 @@ export class QuotationRepository {
         documentType: 'quotation' as const,
         deliveryMetadata: undefined,
         purchaseOrderMetadata: undefined,
-        receiptMetadata: undefined
+        receiptMetadata: undefined,
+        paymentVoucherMetadata: undefined,
+        vendorReturnMetadata: undefined
       };
     }
 
@@ -1198,7 +1209,13 @@ export class QuotationRepository {
       purchaseOrderMetadata: quotation?.purchase_order_metadata
         ? { ...quotation.purchase_order_metadata }
         : undefined,
-      receiptMetadata: quotation?.receipt_metadata ? { ...quotation.receipt_metadata } : undefined
+      receiptMetadata: quotation?.receipt_metadata ? { ...quotation.receipt_metadata } : undefined,
+      paymentVoucherMetadata: quotation?.payment_voucher_metadata
+        ? { ...quotation.payment_voucher_metadata }
+        : undefined,
+      vendorReturnMetadata: quotation?.vendor_return_metadata
+        ? { ...quotation.vendor_return_metadata }
+        : undefined
     };
   }
 
@@ -1288,13 +1305,14 @@ export class QuotationRepository {
 
     const updated = await this.updateQuotation(quotationId, updates);
 
-    // Revision Fallback & Deal Value Sync:
-    // 1. If this was a revision that superseded a parent quote, reactivate the parent quote if Superseded
+    const isClientQuotation = !existing.document_type || existing.document_type === 'quotation';
+
+    // Revision Fallback & Deal Value Sync (STRICTLY for client 'quotation' documents only):
     let fallbackActiveQuote: Quotation | null = null;
-    if (existing.parent_quote_id) {
+    if (isClientQuotation && existing.parent_quote_id) {
       try {
         const parent = await this.getQuotationById(existing.parent_quote_id);
-        if (parent && !parent.is_deleted) {
+        if (parent && !parent.is_deleted && (!parent.document_type || parent.document_type === 'quotation')) {
           if (parent.status === 'Superseded') {
             await this.updateQuotation(parent.id, {
               status: 'Sent',
@@ -1309,16 +1327,19 @@ export class QuotationRepository {
       }
     }
 
-    // 2. Root Revision (R0) Discard Safety & Fallback Lookup:
-    // If no parent quote was reactivated, look for any remaining active quotes for this enquiry
-    if (existing.enquiry_id) {
+    if (isClientQuotation && existing.enquiry_id) {
       try {
         if (!fallbackActiveQuote) {
           const quotes = await this.getQuotationsForEnquiry(
             existing.enquiry_id,
             existing.workspace_id || 'ws_default'
           );
-          const activeQuotes = quotes.filter((q) => q.id !== quotationId && !q.is_deleted);
+          const activeQuotes = quotes.filter(
+            (q) =>
+              q.id !== quotationId &&
+              !q.is_deleted &&
+              (!q.document_type || q.document_type === 'quotation')
+          );
           fallbackActiveQuote =
             activeQuotes.find((q) => q.status === 'Approved') ||
             activeQuotes.find((q) => q.status === 'Sent') ||
@@ -1327,14 +1348,12 @@ export class QuotationRepository {
         }
 
         if (fallbackActiveQuote) {
-          // Update parent enquiry's value_aed and quote_ref_no to match the active quotation
           await safeUpdateDoc('enquiries', existing.enquiry_id, {
             value_aed: Number(fallbackActiveQuote.grand_total || 0),
             quote_ref_no: fallbackActiveQuote.formatted_quote_ref,
             updated_at: now
           });
         } else {
-          // R0 Discard: No other quotation exists. Safely recalculate fallback value from line items
           const enquiryDoc = await safeGetDoc('enquiries', existing.enquiry_id);
           if (enquiryDoc && enquiryDoc.exists()) {
             const enquiryData = enquiryDoc.data();
@@ -1374,12 +1393,12 @@ export class QuotationRepository {
 
     const updated = await this.updateQuotation(quotationId, updates);
 
-    // If this restored quotation superseded a parent quote that is currently 'Sent',
-    // re-mark the parent as 'Superseded'
-    if (existing.parent_quote_id) {
+    const isClientQuotation = !existing.document_type || existing.document_type === 'quotation';
+
+    if (isClientQuotation && existing.parent_quote_id) {
       try {
         const parent = await this.getQuotationById(existing.parent_quote_id);
-        if (parent && parent.status === 'Sent' && !parent.is_deleted) {
+        if (parent && parent.status === 'Sent' && !parent.is_deleted && (!parent.document_type || parent.document_type === 'quotation')) {
           await this.updateQuotation(parent.id, {
             status: 'Superseded',
             updatedAt: now
@@ -1390,9 +1409,7 @@ export class QuotationRepository {
       }
     }
 
-    // Deal Value Sync on Restore:
-    // Update parent enquiry's value_aed and quote_ref_no to match the restored quotation
-    if (existing.enquiry_id) {
+    if (isClientQuotation && existing.enquiry_id) {
       try {
         await safeUpdateDoc('enquiries', existing.enquiry_id, {
           value_aed: Number(existing.grand_total || 0),
@@ -1600,6 +1617,84 @@ export class QuotationRepository {
     } catch (_) {}
 
     return quotes.sort((a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0));
+  }
+
+  /**
+   * Convenience alias for getQuotationsForWorkspace
+   */
+  public static async getAllByWorkspace(workspaceId: string): Promise<Quotation[]> {
+    return this.getQuotationsForWorkspace(workspaceId);
+  }
+
+  /**
+   * Convenience alias for saveQuotation
+   */
+  public static async save(quotation: Quotation): Promise<Quotation> {
+    return this.saveQuotation(quotation);
+  }
+
+  /**
+   * Subscribes to workspace quotations with immediate hydration
+   */
+  public static subscribe(
+    workspaceId: string,
+    callback: (quotations: Quotation[]) => void
+  ): () => void {
+    let active = true;
+    const load = () => {
+      this.getQuotationsForWorkspace(workspaceId)
+        .then((list) => {
+          if (active) callback(list);
+        })
+        .catch(() => {});
+    };
+    load();
+    const timer = typeof window !== 'undefined' ? window.setInterval(load, 4000) : null;
+    return () => {
+      active = false;
+      if (timer !== null && typeof window !== 'undefined') {
+        window.clearInterval(timer);
+      }
+    };
+  }
+
+  public static subscribeByWorkspace(
+    workspaceId: string,
+    callback: (quotations: Quotation[]) => void
+  ): () => void {
+    return this.subscribe(workspaceId, callback);
+  }
+
+  /**
+   * Calculates structured financial_totals alongside standard subtotal/tax/grand_total
+   */
+  public static calculateFinancialTotals(
+    lineItems: Array<any>,
+    taxMode: QuotationTaxMode = 'taxes_extra',
+    freightAmount: number = 0,
+    taxRatePercent: number = 5
+  ) {
+    const normalizedItems = (lineItems || []).map((li) => ({
+      ...li,
+      quantity: Number(li.quantity ?? li.qty) || 0,
+      unit_price: Number(li.unit_price) || 0,
+      total_price:
+        li.total_price !== undefined
+          ? Number(li.total_price)
+          : li.line_total !== undefined
+          ? Number(li.line_total)
+          : (Number(li.quantity ?? li.qty) || 0) * (Number(li.unit_price) || 0)
+    }));
+    const base = this.calculateTotals(normalizedItems, freightAmount, taxMode, taxRatePercent);
+    return {
+      items_subtotal: base.subtotal,
+      total_line_discounts: 0,
+      overall_discount_amount: 0,
+      taxable_subtotal: base.subtotal,
+      tax_amount: base.tax_amount,
+      freight_amount: base.freight_amount,
+      grand_total: base.grand_total
+    };
   }
 
   /**

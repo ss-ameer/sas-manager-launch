@@ -54,7 +54,14 @@ import {
   getSequencePeriodKey,
   getWorkspaceActiveCeilings
 } from '../services/enquirySequences';
-import { testSupabaseStorageConnection } from '../services/attachmentStorage';
+import {
+  testSupabaseStorageConnection,
+  scanBucketForOrphanedFiles,
+  purgeOrphanedBucketFiles,
+  formatByteSize,
+  BucketOrphanScanResult,
+  PdfCompressionPreset
+} from '../services/attachmentStorage';
 import {
   UserProfile,
   Company,
@@ -85,6 +92,8 @@ import {
 } from '../services/AccountDeletionService';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
+import { QuotationRepository } from '../services/repositories/QuotationRepository';
+import { ProcurementRepository } from '../services/repositories/ProcurementRepository';
 
 interface SettingsHubProps {
   user: UserProfile;
@@ -380,16 +389,21 @@ export default function SettingsHub({
   const [storageUrl, setStorageUrl] = useState('');
   const [storageAnonKey, setStorageAnonKey] = useState('');
   const [storageBucket, setStorageBucket] = useState('proposal-attachments');
+  const [storagePdfCompressionPreset, setStoragePdfCompressionPreset] = useState<PdfCompressionPreset>('standard');
   const [testingStorage, setTestingStorage] = useState(false);
   const [savingStorage, setSavingStorage] = useState(false);
   const [showAnonKey, setShowAnonKey] = useState(false);
+  const [scanningOrphans, setScanningOrphans] = useState(false);
+  const [purgingOrphans, setPurgingOrphans] = useState(false);
+  const [orphanScanResult, setOrphanScanResult] = useState<BucketOrphanScanResult | null>(null);
 
   useEffect(() => {
     if (activeWorkspace) {
-      const storageCfg = activeWorkspace.settings?.storage;
+      const storageCfg = activeWorkspace.settings?.storage as any;
       setStorageUrl(storageCfg?.supabaseUrl || '');
       setStorageAnonKey(storageCfg?.supabaseAnonKey || '');
       setStorageBucket(storageCfg?.bucket || 'proposal-attachments');
+      setStoragePdfCompressionPreset(storageCfg?.pdfCompressionPreset || 'standard');
     }
   }, [activeWorkspace?.id, activeWorkspace?.settings?.storage]);
 
@@ -424,14 +438,15 @@ export default function SettingsHub({
           provider: 'supabase',
           bucket: storageBucket.trim(),
           supabaseUrl: storageUrl.trim(),
-          supabaseAnonKey: storageAnonKey.trim()
+          supabaseAnonKey: storageAnonKey.trim(),
+          pdfCompressionPreset: storagePdfCompressionPreset
         },
         updatedAt: new Date().toISOString()
       });
       if (triggerToast) {
         triggerToast(
           hasConfig
-            ? 'Workspace Cloud Storage configured successfully!'
+            ? 'Workspace Cloud Storage & PDF Compression settings saved!'
             : 'Cloud Storage configuration cleared (Local mode active).',
           'success'
         );
@@ -441,6 +456,132 @@ export default function SettingsHub({
       if (triggerToast) triggerToast('Failed to save storage settings: ' + (err.message || 'Unknown error'), 'error');
     } finally {
       setSavingStorage(false);
+    }
+  };
+
+  const handleScanOrphanedBucketFiles = async () => {
+    if (!activeWorkspace?.id) return;
+    setScanningOrphans(true);
+    try {
+      const activeUrls = new Set<string>();
+      const addUrl = (u?: string | null) => {
+        if (u && typeof u === 'string' && u.startsWith('http')) {
+          activeUrls.add(u.trim());
+        }
+      };
+
+      // 1. Collect from Enquiries
+      (enquiries || []).forEach((enq) => {
+        (enq.attachments || []).forEach((att) => addUrl(att.url));
+        (enq.line_items || []).forEach((li) => {
+          addUrl(li.image_url);
+          addUrl(li.datasheet_url);
+        });
+      });
+
+      // 2. Collect from Products
+      (products || []).forEach((prod) => {
+        addUrl(prod.image_url);
+        addUrl(prod.datasheet_url);
+        (prod.attachments || []).forEach((att) => addUrl(att.url));
+      });
+
+      // 3. Collect from Quotations / Commercial Documents & Document Profile
+      const [allQuotes, docProfile, allSupplierBills] = await Promise.all([
+        QuotationRepository.getAllByWorkspace(activeWorkspace.id).catch(() => []),
+        QuotationRepository.getWorkspaceDocumentProfile(activeWorkspace.id).catch(() => null),
+        ProcurementRepository.getAllByWorkspace(activeWorkspace.id).catch(() => [])
+      ]);
+
+      allQuotes.forEach((qt) => {
+        addUrl(qt.pdf_url);
+        addUrl(qt.company_logo_url);
+        addUrl(qt.company_seal_url);
+        addUrl(qt.signature_image_url);
+        addUrl(qt.header_config?.logoUrl);
+        (qt.flyer_attachments || []).forEach((att) => addUrl(att.url));
+        (qt.line_items || []).forEach((li) => {
+          addUrl(li.image_url);
+          addUrl(li.datasheet_url);
+        });
+      });
+
+      if (docProfile) {
+        addUrl(docProfile.logo_url);
+        addUrl(docProfile.stamp_seal_url);
+        addUrl(docProfile.company_seal_url);
+        addUrl(docProfile.signature_image_url);
+        addUrl(docProfile.header_config?.logoUrl);
+      }
+
+      // 4. Collect from Supplier Bills
+      allSupplierBills.forEach((bill) => {
+        addUrl(bill.attachment?.url);
+        addUrl(bill.attachment_url);
+      });
+
+      // Build workspace object with live storage inputs in case user hasn't clicked Save yet
+      const effectiveWorkspace: Workspace = {
+        ...activeWorkspace,
+        settings: {
+          ...(activeWorkspace.settings || {}),
+          storage: {
+            enabled: Boolean(storageUrl.trim() && storageBucket.trim()),
+            provider: 'supabase',
+            bucket: storageBucket.trim(),
+            supabaseUrl: storageUrl.trim(),
+            supabaseAnonKey: storageAnonKey.trim()
+          }
+        }
+      };
+
+      const scanRes = await scanBucketForOrphanedFiles(effectiveWorkspace, activeUrls);
+      setOrphanScanResult(scanRes);
+      if (triggerToast) {
+        triggerToast(
+          scanRes.orphanedCount > 0
+            ? `Found ${scanRes.orphanedCount} orphaned file(s) (${formatByteSize(scanRes.orphanedBytes)}) ready to purge.`
+            : `Bucket clean! All ${scanRes.totalFiles} file(s) (${formatByteSize(scanRes.totalBytes)}) are actively referenced.`,
+          scanRes.orphanedCount > 0 ? 'info' : 'success'
+        );
+      }
+    } catch (err: any) {
+      console.error('Failed scanning bucket for orphans:', err);
+      if (triggerToast) triggerToast(`Scan failed: ${err?.message || 'Unable to list bucket objects'}`, 'error');
+    } finally {
+      setScanningOrphans(false);
+    }
+  };
+
+  const handlePurgeOrphanedBucketFiles = async () => {
+    if (!activeWorkspace || !orphanScanResult || orphanScanResult.orphanedPaths.length === 0) return;
+    setPurgingOrphans(true);
+    try {
+      const effectiveWorkspace: Workspace = {
+        ...activeWorkspace,
+        settings: {
+          ...(activeWorkspace.settings || {}),
+          storage: {
+            enabled: Boolean(storageUrl.trim() && storageBucket.trim()),
+            provider: 'supabase',
+            bucket: storageBucket.trim(),
+            supabaseUrl: storageUrl.trim(),
+            supabaseAnonKey: storageAnonKey.trim()
+          }
+        }
+      };
+      const res = await purgeOrphanedBucketFiles(effectiveWorkspace, orphanScanResult.orphanedPaths);
+      if (triggerToast) {
+        triggerToast(
+          `Purged ${res.deletedCount} orphaned file(s) and reclaimed ${formatByteSize(orphanScanResult.orphanedBytes)}!`,
+          res.failedCount > 0 ? 'info' : 'success'
+        );
+      }
+      await handleScanOrphanedBucketFiles();
+    } catch (err: any) {
+      if (triggerToast) triggerToast(`Purge failed: ${err?.message || 'Unknown error'}`, 'error');
+    } finally {
+      setPurgingOrphans(false);
     }
   };
 
@@ -461,7 +602,8 @@ export default function SettingsHub({
           provider: 'supabase',
           bucket: storageBucket.trim(),
           supabaseUrl: storageUrl.trim(),
-          supabaseAnonKey: storageAnonKey.trim()
+          supabaseAnonKey: storageAnonKey.trim(),
+          pdfCompressionPreset: storagePdfCompressionPreset
         },
         updatedAt: new Date().toISOString()
       });
@@ -1260,6 +1402,108 @@ export default function SettingsHub({
                         Safe public anon key (not service_role secret). Used by team browsers to stream uploads directly to your bucket.
                       </p>
                     </div>
+                  </div>
+
+                  {/* In-App Acrobat-Style PDF & Image Compression Quota Guard */}
+                  <div className="p-3.5 bg-white border border-slate-200 rounded-xl space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <h5 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>In-App PDF &amp; Image Quota Optimizer (1GB Bucket Protection)</span>
+                        </h5>
+                        <p className="text-[11px] text-slate-500">
+                          Automatically compresses PDFs (&gt;300 KB) via client-side page rasterization and optimizes product/line-item images (20–65 KB) before upload.
+                        </p>
+                      </div>
+                      <select
+                        value={storagePdfCompressionPreset}
+                        onChange={(e) => setStoragePdfCompressionPreset(e.target.value as PdfCompressionPreset)}
+                        className="px-3 py-1.5 text-xs font-bold bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      >
+                        <option value="standard">Standard: ~150 DPI / 0.75 JPEG (5 MB → ~240 KB)</option>
+                        <option value="extreme">Extreme: ~110 DPI / 0.60 JPEG (5 MB → ~120 KB)</option>
+                        <option value="original">Keep Original PDF (No Compression)</option>
+                      </select>
+                    </div>
+
+                    {/* Orphaned Bucket File Scanner & Reclaimer */}
+                    <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <HardDrive className="w-3.5 h-3.5 text-slate-600" />
+                          <span className="text-xs font-bold text-slate-800">Bucket Storage Hygiene &amp; Orphaned File Scanner</span>
+                        </div>
+                        <p className="text-[11px] text-slate-500">
+                          Deleted or replaced attachments and product images are automatically removed from the bucket. Run a deep scan anytime to reclaim space from unreferenced files.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={handleScanOrphanedBucketFiles}
+                          disabled={scanningOrphans || !storageUrl.trim() || !storageBucket.trim()}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 font-bold text-xs rounded-xl border border-slate-300 transition flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Search className={`w-3.5 h-3.5 ${scanningOrphans ? 'animate-spin text-indigo-600' : 'text-slate-600'}`} />
+                          <span>{scanningOrphans ? 'Scanning Bucket...' : 'Scan & Purge Orphaned Bucket Files'}</span>
+                        </button>
+                        {orphanScanResult && orphanScanResult.orphanedCount > 0 && (
+                          <button
+                            type="button"
+                            onClick={handlePurgeOrphanedBucketFiles}
+                            disabled={purgingOrphans}
+                            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>
+                              {purgingOrphans
+                                ? 'Purging...'
+                                : `Purge ${orphanScanResult.orphanedCount} Orphan(s) (${formatByteSize(orphanScanResult.orphanedBytes)})`}
+                            </span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {orphanScanResult && (
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                        <div>
+                          <span className="text-[10px] font-bold uppercase text-slate-400 block">Total Bucket Usage</span>
+                          <span className="font-mono font-bold text-slate-900">
+                            {formatByteSize(orphanScanResult.totalBytes)} / 1.00 GB
+                          </span>
+                          <span className="text-[10px] text-slate-500 block">
+                            {orphanScanResult.totalFiles} total file(s)
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-bold uppercase text-emerald-600 block">Actively Referenced</span>
+                          <span className="font-mono font-bold text-emerald-700">
+                            {orphanScanResult.referencedCount} file(s)
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-bold uppercase text-rose-600 block">Orphaned / Unreferenced</span>
+                          <span className="font-mono font-bold text-rose-700">
+                            {orphanScanResult.orphanedCount} file(s) ({formatByteSize(orphanScanResult.orphanedBytes)})
+                          </span>
+                        </div>
+                        <div className="flex flex-col justify-center">
+                          <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-indigo-600 rounded-full"
+                              style={{
+                                width: `${Math.min(100, Math.max(1, (orphanScanResult.totalBytes / (1024 * 1024 * 1024)) * 100))}%`
+                              }}
+                            />
+                          </div>
+                          <span className="text-[10px] text-slate-500 mt-1">
+                            {((orphanScanResult.totalBytes / (1024 * 1024 * 1024)) * 100).toFixed(2)}% of 1GB quota used
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-200">

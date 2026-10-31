@@ -1,8 +1,21 @@
-import { Enquiry, LineItem, Product, StockMovement, UserProfile, Project, GrnReceiptData, StockAdjustmentData } from '../types';
+import {
+  Enquiry,
+  LineItem,
+  Product,
+  StockMovement,
+  UserProfile,
+  Project,
+  GrnReceiptData,
+  StockAdjustmentData,
+  PoGrnBatchReceiptInput,
+  Quotation,
+  PurchaseOrderReceivingStatus
+} from '../types';
 import { safeAddDoc, safeUpdateDoc, db } from '../firebase';
 import { doc, getDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { MetadataRepository } from './repositories/MetadataRepository';
-import { saveToLocalStore } from './db';
+import { QuotationRepository } from './repositories/QuotationRepository';
+import { saveToLocalStore, getFromLocalStore } from './db';
 import { isOptionActiveForInventoryAndBaseline } from '../utils/compositeBomUtils';
 
 export { isOptionActiveForInventoryAndBaseline };
@@ -738,4 +751,330 @@ export function subscribeStockMovements(
     return () => {};
   }
 }
+
+async function getProductLiveOrLocal(productId: string): Promise<Product | null> {
+  if (!productId) return null;
+  try {
+    const prodRef = doc(db, 'products', productId);
+    const prodSnap = await getDoc(prodRef);
+    if (prodSnap.exists()) {
+      return { id: prodSnap.id, ...(prodSnap.data() as Product) };
+    }
+  } catch (_) {}
+  try {
+    const localList = (await getFromLocalStore<Product>('products')) || [];
+    return localList.find((p) => p.id === productId) || null;
+  } catch (_) {}
+  return null;
+}
+
+/**
+ * Processes a PO-linked Goods Receipt Note (GRN) across multiple PO line items with Landed Cost allocation.
+ * - Updates each catalog product's stock_on_hand and last_landed_cost WITHOUT overwriting base catalog cost_price
+ *   (unless update_base_catalog_cost is explicitly checked).
+ * - Creates STOCK_IN movements linked to po_id, po_ref, and grn_number.
+ * - Updates the PO document's line items (qty_received, qty_pending, allocated_freight_cost, landed_unit_cost)
+ *   and purchase_order_metadata (receiving_status: Pending Receipt -> Partially Received -> Fully Received).
+ */
+export async function processPoBatchGrn(
+  input: PoGrnBatchReceiptInput,
+  poDoc: Quotation,
+  user?: UserProfile | null
+): Promise<{
+  success: boolean;
+  updatedPo?: Quotation;
+  receivingStatus?: PurchaseOrderReceivingStatus;
+  movementsCreated: number;
+  updatedProducts: Array<{ productId: string; newOnHand: number; landedUnitCost: number; updatedBaseCost?: number }>;
+  error?: string;
+}> {
+  const nowIso = new Date().toISOString();
+  const userName = user?.full_name || (user as any)?.username || user?.email || 'Warehouse Operator';
+  const userUid = user?.uid || 'system';
+  const wsId = input.workspace_id || poDoc.workspace_id || poDoc.workspaceId || 'ws_default';
+
+  try {
+    const activeLinesToReceive = (input.lines || []).filter((l) => Number(l.qty_receiving_now) > 0);
+    if (activeLinesToReceive.length === 0) {
+      return {
+        success: false,
+        movementsCreated: 0,
+        updatedProducts: [],
+        error: 'Please enter a received quantity greater than 0 for at least one PO line item.'
+      };
+    }
+
+    let movementsCreated = 0;
+    const updatedProducts: Array<{ productId: string; newOnHand: number; landedUnitCost: number; updatedBaseCost?: number }> = [];
+
+    for (const line of activeLinesToReceive) {
+      const qtyReceivedNow = Number(line.qty_receiving_now) || 0;
+      const poUnitCost = QuotationRepository.roundCurrency(Number(line.po_unit_cost) || 0);
+      const allocatedFreight = QuotationRepository.roundCurrency(Number(line.allocated_freight_cost) || 0);
+      const computedLandedUnit =
+        line.manual_landed_cost_override !== undefined && line.manual_landed_cost_override >= 0
+          ? QuotationRepository.roundCurrency(Number(line.manual_landed_cost_override))
+          : qtyReceivedNow > 0
+          ? QuotationRepository.roundCurrency(poUnitCost + allocatedFreight / qtyReceivedNow)
+          : poUnitCost;
+
+      if (line.product_id) {
+        let prodData = await getProductLiveOrLocal(line.product_id);
+        const prevOnHand = Number(prodData?.stock_on_hand) || 0;
+        const newOnHand = prevOnHand + qtyReceivedNow;
+
+        const productUpdate: Partial<Product> & { updatedAt: string } = {
+          is_inventoried: true,
+          stock_on_hand: newOnHand,
+          last_landed_cost: computedLandedUnit,
+          last_grn_ref: input.grn_number,
+          updatedAt: nowIso
+        };
+
+        if (line.storage_location?.trim()) {
+          productUpdate.storage_location = line.storage_location.trim();
+        }
+
+        // Strict Base Catalog Cost Protection: never overwrite base cost_price unless explicitly requested
+        if (input.update_base_catalog_cost && poUnitCost > 0) {
+          productUpdate.cost_price = poUnitCost;
+        }
+
+        await safeUpdateDoc('products', line.product_id, productUpdate);
+        updatedProducts.push({
+          productId: line.product_id,
+          newOnHand,
+          landedUnitCost: computedLandedUnit,
+          updatedBaseCost: input.update_base_catalog_cost && poUnitCost > 0 ? poUnitCost : undefined
+        });
+
+        const movement: StockMovement = {
+          workspace_id: wsId,
+          product_id: line.product_id,
+          product_name: line.item_name || prodData?.name || prodData?.description || 'PO Item',
+          movement_type: 'STOCK_IN',
+          quantity: qtyReceivedNow,
+          previous_on_hand: prevOnHand,
+          new_on_hand: newOnHand,
+          reference_type: 'PO',
+          reference_id: input.po_id,
+          reference_number: input.grn_number,
+          po_id: input.po_id,
+          po_ref: input.po_ref,
+          grn_number: input.grn_number,
+          received_date: input.received_date,
+          supplier_id: input.supplier_id,
+          supplier_name: input.supplier_name,
+          delivery_note_ref: input.delivery_note_ref,
+          unit_cost: poUnitCost,
+          allocated_freight_cost: allocatedFreight,
+          landed_unit_cost: computedLandedUnit,
+          total_cost: QuotationRepository.roundCurrency(computedLandedUnit * qtyReceivedNow),
+          reason_notes: `PO GRN Receipt (${input.grn_number}) against ${input.po_ref}${
+            allocatedFreight > 0 ? ` • Landed Unit Cost: ${computedLandedUnit.toFixed(2)}` : ''
+          }${input.notes ? ` • ${input.notes}` : ''}`,
+          created_at: nowIso,
+          created_by_uid: userUid,
+          created_by_name: userName
+        };
+
+        await safeAddDoc('stock_movements', movement);
+        movementsCreated++;
+      }
+    }
+
+    // Update PO line items and receiving status
+    const receiptByLineIdx = new Map<number, typeof activeLinesToReceive[number]>();
+    activeLinesToReceive.forEach((l) => receiptByLineIdx.set(l.line_index, l));
+
+    let totalOrderedAll = 0;
+    let totalReceivedAll = 0;
+
+    const updatedPoLineItems = (poDoc.line_items || []).map((item, idx) => {
+      const ordered = Math.max(0, Number(item.qty_ordered ?? item.quantity) || 0);
+      const prevReceived = Math.max(0, Number(item.qty_received) || 0);
+      const matchedInput = receiptByLineIdx.get(idx);
+      const addReceived = matchedInput ? Math.max(0, Number(matchedInput.qty_receiving_now) || 0) : 0;
+      const nextReceived = prevReceived + addReceived;
+      const nextPending = Math.max(0, ordered - nextReceived);
+
+      totalOrderedAll += ordered;
+      totalReceivedAll += nextReceived;
+
+      if (!matchedInput) {
+        return {
+          ...item,
+          qty_ordered: ordered,
+          qty_received: prevReceived,
+          qty_pending: nextPending
+        };
+      }
+
+      const prevFreight = Number(item.allocated_freight_cost) || 0;
+      const newFreight = QuotationRepository.roundCurrency(prevFreight + (Number(matchedInput.allocated_freight_cost) || 0));
+      const poUnit = Number(item.unit_price) || 0;
+      const landedUnit =
+        matchedInput.manual_landed_cost_override !== undefined
+          ? QuotationRepository.roundCurrency(Number(matchedInput.manual_landed_cost_override))
+          : nextReceived > 0
+          ? QuotationRepository.roundCurrency(poUnit + newFreight / nextReceived)
+          : poUnit;
+
+      return {
+        ...item,
+        qty_ordered: ordered,
+        qty_received: nextReceived,
+        qty_pending: nextPending,
+        allocated_freight_cost: newFreight,
+        manual_landed_cost_override: matchedInput.manual_landed_cost_override,
+        landed_unit_cost: landedUnit
+      };
+    });
+
+    const receivingStatus: PurchaseOrderReceivingStatus =
+      totalReceivedAll <= 0
+        ? 'Pending Receipt'
+        : totalReceivedAll >= totalOrderedAll && totalOrderedAll > 0
+        ? 'Fully Received'
+        : 'Partially Received';
+
+    const existingGrnRefs = poDoc.purchase_order_metadata?.linked_grn_refs || [];
+    const nextGrnRefs = Array.from(new Set([...existingGrnRefs, input.grn_number].filter(Boolean)));
+    const prevPoFreight = Number(poDoc.purchase_order_metadata?.freight_customs_cost) || 0;
+    const nextPoFreight = QuotationRepository.roundCurrency(prevPoFreight + (Number(input.freight_customs_cost) || 0));
+
+    const updatedPoMeta = {
+      ...(poDoc.purchase_order_metadata || {}),
+      receiving_status: receivingStatus,
+      freight_customs_cost: nextPoFreight,
+      landed_cost_allocation_mode: input.allocation_mode,
+      linked_grn_refs: nextGrnRefs,
+      last_grn_date: input.received_date
+    };
+
+    const updatedPo: Quotation = {
+      ...poDoc,
+      line_items: updatedPoLineItems,
+      purchase_order_metadata: updatedPoMeta,
+      updated_at: nowIso,
+      updatedAt: nowIso
+    };
+
+    if (poDoc.id) {
+      await QuotationRepository.saveQuotation(updatedPo);
+    }
+
+    return {
+      success: true,
+      updatedPo,
+      receivingStatus,
+      movementsCreated,
+      updatedProducts
+    };
+  } catch (err: any) {
+    console.error('[processPoBatchGrn] Error processing PO GRN:', err);
+    return {
+      success: false,
+      movementsCreated: 0,
+      updatedProducts: [],
+      error: err?.message || 'Failed to process PO Goods Receipt'
+    };
+  }
+}
+
+/**
+ * Deducts returned stock from warehouse (`RETURN_TO_VENDOR`) when a Material Return Note (`MRN`) is dispatched.
+ * Strictly isolated from `stock_reserved` and client project delivery metrics so client numbers are never skewed.
+ */
+export async function processVendorReturnStockDeduction(
+  returnDoc: Quotation,
+  user?: UserProfile | null
+): Promise<{
+  success: boolean;
+  deductedCount: number;
+  updatedProducts: Array<{ productId: string; newOnHand: number }>;
+  error?: string;
+}> {
+  const nowIso = new Date().toISOString();
+  const userName = user?.full_name || (user as any)?.username || user?.email || 'Warehouse Operator';
+  const userUid = user?.uid || 'system';
+  const wsId = returnDoc.workspace_id || returnDoc.workspaceId || 'ws_default';
+  const vMeta = returnDoc.vendor_return_metadata || {};
+  const mrnRef = vMeta.mrn_ref || returnDoc.formatted_quote_ref || returnDoc.quote_number || 'MRN';
+
+  if (vMeta.stock_deducted) {
+    return {
+      success: false,
+      deductedCount: 0,
+      updatedProducts: [],
+      error: 'Returned stock has already been deducted for this Material Return Note.'
+    };
+  }
+
+  try {
+    let deductedCount = 0;
+    const updatedProducts: Array<{ productId: string; newOnHand: number }> = [];
+
+    for (const item of returnDoc.line_items || []) {
+      const returnQty = Math.max(0, Number(item.qty_returned ?? item.quantity) || 0);
+      if (!item.product_id || returnQty <= 0) continue;
+
+      const prodData = await getProductLiveOrLocal(item.product_id);
+      if (!prodData) continue;
+
+      const prevOnHand = Math.max(0, Number(prodData.stock_on_hand) || 0);
+      const newOnHand = Math.max(0, prevOnHand - returnQty);
+
+      // Update ONLY stock_on_hand (never alter stock_reserved for client orders)
+      await safeUpdateDoc('products', item.product_id, {
+        stock_on_hand: newOnHand,
+        updatedAt: nowIso
+      });
+
+      updatedProducts.push({ productId: item.product_id, newOnHand });
+
+      const movement: StockMovement = {
+        workspace_id: wsId,
+        product_id: item.product_id,
+        product_name: item.item_name || prodData.name || prodData.description || 'Returned Item',
+        movement_type: 'RETURN_TO_VENDOR',
+        quantity: -returnQty,
+        previous_on_hand: prevOnHand,
+        new_on_hand: newOnHand,
+        reference_type: 'MRN',
+        reference_id: returnDoc.id,
+        reference_number: mrnRef,
+        po_id: vMeta.linked_po_id,
+        po_ref: vMeta.linked_po_ref,
+        supplier_id: vMeta.supplier_id,
+        supplier_name: vMeta.supplier_name || returnDoc.client_snapshot?.entity_name,
+        unit_cost: Number(item.unit_price) || 0,
+        reason_notes: `Material Return to Vendor (${mrnRef})${
+          vMeta.return_reason ? ` • Reason: ${vMeta.return_reason}` : ''
+        }${vMeta.linked_po_ref ? ` • Linked PO: ${vMeta.linked_po_ref}` : ''}`,
+        created_at: nowIso,
+        created_by_uid: userUid,
+        created_by_name: userName
+      };
+
+      await safeAddDoc('stock_movements', movement);
+      deductedCount++;
+    }
+
+    return {
+      success: true,
+      deductedCount,
+      updatedProducts
+    };
+  } catch (err: any) {
+    console.error('[processVendorReturnStockDeduction] Failed deducting vendor return stock:', err);
+    return {
+      success: false,
+      deductedCount: 0,
+      updatedProducts: [],
+      error: err?.message || 'Failed to deduct returned stock'
+    };
+  }
+}
+
 

@@ -12,11 +12,12 @@ import { useActivityLauncher, InitiateActivityOptions } from '../context/Activit
 import { useEntityEdit } from '../context/EntityEditContext';
 import { getWhatsAppUrl } from '../utils/defaults';
 import FilePreviewModal from './common/FilePreviewModal';
-import { resolveAttachmentUrl, deleteFromSupabaseStorage, deleteAttachmentBlob, uploadToSupabaseStorage, dataUrlToFile, uploadWorkspaceMediaAsset, prepareAttachmentsForSave, getAttachmentStorageKey } from '../services/attachmentStorage';
+import { resolveAttachmentUrl, deleteFromSupabaseStorage, deleteFromStorageBucket, deleteAttachmentBlob, uploadToSupabaseStorage, dataUrlToFile, uploadWorkspaceMediaAsset, prepareAttachmentsForSave, getAttachmentStorageKey } from '../services/attachmentStorage';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { ActivityLogRepository } from '../services/repositories/CallLogRepository';
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
-import { Quotation, WorkspaceDocumentProfile, CommercialDocumentType } from '../types';
+import { ProcurementRepository } from '../services/repositories/ProcurementRepository';
+import { Quotation, WorkspaceDocumentProfile, CommercialDocumentType, SupplierBill } from '../types';
 import { QuotationStudioModal } from './quotations/QuotationStudioModal';
 import { QuotationDocument } from './quotations/QuotationDocument';
 import EnquiryCollaboratorsModal from './EnquiryCollaboratorsModal';
@@ -209,6 +210,7 @@ export default function EnquiryDetail({
 
   // Quotation Studio & Commercial Documents Hub State
   const [quotations, setQuotations] = useState<Quotation[]>([]);
+  const [workspaceSupplierBills, setWorkspaceSupplierBills] = useState<SupplierBill[]>([]);
   const [isQuotationStudioOpen, setIsQuotationStudioOpen] = useState<boolean>(false);
   const [viewingQuotation, setViewingQuotation] = useState<Quotation | null>(null);
   const [documentProfile, setDocumentProfile] = useState<WorkspaceDocumentProfile | null>(null);
@@ -621,36 +623,41 @@ export default function EnquiryDetail({
       const updatedQuotes = await QuotationRepository.getQuotationsForEnquiry(currentEnquiry.id, wsId);
       setQuotations(updatedQuotes);
 
-      // Deal Value Sync & R0 Discard Safety:
-      const activeQuotes = updatedQuotes.filter((q) => !q.is_deleted);
-      const fallbackActive =
-        activeQuotes.find((q) => q.status === 'Approved') ||
-        activeQuotes.find((q) => q.status === 'Sent') ||
-        activeQuotes.find((q) => q.status === 'Draft') ||
-        (activeQuotes.length > 0 ? activeQuotes[0] : null);
-
-      if (fallbackActive) {
-        const newTotal = Number(fallbackActive.grand_total || 0);
-        const newRef = fallbackActive.formatted_quote_ref;
-        setCurrentEnquiry((prev) => (prev ? { ...prev, value_aed: newTotal, quote_ref_no: newRef } : prev));
-        if (onUpdateEnquiry) {
-          onUpdateEnquiry({ ...currentEnquiry, value_aed: newTotal, quote_ref_no: newRef });
-        }
-      } else {
-        // Root Revision (R0) Discard: No remaining active quotes; fallback to line items total
-        const fallbackValue = (currentEnquiry.line_items || []).reduce(
-          (sum, it) => sum + Number(it.quantity || 0) * Number(it.unit_price || 0),
-          0
+      // Deal Value Sync & R0 Discard Safety (STRICTLY for client 'quotation' documents only — never outbound PO/PV/MRN/DN):
+      const isClientQuote = !quote.document_type || quote.document_type === 'quotation';
+      if (isClientQuote) {
+        const activeQuotes = updatedQuotes.filter(
+          (q) => !q.is_deleted && (!q.document_type || q.document_type === 'quotation')
         );
-        setCurrentEnquiry((prev) => (prev ? { ...prev, value_aed: fallbackValue } : prev));
-        if (onUpdateEnquiry) {
-          onUpdateEnquiry({ ...currentEnquiry, value_aed: fallbackValue });
+        const fallbackActive =
+          activeQuotes.find((q) => q.status === 'Approved') ||
+          activeQuotes.find((q) => q.status === 'Sent') ||
+          activeQuotes.find((q) => q.status === 'Draft') ||
+          (activeQuotes.length > 0 ? activeQuotes[0] : null);
+
+        if (fallbackActive) {
+          const newTotal = Number(fallbackActive.grand_total || 0);
+          const newRef = fallbackActive.formatted_quote_ref;
+          setCurrentEnquiry((prev) => (prev ? { ...prev, value_aed: newTotal, quote_ref_no: newRef } : prev));
+          if (onUpdateEnquiry) {
+            onUpdateEnquiry({ ...currentEnquiry, value_aed: newTotal, quote_ref_no: newRef });
+          }
+        } else {
+          // Root Revision (R0) Discard: No remaining active quotes; fallback to line items total
+          const fallbackValue = (currentEnquiry.line_items || []).reduce(
+            (sum, it) => sum + Number(it.quantity || 0) * Number(it.unit_price || 0),
+            0
+          );
+          setCurrentEnquiry((prev) => (prev ? { ...prev, value_aed: fallbackValue } : prev));
+          if (onUpdateEnquiry) {
+            onUpdateEnquiry({ ...currentEnquiry, value_aed: fallbackValue });
+          }
         }
       }
 
       if (triggerToast) {
         triggerToast(
-          `Quotation ${quote.formatted_quote_ref} ${quote.status === 'Draft' ? 'discarded' : 'moved to Recycle Bin'}.`,
+          `Document ${quote.formatted_quote_ref} ${quote.status === 'Draft' ? 'discarded' : 'moved to Recycle Bin'}.`,
           'info'
         );
       }
@@ -680,7 +687,7 @@ export default function EnquiryDetail({
     };
   }, [currentEnquiry?.workspace_id, activeWorkspaceId]);
 
-  // Load Quotations for this enquiry
+  // Load Quotations & Supplier Bills for this enquiry
   useEffect(() => {
     let isMounted = true;
     const wsId = currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default';
@@ -694,11 +701,42 @@ export default function EnquiryDetail({
         .catch((err) => {
           console.warn('[EnquiryDetail] Failed fetching quotations:', err);
         });
+      ProcurementRepository.getWorkspaceSupplierBills(wsId)
+        .then((bills) => {
+          if (isMounted) {
+            setWorkspaceSupplierBills(bills);
+          }
+        })
+        .catch(() => {});
     }
     return () => {
       isMounted = false;
     };
   }, [currentEnquiry?.id, currentEnquiry?.workspace_id, activeWorkspaceId]);
+
+  // Enquiry Procurement & Actual Margin Rollup
+  const enquiryProcurementRollup = useMemo(() => {
+    const estCostAed = (currentEnquiry.line_items || []).reduce((sum, li) => {
+      const qty = Number(li.quantity) || 1;
+      const unitCost = Number(li.cost_price) || 0;
+      return sum + qty * unitCost;
+    }, 0);
+    return ProcurementRepository.computeProcurementRollup({
+      enquiryId: currentEnquiry.id,
+      projectId: currentEnquiry.project_id,
+      clientContractValueAed: Number(currentEnquiry.value_aed) || 0,
+      estimatedCatalogCostAed: estCostAed,
+      procurementDocs: quotations.filter((q) => !q.is_deleted),
+      supplierBills: workspaceSupplierBills
+    });
+  }, [
+    currentEnquiry.id,
+    currentEnquiry.project_id,
+    currentEnquiry.value_aed,
+    currentEnquiry.line_items,
+    quotations,
+    workspaceSupplierBills
+  ]);
 
   // Derived sorted quotations: pin approved quotation at top, then sort descending by creation / revision
   const sortedQuotations = useMemo(() => {
@@ -947,12 +985,16 @@ export default function EnquiryDetail({
           : Number(item.unit_price) || 0;
         return {
           ...item,
+          qty_ordered: qty,
+          qty_received: 0,
+          qty_pending: qty,
           unit_price: unitRate,
           cost_price: unitRate,
           total_price: QuotationRepository.roundCurrency(qty * unitRate)
         };
       });
 
+    const selectedVendor = companies.find((c) => c.id === poModalState.supplierCompanyId);
     const baseQuoteRef =
       sourceQuote?.quote_number ||
       currentEnquiry.quote_ref_no ||
@@ -977,6 +1019,8 @@ export default function EnquiryDetail({
       workspace_id: wsId,
       workspaceId: wsId,
       enquiry_id: currentEnquiry.id,
+      project_id: currentEnquiry.project_id,
+      project_number: currentEnquiry.project_number,
       document_type: 'purchase_order',
       quote_number: baseQuoteRef.replace(/-R\d+$/i, ''),
       revision_number: 1,
@@ -1001,6 +1045,8 @@ export default function EnquiryDetail({
         po_variant: poModalState.poVariant,
         po_ref: linkedPoRef,
         po_date: todayIso,
+        supplier_id: poModalState.supplierCompanyId || undefined,
+        vendor_company_id: poModalState.supplierCompanyId || undefined,
         supplier_name:
           poModalState.supplierName ||
           (poModalState.poVariant === 'order_acknowledgment'
@@ -1014,6 +1060,12 @@ export default function EnquiryDetail({
         supplier_trn: poModalState.supplierTrn || '',
         shipping_destination: poModalState.shippingDestination,
         incoterms: poModalState.incoterms,
+        receiving_status: 'Pending Receipt',
+        beneficiary_bank_details: selectedVendor?.vendor_bank_details
+          ? { ...selectedVendor.vendor_bank_details }
+          : undefined,
+        project_id: currentEnquiry.project_id,
+        project_number: currentEnquiry.project_number,
         requisitioner_name:
           sourceQuote?.prepared_by || user?.full_name || user?.name || user?.username || ''
       },
@@ -1031,11 +1083,13 @@ export default function EnquiryDetail({
       tax_amount: totals.tax_amount,
       grand_total: totals.grand_total,
       price_basis: poModalState.incoterms,
-      payment_terms: sourceQuote?.payment_terms || '30 Days Net',
+      payment_terms:
+        selectedVendor?.default_payment_terms || sourceQuote?.payment_terms || '30 Days Net',
       signatories: sourceQuote?.signatories || [],
       created_at: new Date().toISOString(),
       valid_until: new Date().toISOString(),
-      currency: sourceQuote?.currency || currentEnquiry.currency || 'AED'
+      currency:
+        selectedVendor?.default_currency || sourceQuote?.currency || currentEnquiry.currency || 'AED'
     };
 
     setPoModalState((prev) => ({ ...prev, isOpen: false }));
@@ -1711,24 +1765,11 @@ export default function EnquiryDetail({
     setDeletingAttachmentKey(key);
 
     try {
-      const storageConfig = activeWorkspace?.settings?.storage;
       const f = target as any;
       const fileUrl = f.url || f.fileUrl || f.downloadURL || f.downloadUrl || '';
-      const isCloudUrl = typeof fileUrl === 'string' && (fileUrl.startsWith('http://') || fileUrl.startsWith('https://'));
 
-      // Synchronized Cloud Deletion (Option B)
-      if (isCloudUrl && storageConfig?.supabaseUrl && storageConfig?.supabaseAnonKey && storageConfig?.bucket) {
-        await deleteFromSupabaseStorage(fileUrl, {
-          supabaseUrl: storageConfig.supabaseUrl,
-          supabaseAnonKey: storageConfig.supabaseAnonKey,
-          bucket: storageConfig.bucket
-        });
-      }
-
-      // IndexedDB Blob cleanup
-      if (target.storageKey) {
-        await deleteAttachmentBlob(target.storageKey).catch(() => {});
-      }
+      // Unified 1GB Bucket & IndexedDB Deletion
+      await deleteFromStorageBucket(fileUrl, activeWorkspace, target.storageKey);
 
       const updatedAttachments = attachments.filter((_, i) => i !== targetIndex);
       const updatedEnquiry: Enquiry = {
@@ -2147,11 +2188,21 @@ export default function EnquiryDetail({
   // Upload Product Image or Technical Datasheet for a Draft Line Item in Quick Edit
   const handleInlineItemMediaUpload = async (idx: number, file: File, mediaType: 'image' | 'datasheet') => {
     try {
+      const existingItem = draftLineItems[idx];
+      const previousUrlToDelete =
+        mediaType === 'image'
+          ? existingItem?.image_url
+          : existingItem?.datasheet_attachment?.url;
       const uploaded = await uploadWorkspaceMediaAsset(
         file,
         mediaType === 'image' ? 'product_images' : 'product_datasheets',
         activeWorkspace,
-        { compressImage: mediaType === 'image', maxDimension: 1200, quality: 0.85 }
+        {
+          compressImage: mediaType === 'image',
+          maxDimension: 800,
+          quality: 0.78,
+          previousUrlToDelete
+        }
       );
       if (mediaType === 'image') {
         handleDraftItemChange(idx, 'image_url', uploaded.url);
@@ -3409,6 +3460,76 @@ export default function EnquiryDetail({
                   </div>
                 </div>
 
+                {/* Procurement Cost & Realized Net Margin Rollup Strip */}
+                {(enquiryProcurementRollup.linkedPos.length > 0 ||
+                  enquiryProcurementRollup.linkedBills.length > 0) && (
+                  <div className="p-3 rounded-xl bg-white border border-indigo-200/80 shadow-2xs grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
+                    <div>
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
+                        Supplier POs ({enquiryProcurementRollup.linkedPos.length})
+                      </span>
+                      <span className="font-mono font-bold text-indigo-700">
+                        AED{' '}
+                        {enquiryProcurementRollup.poCommittedTotalAed.toLocaleString('en-US', {
+                          minimumFractionDigits: 2
+                        })}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
+                        Bills ({enquiryProcurementRollup.linkedBills.length}) / Actual Cost
+                      </span>
+                      <span className="font-mono font-bold text-slate-900">
+                        AED{' '}
+                        {enquiryProcurementRollup.netActualProcurementCostAed.toLocaleString(
+                          'en-US',
+                          { minimumFractionDigits: 2 }
+                        )}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
+                        Debit Note Credits
+                      </span>
+                      <span className="font-mono font-bold text-purple-700">
+                        AED{' '}
+                        {enquiryProcurementRollup.debitNoteCreditsAed.toLocaleString('en-US', {
+                          minimumFractionDigits: 2
+                        })}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
+                        Paid Out (PVs)
+                      </span>
+                      <span className="font-mono font-bold text-amber-700">
+                        AED{' '}
+                        {enquiryProcurementRollup.totalPaidOutAed.toLocaleString('en-US', {
+                          minimumFractionDigits: 2
+                        })}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
+                        Realized Net Margin
+                      </span>
+                      <span
+                        className={`font-mono font-extrabold ${
+                          enquiryProcurementRollup.realizedNetMarginAed >= 0
+                            ? 'text-emerald-700'
+                            : 'text-rose-700'
+                        }`}
+                      >
+                        AED{' '}
+                        {enquiryProcurementRollup.realizedNetMarginAed.toLocaleString('en-US', {
+                          minimumFractionDigits: 2
+                        })}{' '}
+                        ({enquiryProcurementRollup.realizedNetMarginPct}%)
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Document Type Filter Pill Bar */}
                 {quotations.length > 0 && (
                   <div className="flex items-center gap-1 flex-wrap pt-0.5">
@@ -3430,7 +3551,31 @@ export default function EnquiryDetail({
                         {
                           id: 'receipt' as const,
                           label: `Receipts (${quotations.filter((q) => q.document_type === 'receipt').length})`
-                        }
+                        },
+                        ...(quotations.some((q) => q.document_type === 'payment_voucher')
+                          ? [
+                              {
+                                id: 'payment_voucher' as const,
+                                label: `Payment Vouchers (${quotations.filter((q) => q.document_type === 'payment_voucher').length})`
+                              }
+                            ]
+                          : []),
+                        ...(quotations.some(
+                          (q) =>
+                            q.document_type === 'material_return_note' ||
+                            q.document_type === 'debit_note'
+                        )
+                          ? [
+                              {
+                                id: 'material_return_note' as const,
+                                label: `Returns (${quotations.filter((q) => q.document_type === 'material_return_note').length})`
+                              },
+                              {
+                                id: 'debit_note' as const,
+                                label: `Debit Notes (${quotations.filter((q) => q.document_type === 'debit_note').length})`
+                              }
+                            ]
+                          : [])
                       ]
                     ).map((f) => {
                       const isSel = docHubFilter === f.id;
@@ -3470,6 +3615,12 @@ export default function EnquiryDetail({
                           ? 'PO'
                           : docType === 'receipt'
                           ? 'REC'
+                          : docType === 'payment_voucher'
+                          ? 'PV'
+                          : docType === 'material_return_note'
+                          ? 'MRN'
+                          : docType === 'debit_note'
+                          ? 'DN'
                           : `QT R${q.revision_number || 1}`;
 
                       const badgeClass =
@@ -3479,6 +3630,10 @@ export default function EnquiryDetail({
                           ? 'bg-purple-100 text-purple-800 border border-purple-200'
                           : docType === 'receipt'
                           ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                          : docType === 'payment_voucher'
+                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                          : docType === 'material_return_note' || docType === 'debit_note'
+                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
                           : isApproved
                           ? 'bg-emerald-200 text-emerald-900 font-extrabold'
                           : isDeclined
@@ -7161,6 +7316,25 @@ export default function EnquiryDetail({
                         : matchedProd?.cost_price !== undefined && matchedProd?.cost_price !== null
                         ? Number(matchedProd.cost_price)
                         : 0;
+                    // Multi-Vendor Split Indicator: check if this line item was already ordered on an existing Supplier PO
+                    const orderedOnPoRefs = quotations
+                      .filter(
+                        (q) =>
+                          !q.is_deleted &&
+                          q.document_type === 'purchase_order' &&
+                          q.purchase_order_metadata?.po_variant !== 'order_acknowledgment' &&
+                          (q.line_items || []).some(
+                            (pli) =>
+                              (it.id && pli.id === it.id) ||
+                              (it.product_id && pli.product_id === it.product_id) ||
+                              (it.item_name &&
+                                pli.item_name &&
+                                pli.item_name.trim().toLowerCase() ===
+                                  it.item_name.trim().toLowerCase())
+                          )
+                      )
+                      .map((q) => q.purchase_order_metadata?.po_ref || q.formatted_quote_ref);
+
                     return (
                       <label
                         key={it.id || idx}
@@ -7185,9 +7359,16 @@ export default function EnquiryDetail({
                             className="rounded border-slate-300 text-indigo-600 cursor-pointer"
                           />
                           <div className="min-w-0">
-                            <span className="font-semibold text-slate-800 block truncate">
-                              #{idx + 1} {it.item_name}
-                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-semibold text-slate-800 truncate">
+                                #{idx + 1} {it.item_name}
+                              </span>
+                              {orderedOnPoRefs.length > 0 && (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 font-mono text-[9.5px] font-bold">
+                                  Ordered on {orderedOnPoRefs.join(', ')}
+                                </span>
+                              )}
+                            </div>
                             <span className="text-[10.5px] text-slate-400 font-mono">
                               Qty: {it.quantity} {it.unit || 'pcs'}
                             </span>

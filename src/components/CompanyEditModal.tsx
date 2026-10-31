@@ -129,6 +129,18 @@ export default function CompanyEditModal({
   const [pendingBypass, setPendingBypass] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
+  // Vendor Procurement & Beneficiary Bank State
+  const [taxRegistrationNo, setTaxRegistrationNo] = useState('');
+  const [defaultCurrency, setDefaultCurrency] = useState('');
+  const [defaultPaymentTerms, setDefaultPaymentTerms] = useState('');
+  const [defaultIncoterms, setDefaultIncoterms] = useState<'Ex-Works' | 'FOB' | 'CIF' | 'DDP' | 'DAP'>('Ex-Works');
+  const [beneficiaryName, setBeneficiaryName] = useState('');
+  const [bankName, setBankName] = useState('');
+  const [accountNumber, setAccountNumber] = useState('');
+  const [iban, setIban] = useState('');
+  const [swiftCode, setSwiftCode] = useState('');
+  const [showVendorBankSection, setShowVendorBankSection] = useState(false);
+
   // Sync state whenever modal opens or targetCompany changes
   useEffect(() => {
     if (!isOpen) return;
@@ -227,6 +239,24 @@ export default function CompanyEditModal({
         setCompanyLinks([{ id: generateId(), label: 'Website', url: '' }]);
       }
 
+      setTaxRegistrationNo(targetCompany.tax_registration_no || '');
+      setDefaultCurrency(targetCompany.default_currency || '');
+      setDefaultPaymentTerms(targetCompany.default_payment_terms || '');
+      setDefaultIncoterms(targetCompany.default_incoterms || 'Ex-Works');
+      setBeneficiaryName(targetCompany.vendor_bank_details?.beneficiary_name || '');
+      setBankName(targetCompany.vendor_bank_details?.bank_name || '');
+      setAccountNumber(targetCompany.vendor_bank_details?.account_number || '');
+      setIban(targetCompany.vendor_bank_details?.iban || '');
+      setSwiftCode(targetCompany.vendor_bank_details?.swift_code || '');
+      setShowVendorBankSection(
+        Boolean(
+          (targetCompany.relationship || '').toLowerCase().includes('vendor') ||
+            targetCompany.tax_registration_no ||
+            targetCompany.vendor_bank_details?.iban ||
+            targetCompany.vendor_bank_details?.bank_name
+        )
+      );
+
       setDuplicateMatchResult(null);
       setPendingBypass(false);
     } else {
@@ -246,6 +276,16 @@ export default function CompanyEditModal({
       setCompanyLinks([{ id: generateId(), label: 'Website', url: '' }]);
       setRestrictedLines({});
       setIsInternalCompany(false);
+      setTaxRegistrationNo('');
+      setDefaultCurrency('');
+      setDefaultPaymentTerms('');
+      setDefaultIncoterms('Ex-Works');
+      setBeneficiaryName('');
+      setBankName('');
+      setAccountNumber('');
+      setIban('');
+      setSwiftCode('');
+      setShowVendorBankSection(false);
       setDuplicateMatchResult(null);
       setPendingBypass(false);
     }
@@ -359,6 +399,22 @@ export default function CompanyEditModal({
       emails: legacyEmails as any,
       restricted_lines: restrictedLines,
       relationship,
+      relationship_type: relationship,
+      name: displayName,
+      tax_registration_no: taxRegistrationNo.trim() || undefined,
+      default_currency: defaultCurrency.trim() || undefined,
+      default_payment_terms: defaultPaymentTerms.trim() || undefined,
+      default_incoterms: defaultIncoterms || undefined,
+      vendor_bank_details:
+        beneficiaryName.trim() || bankName.trim() || iban.trim() || accountNumber.trim() || swiftCode.trim()
+          ? {
+              beneficiary_name: beneficiaryName.trim() || displayName,
+              bank_name: bankName.trim(),
+              account_number: accountNumber.trim(),
+              iban: iban.trim(),
+              swift_code: swiftCode.trim()
+            }
+          : undefined,
       temperature,
       is_dnc: temperature === 'DNC',
       notes: notes.trim(),
@@ -911,6 +967,124 @@ export default function CompanyEditModal({
                   )}
                 </div>
               ))}
+            </div>
+
+            {/* Vendor / Supplier Procurement, Tax ID (TRN) & Beneficiary Bank Details */}
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowVendorBankSection((prev) => !prev)}
+                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-indigo-50/70 hover:bg-indigo-100/70 border border-indigo-200 text-xs font-bold text-indigo-900 transition cursor-pointer"
+              >
+                <span>Vendor / Commercial Profile (Tax ID / TRN, Terms &amp; Beneficiary Bank Details)</span>
+                <span className="text-[11px] font-mono text-indigo-600">
+                  {showVendorBankSection ? 'Hide ▲' : 'Configure ▼'}
+                </span>
+              </button>
+
+              {showVendorBankSection && (
+                <div className="mt-2.5 p-4 rounded-xl border border-indigo-200/80 bg-indigo-50/30 space-y-3 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-[10.5px] font-bold uppercase text-slate-600 mb-1">
+                        Tax ID / TRN / VAT #
+                      </label>
+                      <input
+                        type="text"
+                        value={taxRegistrationNo}
+                        onChange={(e) => setTaxRegistrationNo(e.target.value)}
+                        placeholder="e.g. 100239481900003"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10.5px] font-bold uppercase text-slate-600 mb-1">
+                        Default Currency
+                      </label>
+                      <input
+                        type="text"
+                        value={defaultCurrency}
+                        onChange={(e) => setDefaultCurrency(e.target.value.toUpperCase())}
+                        placeholder="AED / USD / EUR"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10.5px] font-bold uppercase text-slate-600 mb-1">
+                        Default Incoterms
+                      </label>
+                      <select
+                        value={defaultIncoterms}
+                        onChange={(e) => setDefaultIncoterms(e.target.value as any)}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+                      >
+                        <option value="Ex-Works">Ex-Works</option>
+                        <option value="FOB">FOB</option>
+                        <option value="CIF">CIF</option>
+                        <option value="DDP">DDP</option>
+                        <option value="DAP">DAP</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10.5px] font-bold uppercase text-slate-600 mb-1">
+                        Payment Terms
+                      </label>
+                      <input
+                        type="text"
+                        value={defaultPaymentTerms}
+                        onChange={(e) => setDefaultPaymentTerms(e.target.value)}
+                        placeholder="e.g. 30 Days PDC / Net 30"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-indigo-200/60">
+                    <span className="block text-[10.5px] font-bold uppercase text-indigo-900 mb-2">
+                      Beneficiary Bank Account (Auto-Fills Supplier POs &amp; Payment Vouchers)
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <input
+                        type="text"
+                        value={beneficiaryName}
+                        onChange={(e) => setBeneficiaryName(e.target.value)}
+                        placeholder="Beneficiary Account Holder Name"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+                      />
+                      <input
+                        type="text"
+                        value={bankName}
+                        onChange={(e) => setBankName(e.target.value)}
+                        placeholder="Bank Name & Branch"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+                      />
+                      <input
+                        type="text"
+                        value={iban}
+                        onChange={(e) => setIban(e.target.value)}
+                        placeholder="IBAN"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono text-xs"
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          value={accountNumber}
+                          onChange={(e) => setAccountNumber(e.target.value)}
+                          placeholder="Account Number"
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono text-xs"
+                        />
+                        <input
+                          type="text"
+                          value={swiftCode}
+                          onChange={(e) => setSwiftCode(e.target.value)}
+                          placeholder="SWIFT / BIC"
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Internal Notes */}

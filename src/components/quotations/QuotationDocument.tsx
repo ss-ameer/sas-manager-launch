@@ -2555,17 +2555,24 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const isDeliveryNote = documentType === 'delivery_note';
   const isPurchaseOrder = documentType === 'purchase_order';
   const isReceiptVoucher = documentType === 'receipt';
+  const isPaymentVoucher = documentType === 'payment_voucher';
+  const isMaterialReturnNote = documentType === 'material_return_note';
+  const isDebitNote = documentType === 'debit_note';
   const deliveryMeta = quotation.delivery_metadata;
   const poMeta = quotation.purchase_order_metadata;
   const receiptMeta = quotation.receipt_metadata;
+  const pvMeta = quotation.payment_voucher_metadata;
+  const returnMeta = quotation.vendor_return_metadata;
 
   const tableColLayout = React.useMemo(
     () => resolveTableColumnLayout(columnConfig, rawLineItems),
     [columnConfig, rawLineItems]
   );
-  const showUnitPrice = isDeliveryNote ? false : tableColLayout.showUnitPrice;
+  const showUnitPrice =
+    isDeliveryNote || isMaterialReturnNote ? false : tableColLayout.showUnitPrice;
   const showUom = tableColLayout.showUom;
-  const showLineTotal = isDeliveryNote ? false : tableColLayout.showLineTotal;
+  const showLineTotal =
+    isDeliveryNote || isMaterialReturnNote ? false : tableColLayout.showLineTotal;
   const showItemAttributes = tableColLayout.showItemAttributes;
   const showLineItemImages = tableColLayout.showLineItemImages;
   const lineItemImageLayout = tableColLayout.lineItemImageLayout;
@@ -5296,7 +5303,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     const targetBlocks = blocksForSheet.filter((b) => {
       if (b.enabled === false || b.is_visible === false) return false;
       const bType = b.type || b.id;
-      if (isDeliveryNote) {
+      if (isDeliveryNote || isMaterialReturnNote) {
         if (
           bType === 'totals' ||
           b.id === 'totals' ||
@@ -5312,12 +5319,33 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           return false;
         }
       }
-      if (isReceiptVoucher) {
+      if (isDebitNote) {
+        if (
+          bType === 'remittance' ||
+          b.id === 'remittance' ||
+          bType === 'acceptance' ||
+          b.id === 'acceptance' ||
+          bType === 'signatory' ||
+          bType === 'signatories' ||
+          b.id === 'signatory' ||
+          b.id === 'signatories'
+        ) {
+          return false;
+        }
+      }
+      if (isReceiptVoucher || isPaymentVoucher) {
         if (
           bType === 'totals' ||
           b.id === 'totals' ||
           bType === 'acceptance' ||
-          b.id === 'acceptance'
+          b.id === 'acceptance' ||
+          (isPaymentVoucher &&
+            (bType === 'remittance' ||
+              b.id === 'remittance' ||
+              bType === 'signatory' ||
+              bType === 'signatories' ||
+              b.id === 'signatory' ||
+              b.id === 'signatories'))
         ) {
           return false;
         }
@@ -6631,7 +6659,31 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 </div>
               )}
             </div>
-            <div className={`${typoScale.body} text-slate-700 pt-1.5 mt-1.5 border-t border-slate-200/70`}>
+            <div className={`${typoScale.body} text-slate-700 pt-1.5 mt-1.5 border-t border-slate-200/70 space-y-1`}>
+              {!isOrderAck &&
+                poMeta?.beneficiary_bank_details &&
+                (poMeta.beneficiary_bank_details.bank_name ||
+                  poMeta.beneficiary_bank_details.iban ||
+                  poMeta.beneficiary_bank_details.account_number) && (
+                  <div className="pb-1 border-b border-slate-200/60">
+                    <span className={`${typoScale.sub} uppercase font-bold text-slate-500 block`}>
+                      Vendor Beneficiary Bank:
+                    </span>
+                    <div className={`${typoScale.sub} text-slate-700 font-mono leading-snug`}>
+                      {[
+                        poMeta.beneficiary_bank_details.beneficiary_name,
+                        poMeta.beneficiary_bank_details.bank_name,
+                        poMeta.beneficiary_bank_details.iban ||
+                          poMeta.beneficiary_bank_details.account_number,
+                        poMeta.beneficiary_bank_details.swift_code
+                          ? `SWIFT: ${poMeta.beneficiary_bank_details.swift_code}`
+                          : ''
+                      ]
+                        .filter(Boolean)
+                        .join(' • ')}
+                    </div>
+                  </div>
+                )}
               <div className="flex items-center justify-between gap-2">
                 <span className={`${typoScale.sub} uppercase font-bold text-slate-500`}>
                   Ship To ({shipDestLabel}):
@@ -6790,6 +6842,185 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       );
     };
 
+    const renderPaymentVoucherTopCards = () => {
+      const pvRef = pvMeta?.pv_ref || quotation.formatted_quote_ref || quotation.quote_number;
+      const pvDate = formatDate(pvMeta?.pv_date || quotation.created_at);
+      const payeeName = pvMeta?.paid_to_vendor_name || poMeta?.supplier_name || clientEntityName;
+      const payeeAttn = pvMeta?.vendor_contact || poMeta?.supplier_contact || clientContactPerson;
+      const payeeAddress = pvMeta?.vendor_address || poMeta?.supplier_address || clientAddress;
+      const payeeTrn = pvMeta?.vendor_trn || poMeta?.supplier_trn || clientTrn;
+      const payMethod = pvMeta?.payment_method || 'Bank Transfer / TT';
+      const txnRef = pvMeta?.bank_txn_ref || pvMeta?.cheque_no || '—';
+      const linkedRef =
+        pvMeta?.vendor_invoice_no ||
+        pvMeta?.linked_po_ref ||
+        (Array.isArray(pvMeta?.allocations) && pvMeta!.allocations!.length > 0
+          ? `${pvMeta!.allocations!.length} Vendor Bill(s)`
+          : enquiryRef || 'Vendor Account');
+
+      return (
+        <div
+          className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
+          style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
+        >
+          <div className={`${recipientCardBase} flex flex-col justify-between`}>
+            <div>
+              <div
+                className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
+                style={{ color: themePalette.textAccent }}
+              >
+                Paid To (Beneficiary / Vendor)
+              </div>
+              <h3 className={`${typoScale.entityTitle} font-bold text-slate-900`}>
+                {payeeName}
+              </h3>
+              {payeeAttn && (
+                <p className={`${typoScale.body} text-slate-700 font-medium mt-0.5`}>
+                  Attn: <span className="text-slate-900 font-semibold">{payeeAttn}</span>
+                </p>
+              )}
+              {payeeAddress && (
+                <p className={`${typoScale.body} text-slate-600 mt-0.5`}>{payeeAddress}</p>
+              )}
+            </div>
+            {(payeeTrn || pvMeta?.vendor_phone || pvMeta?.vendor_email) && (
+              <div className={`${typoScale.sub} text-slate-500 pt-1.5 mt-1.5 border-t border-slate-200/60 flex items-center justify-between gap-2`}>
+                {payeeTrn && <span className="font-mono">Tax ID / TRN: {payeeTrn}</span>}
+                <span>{[pvMeta?.vendor_phone || clientPhone, pvMeta?.vendor_email || clientEmail].filter(Boolean).join(' • ')}</span>
+              </div>
+            )}
+          </div>
+
+          <div className={`${offerCardBase} flex flex-col justify-between`}>
+            <div>
+              <div className="pb-1 border-b border-slate-200/60 flex items-center justify-between gap-2">
+                <span
+                  className={`${typoScale.heading} uppercase tracking-wider font-extrabold`}
+                  style={{ color: themePalette.textAccent }}
+                >
+                  Outbound Payment Voucher
+                </span>
+                <span className={`${typoScale.sub} font-mono font-bold text-indigo-800 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200`}>
+                  PAYMENT VOUCHER
+                </span>
+              </div>
+              <div className="py-1.5 text-center">
+                <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900`}>
+                  {pvRef}
+                </div>
+              </div>
+            </div>
+            <div className={`grid grid-cols-2 gap-x-3 gap-y-1 pt-1.5 border-t border-slate-200/60 ${typoScale.body}`}>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Voucher Date</span>
+                <span className="font-semibold text-slate-800">{pvDate}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vendor Inv / PO Ref</span>
+                <span className="font-mono font-semibold text-slate-800 truncate block">{linkedRef}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Disbursement Mode</span>
+                <span className="font-semibold text-slate-800 truncate block">{payMethod}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>UTR / Cheque Ref</span>
+                <span className="font-mono font-semibold text-slate-800 truncate block">{txnRef}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const renderVendorReturnTopCards = () => {
+      const isDn = isDebitNote || returnMeta?.return_mode === 'debit_note';
+      const retRef = returnMeta?.return_ref || quotation.formatted_quote_ref || quotation.quote_number;
+      const retDate = formatDate(returnMeta?.return_date || quotation.created_at);
+      const vendorName = returnMeta?.vendor_name || poMeta?.supplier_name || clientEntityName;
+      const vendorAttn = returnMeta?.vendor_contact || poMeta?.supplier_contact || clientContactPerson;
+      const vendorAddress = returnMeta?.vendor_address || poMeta?.supplier_address || clientAddress;
+      const vendorTrn = returnMeta?.vendor_trn || poMeta?.supplier_trn || clientTrn;
+      const origPo = returnMeta?.original_po_ref || poMeta?.po_ref || '—';
+      const origGrnOrInv = returnMeta?.vendor_invoice_no || returnMeta?.original_grn_ref || '—';
+      const reason = returnMeta?.return_reason || 'Defective / Non-Conforming';
+      const resolution = returnMeta?.resolution_type || (isDn ? 'Credit Note / Bill Deduction' : 'Replacement Dispatch');
+
+      return (
+        <div
+          className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
+          style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
+        >
+          <div className={`${recipientCardBase} flex flex-col justify-between`}>
+            <div>
+              <div
+                className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
+                style={{ color: themePalette.textAccent }}
+              >
+                {isDn ? 'Debit Note Issued To (Vendor)' : 'Material Returned To (Vendor)'}
+              </div>
+              <h3 className={`${typoScale.entityTitle} font-bold text-slate-900`}>
+                {vendorName}
+              </h3>
+              {vendorAttn && (
+                <p className={`${typoScale.body} text-slate-700 font-medium mt-0.5`}>
+                  Attn: <span className="text-slate-900 font-semibold">{vendorAttn}</span>
+                </p>
+              )}
+              {vendorAddress && (
+                <p className={`${typoScale.body} text-slate-600 mt-0.5`}>{vendorAddress}</p>
+              )}
+            </div>
+            <div className={`${typoScale.sub} text-slate-600 pt-1.5 mt-1.5 border-t border-slate-200/60 flex items-center justify-between gap-2`}>
+              <span>
+                Primary Reason: <strong className="text-rose-700">{reason}</strong>
+              </span>
+              {vendorTrn && <span className="font-mono">TRN: {vendorTrn}</span>}
+            </div>
+          </div>
+
+          <div className={`${offerCardBase} flex flex-col justify-between`}>
+            <div>
+              <div className="pb-1 border-b border-slate-200/60 flex items-center justify-between gap-2">
+                <span
+                  className={`${typoScale.heading} uppercase tracking-wider font-extrabold`}
+                  style={{ color: themePalette.textAccent }}
+                >
+                  {isDn ? 'Vendor Debit Note' : 'Material Return Note'}
+                </span>
+                <span className={`${typoScale.sub} font-mono font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200`}>
+                  {isDn ? 'DEBIT NOTE (CLAIM)' : 'UNPRICED MRN'}
+                </span>
+              </div>
+              <div className="py-1.5 text-center">
+                <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900`}>
+                  {retRef}
+                </div>
+              </div>
+            </div>
+            <div className={`grid grid-cols-2 gap-x-3 gap-y-1 pt-1.5 border-t border-slate-200/60 ${typoScale.body}`}>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Issue Date</span>
+                <span className="font-semibold text-slate-800">{retDate}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Original PO Ref</span>
+                <span className="font-mono font-semibold text-slate-800 truncate block">{origPo}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vendor Inv / GRN</span>
+                <span className="font-mono font-semibold text-slate-800 truncate block">{origGrnOrInv}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Resolution Mode</span>
+                <span className="font-semibold text-slate-800 truncate block">{resolution}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
     return (
       <>
         {renderHeaderBrandingElement(false)}
@@ -6801,6 +7032,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           renderPurchaseOrderTopCards()
         ) : isReceiptVoucher ? (
           renderReceiptTopCards()
+        ) : isPaymentVoucher ? (
+          renderPaymentVoucherTopCards()
+        ) : isMaterialReturnNote || isDebitNote ? (
+          renderVendorReturnTopCards()
         ) : (
           <div
             className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
@@ -8564,6 +8799,421 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     );
   };
 
+  const renderPaymentVoucherBody = () => {
+    if (!isPaymentVoucher) return null;
+    const radiusClass =
+      (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp'
+        ? 'rounded-none'
+        : 'rounded-lg';
+
+    const allocations = Array.isArray(pvMeta?.allocations) ? pvMeta!.allocations! : [];
+    const amtPaid = Number(
+      pvMeta?.amount_paid ??
+        (allocations.length > 0
+          ? allocations.reduce((sum, a) => sum + (Number(a.paid_this_voucher) || 0), 0)
+          : quotation.grand_total ?? 0)
+    );
+    const totalPayable = Number(
+      pvMeta?.total_payable_amount ??
+        (allocations.length > 0
+          ? allocations.reduce((sum, a) => sum + (Number(a.bill_total) || 0), 0)
+          : quotation.grand_total ?? amtPaid)
+    );
+    const prevPaid = Number(
+      pvMeta?.previously_paid ??
+        (allocations.length > 0
+          ? allocations.reduce((sum, a) => sum + (Number(a.previously_paid) || 0), 0)
+          : 0)
+    );
+    const creditsApplied = allocations.reduce(
+      (sum, a) => sum + (Number(a.credits_applied) || 0),
+      0
+    );
+    const balanceRemaining =
+      pvMeta?.balance_remaining !== undefined
+        ? Number(pvMeta.balance_remaining)
+        : Math.max(0, totalPayable - creditsApplied - prevPaid - amtPaid);
+
+    const payMethod = pvMeta?.payment_method || 'Bank Transfer / TT';
+    const txnRef = pvMeta?.bank_txn_ref || pvMeta?.cheque_no || '—';
+    const narration =
+      pvMeta?.being_payment_for ||
+      quotation.subject ||
+      (pvMeta?.vendor_invoice_no
+        ? `Settlement against Vendor Invoice ${pvMeta.vendor_invoice_no}`
+        : 'Outbound Supplier Account Settlement');
+
+    const disbursingBankLabel =
+      pvMeta?.disbursing_bank_label ||
+      (resolvedBank
+        ? `${resolvedBank.bankName} — ${resolvedBank.iban || resolvedBank.accountNumber || resolvedBank.currency}`
+        : 'Corporate Treasury Account');
+
+    const benBank = pvMeta?.beneficiary_bank_details || poMeta?.beneficiary_bank_details || {};
+    const preparedByName =
+      pvMeta?.prepared_by_name || resolvedSalesRep || resolvedSignatories[0]?.name || 'Accounts Officer';
+    const reviewedByName = pvMeta?.reviewed_by_name || 'Finance / Accounts Reviewer';
+    const approvedByName =
+      pvMeta?.approved_by_name || resolvedSignatories[0]?.name || 'Authorized Approver';
+    const receiverName =
+      pvMeta?.received_by_vendor_name || pvMeta?.paid_to_vendor_name || clientEntityName;
+
+    return (
+      <section className="w-full mb-3 print:mb-2 space-y-3 break-inside-avoid page-break-inside-avoid">
+        {/* Highlighted Amount Paid Banner */}
+        <div
+          className={`p-3.5 border-2 ${radiusClass} flex flex-col gap-1.5`}
+          style={{
+            backgroundColor: themePalette.tintBg,
+            borderColor: themePalette.primaryHex
+          }}
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <span
+                className={`${typoScale.heading} font-extrabold uppercase tracking-wider block`}
+                style={{ color: themePalette.textAccent }}
+              >
+                Amount Disbursed / Paid ({currency})
+              </span>
+              <span className={`${typoScale.sub} text-slate-600`}>
+                {narration}
+              </span>
+            </div>
+            <div
+              className="font-mono tabular-nums font-extrabold text-xl sm:text-2xl px-3 py-1.5 rounded bg-white border border-slate-200 shadow-2xs shrink-0"
+              style={{ color: themePalette.textAccent }}
+            >
+              {formatCurrency(amtPaid)}
+            </div>
+          </div>
+          <div className={`pt-1.5 border-t border-slate-200/80 ${typoScale.body} text-slate-800`}>
+            <span className="font-bold text-slate-900">Amount in Words ({currency}): </span>
+            <span className="font-semibold italic">{amountToWords(amtPaid, currency)}</span>
+          </div>
+        </div>
+
+        {/* Outbound Settlement & Bill Allocation Table */}
+        <div className={`border border-slate-200 ${radiusClass} overflow-hidden bg-white`}>
+          <div
+            className={`px-3 py-1.5 border-b border-slate-200 flex items-center justify-between ${typoScale.heading} font-extrabold uppercase tracking-wider`}
+            style={{
+              backgroundColor: themePalette.tintStrongBg,
+              color: themePalette.textAccent
+            }}
+          >
+            <span>Outbound Bill Settlement &amp; Allocation Schedule</span>
+            <span className={`${typoScale.micro} font-mono`}>
+              {pvMeta?.settlement_type === 'advance_payment'
+                ? 'VENDOR ADVANCE PAYMENT'
+                : pvMeta?.settlement_type === 'multi_bill'
+                ? `MULTI-BILL ALLOCATION (${allocations.length})`
+                : 'BILL / PO SETTLEMENT'}
+            </span>
+          </div>
+          <table className={`w-full border-collapse text-left ${tableFontSize}`}>
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase">
+                <th className="py-1.5 px-2.5">Bill / PO Ref</th>
+                <th className="py-1.5 px-2">Vendor Invoice #</th>
+                <th className="py-1.5 px-2 text-right font-mono">Bill Total</th>
+                <th className="py-1.5 px-2 text-right font-mono">Credits / DN</th>
+                <th className="py-1.5 px-2 text-right font-mono">Previously Paid</th>
+                <th className="py-1.5 px-2 text-right font-mono">Paid This Voucher</th>
+                <th className="py-1.5 px-2.5 text-right font-mono">Remaining Balance</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200/80">
+              {allocations.length > 0 ? (
+                allocations.map((row, rIdx) => (
+                  <tr key={row.bill_id || rIdx} className="hover:bg-slate-50/50">
+                    <td className="py-1.5 px-2.5 font-mono font-semibold text-slate-800">
+                      {row.bill_number || row.po_ref || '—'}
+                    </td>
+                    <td className="py-1.5 px-2 font-mono text-slate-700">
+                      {row.vendor_invoice_no || '—'}
+                    </td>
+                    <td className="py-1.5 px-2 text-right font-mono tabular-nums text-slate-800">
+                      {formatCurrency(row.bill_total)}
+                    </td>
+                    <td className="py-1.5 px-2 text-right font-mono tabular-nums text-rose-700">
+                      {Number(row.credits_applied) > 0 ? `-${formatCurrency(row.credits_applied)}` : '0.00'}
+                    </td>
+                    <td className="py-1.5 px-2 text-right font-mono tabular-nums text-slate-600">
+                      {formatCurrency(row.previously_paid)}
+                    </td>
+                    <td className="py-1.5 px-2 text-right font-mono tabular-nums font-bold text-indigo-900 bg-indigo-50/40">
+                      {formatCurrency(row.paid_this_voucher)}
+                    </td>
+                    <td className="py-1.5 px-2.5 text-right font-mono tabular-nums font-semibold text-slate-800">
+                      {formatCurrency(row.remaining_balance)}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td className="py-2 px-2.5 font-mono font-semibold text-slate-800">
+                    {pvMeta?.linked_po_ref || poMeta?.po_ref || quotation.quote_number || 'Advance / PO'}
+                  </td>
+                  <td className="py-2 px-2 font-mono text-slate-700">
+                    {pvMeta?.vendor_invoice_no || '—'}
+                  </td>
+                  <td className="py-2 px-2 text-right font-mono tabular-nums text-slate-800">
+                    {formatCurrency(totalPayable)}
+                  </td>
+                  <td className="py-2 px-2 text-right font-mono tabular-nums text-slate-500">
+                    0.00
+                  </td>
+                  <td className="py-2 px-2 text-right font-mono tabular-nums text-slate-600">
+                    {formatCurrency(prevPaid)}
+                  </td>
+                  <td className="py-2 px-2 text-right font-mono tabular-nums font-bold text-indigo-900 bg-indigo-50/40">
+                    {formatCurrency(amtPaid)}
+                  </td>
+                  <td className="py-2 px-2.5 text-right font-mono tabular-nums font-semibold text-slate-800">
+                    {formatCurrency(balanceRemaining)}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            <tfoot>
+              <tr className="bg-slate-100/90 border-t-2 border-slate-300 font-bold text-slate-900">
+                <td colSpan={2} className="py-1.5 px-2.5 uppercase">
+                  Total Settlement Summary
+                </td>
+                <td className="py-1.5 px-2 text-right font-mono tabular-nums">
+                  {formatCurrency(totalPayable)}
+                </td>
+                <td className="py-1.5 px-2 text-right font-mono tabular-nums text-rose-700">
+                  {creditsApplied > 0 ? `-${formatCurrency(creditsApplied)}` : '0.00'}
+                </td>
+                <td className="py-1.5 px-2 text-right font-mono tabular-nums">
+                  {formatCurrency(prevPaid)}
+                </td>
+                <td className="py-1.5 px-2 text-right font-mono tabular-nums text-indigo-900">
+                  {formatCurrency(amtPaid)}
+                </td>
+                <td className="py-1.5 px-2.5 text-right font-mono tabular-nums">
+                  {formatCurrency(balanceRemaining)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        {/* 2-Column Disbursing Bank vs Beneficiary Bank Details */}
+        <div className="grid grid-cols-2 gap-3 items-stretch">
+          <div className={`p-3 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+            <div>
+              <div
+                className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-2 border-b border-slate-200`}
+                style={{ color: themePalette.textAccent }}
+              >
+                Disbursing Treasury &amp; Instrument Details
+              </div>
+              <div className={`space-y-1.5 ${typoScale.body} text-slate-700`}>
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-slate-500">Payment Mode:</span>
+                  <span className="font-bold text-slate-900">{payMethod}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-slate-500">Disbursing Account:</span>
+                  <span className="font-medium text-slate-800 text-right">{disbursingBankLabel}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-slate-500">Bank Wire / UTR / Cheque #:</span>
+                  <span className="font-mono font-semibold text-slate-900">{txnRef}</span>
+                </div>
+                {payMethod === 'Cheque' && (
+                  <div className="flex justify-between gap-2">
+                    <span className="font-semibold text-slate-500">Cheque Bank &amp; Date:</span>
+                    <span className="font-semibold text-slate-900">
+                      {[pvMeta?.cheque_bank_name, pvMeta?.cheque_date ? formatDate(pvMeta.cheque_date) : '']
+                        .filter(Boolean)
+                        .join(' • ') || '—'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className={`p-3 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+            <div>
+              <div
+                className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-2 border-b border-slate-200`}
+                style={{ color: themePalette.textAccent }}
+              >
+                Vendor Beneficiary Bank Account
+              </div>
+              <div className={`space-y-1.5 ${typoScale.body} text-slate-700`}>
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-slate-500">Beneficiary Name:</span>
+                  <span className="font-bold text-slate-900 text-right">
+                    {benBank.beneficiary_name || pvMeta?.paid_to_vendor_name || clientEntityName}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-slate-500">Bank Name:</span>
+                  <span className="font-semibold text-slate-800 text-right">
+                    {benBank.bank_name || 'As per Vendor File'}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-slate-500">IBAN / Account No:</span>
+                  <span className="font-mono font-semibold text-slate-900 text-right">
+                    {benBank.iban || benBank.account_number || '—'}
+                  </span>
+                </div>
+                {benBank.swift_code && (
+                  <div className="flex justify-between gap-2">
+                    <span className="font-semibold text-slate-500">SWIFT / BIC:</span>
+                    <span className="font-mono font-semibold text-slate-900">{benBank.swift_code}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 4-Slot Outbound Payment Voucher Signatory & Payee Acknowledgment Block */}
+        <div className="grid grid-cols-4 gap-2.5 pt-1">
+          {[
+            { label: 'Prepared By', name: preparedByName, role: 'Accounts / Procurement' },
+            { label: 'Reviewed / Verified By', name: reviewedByName, role: 'Finance Verification' },
+            { label: 'Approved By', name: approvedByName, role: 'Authorized Signatory' },
+            { label: 'Payee Receiver Signature', name: receiverName, role: 'Vendor Acknowledgment' }
+          ].map((slot, sIdx) => (
+            <div
+              key={slot.label}
+              className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between min-h-[84px]`}
+            >
+              <span
+                className={`${typoScale.micro} font-extrabold uppercase tracking-wider text-slate-500 border-b border-slate-200 pb-1`}
+              >
+                {slot.label}
+              </span>
+              <div className="h-8 flex items-end">
+                {sIdx === 2 && quotation.signature_image_url ? (
+                  <img
+                    src={quotation.signature_image_url}
+                    alt="Approved Signature"
+                    className="h-7 w-auto object-contain"
+                  />
+                ) : null}
+              </div>
+              <div className="border-t border-slate-300 pt-1">
+                <div className={`${typoScale.sub} font-bold text-slate-900 truncate`}>{slot.name}</div>
+                <div className={`${typoScale.micro} text-slate-500 truncate`}>{slot.role}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  };
+
+  const renderVendorReturnSignOffBlock = () => {
+    if (!isMaterialReturnNote && !isDebitNote) return null;
+    const isDn = isDebitNote || returnMeta?.return_mode === 'debit_note';
+    const radiusClass =
+      (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp'
+        ? 'rounded-none'
+        : 'rounded-lg';
+
+    const returnedBy =
+      returnMeta?.returned_by_name || resolvedSalesRep || resolvedSignatories[0]?.name || 'Warehouse / QA Officer';
+    const vendorAck = returnMeta?.accepted_by_vendor_name || '';
+
+    return (
+      <section
+        className="w-full mb-3 print:mb-2 grid grid-cols-2 gap-3 break-inside-avoid page-break-inside-avoid"
+        style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+      >
+        <div className={`p-3 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+          <div>
+            <div
+              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-2 border-b border-slate-200`}
+              style={{ color: themePalette.textAccent }}
+            >
+              {isDn ? `Debit Claim Issued By — ${senderEntityName}` : `Material Dispatched By — ${senderEntityName}`}
+            </div>
+            <div className={`grid grid-cols-2 gap-2 ${typoScale.body} text-slate-700`}>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared / QA Officer</span>
+                <span className="font-semibold text-slate-900">{returnedBy}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Return Reason</span>
+                <span className="font-semibold text-rose-700">
+                  {returnMeta?.return_reason || 'Defective / Non-Conforming'}
+                </span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Requested Resolution</span>
+                <span className="font-semibold text-slate-900">
+                  {returnMeta?.resolution_type || (isDn ? 'Credit Note / Bill Deduction' : 'Replacement Dispatch')}
+                </span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Carrier / Vehicle</span>
+                <span className="font-mono font-semibold text-slate-900">
+                  {returnMeta?.vehicle_or_courier || '__________________'}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="pt-4 mt-3 border-t border-slate-200/80">
+            <div className="border-t border-slate-300 pt-1 mt-6">
+              <div className={`${typoScale.sub} font-bold text-slate-800`}>
+                Authorized Procurement / Warehouse Signature
+              </div>
+              <div className={`${typoScale.micro} text-slate-500`}>For {senderEntityName}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className={`p-3 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+          <div>
+            <div
+              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
+              style={{ color: themePalette.textAccent }}
+            >
+              Vendor Return / Debit Acknowledgment — {returnMeta?.vendor_name || clientEntityName}
+            </div>
+            <p className={`${typoScale.sub} text-slate-700 italic leading-snug mb-2`}>
+              {isDn
+                ? 'We acknowledge receipt of this Debit Note and confirm adjustment against our account / invoice balance.'
+                : 'Received the above returned material for inspection, replacement, or credit note issuance.'}
+            </p>
+            <div className={`grid grid-cols-2 gap-2 ${typoScale.body} text-slate-700`}>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Accepted By (Vendor Rep)</span>
+                <span className="font-semibold text-slate-900">
+                  {vendorAck || '______________________'}
+                </span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vendor Credit Note #</span>
+                <span className="font-mono text-slate-800">______________________</span>
+              </div>
+            </div>
+          </div>
+          <div className="pt-4 mt-3 border-t border-slate-200/80 flex items-end justify-between gap-3">
+            <div className="flex-1">
+              <div className="border-t border-slate-300 pt-1 mt-6">
+                <div className={`${typoScale.sub} font-bold text-slate-800`}>
+                  Vendor Representative Signature &amp; Stamp
+                </div>
+                <div className={`${typoScale.micro} text-slate-500`}>Date: ____ / ____ / 20____</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  };
+
   return (
     <div
       id="quotation-printable-document"
@@ -8868,8 +9518,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     {renderTopSection()}
                     {preTableBlocks.length > 0 && renderBlocksGrid(preTableBlocks)}
                     {isReceiptVoucher && renderReceiptVoucherBody()}
+                    {isPaymentVoucher && renderPaymentVoucherBody()}
                     {sheet.tableChunk &&
                       (!isReceiptVoucher || Boolean(receiptMeta?.show_line_items_table)) &&
+                      (!isPaymentVoucher || Boolean(pvMeta?.show_line_items_table)) &&
                       renderItemsTable(
                         sheet.tableChunk.items,
                         sheet.tableChunk.startIndex,
@@ -8890,6 +9542,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     {sheet.tableChunk &&
                       sheet.tableChunk.items.length > 0 &&
                       (!isReceiptVoucher || Boolean(receiptMeta?.show_line_items_table)) &&
+                      (!isPaymentVoucher || Boolean(pvMeta?.show_line_items_table)) &&
                       renderItemsTable(
                         sheet.tableChunk.items,
                         sheet.tableChunk.startIndex,
@@ -8902,6 +9555,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
                 {renderBlocksGrid(sheet.blocks)}
                 {isLastMainSheet && isDeliveryNote && renderDeliveryNoteSignOffBlock()}
+                {isLastMainSheet &&
+                  (isMaterialReturnNote || isDebitNote) &&
+                  renderVendorReturnSignOffBlock()}
                 {isLastMainSheet && renderSubmittalsIndex()}
               </div>
 

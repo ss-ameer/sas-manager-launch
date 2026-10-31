@@ -22,6 +22,8 @@ import {
 import { CompanyActivityTimeline } from './common/CompanyActivityTimeline';
 import LiveExecutionModal from './LiveExecutionModal';
 import { CallLogRepository } from '../services/repositories/CallLogRepository';
+import { QuotationRepository } from '../services/repositories/QuotationRepository';
+import { ProcurementRepository } from '../services/repositories/ProcurementRepository';
 import {
   Company,
   Contact,
@@ -30,6 +32,8 @@ import {
   CallLogEntry,
   Salesperson,
   Workspace,
+  QuotationDocumentRecord,
+  SupplierBill,
   getContactPhones,
   getContactEmails,
   getCompanyPhones,
@@ -236,6 +240,90 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
 
   // Combined count of executed/completed activity history touchpoints and linked proposals/quotes
   const combinedHistoryCount = completedCompanyLogs.length + linkedCompanyEnquiries.length;
+
+  // Vendor Procurement & Payables Statement state
+  const [workspaceQuotations, setWorkspaceQuotations] = useState<QuotationDocumentRecord[]>([]);
+  const [workspaceBills, setWorkspaceBills] = useState<SupplierBill[]>([]);
+
+  useEffect(() => {
+    if (!isOpen || !activeWorkspace?.id) return;
+    const unsubQ = QuotationRepository.subscribeByWorkspace(activeWorkspace.id, (docs) => {
+      setWorkspaceQuotations(docs.filter((d) => !d.is_deleted));
+    });
+    const unsubB = ProcurementRepository.subscribeByWorkspace(activeWorkspace.id, (bills) => {
+      setWorkspaceBills(bills.filter((b) => !b.is_deleted));
+    });
+    return () => {
+      unsubQ();
+      unsubB();
+    };
+  }, [isOpen, activeWorkspace?.id]);
+
+  const vendorPayablesSummary = useMemo(() => {
+    if (!company) return null;
+    const cId = company.id;
+    const cName = (company.display_name || company.name || company.canonical_name || '').trim().toLowerCase();
+
+    const matchesVendor = (vId?: string, vName?: string) => {
+      if (vId && cId && vId === cId) return true;
+      if (vName && cName && vName.trim().toLowerCase() === cName) return true;
+      return false;
+    };
+
+    const linkedPOs = workspaceQuotations.filter(
+      (q) =>
+        q.document_type === 'purchase_order' &&
+        (q.purchase_order_metadata?.po_variant || 'supplier_po') === 'supplier_po' &&
+        matchesVendor(q.purchase_order_metadata?.vendor_company_id, q.purchase_order_metadata?.supplier_name)
+    );
+    const linkedBills = workspaceBills.filter((b) => matchesVendor(b.vendor_company_id, b.vendor_name));
+    const linkedPVs = workspaceQuotations.filter(
+      (q) =>
+        q.document_type === 'payment_voucher' &&
+        matchesVendor(q.payment_voucher_metadata?.vendor_company_id, q.payment_voucher_metadata?.payee_name)
+    );
+    const linkedReturns = workspaceQuotations.filter(
+      (q) =>
+        (q.document_type === 'material_return_note' || q.document_type === 'debit_note') &&
+        matchesVendor(q.vendor_return_metadata?.vendor_company_id, q.vendor_return_metadata?.supplier_name)
+    );
+
+    const totalPoOrdered = linkedPOs.reduce((s, p) => s + (Number(p.financial_totals?.grand_total) || 0), 0);
+    const totalBilled = linkedBills.reduce((s, b) => s + (Number(b.grand_total) || 0), 0);
+    const totalCredits = linkedBills.reduce((s, b) => s + (Number(b.credit_applied_amount) || 0), 0);
+    const totalPaid = linkedPVs.reduce(
+      (s, pv) => s + (Number(pv.payment_voucher_metadata?.amount_paid ?? pv.financial_totals?.grand_total) || 0),
+      0
+    );
+    const netPayableBalance = linkedBills.reduce((s, b) => s + (Number(b.balance_due) || 0), 0);
+
+    const isVendorOrHasProcurement =
+      (company.relationship || '').toLowerCase().includes('vendor') ||
+      Boolean(company.tax_registration_no) ||
+      Boolean(company.vendor_bank_details?.iban || company.vendor_bank_details?.bank_name) ||
+      linkedPOs.length > 0 ||
+      linkedBills.length > 0 ||
+      linkedPVs.length > 0 ||
+      linkedReturns.length > 0;
+
+    if (!isVendorOrHasProcurement) return null;
+
+    return {
+      linkedPOs,
+      linkedBills,
+      linkedPVs,
+      linkedReturns,
+      totalPoOrdered: QuotationRepository.roundCurrency(totalPoOrdered),
+      totalBilled: QuotationRepository.roundCurrency(totalBilled),
+      totalCredits: QuotationRepository.roundCurrency(totalCredits),
+      totalPaid: QuotationRepository.roundCurrency(totalPaid),
+      netPayableBalance: QuotationRepository.roundCurrency(netPayableBalance),
+      currency:
+        company.default_currency ||
+        activeWorkspace?.document_profile?.default_currency ||
+        'AED'
+    };
+  }, [company, workspaceQuotations, workspaceBills, activeWorkspace]);
 
   if (!isOpen || !company) return null;
 
@@ -680,6 +768,134 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
               <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-sans">{company.notes}</p>
             </div>
           ) : null}
+
+          {/* Vendor Procurement & Payables Statement */}
+          {vendorPayablesSummary && (
+            <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-bold text-indigo-950 dark:text-indigo-200 flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-indigo-600" />
+                  <span>Vendor Procurement &amp; Payables Statement</span>
+                </h4>
+                {company.tax_registration_no && (
+                  <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200 font-mono text-[10.5px] font-bold">
+                    TRN: {company.tax_registration_no}
+                  </span>
+                )}
+              </div>
+
+              {/* Payables KPI Strip */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div className="p-2.5 rounded-xl bg-indigo-50/60 border border-indigo-200/80">
+                  <span className="block text-[10px] font-bold uppercase text-indigo-700">POs Ordered ({vendorPayablesSummary.linkedPOs.length})</span>
+                  <span className="font-mono font-bold text-slate-900">
+                    {vendorPayablesSummary.currency} {vendorPayablesSummary.totalPoOrdered.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-amber-50/60 border border-amber-200/80">
+                  <span className="block text-[10px] font-bold uppercase text-amber-800">Total Billed ({vendorPayablesSummary.linkedBills.length})</span>
+                  <span className="font-mono font-bold text-slate-900">
+                    {vendorPayablesSummary.currency} {vendorPayablesSummary.totalBilled.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-emerald-50/60 border border-emerald-200/80">
+                  <span className="block text-[10px] font-bold uppercase text-emerald-800">Paid via PV ({vendorPayablesSummary.linkedPVs.length})</span>
+                  <span className="font-mono font-bold text-emerald-900">
+                    {vendorPayablesSummary.currency} {vendorPayablesSummary.totalPaid.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-rose-50/70 border border-rose-200">
+                  <span className="block text-[10px] font-bold uppercase text-rose-800">Net Payable Balance</span>
+                  <span className="font-mono font-black text-rose-900">
+                    {vendorPayablesSummary.currency} {vendorPayablesSummary.netPayableBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+
+              {/* Beneficiary Bank Details */}
+              {company.vendor_bank_details &&
+                (company.vendor_bank_details.bank_name || company.vendor_bank_details.iban) && (
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1">
+                    <div className="text-[10px] font-bold uppercase text-slate-500">
+                      Registered Beneficiary Bank Account
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                      <div>
+                        <span className="text-slate-500">Beneficiary: </span>
+                        <span className="font-semibold text-slate-800">
+                          {company.vendor_bank_details.beneficiary_name || company.display_name}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Bank: </span>
+                        <span className="font-semibold text-slate-800">
+                          {company.vendor_bank_details.bank_name || '—'}
+                        </span>
+                      </div>
+                      {company.vendor_bank_details.iban && (
+                        <div className="col-span-2 font-mono text-[10.5px] text-slate-700">
+                          IBAN: {company.vendor_bank_details.iban}{' '}
+                          {company.vendor_bank_details.swift_code
+                            ? `• SWIFT: ${company.vendor_bank_details.swift_code}`
+                            : ''}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+              {/* Linked POs & Bills Mini Ledger */}
+              {(vendorPayablesSummary.linkedPOs.length > 0 ||
+                vendorPayablesSummary.linkedBills.length > 0 ||
+                vendorPayablesSummary.linkedPVs.length > 0) && (
+                <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
+                  <div className="bg-slate-50 px-3 py-1.5 border-b border-slate-200 font-bold text-[10.5px] text-slate-600 uppercase">
+                    Recent Procurement &amp; Settlement Ledger
+                  </div>
+                  <div className="divide-y divide-slate-100 max-h-44 overflow-y-auto">
+                    {vendorPayablesSummary.linkedPOs.map((po) => (
+                      <div key={po.id} className="px-3 py-2 flex items-center justify-between">
+                        <div>
+                          <span className="font-mono font-bold text-indigo-700">{po.formatted_quote_ref}</span>
+                          <span className="ml-2 text-[10.5px] text-slate-500">
+                            {po.purchase_order_metadata?.receiving_status || 'Pending Receipt'}
+                          </span>
+                        </div>
+                        <span className="font-mono font-semibold text-slate-800">
+                          {po.currency} {Number(po.financial_totals?.grand_total || 0).toFixed(2)}
+                        </span>
+                      </div>
+                    ))}
+                    {vendorPayablesSummary.linkedBills.map((bill) => (
+                      <div key={bill.id} className="px-3 py-2 flex items-center justify-between bg-amber-50/20">
+                        <div>
+                          <span className="font-mono font-bold text-amber-800">{bill.bill_number}</span>
+                          <span className="ml-1.5 text-[10.5px] text-slate-500">
+                            (Inv: {bill.vendor_invoice_no})
+                          </span>
+                        </div>
+                        <span className="font-mono font-bold text-rose-700">
+                          Bal: {bill.currency} {Number(bill.balance_due || 0).toFixed(2)}
+                        </span>
+                      </div>
+                    ))}
+                    {vendorPayablesSummary.linkedPVs.map((pv) => (
+                      <div key={pv.id} className="px-3 py-2 flex items-center justify-between bg-emerald-50/20">
+                        <div>
+                          <span className="font-mono font-bold text-emerald-800">{pv.formatted_quote_ref}</span>
+                          <span className="ml-1.5 text-[10.5px] text-slate-500">Payment Voucher</span>
+                        </div>
+                        <span className="font-mono font-bold text-emerald-700">
+                          Paid: {pv.currency}{' '}
+                          {Number(pv.payment_voucher_metadata?.amount_paid ?? pv.financial_totals?.grand_total ?? 0).toFixed(2)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Client Contact Personnel Section (Expands naturally without scroll trap) */}
           <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">

@@ -448,6 +448,72 @@ export const QUOTATION_AT_TAGS: QuotationAtTagDefinition[] = [
     tag: '@balance_due',
     label: 'Balance Outstanding',
     category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'pv_ref',
+    tag: '@pv_ref',
+    label: 'Payment Voucher Reference',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'pv_date',
+    tag: '@pv_date',
+    label: 'Payment Voucher Date',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'beneficiary_name',
+    tag: '@beneficiary_name',
+    label: 'Vendor / Beneficiary Account Name',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'beneficiary_bank',
+    tag: '@beneficiary_bank',
+    label: 'Vendor Beneficiary Bank Name',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'beneficiary_iban',
+    tag: '@beneficiary_iban',
+    label: 'Vendor Beneficiary IBAN',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'beneficiary_swift',
+    tag: '@beneficiary_swift',
+    label: 'Vendor Beneficiary SWIFT / BIC',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'vendor_invoice_no',
+    tag: '@vendor_invoice_no',
+    label: 'Supplier Bill / Invoice Number',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'mrn_ref',
+    tag: '@mrn_ref',
+    label: 'Material Return Note Reference',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'dn_ref',
+    tag: '@dn_ref',
+    label: 'Vendor Debit Note Reference',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'return_reason',
+    tag: '@return_reason',
+    label: 'Material Return / Claim Reason',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'original_po_ref',
+    tag: '@original_po_ref',
+    label: 'Original Linked Supplier PO Ref',
+    category: 'Delivery, PO & Receipt'
   }
 ];
 
@@ -484,7 +550,6 @@ const TOKEN_ALIAS_MAP: Record<string, string> = {
   tax_amount: 'vat_amount',
   vat: 'vat_amount',
   total: 'grand_total',
-  beneficiary_name: 'account_name',
   beneficiary: 'account_name',
   account_number: 'account_no',
   swift_code: 'swift',
@@ -777,10 +842,14 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
   const delMeta = q.delivery_metadata || {};
   const poMeta = q.purchase_order_metadata || {};
   const recMeta = q.receipt_metadata || {};
+  const pvMeta = q.payment_voucher_metadata || {};
+  const retMeta = q.vendor_return_metadata || {};
 
   const effectiveAmountForWords =
     docType === 'receipt' && recMeta.amount_received !== undefined
       ? Number(recMeta.amount_received) || 0
+      : docType === 'payment_voucher' && pvMeta.amount_paid !== undefined
+      ? Number(pvMeta.amount_paid) || 0
       : Number(q.grand_total) || 0;
 
   const amountInWords =
@@ -833,20 +902,59 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
     '';
 
   // Purchase Order tokens
-  const poRef = poMeta.po_ref || (docType === 'purchase_order' ? quoteRef : '');
+  const poRef =
+    poMeta.po_ref ||
+    pvMeta.linked_po_ref ||
+    retMeta.original_po_ref ||
+    (docType === 'purchase_order' ? quoteRef : '');
   const poDate = formatReadableDate(poMeta.po_date || rawIssueDate);
-  const supplierName = poMeta.supplier_name || (docType === 'purchase_order' ? clientName : '');
-  const supplierTaxId = poMeta.supplier_tax_id || (docType === 'purchase_order' ? clientTrn : '');
+  const supplierName =
+    poMeta.supplier_name ||
+    pvMeta.paid_to_vendor_name ||
+    retMeta.vendor_name ||
+    (docType === 'purchase_order' ||
+    docType === 'payment_voucher' ||
+    docType === 'material_return_note' ||
+    docType === 'debit_note'
+      ? clientName
+      : '');
+  const supplierTaxId =
+    poMeta.supplier_tax_id ||
+    poMeta.supplier_trn ||
+    pvMeta.vendor_trn ||
+    retMeta.vendor_trn ||
+    (docType === 'purchase_order' ? clientTrn : '');
   const incotermsVal = poMeta.incoterms || priceBasis || '';
 
-  // Receipt Voucher tokens
+  // Receipt Voucher & Outbound Payment Voucher tokens
   const receiptRef = recMeta.receipt_ref || (docType === 'receipt' ? quoteRef : '');
-  const paymentModeVal = recMeta.payment_method || '';
-  const bankRefVal = recMeta.bank_txn_ref || recMeta.cheque_no || '';
-  const amountPaidVal = `${currency} ${formatAmount(recMeta.amount_received ?? q.grand_total)}`;
-  const previouslyPaidVal = `${currency} ${formatAmount(recMeta.previously_received ?? 0)}`;
+  const paymentModeVal =
+    (docType === 'payment_voucher' ? pvMeta.payment_method : recMeta.payment_method) || '';
+  const bankRefVal =
+    (docType === 'payment_voucher'
+      ? pvMeta.bank_txn_ref || pvMeta.cheque_no
+      : recMeta.bank_txn_ref || recMeta.cheque_no) || '';
+  const amountPaidRaw =
+    docType === 'payment_voucher'
+      ? pvMeta.amount_paid ?? q.grand_total
+      : recMeta.amount_received ?? q.grand_total;
+  const amountPaidVal = `${currency} ${formatAmount(amountPaidRaw)}`;
+  const previouslyPaidRaw =
+    docType === 'payment_voucher'
+      ? pvMeta.previously_paid ?? 0
+      : recMeta.previously_received ?? 0;
+  const previouslyPaidVal = `${currency} ${formatAmount(previouslyPaidRaw)}`;
   const computedBalance =
-    recMeta.balance_outstanding !== undefined
+    docType === 'payment_voucher'
+      ? pvMeta.balance_remaining !== undefined
+        ? Number(pvMeta.balance_remaining)
+        : Math.max(
+            0,
+            (Number(pvMeta.total_payable_amount ?? q.grand_total) || 0) -
+              (Number(pvMeta.previously_paid) || 0) -
+              (Number(pvMeta.amount_paid) || 0)
+          )
+      : recMeta.balance_outstanding !== undefined
       ? Number(recMeta.balance_outstanding)
       : Math.max(
           0,
@@ -855,6 +963,33 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
             (Number(recMeta.amount_received) || 0)
         );
   const balanceDueVal = `${currency} ${formatAmount(computedBalance)}`;
+
+  // Payment Voucher, Beneficiary Bank & Vendor Return tokens
+  const pvRefVal = pvMeta.pv_ref || (docType === 'payment_voucher' ? quoteRef : '');
+  const pvDateVal = formatReadableDate(pvMeta.pv_date || rawIssueDate);
+  const benBankSnap =
+    pvMeta.beneficiary_bank_details ||
+    poMeta.beneficiary_bank_details ||
+    {};
+  const beneficiaryNameVal =
+    benBankSnap.beneficiary_name ||
+    pvMeta.paid_to_vendor_name ||
+    poMeta.supplier_name ||
+    accountName ||
+    '';
+  const beneficiaryBankVal = benBankSnap.bank_name || bankName || '';
+  const beneficiaryIbanVal = benBankSnap.iban || iban || '';
+  const beneficiarySwiftVal = benBankSnap.swift_code || swift || '';
+  const vendorInvoiceNoVal =
+    pvMeta.vendor_invoice_no ||
+    retMeta.vendor_invoice_no ||
+    (Array.isArray(pvMeta.allocations) && pvMeta.allocations.length > 0
+      ? pvMeta.allocations.map((a) => a.vendor_invoice_no).filter(Boolean).join(', ')
+      : '');
+  const mrnRefVal = retMeta.return_ref || (docType === 'material_return_note' ? quoteRef : '');
+  const dnRefVal = retMeta.return_ref || (docType === 'debit_note' ? quoteRef : '');
+  const returnReasonVal = retMeta.return_reason || '';
+  const originalPoRefVal = retMeta.original_po_ref || pvMeta.linked_po_ref || poRef || '';
 
   return {
     quote_date: String(quoteDateStr || '').trim(),
@@ -922,7 +1057,19 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
     bank_ref: String(bankRefVal || '').trim(),
     amount_paid: String(amountPaidVal || '').trim(),
     previously_paid: String(previouslyPaidVal || '').trim(),
-    balance_due: String(balanceDueVal || '').trim()
+    balance_due: String(balanceDueVal || '').trim(),
+
+    pv_ref: String(pvRefVal || '').trim(),
+    pv_date: String(pvDateVal || '').trim(),
+    beneficiary_name: String(beneficiaryNameVal || '').trim(),
+    beneficiary_bank: String(beneficiaryBankVal || '').trim(),
+    beneficiary_iban: String(beneficiaryIbanVal || '').trim(),
+    beneficiary_swift: String(beneficiarySwiftVal || '').trim(),
+    vendor_invoice_no: String(vendorInvoiceNoVal || '').trim(),
+    mrn_ref: String(mrnRefVal || '').trim(),
+    dn_ref: String(dnRefVal || '').trim(),
+    return_reason: String(returnReasonVal || '').trim(),
+    original_po_ref: String(originalPoRefVal || '').trim()
   };
 }
 

@@ -44,10 +44,20 @@ import {
   CommercialDocumentType,
   DeliveryNoteMetadata,
   PurchaseOrderMetadata,
-  ReceiptVoucherMetadata
+  ReceiptVoucherMetadata,
+  PaymentVoucherMetadata,
+  PaymentVoucherAllocationRow,
+  VendorReturnMetadata,
+  Company,
+  SupplierBill
 } from '../../types';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
-import { uploadWorkspaceMediaAsset } from '../../services/attachmentStorage';
+import { ProcurementRepository } from '../../services/repositories/ProcurementRepository';
+import { processVendorReturnStockDeduction } from '../../services/inventoryService';
+import {
+  uploadWorkspaceMediaAsset,
+  deleteFromStorageBucket
+} from '../../services/attachmentStorage';
 import SaveToCatalogModal, {
   parseLineItemTitleAndSpec,
   hasCatalogDrift,
@@ -870,8 +880,27 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   const [receiptMetadata, setReceiptMetadata] = useState<ReceiptVoucherMetadata>(
     () => editingQuotation?.receipt_metadata || {}
   );
+  const [paymentVoucherMetadata, setPaymentVoucherMetadata] = useState<PaymentVoucherMetadata>(
+    () => editingQuotation?.payment_voucher_metadata || { settlement_type: 'bill_settlement' }
+  );
+  const [vendorReturnMetadata, setVendorReturnMetadata] = useState<VendorReturnMetadata>(
+    () =>
+      editingQuotation?.vendor_return_metadata || {
+        return_mode:
+          editingQuotation?.document_type === 'debit_note'
+            ? 'debit_note'
+            : 'material_return_note',
+        return_reason: 'Defective / Non-Conforming',
+        resolution_type:
+          editingQuotation?.document_type === 'debit_note'
+            ? 'Credit Note / Bill Deduction'
+            : 'Replacement Dispatch'
+      }
+  );
   const [isDeductingStock, setIsDeductingStock] = useState<boolean>(false);
   const [stockDeductedForDoc, setStockDeductedForDoc] = useState<boolean>(false);
+  const [workspaceCompanies, setWorkspaceCompanies] = useState<Company[]>([]);
+  const [workspaceSupplierBills, setWorkspaceSupplierBills] = useState<SupplierBill[]>([]);
 
   // Column visibility & technical attributes toggles
   const [visibleColumns, setVisibleColumns] = useState<QuotationPresetColumns>(() => ({
@@ -1735,14 +1764,43 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     };
   }, [activeWorkspaceId, propProducts]);
 
+  useEffect(() => {
+    let isMounted = true;
+    if (!activeWorkspaceId) return;
+    getDocs(query(collection(db, 'companies'), where('workspace_id', '==', activeWorkspaceId)))
+      .then((snap) => {
+        if (!isMounted) return;
+        const list: Company[] = [];
+        snap.forEach((docSnap) => {
+          const data = docSnap.data() as Company;
+          if (!data.is_deleted) list.push({ ...data, id: docSnap.id });
+        });
+        setWorkspaceCompanies(list);
+      })
+      .catch(() => {});
+
+    ProcurementRepository.getWorkspaceSupplierBills(activeWorkspaceId)
+      .then((bills) => {
+        if (!isMounted) return;
+        setWorkspaceSupplierBills(bills);
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeWorkspaceId]);
+
   const handleUploadLineItemImage = async (itemKey: string, file?: File) => {
     if (!file) return;
     try {
+      const existingUrl = itemImageOverrides[itemKey] || itemCompositeOverrides[itemKey]?.image_url;
       const uploaded = await uploadWorkspaceMediaAsset(file, 'products/images', activeWorkspace, {
         maxWidth: 800,
         maxHeight: 800,
-        quality: 0.84,
-        preserveTransparency: true
+        quality: 0.78,
+        preserveTransparency: true,
+        previousUrlToDelete: existingUrl
       });
       if (uploaded.url) {
         setItemImageOverrides((prev) => ({
@@ -1993,7 +2051,23 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setDeliveryMetadata(hydrated.deliveryMetadata || {});
       setPurchaseOrderMetadata(hydrated.purchaseOrderMetadata || { po_variant: 'supplier_po' });
       setReceiptMetadata(hydrated.receiptMetadata || {});
-      setStockDeductedForDoc(false);
+      setPaymentVoucherMetadata(
+        hydrated.paymentVoucherMetadata || { settlement_type: 'bill_settlement' }
+      );
+      setVendorReturnMetadata(
+        hydrated.vendorReturnMetadata || {
+          return_mode:
+            hydrated.documentType === 'debit_note'
+              ? 'debit_note'
+              : 'material_return_note',
+          return_reason: 'Defective / Non-Conforming',
+          resolution_type:
+            hydrated.documentType === 'debit_note'
+              ? 'Credit Note / Bill Deduction'
+              : 'Replacement Dispatch'
+        }
+      );
+      setStockDeductedForDoc(Boolean(hydrated.vendorReturnMetadata?.stock_deducted));
       setVisibleColumns(hydrated.visibleColumns);
       setFreightAmount(hydrated.freightAmount);
       setTaxMode(hydrated.taxMode);
@@ -2411,6 +2485,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   };
 
   const handleDeleteAttachment = (id: string) => {
+    const targetAtt = flyerAttachments.find(
+      (att, idx) => (att.id || `annex_${idx}`) === id
+    );
+    if (targetAtt && (targetAtt.url || targetAtt.storagePath)) {
+      deleteFromStorageBucket(targetAtt.storagePath || targetAtt.url, activeWorkspace).catch(
+        () => {}
+      );
+    }
     setFlyerAttachments((prev) =>
       prev.filter((att, idx) => (att.id || `annex_${idx}`) !== id)
     );
@@ -3515,9 +3597,93 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         amount_received: amtNow,
         balance_remaining: Math.max(0, contractVal - prevPaid - amtNow)
       }));
+    } else if (nextType === 'payment_voucher') {
+      if (prevType === 'delivery_note' || prevType === 'material_return_note') {
+        handleRestorePricedQuoteMode();
+      }
+      const linkedPvRef =
+        paymentVoucherMetadata.pv_ref ||
+        QuotationRepository.generateLinkedDocumentRef(
+          baseQuoteRef,
+          'payment_voucher',
+          enquiryRevisions
+        );
+      setFormattedQuoteRefOverride(linkedPvRef);
+      const totalPayable =
+        Number(paymentVoucherMetadata.total_payable_amount) ||
+        Number(financialTotals.grand_total) ||
+        0;
+      const prevPaid = Number(paymentVoucherMetadata.previously_paid) || 0;
+      const amtPaid =
+        paymentVoucherMetadata.amount_paid !== undefined
+          ? Number(paymentVoucherMetadata.amount_paid)
+          : Math.max(0, totalPayable - prevPaid);
+      setPaymentVoucherMetadata((prev) => ({
+        ...prev,
+        pv_ref: prev.pv_ref || linkedPvRef,
+        pv_date: prev.pv_date || todayIso,
+        settlement_type: prev.settlement_type || 'bill_settlement',
+        paid_to_vendor_name:
+          prev.paid_to_vendor_name ||
+          purchaseOrderMetadata.supplier_name ||
+          clientNameOverride ||
+          enquiry.company_name ||
+          '',
+        vendor_id: prev.vendor_id || purchaseOrderMetadata.supplier_id,
+        vendor_contact: prev.vendor_contact || purchaseOrderMetadata.supplier_contact || clientContactPerson,
+        vendor_trn: prev.vendor_trn || purchaseOrderMetadata.supplier_trn || clientTrnOverride,
+        beneficiary_bank_details:
+          prev.beneficiary_bank_details || purchaseOrderMetadata.beneficiary_bank_details,
+        linked_po_ref: prev.linked_po_ref || purchaseOrderMetadata.po_ref,
+        payment_method: prev.payment_method || 'Bank Transfer / TT',
+        total_payable_amount: totalPayable,
+        previously_paid: prevPaid,
+        amount_paid: amtPaid,
+        balance_remaining: Math.max(0, totalPayable - prevPaid - amtPaid),
+        prepared_by_name: prev.prepared_by_name || preparedBy || signatoryName || '',
+        approved_by_name: prev.approved_by_name || signatoryName || ''
+      }));
+    } else if (nextType === 'material_return_note' || nextType === 'debit_note') {
+      if (nextType === 'material_return_note') {
+        handleEnterUnpricedSubmittalMode();
+      } else if (prevType === 'delivery_note' || prevType === 'material_return_note') {
+        handleRestorePricedQuoteMode();
+      }
+      const linkedRetRef =
+        vendorReturnMetadata.return_ref ||
+        QuotationRepository.generateLinkedDocumentRef(
+          baseQuoteRef,
+          nextType,
+          enquiryRevisions
+        );
+      setFormattedQuoteRefOverride(linkedRetRef);
+      setVendorReturnMetadata((prev) => ({
+        ...prev,
+        return_mode: nextType,
+        return_ref:
+          prev.return_ref && prev.return_mode === nextType ? prev.return_ref : linkedRetRef,
+        return_date: prev.return_date || todayIso,
+        vendor_id: prev.vendor_id || purchaseOrderMetadata.supplier_id,
+        vendor_name:
+          prev.vendor_name ||
+          purchaseOrderMetadata.supplier_name ||
+          clientNameOverride ||
+          enquiry.company_name ||
+          '',
+        vendor_contact:
+          prev.vendor_contact || purchaseOrderMetadata.supplier_contact || clientContactPerson,
+        vendor_trn: prev.vendor_trn || purchaseOrderMetadata.supplier_trn || clientTrnOverride,
+        original_po_ref: prev.original_po_ref || purchaseOrderMetadata.po_ref,
+        return_reason: prev.return_reason || 'Defective / Non-Conforming',
+        resolution_type:
+          nextType === 'debit_note'
+            ? 'Credit Note / Bill Deduction'
+            : prev.resolution_type || 'Replacement Dispatch',
+        returned_by_name: prev.returned_by_name || preparedBy || signatoryName || ''
+      }));
     } else {
       // Returning to Quotation (QT)
-      if (prevType === 'delivery_note') {
+      if (prevType === 'delivery_note' || prevType === 'material_return_note') {
         handleRestorePricedQuoteMode();
       }
       const cleanQuoteNumber = baseQuoteRef.replace(/-R\d+$/i, '');
@@ -3619,6 +3785,34 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     } catch (err) {
       console.error('[QuotationStudioModal] Stock deduction failed:', err);
       triggerToast?.('Failed to deduct stock quantities.', 'error');
+    } finally {
+      setIsDeductingStock(false);
+    }
+  };
+
+  // Optional 1-click RETURN_TO_VENDOR stock deduction when issuing a Material Return Note (MRN)
+  const handleDeductVendorReturnStock = async () => {
+    if (isDeductingStock || stockDeductedForDoc || vendorReturnMetadata.stock_deducted) return;
+    setIsDeductingStock(true);
+    try {
+      const res = await processVendorReturnStockDeduction(liveQuotation, user);
+      if (res.deductedCount === 0) {
+        triggerToast?.('No catalog-linked line items with return quantity > 0 found.', 'info');
+      } else {
+        setStockDeductedForDoc(true);
+        setVendorReturnMetadata((prev) => ({
+          ...prev,
+          stock_deducted: true,
+          stock_deducted_at: new Date().toISOString()
+        }));
+        triggerToast?.(
+          `Logged RETURN_TO_VENDOR stock deduction for ${res.deductedCount} catalog item(s).`,
+          'success'
+        );
+      }
+    } catch (err: any) {
+      console.error('[QuotationStudioModal] Vendor return stock deduction failed:', err);
+      triggerToast?.(err?.message || 'Failed to deduct returned stock from warehouse.', 'error');
     } finally {
       setIsDeductingStock(false);
     }
@@ -3894,6 +4088,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       ? (documentType === 'delivery_note' && deliveryMetadata.delivery_ref) ||
         (documentType === 'purchase_order' && purchaseOrderMetadata.po_ref) ||
         (documentType === 'receipt' && receiptMetadata.receipt_ref) ||
+        (documentType === 'payment_voucher' && paymentVoucherMetadata.pv_ref) ||
+        ((documentType === 'material_return_note' || documentType === 'debit_note') &&
+          vendorReturnMetadata.return_ref) ||
         formattedQuoteRefOverride ||
         QuotationRepository.generateLinkedDocumentRef(cleanQuoteNumber, documentType, enquiryRevisions)
       : formattedQuoteRefOverride
@@ -3909,6 +4106,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       delivery_metadata: deliveryMetadata,
       purchase_order_metadata: purchaseOrderMetadata,
       receipt_metadata: receiptMetadata,
+      payment_voucher_metadata: paymentVoucherMetadata,
+      vendor_return_metadata: vendorReturnMetadata,
       quote_number: cleanQuoteNumber,
       revision_number: revNum,
       formatted_quote_ref: formattedQuoteRef,
@@ -4103,6 +4302,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     deliveryMetadata,
     purchaseOrderMetadata,
     receiptMetadata,
+    paymentVoucherMetadata,
+    vendorReturnMetadata,
     enquiryRevisions
   ]);
 
@@ -4360,6 +4561,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         delivery_metadata: liveQuotation.delivery_metadata,
         purchase_order_metadata: liveQuotation.purchase_order_metadata,
         receipt_metadata: liveQuotation.receipt_metadata,
+        payment_voucher_metadata: liveQuotation.payment_voucher_metadata,
+        vendor_return_metadata: liveQuotation.vendor_return_metadata,
         quote_number: liveQuotation.quote_number,
         revision_number: liveQuotation.revision_number,
         formatted_quote_ref: liveQuotation.formatted_quote_ref,
@@ -4452,6 +4655,46 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
       const saved = await QuotationRepository.saveQuotation(payload);
 
+      // Apply Outbound Payment Voucher allocations or Debit Note credit to linked Supplier Bills
+      if (payload.document_type === 'payment_voucher') {
+        try {
+          const pvAllocations =
+            saved.payment_voucher_metadata?.allocated_bills ||
+            saved.payment_voucher_metadata?.allocations ||
+            [];
+          await ProcurementRepository.applyPaymentVoucherAllocationsToBills(
+            activeWorkspaceId,
+            pvAllocations
+          );
+          const refreshedBills = await ProcurementRepository.getWorkspaceSupplierBills(activeWorkspaceId);
+          setWorkspaceSupplierBills(refreshedBills);
+        } catch (pvErr) {
+          console.warn('[QuotationStudioModal] PV allocation sync warning:', pvErr);
+        }
+      } else if (
+        payload.document_type === 'debit_note' &&
+        payload.vendor_return_metadata?.linked_bill_id &&
+        !payload.vendor_return_metadata?.credit_applied_to_bill
+      ) {
+        try {
+          const claimAmt =
+            Number(payload.vendor_return_metadata.total_claim_amount) ||
+            Number(payload.vendor_return_metadata.credit_claim_amount) ||
+            Number(payload.grand_total) ||
+            0;
+          await ProcurementRepository.applyDebitNoteCreditToBill(
+            activeWorkspaceId,
+            payload.vendor_return_metadata.linked_bill_id,
+            claimAmt
+          );
+          setVendorReturnMetadata((prev) => ({ ...prev, credit_applied_to_bill: true }));
+          const refreshedBills = await ProcurementRepository.getWorkspaceSupplierBills(activeWorkspaceId);
+          setWorkspaceSupplierBills(refreshedBills);
+        } catch (dnErr) {
+          console.warn('[QuotationStudioModal] Debit note credit sync warning:', dnErr);
+        }
+      }
+
       // Mark superseded revisions where applicable (only for formal Quotations) and sync Enquiry pipeline fields
       const parentId = payload.parent_quotation_id || payload.parent_quote_id;
       if (parentId && (payload.document_type || 'quotation') === 'quotation') {
@@ -4477,6 +4720,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           ? 'Purchase Order'
           : payload.document_type === 'receipt'
           ? 'Payment Receipt'
+          : payload.document_type === 'payment_voucher'
+          ? 'Payment Voucher'
+          : payload.document_type === 'material_return_note'
+          ? 'Material Return Note'
+          : payload.document_type === 'debit_note'
+          ? 'Vendor Debit Note'
           : 'Quotation';
 
       triggerToast?.(
@@ -4904,6 +5153,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     ? 'Purchase Order Studio'
                     : documentType === 'receipt'
                     ? 'Payment Receipt Studio'
+                    : documentType === 'payment_voucher'
+                    ? 'Payment Voucher Studio'
+                    : documentType === 'material_return_note'
+                    ? 'Material Return Studio'
+                    : documentType === 'debit_note'
+                    ? 'Debit Note Studio'
                     : 'Quotation Studio'}
                 </h2>
                 <span className="px-2 py-0.5 text-xs font-mono font-bold bg-blue-50 text-blue-700 border border-blue-200 rounded-md">
@@ -4917,7 +5172,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       { id: 'quotation' as const, label: 'Quotation (QT)' },
                       { id: 'delivery_note' as const, label: 'Delivery Note (DO)' },
                       { id: 'purchase_order' as const, label: 'Purchase Order (PO)' },
-                      { id: 'receipt' as const, label: 'Receipt (REC)' }
+                      { id: 'receipt' as const, label: 'Receipt (REC)' },
+                      { id: 'payment_voucher' as const, label: 'Payment Voucher (PV)' },
+                      { id: 'material_return_note' as const, label: 'Material Return (MRN)' },
+                      { id: 'debit_note' as const, label: 'Debit Note (DN)' }
                     ]
                   ).map((docOpt) => {
                     const isActive = (documentType || 'quotation') === docOpt.id;
@@ -5023,6 +5281,34 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         : isDeductingStock
                         ? 'Deducting...'
                         : 'Deduct Delivered Qty from Stock'}
+                    </span>
+                  </button>
+                )}
+
+                {/* Optional 1-Click RETURN_TO_VENDOR Stock Deduction Button (Material Return Note) */}
+                {documentType === 'material_return_note' && (
+                  <button
+                    type="button"
+                    disabled={
+                      isDeductingStock ||
+                      stockDeductedForDoc ||
+                      Boolean(vendorReturnMetadata.stock_deducted)
+                    }
+                    onClick={handleDeductVendorReturnStock}
+                    title="Deduct returned material quantities from warehouse stock on hand (RETURN_TO_VENDOR)"
+                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg border transition flex items-center gap-1 cursor-pointer shadow-2xs whitespace-nowrap ${
+                      stockDeductedForDoc || vendorReturnMetadata.stock_deducted
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 cursor-default'
+                        : 'bg-rose-50 hover:bg-rose-100 text-rose-800 border-rose-200'
+                    }`}
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>
+                      {stockDeductedForDoc || vendorReturnMetadata.stock_deducted
+                        ? '✓ Return Deducted from Stock'
+                        : isDeductingStock
+                        ? 'Deducting...'
+                        : 'Deduct Returned Qty from Stock'}
                     </span>
                   </button>
                 )}
@@ -6907,6 +7193,69 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         })}
                       </div>
 
+                      {/* Vendor Directory Picker for Supplier PO */}
+                      {(purchaseOrderMetadata.po_variant || 'supplier_po') === 'supplier_po' && (
+                        <div className="bg-white/90 border border-indigo-200/80 rounded-lg p-2.5 space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <label className="text-[11px] font-bold text-indigo-900">
+                              Link Vendor from Directory (Auto-Fills TRN, Terms &amp; Bank)
+                            </label>
+                            {purchaseOrderMetadata.vendor_company_id && (
+                              <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 text-[9.5px] font-semibold">
+                                Linked Vendor
+                              </span>
+                            )}
+                          </div>
+                          <select
+                            value={purchaseOrderMetadata.vendor_company_id || ''}
+                            onChange={(e) => {
+                              const compId = e.target.value;
+                              const vendor = workspaceCompanies.find((c) => c.id === compId);
+                              if (!vendor) {
+                                setPurchaseOrderMetadata((prev) => ({
+                                  ...prev,
+                                  vendor_company_id: undefined
+                                }));
+                                return;
+                              }
+                              const primaryContact = (vendor.contacts || []).find((ct) => ct.is_primary) || (vendor.contacts || [])[0];
+                              setPurchaseOrderMetadata((prev) => ({
+                                ...prev,
+                                vendor_company_id: vendor.id,
+                                supplier_name: vendor.name,
+                                supplier_contact: primaryContact?.name || prev.supplier_contact || '',
+                                supplier_email: primaryContact?.email || vendor.email || prev.supplier_email || '',
+                                supplier_phone: primaryContact?.phone || vendor.phone || prev.supplier_phone || '',
+                                supplier_address: [vendor.address, vendor.city, vendor.country].filter(Boolean).join(', ') || prev.supplier_address || '',
+                                supplier_trn: vendor.tax_registration_no || prev.supplier_trn || '',
+                                incoterms: vendor.default_incoterms || prev.incoterms || 'Ex-Works',
+                                beneficiary_bank_details: vendor.vendor_bank_details
+                                  ? { ...vendor.vendor_bank_details }
+                                  : prev.beneficiary_bank_details
+                              }));
+                              if (vendor.default_payment_terms) {
+                                setPaymentTerms(vendor.default_payment_terms);
+                              }
+                            }}
+                            className="w-full rounded-lg border border-indigo-200 p-1.5 bg-white text-xs text-slate-800"
+                          >
+                            <option value="">-- Select Registered Vendor / Supplier (or type manually below) --</option>
+                            {workspaceCompanies
+                              .filter((c) => !c.is_deleted)
+                              .sort((a, b) => {
+                                const aVendor = a.relationship_type === 'Vendor / Supplier' ? 0 : 1;
+                                const bVendor = b.relationship_type === 'Vendor / Supplier' ? 0 : 1;
+                                return aVendor - bVendor || (a.name || '').localeCompare(b.name || '');
+                              })
+                              .map((comp) => (
+                                <option key={comp.id} value={comp.id}>
+                                  {comp.name} {comp.relationship_type ? `(${comp.relationship_type})` : ''}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+                      )}
+
                       <div className="grid grid-cols-2 gap-2.5">
                         <div className="min-w-0">
                           <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
@@ -6969,6 +7318,40 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               }))
                             }
                             placeholder="Account / Sales Contact"
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Supplier Email
+                          </label>
+                          <input
+                            type="email"
+                            value={purchaseOrderMetadata.supplier_email || ''}
+                            onChange={(e) =>
+                              setPurchaseOrderMetadata((prev) => ({
+                                ...prev,
+                                supplier_email: e.target.value
+                              }))
+                            }
+                            placeholder="orders@supplier.com"
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Supplier Phone
+                          </label>
+                          <input
+                            type="text"
+                            value={purchaseOrderMetadata.supplier_phone || ''}
+                            onChange={(e) =>
+                              setPurchaseOrderMetadata((prev) => ({
+                                ...prev,
+                                supplier_phone: e.target.value
+                              }))
+                            }
+                            placeholder="+971 4 000 0000"
                             className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
                           />
                         </div>
@@ -7073,6 +7456,77 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
                         />
                       </div>
+
+                      {/* Vendor Beneficiary Bank Snapshot on Supplier PO */}
+                      {(purchaseOrderMetadata.po_variant || 'supplier_po') === 'supplier_po' && (
+                        <div className="pt-2 border-t border-indigo-200/70 space-y-2">
+                          <span className="block text-[10.5px] font-bold uppercase tracking-wider text-indigo-800">
+                            Supplier Beneficiary Bank Details (Printed on PO)
+                          </span>
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              type="text"
+                              value={purchaseOrderMetadata.beneficiary_bank_details?.beneficiary_name || ''}
+                              onChange={(e) =>
+                                setPurchaseOrderMetadata((prev) => ({
+                                  ...prev,
+                                  beneficiary_bank_details: {
+                                    ...prev.beneficiary_bank_details,
+                                    beneficiary_name: e.target.value
+                                  }
+                                }))
+                              }
+                              placeholder="Beneficiary Account Name"
+                              className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-xs text-slate-800"
+                            />
+                            <input
+                              type="text"
+                              value={purchaseOrderMetadata.beneficiary_bank_details?.bank_name || ''}
+                              onChange={(e) =>
+                                setPurchaseOrderMetadata((prev) => ({
+                                  ...prev,
+                                  beneficiary_bank_details: {
+                                    ...prev.beneficiary_bank_details,
+                                    bank_name: e.target.value
+                                  }
+                                }))
+                              }
+                              placeholder="Supplier Bank Name"
+                              className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-xs text-slate-800"
+                            />
+                            <input
+                              type="text"
+                              value={purchaseOrderMetadata.beneficiary_bank_details?.iban || ''}
+                              onChange={(e) =>
+                                setPurchaseOrderMetadata((prev) => ({
+                                  ...prev,
+                                  beneficiary_bank_details: {
+                                    ...prev.beneficiary_bank_details,
+                                    iban: e.target.value
+                                  }
+                                }))
+                              }
+                              placeholder="IBAN / Account #"
+                              className="w-full rounded-lg border border-slate-300 p-1.5 bg-white font-mono text-xs text-slate-800"
+                            />
+                            <input
+                              type="text"
+                              value={purchaseOrderMetadata.beneficiary_bank_details?.swift_code || ''}
+                              onChange={(e) =>
+                                setPurchaseOrderMetadata((prev) => ({
+                                  ...prev,
+                                  beneficiary_bank_details: {
+                                    ...prev.beneficiary_bank_details,
+                                    swift_code: e.target.value
+                                  }
+                                }))
+                              }
+                              placeholder="SWIFT / BIC Code"
+                              className="w-full rounded-lg border border-slate-300 p-1.5 bg-white font-mono text-xs text-slate-800"
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -7290,6 +7744,643 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           className="rounded border-slate-300 text-emerald-600 cursor-pointer"
                         />
                       </label>
+                    </div>
+                  )}
+
+                  {documentType === 'payment_voucher' && (
+                    <div className="border border-amber-200 rounded-xl p-4 bg-amber-50/40 space-y-3 text-xs shadow-2xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+                          <DollarSign className="w-3.5 h-3.5 text-amber-600" />
+                          Outbound Payment Voucher (PV)
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full bg-white border border-amber-200 text-[10px] font-mono font-bold text-amber-800 whitespace-nowrap">
+                          Payable Bal: {liveQuotation.currency}{' '}
+                          {Math.max(
+                            0,
+                            (Number(paymentVoucherMetadata.total_payable_amount) || 0) -
+                              (Number(paymentVoucherMetadata.credits_applied_amount) || 0) -
+                              (Number(paymentVoucherMetadata.previously_paid_amount) || 0) -
+                              (Number(paymentVoucherMetadata.amount_paid) || 0)
+                          ).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+
+                      {/* PV Settlement Type Segmented Bar */}
+                      <div className="grid grid-cols-3 gap-1 p-1 bg-white rounded-lg border border-amber-200">
+                        {[
+                          { id: 'single_bill' as const, label: 'Single Bill / PO' },
+                          { id: 'multi_bill' as const, label: 'Multi-Bill Settlement' },
+                          { id: 'vendor_advance' as const, label: 'Vendor Advance' }
+                        ].map((mode) => {
+                          const isSel = (paymentVoucherMetadata.settlement_type || 'single_bill') === mode.id;
+                          return (
+                            <button
+                              key={mode.id}
+                              type="button"
+                              onClick={() =>
+                                setPaymentVoucherMetadata((prev) => ({ ...prev, settlement_type: mode.id }))
+                              }
+                              className={`py-1.5 px-2 rounded-md text-[10px] font-semibold transition cursor-pointer whitespace-nowrap ${
+                                isSel
+                                  ? 'bg-amber-600 text-white shadow-2xs'
+                                  : 'text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              {mode.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Vendor Picker for PV */}
+                      <div className="bg-white/90 border border-amber-200/80 rounded-lg p-2.5 space-y-1.5">
+                        <label className="block text-[11px] font-bold text-amber-900">
+                          Payee / Vendor Directory Picker
+                        </label>
+                        <select
+                          value={paymentVoucherMetadata.vendor_company_id || ''}
+                          onChange={(e) => {
+                            const compId = e.target.value;
+                            const vendor = workspaceCompanies.find((c) => c.id === compId);
+                            if (!vendor) {
+                              setPaymentVoucherMetadata((prev) => ({
+                                ...prev,
+                                vendor_company_id: undefined
+                              }));
+                              return;
+                            }
+                            const primaryContact = (vendor.contacts || []).find((ct) => ct.is_primary) || (vendor.contacts || [])[0];
+                            setPaymentVoucherMetadata((prev) => ({
+                              ...prev,
+                              vendor_company_id: vendor.id,
+                              payee_name: vendor.name,
+                              payee_contact: primaryContact?.name || prev.payee_contact || '',
+                              payee_address: [vendor.address, vendor.city, vendor.country].filter(Boolean).join(', ') || prev.payee_address || '',
+                              payee_trn: vendor.tax_registration_no || prev.payee_trn || '',
+                              beneficiary_bank_details: vendor.vendor_bank_details
+                                ? { ...vendor.vendor_bank_details }
+                                : prev.beneficiary_bank_details,
+                              currency: vendor.default_currency || prev.currency
+                            }));
+                          }}
+                          className="w-full rounded-lg border border-amber-200 p-1.5 bg-white text-xs text-slate-800"
+                        >
+                          <option value="">-- Select Registered Vendor / Payee --</option>
+                          {workspaceCompanies
+                            .filter((c) => !c.is_deleted)
+                            .map((comp) => (
+                              <option key={comp.id} value={comp.id}>
+                                {comp.name} {comp.relationship_type ? `(${comp.relationship_type})` : ''}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+
+                      {/* Multi-Bill Allocation Checklist */}
+                      {workspaceSupplierBills.length > 0 && (
+                        <div className="bg-white border border-amber-200 rounded-lg p-2.5 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10.5px] font-bold text-slate-800">
+                              Allocate Supplier Bills ({workspaceSupplierBills.filter((b) => !paymentVoucherMetadata.vendor_company_id || b.vendor_company_id === paymentVoucherMetadata.vendor_company_id).length})
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              Select bills to auto-build settlement schedule
+                            </span>
+                          </div>
+                          <div className="max-h-36 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-md">
+                            {workspaceSupplierBills
+                              .filter(
+                                (b) =>
+                                  b.payment_status !== 'paid' &&
+                                  (!paymentVoucherMetadata.vendor_company_id ||
+                                    b.vendor_company_id === paymentVoucherMetadata.vendor_company_id)
+                              )
+                              .map((bill) => {
+                                const allocations = paymentVoucherMetadata.allocated_bills || [];
+                                const existingAlloc = allocations.find((a) => a.bill_id === bill.id);
+                                const isChecked = Boolean(existingAlloc);
+                                return (
+                                  <div
+                                    key={bill.id}
+                                    className="flex items-center justify-between gap-2 px-2 py-1.5 text-[11px] hover:bg-amber-50/40"
+                                  >
+                                    <label className="flex items-center gap-2 min-w-0 cursor-pointer flex-1">
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={(e) => {
+                                          const checked = e.target.checked;
+                                          const currentList = paymentVoucherMetadata.allocated_bills || [];
+                                          let nextList = [...currentList];
+                                          if (checked) {
+                                            const defaultPay = Math.max(0, Number(bill.balance_due) || 0);
+                                            nextList.push({
+                                              bill_id: bill.id,
+                                              bill_ref: bill.bill_number,
+                                              vendor_invoice_no: bill.vendor_invoice_no,
+                                              po_ref: bill.po_ref,
+                                              bill_total: Number(bill.grand_total) || 0,
+                                              credit_applied: Number(bill.credit_applied_amount) || 0,
+                                              previously_paid: Number(bill.amount_paid) || 0,
+                                              paid_this_voucher: defaultPay,
+                                              remaining_balance: 0
+                                            });
+                                          } else {
+                                            nextList = nextList.filter((a) => a.bill_id !== bill.id);
+                                          }
+                                          const totalBill = nextList.reduce((s, a) => s + a.bill_total, 0);
+                                          const totalCredit = nextList.reduce((s, a) => s + (a.credit_applied || 0), 0);
+                                          const totalPrev = nextList.reduce((s, a) => s + a.previously_paid, 0);
+                                          const totalNow = nextList.reduce((s, a) => s + a.paid_this_voucher, 0);
+                                          setPaymentVoucherMetadata((prev) => ({
+                                            ...prev,
+                                            payee_name: prev.payee_name || bill.vendor_name,
+                                            vendor_invoice_no:
+                                              nextList.length === 1
+                                                ? nextList[0].vendor_invoice_no
+                                                : nextList.map((n) => n.vendor_invoice_no).join(', '),
+                                            allocated_bills: nextList,
+                                            total_payable_amount: totalBill,
+                                            credits_applied_amount: totalCredit,
+                                            previously_paid_amount: totalPrev,
+                                            amount_paid: totalNow,
+                                            balance_remaining: Math.max(0, totalBill - totalCredit - totalPrev - totalNow)
+                                          }));
+                                        }}
+                                        className="rounded border-slate-300 text-amber-600 cursor-pointer"
+                                      />
+                                      <div className="truncate">
+                                        <span className="font-mono font-bold text-slate-800">{bill.bill_number}</span>
+                                        <span className="text-slate-500 ml-1">
+                                          (Inv: {bill.vendor_invoice_no}) • Bal: {bill.currency} {Number(bill.balance_due || 0).toFixed(2)}
+                                        </span>
+                                      </div>
+                                    </label>
+                                    {isChecked && existingAlloc && (
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        value={existingAlloc.paid_this_voucher}
+                                        onChange={(e) => {
+                                          const val = Math.max(0, Number(e.target.value) || 0);
+                                          const nextList = (paymentVoucherMetadata.allocated_bills || []).map((a) => {
+                                            if (a.bill_id !== bill.id) return a;
+                                            const rem = Math.max(
+                                              0,
+                                              a.bill_total - (a.credit_applied || 0) - a.previously_paid - val
+                                            );
+                                            return { ...a, paid_this_voucher: val, remaining_balance: rem };
+                                          });
+                                          const totalBill = nextList.reduce((s, a) => s + a.bill_total, 0);
+                                          const totalCredit = nextList.reduce((s, a) => s + (a.credit_applied || 0), 0);
+                                          const totalPrev = nextList.reduce((s, a) => s + a.previously_paid, 0);
+                                          const totalNow = nextList.reduce((s, a) => s + a.paid_this_voucher, 0);
+                                          setPaymentVoucherMetadata((prev) => ({
+                                            ...prev,
+                                            allocated_bills: nextList,
+                                            amount_paid: totalNow,
+                                            balance_remaining: Math.max(0, totalBill - totalCredit - totalPrev - totalNow)
+                                          }));
+                                        }}
+                                        className="w-24 rounded border border-amber-300 px-1.5 py-0.5 text-right font-mono text-[11px] bg-amber-50/50"
+                                        title="Amount Paid on this Voucher"
+                                      />
+                                    )}
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Payment Voucher #
+                          </label>
+                          <input
+                            type="text"
+                            value={paymentVoucherMetadata.voucher_ref || liveQuotation.formatted_quote_ref}
+                            onChange={(e) => {
+                              setFormattedQuoteRefOverride(e.target.value);
+                              setPaymentVoucherMetadata((prev) => ({ ...prev, voucher_ref: e.target.value }));
+                            }}
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Payment Date
+                          </label>
+                          <input
+                            type="date"
+                            value={
+                              (paymentVoucherMetadata.payment_date || '').slice(0, 10) ||
+                              new Date().toISOString().slice(0, 10)
+                            }
+                            onChange={(e) =>
+                              setPaymentVoucherMetadata((prev) => ({ ...prev, payment_date: e.target.value }))
+                            }
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Payee / Supplier Name
+                          </label>
+                          <input
+                            type="text"
+                            value={paymentVoucherMetadata.payee_name || ''}
+                            onChange={(e) =>
+                              setPaymentVoucherMetadata((prev) => ({ ...prev, payee_name: e.target.value }))
+                            }
+                            placeholder="Supplier Legal Entity"
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Vendor Invoice #
+                          </label>
+                          <input
+                            type="text"
+                            value={paymentVoucherMetadata.vendor_invoice_no || ''}
+                            onChange={(e) =>
+                              setPaymentVoucherMetadata((prev) => ({ ...prev, vendor_invoice_no: e.target.value }))
+                            }
+                            placeholder="Supplier's Invoice Ref"
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Payment Mode
+                          </label>
+                          <select
+                            value={paymentVoucherMetadata.payment_method || 'Bank Transfer / TT'}
+                            onChange={(e) =>
+                              setPaymentVoucherMetadata((prev) => ({
+                                ...prev,
+                                payment_method: e.target.value as any
+                              }))
+                            }
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          >
+                            <option value="Bank Transfer / TT">Bank Transfer / TT</option>
+                            <option value="Cheque">Cheque</option>
+                            <option value="Cash">Cash</option>
+                            <option value="Corporate Card">Corporate Card</option>
+                            <option value="Letter of Credit (LC)">Letter of Credit (LC)</option>
+                            <option value="Online">Online</option>
+                          </select>
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            UTR / Swift / Cheque #
+                          </label>
+                          <input
+                            type="text"
+                            value={paymentVoucherMetadata.reference_no || ''}
+                            onChange={(e) =>
+                              setPaymentVoucherMetadata((prev) => ({ ...prev, reference_no: e.target.value }))
+                            }
+                            placeholder="Bank Transfer Ref / Cheque #"
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Total Bill / PO Value
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={paymentVoucherMetadata.total_payable_amount ?? financialTotals.grand_total}
+                            onChange={(e) => {
+                              const totalVal = Number(e.target.value) || 0;
+                              const credVal = Number(paymentVoucherMetadata.credits_applied_amount) || 0;
+                              const prevVal = Number(paymentVoucherMetadata.previously_paid_amount) || 0;
+                              const paidVal = Number(paymentVoucherMetadata.amount_paid) || 0;
+                              setPaymentVoucherMetadata((prev) => ({
+                                ...prev,
+                                total_payable_amount: totalVal,
+                                balance_remaining: Math.max(0, totalVal - credVal - prevVal - paidVal)
+                              }));
+                            }}
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-amber-900 font-bold text-[11px] mb-1 truncate">
+                            Amount Paid This Voucher ({liveQuotation.currency})
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={paymentVoucherMetadata.amount_paid ?? financialTotals.grand_total}
+                            onChange={(e) => {
+                              const paidVal = Number(e.target.value) || 0;
+                              const totalVal =
+                                Number(paymentVoucherMetadata.total_payable_amount) ||
+                                Number(financialTotals.grand_total) ||
+                                0;
+                              const credVal = Number(paymentVoucherMetadata.credits_applied_amount) || 0;
+                              const prevVal = Number(paymentVoucherMetadata.previously_paid_amount) || 0;
+                              setPaymentVoucherMetadata((prev) => ({
+                                ...prev,
+                                amount_paid: paidVal,
+                                balance_remaining: Math.max(0, totalVal - credVal - prevVal - paidVal)
+                              }));
+                            }}
+                            className="w-full rounded-lg border-2 border-amber-500 p-2 bg-white font-mono font-bold text-xs text-amber-950"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Disbursing & Beneficiary Bank Details */}
+                      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-amber-200/70">
+                        <input
+                          type="text"
+                          value={paymentVoucherMetadata.disbursing_bank_name || ''}
+                          onChange={(e) =>
+                            setPaymentVoucherMetadata((prev) => ({
+                              ...prev,
+                              disbursing_bank_name: e.target.value
+                            }))
+                          }
+                          placeholder="Disbursing Bank Name (Our Bank)"
+                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-xs text-slate-800"
+                        />
+                        <input
+                          type="text"
+                          value={paymentVoucherMetadata.beneficiary_bank_details?.bank_name || ''}
+                          onChange={(e) =>
+                            setPaymentVoucherMetadata((prev) => ({
+                              ...prev,
+                              beneficiary_bank_details: {
+                                ...prev.beneficiary_bank_details,
+                                bank_name: e.target.value
+                              }
+                            }))
+                          }
+                          placeholder="Beneficiary Bank Name"
+                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-xs text-slate-800"
+                        />
+                        <input
+                          type="text"
+                          value={paymentVoucherMetadata.beneficiary_bank_details?.beneficiary_name || ''}
+                          onChange={(e) =>
+                            setPaymentVoucherMetadata((prev) => ({
+                              ...prev,
+                              beneficiary_bank_details: {
+                                ...prev.beneficiary_bank_details,
+                                beneficiary_name: e.target.value
+                              }
+                            }))
+                          }
+                          placeholder="Beneficiary Account Name"
+                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-xs text-slate-800"
+                        />
+                        <input
+                          type="text"
+                          value={paymentVoucherMetadata.beneficiary_bank_details?.iban || ''}
+                          onChange={(e) =>
+                            setPaymentVoucherMetadata((prev) => ({
+                              ...prev,
+                              beneficiary_bank_details: {
+                                ...prev.beneficiary_bank_details,
+                                iban: e.target.value
+                              }
+                            }))
+                          }
+                          placeholder="Beneficiary IBAN / Account #"
+                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white font-mono text-xs text-slate-800"
+                        />
+                      </div>
+
+                      {/* 4-Slot Signatory Override */}
+                      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-amber-200/70">
+                        <input
+                          type="text"
+                          value={paymentVoucherMetadata.prepared_by_name ?? preparedBy}
+                          onChange={(e) =>
+                            setPaymentVoucherMetadata((prev) => ({ ...prev, prepared_by_name: e.target.value }))
+                          }
+                          placeholder="Prepared By"
+                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-xs text-slate-800"
+                        />
+                        <input
+                          type="text"
+                          value={paymentVoucherMetadata.reviewed_by_name || ''}
+                          onChange={(e) =>
+                            setPaymentVoucherMetadata((prev) => ({ ...prev, reviewed_by_name: e.target.value }))
+                          }
+                          placeholder="Reviewed / Verified By"
+                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-xs text-slate-800"
+                        />
+                        <input
+                          type="text"
+                          value={paymentVoucherMetadata.approved_by_name || ''}
+                          onChange={(e) =>
+                            setPaymentVoucherMetadata((prev) => ({ ...prev, approved_by_name: e.target.value }))
+                          }
+                          placeholder="Approved By"
+                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-xs text-slate-800"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {(documentType === 'material_return_note' || documentType === 'debit_note') && (
+                    <div className="border border-rose-200 rounded-xl p-4 bg-rose-50/40 space-y-3 text-xs shadow-2xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+                          <Truck className="w-3.5 h-3.5 text-rose-600" />
+                          {documentType === 'material_return_note'
+                            ? 'Material Return Note (MRN — Unpriced Dispatch)'
+                            : 'Vendor Debit Note (DN — Priced Credit Claim)'}
+                        </span>
+                        {vendorReturnMetadata.stock_deducted ? (
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 border border-emerald-300 text-[10px] font-bold text-emerald-800 whitespace-nowrap">
+                            Stock Deducted
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={isDeductingStock}
+                            onClick={handleDeductVendorReturnStock}
+                            className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold text-[10px] transition cursor-pointer whitespace-nowrap disabled:opacity-50"
+                          >
+                            {isDeductingStock ? 'Deducting...' : '1-Click Deduct Return Stock'}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Dual-Mode Switcher between MRN (Unpriced) and DN (Priced) */}
+                      <div className="grid grid-cols-2 gap-1 p-1 bg-white rounded-lg border border-rose-200">
+                        {[
+                          { id: 'material_return_note' as const, label: 'Material Return Note (MRN - Unpriced)' },
+                          { id: 'debit_note' as const, label: 'Vendor Debit Note (DN - Priced Claim)' }
+                        ].map((m) => {
+                          const isSel = documentType === m.id;
+                          return (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => handleSwitchDocumentType(m.id)}
+                              className={`py-1.5 px-2 rounded-md text-[10px] font-semibold transition cursor-pointer whitespace-nowrap ${
+                                isSel
+                                  ? 'bg-rose-600 text-white shadow-2xs'
+                                  : 'text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              {m.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            {documentType === 'material_return_note' ? 'MRN Reference #' : 'Debit Note #'}
+                          </label>
+                          <input
+                            type="text"
+                            value={vendorReturnMetadata.return_ref || liveQuotation.formatted_quote_ref}
+                            onChange={(e) => {
+                              setFormattedQuoteRefOverride(e.target.value);
+                              setVendorReturnMetadata((prev) => ({ ...prev, return_ref: e.target.value }));
+                            }}
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Return Date
+                          </label>
+                          <input
+                            type="date"
+                            value={
+                              (vendorReturnMetadata.return_date || '').slice(0, 10) ||
+                              new Date().toISOString().slice(0, 10)
+                            }
+                            onChange={(e) =>
+                              setVendorReturnMetadata((prev) => ({ ...prev, return_date: e.target.value }))
+                            }
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Vendor / Supplier Name
+                          </label>
+                          <input
+                            type="text"
+                            value={vendorReturnMetadata.supplier_name || ''}
+                            onChange={(e) =>
+                              setVendorReturnMetadata((prev) => ({ ...prev, supplier_name: e.target.value }))
+                            }
+                            placeholder="Supplier Entity Name"
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Original PO Ref #
+                          </label>
+                          <input
+                            type="text"
+                            value={vendorReturnMetadata.original_po_ref || ''}
+                            onChange={(e) =>
+                              setVendorReturnMetadata((prev) => ({ ...prev, original_po_ref: e.target.value }))
+                            }
+                            placeholder="e.g. PO-0042-01"
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Apply Credit Against Supplier Bill
+                          </label>
+                          <select
+                            value={vendorReturnMetadata.linked_bill_id || ''}
+                            onChange={(e) => {
+                              const bill = workspaceSupplierBills.find((b) => b.id === e.target.value);
+                              setVendorReturnMetadata((prev) => ({
+                                ...prev,
+                                linked_bill_id: bill?.id,
+                                vendor_invoice_no: bill?.vendor_invoice_no || prev.vendor_invoice_no,
+                                supplier_name: bill?.vendor_name || prev.supplier_name,
+                                original_po_ref: bill?.po_ref || prev.original_po_ref
+                              }));
+                            }}
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          >
+                            <option value="">-- Optional: Link to Supplier Bill --</option>
+                            {workspaceSupplierBills.map((b) => (
+                              <option key={b.id} value={b.id}>
+                                {b.bill_number} (Inv: {b.vendor_invoice_no}) - Bal: {b.currency} {Number(b.balance_due || 0).toFixed(2)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Return Reason
+                          </label>
+                          <select
+                            value={vendorReturnMetadata.return_reason || 'Defective / Damaged'}
+                            onChange={(e) =>
+                              setVendorReturnMetadata((prev) => ({
+                                ...prev,
+                                return_reason: e.target.value as any
+                              }))
+                            }
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          >
+                            <option value="Defective / Damaged">Defective / Damaged</option>
+                            <option value="Wrong Specification">Wrong Specification</option>
+                            <option value="Excess Delivery">Excess Delivery</option>
+                            <option value="Shortage / Overcharged">Shortage / Overcharged</option>
+                            <option value="Other">Other</option>
+                          </select>
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Requested Resolution
+                          </label>
+                          <select
+                            value={vendorReturnMetadata.resolution_type || 'Credit / Bill Deduction'}
+                            onChange={(e) =>
+                              setVendorReturnMetadata((prev) => ({
+                                ...prev,
+                                resolution_type: e.target.value as any
+                              }))
+                            }
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          >
+                            <option value="Credit / Bill Deduction">Credit / Bill Deduction</option>
+                            <option value="Replacement">Replacement Dispatch</option>
+                            <option value="Bank Refund">Bank Refund</option>
+                          </select>
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Carrier / Vehicle Plate #
+                          </label>
+                          <input
+                            type="text"
+                            value={vendorReturnMetadata.vehicle_plate_no || ''}
+                            onChange={(e) =>
+                              setVendorReturnMetadata((prev) => ({ ...prev, vehicle_plate_no: e.target.value }))
+                            }
+                            placeholder="Vehicle / Courier AWB #"
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          />
+                        </div>
+                      </div>
                     </div>
                   )}
 

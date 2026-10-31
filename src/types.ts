@@ -94,6 +94,7 @@ export interface Workspace {
   join_code?: string;
   data_visibility_scope?: 'ALL_DATA' | 'OWN_DATA_ONLY' | 'ASSIGNED_ONLY' | string;
   dataVisibilityScope?: 'ALL_DATA' | 'OWN_DATA_ONLY' | 'ASSIGNED_ONLY' | string;
+  document_profile?: any;
   settings?: WorkspaceSettings;
 }
 
@@ -159,6 +160,7 @@ export interface Company extends SoftDeleteFields {
   id?: string;
   workspace_id?: string | 'unassigned';
   workspaceId?: string | 'unassigned';
+  name?: string;
   canonical_name: string;
   legal_suffix?: LegalSuffix | string | null;
   display_name: string;
@@ -180,6 +182,8 @@ export interface Company extends SoftDeleteFields {
   emails?: ContactMethod[] | LabeledEmail[] | any[];
   links?: { id: string; label: string; url: string }[];
   relationship?: CompanyRelationship;
+  relationship_type?: CompanyRelationship;
+  contacts?: Contact[];
   temperature?: CompanyTemperature;
   notes?: string;
   is_dnc?: boolean;
@@ -195,8 +199,26 @@ export interface Company extends SoftDeleteFields {
   nextFollowUpAt?: string | null;
   last_contacted_at?: string | null;
   next_followup_at?: string | null;
+  // Vendor / Supplier Procurement & Beneficiary Bank Fields
+  address?: string;
+  tax_registration_no?: string;
+  trn?: string;
+  default_currency?: string;
+  default_payment_terms?: string;
+  default_incoterms?: string;
+  vendor_bank_details?: VendorBankDetails;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface VendorBankDetails {
+  beneficiary_name?: string;
+  bank_name?: string;
+  account_number?: string;
+  iban?: string;
+  swift_code?: string;
+  branch_address?: string;
+  currency?: string;
 }
 
 export interface Contact extends SoftDeleteFields {
@@ -204,7 +226,9 @@ export interface Contact extends SoftDeleteFields {
   workspace_id?: string | 'unassigned';
   company_id: string;
   full_name: string;
+  name?: string;
   designation?: string;
+  role?: string;
   mobile?: string;
   landline?: string;
   phone?: string;
@@ -419,12 +443,14 @@ export interface LineItem {
   id?: string;
   product_id?: string;
   sku?: string;
+  part_no?: string;
   item_name?: string;
   item_type?: ItemType;
   charge_type?: string;
   product_type: ProductType;
   description: string;
   quantity: number;
+  qty?: number;
   unit: UnitType;
   unit_price: number;
   cost_price?: number;
@@ -443,6 +469,7 @@ export interface LineItem {
   image_size_override?: LineItemImageSizeOverride;
   image_aspect_override?: LineItemImageAspectOverride;
   datasheet_attachment?: Attachment;
+  datasheet_url?: string;
   include_datasheet_in_quote?: boolean;
   attributes?: ProductAttribute[];
   option?: string; // e.g. Option A, Option B, etc.
@@ -461,11 +488,24 @@ export interface LineItem {
   hide_row_price?: boolean;
   qty_ordered?: number;
   qty_delivered?: number;
+  qty_received?: number;
+  qty_pending?: number;
+  qty_returned?: number;
   qty_balance?: number;
   serial_batch_no?: string;
+  allocated_freight_cost?: number;
+  manual_landed_cost_override?: number;
+  landed_unit_cost?: number;
+  return_reason?: string;
 }
 
-export type StockMovementType = 'STOCK_IN' | 'STOCK_RESERVE' | 'STOCK_RELEASE' | 'STOCK_OUT' | 'ADJUSTMENT';
+export type StockMovementType =
+  | 'STOCK_IN'
+  | 'STOCK_RESERVE'
+  | 'STOCK_RELEASE'
+  | 'STOCK_OUT'
+  | 'ADJUSTMENT'
+  | 'RETURN_TO_VENDOR';
 
 export interface StockMovement {
   id?: string;
@@ -476,16 +516,20 @@ export interface StockMovement {
   quantity: number;
   previous_on_hand: number;
   new_on_hand: number;
-  reference_type?: 'ENQUIRY' | 'PROJECT' | 'PO' | 'MANUAL';
+  reference_type?: 'ENQUIRY' | 'PROJECT' | 'PO' | 'MRN' | 'MANUAL';
   reference_id?: string;
   reference_number?: string;
   reason_notes?: string;
   created_at: string;
   created_by_uid?: string;
   created_by_name?: string;
-  // Inbound GRN metadata
+  // Inbound GRN & Landed Cost metadata
   unit_cost?: number;
+  allocated_freight_cost?: number;
+  landed_unit_cost?: number;
   total_cost?: number;
+  po_id?: string;
+  po_ref?: string;
   supplier_id?: string;
   supplier_name?: string;
   delivery_note_ref?: string;
@@ -497,6 +541,8 @@ export interface GrnReceiptData {
   workspace_id: string;
   grn_number: string;
   received_date: string;
+  po_id?: string;
+  po_ref?: string;
   supplier_id?: string;
   supplier_name: string;
   delivery_note_ref: string;
@@ -504,9 +550,43 @@ export interface GrnReceiptData {
   product_name: string;
   quantity: number;
   unit_cost: number;
+  allocated_freight_cost?: number;
+  landed_unit_cost?: number;
   storage_location?: string;
   update_cost_price: boolean;
   notes?: string;
+}
+
+export interface PoGrnLineReceiptInput {
+  line_index: number;
+  product_id?: string;
+  sku?: string;
+  item_name: string;
+  unit?: string;
+  qty_ordered: number;
+  qty_previously_received: number;
+  qty_receiving_now: number;
+  po_unit_cost: number;
+  allocated_freight_cost: number;
+  manual_landed_cost_override?: number;
+  landed_unit_cost: number;
+  storage_location?: string;
+}
+
+export interface PoGrnBatchReceiptInput {
+  workspace_id: string;
+  po_id: string;
+  po_ref: string;
+  grn_number: string;
+  received_date: string;
+  supplier_id?: string;
+  supplier_name: string;
+  delivery_note_ref: string;
+  freight_customs_cost: number;
+  allocation_mode: 'proportional_value' | 'manual_override';
+  update_base_catalog_cost?: boolean;
+  notes?: string;
+  lines: PoGrnLineReceiptInput[];
 }
 
 export type StockAdjustmentMode = 'OPENING_STOCK' | 'RECOUNT' | 'WRITE_OFF' | 'ADDITION';
@@ -581,6 +661,12 @@ export interface Attachment {
   page_placement?: 'cover_before' | 'annex_after' | 'index_only';
   full_bleed?: boolean;
   exclude_from_page_count?: boolean;
+  originalSize?: number;
+  compressedSize?: number;
+  original_size_bytes?: number;
+  compressed_size_bytes?: number;
+  compressionRatioPct?: number;
+  compressionPreset?: 'standard' | 'extreme' | 'original';
 }
 
 export type QuotationAnnexAttachment = Attachment;
@@ -725,6 +811,7 @@ export interface Enquiry extends SoftDeleteFields {
   status: EnquiryStatus;
   quote_ref_no: string;
   subject?: string; // Optional Subject for the proposal
+  description?: string;
   customer_reference_code?: string; // Optional Customer Reference Code
   proposal_option?: string; // e.g. Option A, Option B for alternative versions
   option_group_titles?: Record<string, string>; // Custom titles per option group e.g. { "Option A": "Option A — SS316 Execution" }
@@ -847,6 +934,8 @@ export interface Product extends SoftDeleteFields {
   unit: UnitType;
   unit_price?: number;
   sku?: string;
+  part_no?: string;
+  brand?: string;
   brand_make?: string;
   model_part_no?: string;
   default_availability?: string;
@@ -856,12 +945,15 @@ export interface Product extends SoftDeleteFields {
   secondary_image_caption?: string;
   image_adjustments?: ImageAdjustmentConfig;
   datasheet_attachment?: Attachment;
+  datasheet_url?: string;
+  attachments?: Attachment[];
   createdAt?: string;
   updatedAt?: string;
   attributes?: ProductAttribute[];
   is_inventoried?: boolean;
   stock_on_hand?: number;
   current_stock?: number;
+  stock_quantity?: number;
   stock_reserved?: number;
   reorder_level?: number;
   hs_code?: string;
@@ -870,6 +962,8 @@ export interface Product extends SoftDeleteFields {
   storage_location?: string;
   cost_price?: number;
   cost_price_aed?: number;
+  last_landed_cost?: number;
+  last_grn_ref?: string;
   search_terms?: string[];
   is_composite_set?: boolean;
   sub_components?: LineItemComponent[];
@@ -1142,12 +1236,15 @@ export interface QuotationLineItem {
   sn?: number;
   product_id?: string;
   sku?: string;
+  part_no?: string;
   item_name: string;
   description: string;
   quantity: number;
+  qty?: number;
   unit?: string;
   uom?: string;
   unit_price: number;
+  tax_rate?: number;
   total_price?: number;
   line_total?: number;
   brand_make?: string;
@@ -1167,6 +1264,7 @@ export interface QuotationLineItem {
   image_size_override?: LineItemImageSizeOverride;
   image_aspect_override?: LineItemImageAspectOverride;
   datasheet_attachment?: Attachment;
+  datasheet_url?: string;
   include_datasheet_in_quote?: boolean;
   is_optional?: boolean;
   option?: string;
@@ -1193,8 +1291,17 @@ export interface QuotationLineItem {
   globalOptionItemNumber?: number;
   qty_ordered?: number;
   qty_delivered?: number;
+  qty_received?: number;
+  qty_pending?: number;
+  qty_returned?: number;
   qty_balance?: number;
   serial_batch_no?: string;
+  allocated_freight_cost?: number;
+  manual_landed_cost_override?: number;
+  landed_unit_cost?: number;
+  source_enquiry_line_index?: number;
+  source_po_line_id?: string;
+  return_reason?: string;
 }
 
 export type QuotationItem = QuotationLineItem;
@@ -1757,19 +1864,25 @@ export interface QuotationPreset extends SoftDeleteFields {
 export interface QuotationPartySnapshot {
   entity_name: string;
   contact_person?: string;
+  attention_to?: string;
+  designation?: string;
   email?: string;
   phone?: string;
   address?: string;
   city?: string;
   country?: string;
   trn?: string;
+  tax_registration_no?: string;
   logo_url?: string;
+  logo_text?: string;
+  accent_color?: string;
   stamp_seal_url?: string;
   client_contact_person?: string;
   client_trn?: string;
   client_phone?: string;
   client_email?: string;
   client_address?: string;
+  [key: string]: any;
 }
 
 export interface QuotationSignatory {
@@ -1785,7 +1898,10 @@ export type CommercialDocumentType =
   | 'purchase_order'
   | 'receipt'
   | 'proforma_invoice'
-  | 'tax_invoice';
+  | 'tax_invoice'
+  | 'payment_voucher'
+  | 'material_return_note'
+  | 'debit_note';
 
 export type DeliveryDispatchMode =
   | 'Company Transport'
@@ -1825,6 +1941,11 @@ export type PurchaseOrderIncoterms =
   | 'DDP'
   | 'Standard Delivery';
 
+export type PurchaseOrderReceivingStatus =
+  | 'Pending Receipt'
+  | 'Partially Received'
+  | 'Fully Received';
+
 export interface PurchaseOrderMetadata {
   po_variant?: PurchaseOrderVariant;
   po_ref?: string;
@@ -1832,6 +1953,7 @@ export interface PurchaseOrderMetadata {
   requisition_ref?: string;
   requisitioner_name?: string;
   supplier_id?: string;
+  vendor_company_id?: string;
   supplier_name?: string;
   supplier_contact?: string;
   supplier_email?: string;
@@ -1839,12 +1961,23 @@ export interface PurchaseOrderMetadata {
   supplier_address?: string;
   supplier_tax_id?: string;
   supplier_trn?: string;
+  beneficiary_bank_details?: VendorBankDetails;
   shipping_destination?: PurchaseOrderShippingDestination | string;
   shipping_address?: string;
+  ship_to_address?: string;
   incoterms?: PurchaseOrderIncoterms | string;
   payment_terms?: string;
   target_delivery_date?: string;
   expected_delivery_date?: string;
+  receiving_status?: PurchaseOrderReceivingStatus;
+  freight_customs_cost?: number;
+  landed_cost_allocation_mode?: 'proportional_value' | 'manual_override';
+  linked_grn_refs?: string[];
+  linked_grn_numbers?: string[];
+  last_grn_date?: string;
+  is_standalone_replenishment?: boolean;
+  project_id?: string;
+  project_number?: string;
 }
 
 export type ReceiptPaymentMethod =
@@ -1865,6 +1998,7 @@ export interface ReceiptVoucherMetadata {
   payment_method?: ReceiptPaymentMethod | string;
   bank_txn_ref?: string;
   transaction_ref?: string;
+  reference_no?: string;
   cheque_no?: string;
   cheque_bank?: string;
   cheque_bank_name?: string;
@@ -1880,28 +2014,277 @@ export interface ReceiptVoucherMetadata {
   show_line_items_table?: boolean;
 }
 
+export interface PaymentVoucherAllocationRow {
+  id?: string;
+  bill_id?: string;
+  po_id?: string;
+  bill_ref?: string;
+  bill_number?: string;
+  po_ref?: string;
+  bill_or_po_ref?: string;
+  vendor_invoice_no?: string;
+  invoice_date?: string;
+  bill_total: number;
+  credit_applied?: number;
+  credits_applied?: number;
+  previously_paid: number;
+  paid_this_voucher: number;
+  remaining_balance: number;
+}
+
+export interface PaymentVoucherMetadata {
+  pv_ref?: string;
+  voucher_ref?: string;
+  pv_date?: string;
+  payment_date?: string;
+  payment_type?: 'Single Bill / PO Settlement' | 'Multi-Bill Allocation' | 'Vendor Advance Payment' | string;
+  settlement_type?: 'single_bill' | 'multi_bill' | 'vendor_advance' | string;
+  payment_method?: ReceiptPaymentMethod | string;
+  supplier_id?: string;
+  vendor_id?: string;
+  vendor_company_id?: string;
+  supplier_name?: string;
+  payee_name?: string;
+  paid_to_vendor_name?: string;
+  supplier_trn?: string;
+  payee_trn?: string;
+  vendor_trn?: string;
+  supplier_contact?: string;
+  payee_contact?: string;
+  vendor_contact?: string;
+  supplier_email?: string;
+  payee_email?: string;
+  vendor_email?: string;
+  supplier_phone?: string;
+  payee_phone?: string;
+  vendor_phone?: string;
+  supplier_address?: string;
+  payee_address?: string;
+  vendor_address?: string;
+  beneficiary_bank_details?: VendorBankDetails;
+  disbursing_bank_account?: string;
+  disbursing_bank_name?: string;
+  disbursing_bank_label?: string;
+  disbursing_account_no?: string;
+  linked_po_id?: string;
+  linked_po_ref?: string;
+  vendor_invoice_no?: string;
+  bank_txn_ref?: string;
+  reference_no?: string;
+  cheque_no?: string;
+  cheque_bank?: string;
+  cheque_bank_name?: string;
+  cheque_date?: string;
+  amount_paid?: number;
+  currency?: string;
+  exchange_rate?: number;
+  total_payable_before?: number;
+  total_payable_amount?: number;
+  total_credits_applied?: number;
+  credits_applied_amount?: number;
+  total_previously_paid?: number;
+  previously_paid?: number;
+  previously_paid_amount?: number;
+  total_remaining_payable?: number;
+  balance_remaining?: number;
+  allocations?: PaymentVoucherAllocationRow[];
+  allocated_bills?: PaymentVoucherAllocationRow[];
+  payment_notes?: string;
+  narration?: string;
+  being_payment_for?: string;
+  prepared_by?: string;
+  prepared_by_name?: string;
+  verified_by?: string;
+  reviewed_by_name?: string;
+  approved_by?: string;
+  approved_by_name?: string;
+  payee_receiver_name?: string;
+  received_by_vendor_name?: string;
+  show_line_items_table?: boolean;
+  project_id?: string;
+  project_number?: string;
+}
+
+export type VendorReturnReason =
+  | 'Damaged on Arrival'
+  | 'Defective / Non-Conforming'
+  | 'Wrong Item Supplied'
+  | 'Over-Supplied Quantity'
+  | 'Commercial Price Adjustment'
+  | string;
+
+export interface VendorReturnMetadata {
+  return_mode?: 'material_return_note' | 'debit_note' | 'mrn_unpriced' | 'debit_note_priced' | string;
+  mrn_ref?: string;
+  dn_ref?: string;
+  return_ref?: string;
+  return_date?: string;
+  supplier_id?: string;
+  vendor_id?: string;
+  vendor_company_id?: string;
+  supplier_name?: string;
+  vendor_name?: string;
+  supplier_trn?: string;
+  vendor_trn?: string;
+  supplier_contact?: string;
+  vendor_contact?: string;
+  supplier_email?: string;
+  vendor_email?: string;
+  supplier_phone?: string;
+  vendor_phone?: string;
+  supplier_address?: string;
+  vendor_address?: string;
+  linked_po_id?: string;
+  original_po_id?: string;
+  linked_po_ref?: string;
+  original_po_ref?: string;
+  linked_grn_ref?: string;
+  original_grn_ref?: string;
+  linked_bill_id?: string;
+  linked_bill_ref?: string;
+  vendor_invoice_no?: string;
+  return_reason?: VendorReturnReason;
+  resolution_type?: 'Deduct from Supplier Bill' | 'Open Vendor Credit' | 'Physical Replacement' | string;
+  credit_claim_amount?: number;
+  total_claim_amount?: number;
+  credit_applied_to_bill?: boolean;
+  dispatch_mode?: DeliveryDispatchMode | string;
+  vehicle_plate_no?: string;
+  vehicle_or_courier?: string;
+  driver_name?: string;
+  driver_phone?: string;
+  dispatched_by_name?: string;
+  returned_by_name?: string;
+  received_by_vendor_name?: string;
+  accepted_by_vendor_name?: string;
+  stock_deducted?: boolean;
+  stock_deducted_at?: string;
+  return_notes?: string;
+  project_id?: string;
+  project_number?: string;
+}
+
+export interface SupplierBillLineItem {
+  id: string;
+  po_line_index?: number;
+  po_line_item_id?: string;
+  product_id?: string;
+  sku?: string;
+  part_no?: string;
+  item_name: string;
+  description?: string;
+  unit?: string;
+  po_ordered_qty?: number;
+  po_qty?: number;
+  grn_received_qty?: number;
+  grn_qty?: number;
+  billed_qty: number;
+  po_unit_cost: number;
+  billed_unit_cost: number;
+  tax_rate?: number;
+  line_total: number;
+  has_price_variance?: boolean;
+  has_qty_variance?: boolean;
+}
+
+export type SupplierBillApprovalStatus = 'draft' | 'under_review' | 'approved' | 'cancelled';
+export type SupplierBillPaymentStatus = 'unpaid' | 'partially_paid' | 'paid';
+export type SupplierBillMatchStatus = 'matched' | 'price_variance' | 'qty_variance' | 'both_variance' | 'no_po';
+
+export interface SupplierBillVarianceSummary {
+  has_price_variance: boolean;
+  has_qty_variance: boolean;
+  total_variance_amount: number;
+  line_variances: Array<{
+    item_name: string;
+    po_rate: number;
+    billed_rate: number;
+    po_qty: number;
+    grn_qty: number;
+    billed_qty: number;
+  }>;
+}
+
+export interface SupplierBill extends SoftDeleteFields {
+  id?: string;
+  workspace_id: string;
+  bill_number: string;
+  vendor_invoice_no: string;
+  invoice_date: string;
+  due_date?: string;
+  supplier_id?: string;
+  vendor_company_id?: string;
+  supplier_name?: string;
+  vendor_name?: string;
+  supplier_trn?: string;
+  vendor_trn?: string;
+  po_id?: string;
+  po_ref?: string;
+  enquiry_id?: string;
+  project_id?: string;
+  project_number?: string;
+  grn_refs?: string[];
+  currency: string;
+  exchange_rate: number;
+  line_items: SupplierBillLineItem[];
+  subtotal: number;
+  freight_customs_amount: number;
+  tax_rate_percent?: number;
+  tax_amount: number;
+  grand_total: number;
+  credit_applied_amount: number;
+  amount_paid: number;
+  balance_due: number;
+  approval_status: SupplierBillApprovalStatus;
+  payment_status: SupplierBillPaymentStatus;
+  is_on_hold?: boolean;
+  hold_reason?: string;
+  approved_by_name?: string;
+  approved_at?: string;
+  variance_override_approved?: boolean;
+  match_status?: SupplierBillMatchStatus;
+  three_way_match_status?: SupplierBillMatchStatus;
+  variance_summary?: SupplierBillVarianceSummary | string;
+  price_variance_amount?: number;
+  qty_variance_count?: number;
+  attachment?: Attachment;
+  attachment_url?: string;
+  attachment_name?: string;
+  notes?: string;
+  created_at: string;
+  created_by?: string;
+  updated_at: string;
+}
+
 export interface Quotation extends SoftDeleteFields {
   id?: string;
   workspace_id: string;
-  workspaceId: string;
+  workspaceId?: string;
   enquiry_id: string;
+  enquiry_sn?: number;
+  project_id?: string;
+  project_number?: string;
   document_type?: CommercialDocumentType;
   delivery_metadata?: DeliveryNoteMetadata;
   purchase_order_metadata?: PurchaseOrderMetadata;
   receipt_metadata?: ReceiptVoucherMetadata;
-  quote_number: string; // e.g., 'QT-2026-0042'
-  revision_number: number; // 0 for R0, 1 for R1, etc.
+  payment_voucher_metadata?: PaymentVoucherMetadata;
+  vendor_return_metadata?: VendorReturnMetadata;
+  quote_number?: string; // e.g., 'QT-2026-0042'
+  revision_number?: number; // 0 for R0, 1 for R1, etc.
+  revision_no?: number;
   formatted_quote_ref: string; // e.g., 'QT-2026-0042-R0'
-  status: QuotationStatus;
+  status: QuotationStatus | string;
   client_snapshot: QuotationPartySnapshot;
-  sender_snapshot: QuotationPartySnapshot;
+  sender_snapshot?: QuotationPartySnapshot;
   line_items: QuotationLineItem[];
   tax_mode: QuotationTaxMode;
-  subtotal: number;
-  freight_amount: number;
-  tax_rate_percent: number;
-  tax_amount: number;
-  grand_total: number;
+  subtotal?: number;
+  freight_amount?: number;
+  tax_rate_percent?: number;
+  tax_amount?: number;
+  grand_total?: number;
+  financial_totals?: any;
   applied_terms?: string;
   applied_bank_account?: DocumentProfileBankAccount;
   remittanceBankId?: string;
@@ -1955,6 +2338,7 @@ export interface Quotation extends SoftDeleteFields {
   client_email?: string;
   client_address?: string;
   subject?: string;
+  quotation_subject?: string;
   prepared_by?: string;
   price_basis?: string;
   payment_terms?: string;
@@ -1969,10 +2353,12 @@ export interface Quotation extends SoftDeleteFields {
   show_combined_options_total?: boolean;
   layout_blocks?: QuotationBlockConfig[];
   flyer_attachments?: Attachment[];
+  annexes?: any[];
   show_submittals_index?: boolean;
   pdf_storage_path?: string;
   pdf_download_url?: string;
   created_at: string;
+  created_by?: string;
   updatedAt?: string;
   updated_at?: string;
   valid_until?: string;
@@ -1989,14 +2375,18 @@ export interface Quotation extends SoftDeleteFields {
   deleted_by_name?: string | null;
   omitted_fields?: Record<string, boolean>;
   auto_paginate_items?: boolean;
+  [key: string]: any;
 }
+
+export type QuotationDocumentRecord = Quotation;
 
 export interface EnquiryQuotationSyncPayload {
   active_quotation_id: string;
   latest_quote_ref: string;
   quoted_amount: number;
-  quotation_status: QuotationStatus;
+  quotation_status: QuotationStatus | string;
   latest_revision_number: number;
 }
+
 
 

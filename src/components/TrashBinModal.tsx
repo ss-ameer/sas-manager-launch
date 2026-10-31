@@ -7,7 +7,7 @@ import { CallLogRepository } from '../services/repositories/CallLogRepository';
 import { MetadataRepository } from '../services/repositories/MetadataRepository';
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
 import { getDeletedWorkspaceProjects, restoreProject, purgeProjectPermanently } from '../services/projectService';
-import { purgeEnquiryAttachments } from '../services/attachmentStorage';
+import { purgeEnquiryAttachments, purgeEntityStorageAssets } from '../services/attachmentStorage';
 
 interface TrashBinModalProps {
   isOpen: boolean;
@@ -345,16 +345,19 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
       } else if (item.type === 'contact') {
         await CompanyRepository.purgeContactPermanent(item.id);
       } else if (item.type === 'product') {
+        await purgeEntityStorageAssets('product', item.rawItem, activeWorkspace);
         await MetadataRepository.purgeProductPermanent(item.id);
       } else if (item.type === 'call_log') {
         await CallLogRepository.purgePermanent(item.id);
       } else if (item.type === 'quotation') {
+        await purgeEntityStorageAssets('quotation', item.rawItem, activeWorkspace);
         await QuotationRepository.purgeQuotationPermanently(item.id);
         await refreshDeletedQuotations();
         if (triggerToast) {
-          triggerToast(`Quotation ${item.title.split('•')[0].trim()} permanently purged.`, 'info');
+          triggerToast(`Quotation ${item.title.split('•')[0].trim()} and linked cloud assets permanently purged.`, 'info');
         }
       } else if (item.type === 'project') {
+        await purgeEntityStorageAssets('project', item.rawItem, activeWorkspace);
         await purgeProjectPermanently(item.id);
         await refreshDeletedProjects();
         if (setProjects) {
@@ -399,12 +402,15 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
         } else if (item.type === 'contact') {
           await CompanyRepository.purgeContactPermanent(item.id);
         } else if (item.type === 'product') {
+          await purgeEntityStorageAssets('product', item.rawItem, activeWorkspace);
           await MetadataRepository.purgeProductPermanent(item.id);
         } else if (item.type === 'call_log') {
           await CallLogRepository.purgePermanent(item.id);
         } else if (item.type === 'quotation') {
+          await purgeEntityStorageAssets('quotation', item.rawItem, activeWorkspace);
           await QuotationRepository.purgeQuotationPermanently(item.id);
         } else if (item.type === 'project') {
+          await purgeEntityStorageAssets('project', item.rawItem, activeWorkspace);
           await purgeProjectPermanently(item.id);
         }
       }
