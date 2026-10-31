@@ -24,11 +24,14 @@ import {
   Phone,
   UserPlus,
   CheckCircle2,
-  Lock
+  Lock,
+  RefreshCw
 } from 'lucide-react';
 import SearchResultCounter from './common/SearchResultCounter';
+import HoverScrollText from './common/HoverScrollText';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
 import { isSuperAdmin, isAdmin, canAccessEnquiry, getUserWorkspaceRole } from '../utils/permissions';
+import { isWonStatus, isLostOrCancelledStatus } from '../services/inventoryService';
 
 interface SalespersonProfilesProps {
   salespersons: Salesperson[];
@@ -42,6 +45,7 @@ interface SalespersonProfilesProps {
   activeWorkspace?: Workspace;
   currentUser?: UserProfile;
   onOpenMobileMenu?: () => void;
+  onDeduplicateSalespersons?: () => Promise<number> | void;
 }
 
 export default function SalespersonProfiles({
@@ -55,10 +59,12 @@ export default function SalespersonProfiles({
   setCallLogs,
   activeWorkspace,
   currentUser,
-  onOpenMobileMenu
+  onOpenMobileMenu,
+  onDeduplicateSalespersons
 }: SalespersonProfilesProps) {
   const [selectedSalespersonId, setSelectedSalespersonId] = useState<string | null>(salespersons[0]?.id || salespersons[0]?.initials || null);
   const [enquirySearchQuery, setEnquirySearchQuery] = useState('');
+  const [isDeduplicating, setIsDeduplicating] = useState(false);
 
   // Pagination states for linked enquiries list
   const [currentPage, setCurrentPage] = useState(1);
@@ -176,29 +182,34 @@ export default function SalespersonProfiles({
   // Find metrics for a specific salesperson
   const getSalespersonMetrics = (sp: Salesperson) => {
     const personalEnqs = enquiries.filter((e) => {
+      if (e.is_deleted || e.is_gap_placeholder) return false;
       const spId = resolveSalespersonIdentifier(e);
       const spName = resolveSalespersonName(e);
+      const spInitUpper = (sp.initials || '').trim().toUpperCase();
       return (
-        (spId && (spId === sp.id || spId === sp.initials)) ||
-        (spName && (spName === sp.id || spName === sp.initials || (sp.full_name && spName.toLowerCase() === sp.full_name.toLowerCase()))) ||
+        (spId && (spId === sp.id || (spInitUpper && spId.toUpperCase() === spInitUpper))) ||
+        (spName && (spName === sp.id || (spInitUpper && spName.toUpperCase() === spInitUpper) || (sp.full_name && spName.toLowerCase() === sp.full_name.toLowerCase()))) ||
         e.sales_person === sp.id ||
-        e.sales_person === sp.initials
+        (spInitUpper && (e.sales_person || '').trim().toUpperCase() === spInitUpper) ||
+        (e.salesperson_id && e.salesperson_id === sp.id) ||
+        (e.sales_person_id && e.sales_person_id === sp.id)
       );
     });
     const activeVal = personalEnqs
-      .filter((e) => e.status === 'Active')
-      .reduce((sum, e) => sum + e.value_aed, 0);
+      .filter((e) => !isWonStatus(e.status) && !isLostOrCancelledStatus(e.status) && e.status !== 'Dead')
+      .reduce((sum, e) => sum + (Number(e.value_aed) || 0), 0);
 
     const wonVal = personalEnqs
-      .filter((e) => e.status === 'Order Received')
-      .reduce((sum, e) => sum + e.value_aed, 0);
+      .filter((e) => isWonStatus(e.status))
+      .reduce((sum, e) => sum + (Number(e.value_aed) || 0), 0);
 
-    const totalClosed = personalEnqs.filter((e) => ['Order Received', 'Lost'].includes(e.status));
-    const wonCount = personalEnqs.filter((e) => e.status === 'Order Received').length;
+    const totalClosed = personalEnqs.filter((e) => isWonStatus(e.status) || isLostOrCancelledStatus(e.status));
+    const wonCount = personalEnqs.filter((e) => isWonStatus(e.status)).length;
     const winRate = totalClosed.length > 0 ? Math.round((wonCount / totalClosed.length) * 100) : 0;
 
+    const todayStr = new Date().toISOString().split('T')[0];
     const overdueCount = personalEnqs.filter(
-      (e) => e.status === 'Active' && e.next_followup_date && e.next_followup_date < new Date().toISOString().split('T')[0]
+      (e) => !isWonStatus(e.status) && !isLostOrCancelledStatus(e.status) && e.next_followup_date && e.next_followup_date < todayStr
     ).length;
 
     return {
@@ -723,6 +734,25 @@ export default function SalespersonProfiles({
             <Users2 className="w-6 h-6 text-blue-600" />
             <h2 className="text-xl font-bold text-slate-900 font-sans">Team Roster</h2>
           </div>
+          {canManageTeam && onDeduplicateSalespersons && (
+            <button
+              type="button"
+              disabled={isDeduplicating}
+              onClick={async () => {
+                setIsDeduplicating(true);
+                try {
+                  await onDeduplicateSalespersons();
+                } finally {
+                  setIsDeduplicating(false);
+                }
+              }}
+              title="Merge duplicate salesperson entries by name or initials"
+              className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 transition inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3 h-3 ${isDeduplicating ? 'animate-spin text-blue-600' : 'text-slate-400'}`} />
+              <span>Deduplicate</span>
+            </button>
+          )}
         </div>
 
         {/* Current User Roster Status Banner / Add Myself Trigger */}
@@ -788,15 +818,18 @@ export default function SalespersonProfiles({
                     {s.initials || getInitials(s.full_name)}
                   </div>
                   <div className="overflow-hidden min-w-0">
-                    <div className="flex items-center space-x-1.5 truncate">
-                      <span className="text-sm font-semibold truncate block font-sans text-slate-900">{s.full_name}</span>
+                    <div className="flex items-center space-x-1.5 min-w-0">
+                      <HoverScrollText
+                        text={s.full_name}
+                        className="text-sm font-semibold font-sans text-slate-900"
+                      />
                       {isUserSelf && (
                         <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/50 shrink-0">
                           You
                         </span>
                       )}
                     </div>
-                    <span className="text-[10px] text-slate-400 font-mono block mt-0.5">{s.role}</span>
+                    <span className="text-[10px] text-slate-400 font-mono block mt-0.5 truncate">{s.role}</span>
                   </div>
                 </button>
 
@@ -849,11 +882,15 @@ export default function SalespersonProfiles({
                 <div className="w-16 h-16 bg-blue-50 border border-blue-100 text-blue-600 font-mono text-xl font-bold flex items-center justify-center rounded-2xl shadow-sm">
                   {selectedSalesperson.initials || getInitials(selectedSalesperson.full_name)}
                 </div>
-                <div>
-                  <div className="flex items-center space-x-2.5">
-                    <h3 className="text-2xl font-bold text-slate-900 font-sans">{selectedSalesperson.full_name}</h3>
+                <div className="min-w-0">
+                  <div className="flex items-center space-x-2.5 pt-0.5">
+                    <HoverScrollText
+                      as="h3"
+                      text={selectedSalesperson.full_name}
+                      className="text-2xl font-bold text-slate-900 dark:text-white font-sans leading-snug"
+                    />
                     {isOwnProfile(selectedSalesperson) && (
-                      <span className="px-2 py-0.5 text-xs font-bold rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                      <span className="px-2 py-0.5 text-xs font-bold rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0">
                         Your Profile (You)
                       </span>
                     )}

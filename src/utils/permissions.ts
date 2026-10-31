@@ -344,7 +344,11 @@ export function isRecordOwner(
   const rInitials = record.initials?.toUpperCase();
   const rFullName = record.full_name?.toLowerCase();
 
-  if (cBy && ((uUid && cBy === uUid) || (uEmail && cBy === uEmail) || (uUsername && cBy === uUsername))) {
+  if (
+    !(record as any).creator_access_released &&
+    cBy &&
+    ((uUid && cBy === uUid) || (uEmail && cBy === uEmail) || (uUsername && cBy === uUsername))
+  ) {
     return true;
   }
 
@@ -472,9 +476,9 @@ export function normalizeUserIdentifiers(
 }
 
 /**
- * Evaluates whether the user is the original creator of the enquiry.
+ * Evaluates whether the user originally created/logged the enquiry (ignoring creator_access_released).
  */
-export function isEnquiryCreator(
+export function isRawEnquiryCreator(
   user: UserProfile | undefined | null,
   enquiry: any,
   targetWsId?: string | null
@@ -505,6 +509,20 @@ export function isEnquiryCreator(
   if (userNames.some((n) => creatorTokens.includes(n))) return true;
 
   return false;
+}
+
+/**
+ * Evaluates whether the user has active creator access to the enquiry.
+ * Returns false if creator_access_released === true.
+ */
+export function isEnquiryCreator(
+  user: UserProfile | undefined | null,
+  enquiry: any,
+  targetWsId?: string | null
+): boolean {
+  if (!user || !enquiry) return false;
+  if (enquiry.creator_access_released === true) return false;
+  return isRawEnquiryCreator(user, enquiry, targetWsId);
 }
 
 /**
@@ -731,7 +749,7 @@ export function canEditEnquiry(
   const currentEmail = (user.email || '').toLowerCase().trim();
   const currentUsername = (user.username || '').toLowerCase().trim();
 
-  // a) currentUser.uid === enquiry.assigned_to_id OR currentUser.uid === enquiry.creator_id
+  // a) currentUser.uid === enquiry.assigned_to_id OR (when not released) currentUser.uid === enquiry.creator_id
   const assignedToIds = [
     enquiry.assigned_to_id,
     (enquiry as any).assignedToId,
@@ -743,15 +761,17 @@ export function canEditEnquiry(
     .map((s) => String(s || '').toLowerCase().trim())
     .filter(Boolean);
 
-  const creatorIds = [
-    enquiry.creator_id,
-    (enquiry as any).creatorId,
-    enquiry.created_by_uid,
-    (enquiry as any).createdByUid,
-    enquiry.created_by
-  ]
-    .map((s) => String(s || '').toLowerCase().trim())
-    .filter(Boolean);
+  const creatorIds = enquiry.creator_access_released
+    ? []
+    : [
+        enquiry.creator_id,
+        (enquiry as any).creatorId,
+        enquiry.created_by_uid,
+        (enquiry as any).createdByUid,
+        enquiry.created_by
+      ]
+        .map((s) => String(s || '').toLowerCase().trim())
+        .filter(Boolean);
 
   if (currentUid && (assignedToIds.includes(currentUid) || creatorIds.includes(currentUid))) {
     return true;
@@ -836,7 +856,7 @@ export function canEditEnquiry(
 /**
  * Centralized Capability Evaluator: canDeleteEnquiry
  * - True for 'Admin'
- * - True for 'Member' if original creator
+ * - True for 'Member' if original creator (unless released) or assigned primary salesperson
  * - False for standard collaborators and 'Viewer'
  */
 export function canDeleteEnquiry(
@@ -873,10 +893,82 @@ export function canDeleteEnquiry(
   // True for 'Admin'
   if (role === 'Admin') return true;
 
-  // 'Member' role: True ONLY for original creator
+  // 'Member' role: True for active creator or assigned salesperson
   if (!enquiry) return false;
 
-  return isEnquiryCreator(user, enquiry, targetWsId);
+  return isEnquiryCreator(user, enquiry, targetWsId) || isEnquirySalesperson(user, enquiry, targetWsId);
+}
+
+/**
+ * Evaluates whether the current user is viewing an enquiry solely because they created/logged it
+ * on behalf of another assigned salesperson (and haven't released creator access yet).
+ */
+export function isCreatorOnlyViewer(
+  currentUser: UserProfile | undefined | null,
+  enquiry: Enquiry | undefined | null,
+  activeWorkspace?: Workspace | any | null,
+  salespersons?: Salesperson[]
+): boolean {
+  if (!currentUser || !enquiry) return false;
+  if (enquiry.creator_access_released) return false;
+
+  const targetWsId =
+    enquiry.workspace_id ||
+    (enquiry as any).workspaceId ||
+    currentUser.defaultWorkspaceId ||
+    activeWorkspace?.id ||
+    '';
+
+  if (!isRawEnquiryCreator(currentUser, enquiry, targetWsId)) return false;
+
+  // Check if an assigned rep exists on the enquiry
+  const rawAssigned = String(
+    enquiry.sales_person ||
+      enquiry.salesperson ||
+      enquiry.sales_representative ||
+      enquiry.sales_person_id ||
+      enquiry.salesperson_id ||
+      enquiry.assigned_to_id ||
+      ''
+  ).trim();
+  if (!rawAssigned || rawAssigned.toLowerCase() === 'unassigned') return false;
+
+  // Check if currentUser IS the assigned salesperson (including linked salesperson profile)
+  if (isEnquirySalesperson(currentUser, enquiry, targetWsId)) return false;
+
+  if (salespersons && salespersons.length > 0) {
+    const currentUid = (currentUser.uid || (currentUser as any).id || '').toLowerCase().trim();
+    const currentEmail = (currentUser.email || '').toLowerCase().trim();
+    const currentName = (currentUser.full_name || '').toLowerCase().trim();
+
+    const userSp = salespersons.find((sp) => {
+      if (!sp) return false;
+      const spUid = String(sp.linked_user_id || (sp as any).uid || '').toLowerCase().trim();
+      const spEmail = String(sp.email || '').toLowerCase().trim();
+      const spName = String(sp.full_name || '').toLowerCase().trim();
+      return (
+        (currentUid && spUid === currentUid) ||
+        (currentEmail && spEmail === currentEmail) ||
+        (currentName && spName === currentName)
+      );
+    });
+
+    if (userSp) {
+      const assignedLower = rawAssigned.toLowerCase();
+      if (
+        (userSp.id && userSp.id.toLowerCase() === assignedLower) ||
+        (userSp.initials && userSp.initials.toLowerCase() === assignedLower) ||
+        (userSp.full_name && userSp.full_name.toLowerCase() === assignedLower)
+      ) {
+        return false;
+      }
+    }
+  }
+
+  // Also check if user is an explicit collaborator
+  if (isEnquiryCollaborator(currentUser, enquiry, targetWsId)) return false;
+
+  return true;
 }
 
 /**
@@ -885,7 +977,7 @@ export function canDeleteEnquiry(
  * - Owners, Admins, and SuperAdmins retain universal workspace access.
  * - Non-Admins (Members and Viewers, or when workspace scope is 'Attributed Entries Only'):
  *   A user has access ONLY IF:
- *     a) currentUser.uid === enquiry.assigned_to_id OR currentUser.uid === enquiry.creator_id
+ *     a) currentUser.uid === enquiry.assigned_to_id OR (when !creator_access_released) currentUser.uid === enquiry.creator_id
  *     b) enquiry.rep === currentUser.initials (exact match, e.g. 'SN' vs 'SS')
  *     c) enquiry.salesperson === currentUser.full_name (exact match)
  *     d) enquiry.shared_with?.includes(currentUser.uid)
@@ -969,14 +1061,20 @@ export function canAccessEnquiry(
   }
 
   // 4. Comprehensive Matching Predicate
-  // a) ANY UID matches e.creator_id, e.created_by_uid, e.createdBy, e.sales_person_id, e.salesperson_id, or e.assigned_to_id
+  // a) ANY UID matches e.creator_id, e.created_by_uid, e.createdBy (unless creator_access_released), or e.sales_person_id, e.salesperson_id, e.assigned_to_id
+  const creatorUids = enquiry.creator_access_released
+    ? []
+    : [
+        enquiry.creator_id,
+        (enquiry as any).creatorId,
+        enquiry.created_by_uid,
+        (enquiry as any).createdByUid,
+        enquiry.createdBy,
+        (enquiry as any).created_by
+      ];
+
   const enqUids = [
-    enquiry.creator_id,
-    (enquiry as any).creatorId,
-    enquiry.created_by_uid,
-    (enquiry as any).createdByUid,
-    enquiry.createdBy,
-    (enquiry as any).created_by,
+    ...creatorUids,
     enquiry.sales_person_id,
     enquiry.salesperson_id,
     (enquiry as any).sales_rep_id,
@@ -1379,24 +1477,48 @@ export function canAccessActivityDetail(
     spNames = matchedSp.map((s) => String(s.full_name || s.name || '').toLowerCase().trim()).filter(Boolean);
   }
 
-  // 4. User logged the activity (currentUser.uid === activity.user_id or creator_id)
-  const candidateUids = [
-    activity.user_id,
-    (activity as any).userId,
-    activity.creator_id,
-    (activity as any).creatorId,
-    activity.created_by_uid,
-    (activity as any).createdByUid,
-    activity.created_by_id,
-    (activity as any).createdById,
-    activity.logged_by_user_id,
-    (activity as any).loggedByUserId,
+  // Check if linked enquiry has creator_access_released === true
+  const enqId = String(activity.enquiry_id || (activity as any).enquiryId || '').trim();
+  const quoteRef = String(activity.enquiry_quote_ref || (activity as any).quote_ref_no || '').trim().toLowerCase();
+  const linkedEnquiry =
+    (enqId || quoteRef) && enquiries && enquiries.length > 0
+      ? enquiries.find((e) => {
+          if (enqId && (e.id === enqId || String((e as any).sn) === enqId)) return true;
+          if (quoteRef && (e.quote_ref_no || '').trim().toLowerCase() === quoteRef) return true;
+          return false;
+        })
+      : undefined;
+
+  const isCreatorReleased = Boolean(
+    activity.creator_access_released || linkedEnquiry?.creator_access_released
+  );
+
+  // 4. User logged or is assigned the activity
+  const assignedActivityUids = [
     activity.sales_person_id,
     activity.handled_by_salesperson_id,
     activity.assigned_to_id,
     (activity as any).assignedToId,
     (activity as any).salesperson_id
-  ].map((s) => String(s || '').toLowerCase().trim()).filter(Boolean);
+  ];
+  const creatorActivityUids = isCreatorReleased
+    ? []
+    : [
+        activity.user_id,
+        (activity as any).userId,
+        activity.creator_id,
+        (activity as any).creatorId,
+        activity.created_by_uid,
+        (activity as any).createdByUid,
+        activity.created_by_id,
+        (activity as any).createdById,
+        activity.logged_by_user_id,
+        (activity as any).loggedByUserId
+      ];
+
+  const candidateUids = [...assignedActivityUids, ...creatorActivityUids]
+    .map((s) => String(s || '').toLowerCase().trim())
+    .filter(Boolean);
 
   if (currentUid && candidateUids.includes(currentUid)) {
     return true;
@@ -1423,10 +1545,10 @@ export function canAccessActivityDetail(
   const nameTokens = [
     activity.sales_person,
     (activity as any).salesperson,
-    activity.logged_by,
-    (activity as any).createdBy,
-    (activity as any).created_by,
-    activity.handled_by_team_member_name
+    activity.handled_by_team_member_name,
+    ...(isCreatorReleased
+      ? []
+      : [activity.logged_by, (activity as any).createdBy, (activity as any).created_by])
   ].map((s) => String(s || '').trim()).filter(Boolean);
 
   for (const token of nameTokens) {
@@ -1441,19 +1563,8 @@ export function canAccessActivityDetail(
   }
 
   // 7. Activity is linked to an enquiry the user has full access to (canAccessEnquiry(currentUser, linkedEnquiry))
-  const enqId = String(activity.enquiry_id || (activity as any).enquiryId || '').trim();
-  const quoteRef = String(activity.enquiry_quote_ref || (activity as any).quote_ref_no || '').trim().toLowerCase();
-
-  if ((enqId || quoteRef) && enquiries && enquiries.length > 0) {
-    const linkedEnquiry = enquiries.find((e) => {
-      if (enqId && (e.id === enqId || String((e as any).sn) === enqId)) return true;
-      if (quoteRef && (e.quote_ref_no || '').trim().toLowerCase() === quoteRef) return true;
-      return false;
-    });
-
-    if (linkedEnquiry && canAccessEnquiry(currentUser, linkedEnquiry, activeWorkspace)) {
-      return true;
-    }
+  if (linkedEnquiry && canAccessEnquiry(currentUser, linkedEnquiry, activeWorkspace, salespersons || undefined)) {
+    return true;
   }
 
   return false;
@@ -1479,9 +1590,25 @@ export function isActivityRestricted(
 export function isActivityAttributedToUser(
   currentUser: UserProfile | undefined | null,
   activity: CallLogEntry | any | undefined | null,
-  salespersons: any[] = []
+  salespersons: any[] = [],
+  enquiries?: Enquiry[] | null
 ): boolean {
   if (!currentUser || !activity) return false;
+
+  const enqId = String(activity.enquiry_id || (activity as any).enquiryId || '').trim();
+  const quoteRef = String(activity.enquiry_quote_ref || (activity as any).quote_ref_no || '').trim().toLowerCase();
+  const linkedEnquiry =
+    (enqId || quoteRef) && enquiries && enquiries.length > 0
+      ? enquiries.find((e) => {
+          if (enqId && (e.id === enqId || String((e as any).sn) === enqId)) return true;
+          if (quoteRef && (e.quote_ref_no || '').trim().toLowerCase() === quoteRef) return true;
+          return false;
+        })
+      : undefined;
+
+  const isCreatorReleased = Boolean(
+    activity.creator_access_released || linkedEnquiry?.creator_access_released
+  );
 
   const currentUid = (currentUser.uid || (currentUser as any).id || '').toLowerCase().trim();
   const targetWsId = activity.workspace_id || currentUser.defaultWorkspaceId;
@@ -1517,23 +1644,31 @@ export function isActivityAttributedToUser(
   }
 
   // 1. UID match
-  const candidateUids = [
-    activity.user_id,
-    (activity as any).userId,
-    activity.creator_id,
-    (activity as any).creatorId,
-    activity.created_by_uid,
-    (activity as any).createdByUid,
-    activity.created_by_id,
-    (activity as any).createdById,
-    activity.logged_by_user_id,
-    (activity as any).loggedByUserId,
+  const assignedActivityUids = [
     activity.sales_person_id,
     activity.handled_by_salesperson_id,
     activity.assigned_to_id,
     (activity as any).assignedToId,
     (activity as any).salesperson_id
-  ].map((s) => String(s || '').toLowerCase().trim()).filter(Boolean);
+  ];
+  const creatorActivityUids = isCreatorReleased
+    ? []
+    : [
+        activity.user_id,
+        (activity as any).userId,
+        activity.creator_id,
+        (activity as any).creatorId,
+        activity.created_by_uid,
+        (activity as any).createdByUid,
+        activity.created_by_id,
+        (activity as any).createdById,
+        activity.logged_by_user_id,
+        (activity as any).loggedByUserId
+      ];
+
+  const candidateUids = [...assignedActivityUids, ...creatorActivityUids]
+    .map((s) => String(s || '').toLowerCase().trim())
+    .filter(Boolean);
 
   if (currentUid && candidateUids.includes(currentUid)) return true;
   if (candidateUids.some((id) => spIds.includes(id))) return true;
@@ -1552,10 +1687,10 @@ export function isActivityAttributedToUser(
   const candidateNames = [
     activity.sales_person,
     (activity as any).salesperson,
-    activity.logged_by,
-    (activity as any).createdBy,
-    (activity as any).created_by,
-    activity.handled_by_team_member_name
+    activity.handled_by_team_member_name,
+    ...(isCreatorReleased
+      ? []
+      : [activity.logged_by, (activity as any).createdBy, (activity as any).created_by])
   ].map((s) => String(s || '').trim()).filter(Boolean);
 
   for (const raw of candidateNames) {
@@ -1581,7 +1716,8 @@ export function canUserViewActivity(
   currentUser: UserProfile | undefined | null,
   activity: CallLogEntry | any | undefined | null,
   activeWorkspace?: Workspace | any | null,
-  salespersons: any[] = []
+  salespersons: any[] = [],
+  enquiries?: Enquiry[] | null
 ): boolean {
   if (!currentUser || !activity) return false;
 
@@ -1591,6 +1727,7 @@ export function canUserViewActivity(
   }
 
   // Non-Admins: isolated to calls they logged, are assigned to, or are attributed to
-  return isActivityAttributedToUser(currentUser, activity, salespersons);
+  return isActivityAttributedToUser(currentUser, activity, salespersons, enquiries);
 }
+
 

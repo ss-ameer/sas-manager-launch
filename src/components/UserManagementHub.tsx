@@ -8,11 +8,15 @@ import {
   Salesperson,
   CallLogEntry,
   Invite,
-  getInitials
+  getInitials,
+  resolveSalespersonIdentifier,
+  resolveSalespersonName
 } from '../types';
 import { safeGetDoc, safeUpdateDoc, safeSetDoc, safeDeleteDoc, safeAddDoc } from '../firebase';
 import { getUserWorkspaceRole, normalizeWorkspaceRole } from '../utils/permissions';
+import { isLostOrCancelledStatus } from '../services/inventoryService';
 import { recordAuditLog } from '../utils/auditLogger';
+import HoverScrollText from './common/HoverScrollText';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Users,
@@ -256,22 +260,39 @@ export default function UserManagementHub({
     return list;
   }, [activeWorkspace, currentUser, ownerUid]);
 
-  // Compute active records (open enquiries) for a given member
+  // Compute active records (open enquiries) assigned to a given member
   const getActiveRecordsForMember = (member: UnifiedTeamMember): Enquiry[] => {
-    const linkedSp = salespersons.find((s) => s.id === member.salesperson_id);
+    const linkedSp = salespersons.find(
+      (s) =>
+        (member.salesperson_id && s.id === member.salesperson_id) ||
+        (s.linked_user_id && s.linked_user_id === member.uid) ||
+        (s.uid && s.uid === member.uid) ||
+        (member.email && s.email && s.email.toLowerCase() === member.email.toLowerCase())
+    );
+    const spIdUpper = (linkedSp?.id || member.salesperson_id || '').trim().toUpperCase();
+    const spInitUpper = (linkedSp?.initials || '').trim().toUpperCase();
+    const spNameLower = (linkedSp?.full_name || member.name || '').trim().toLowerCase();
+
     return enquiries.filter((e) => {
-      if (e.is_deleted) return false;
-      const isClosed = ['Order Received', 'Lost', 'Dead', 'Cancelled PO'].includes(e.status);
-      if (isClosed) return false;
+      if (e.is_deleted || e.is_gap_placeholder) return false;
+      if (isLostOrCancelledStatus(e.status) || e.status === 'Dead') return false;
 
-      // 1. Direct assignment
+      // 1. Direct user UID assignment
       if (e.assigned_to && e.assigned_to === member.uid) return true;
-      if (e.created_by_uid && e.created_by_uid === member.uid) return true;
+      if ((e as any).assigned_to_uid && (e as any).assigned_to_uid === member.uid) return true;
 
-      // 2. Linked salesperson match
-      if (member.salesperson_id) {
-        if (e.sales_person_id === member.salesperson_id || e.salesperson_id === member.salesperson_id) return true;
-        if (linkedSp?.full_name && e.sales_person?.toLowerCase() === linkedSp.full_name.toLowerCase()) return true;
+      // 2. Linked salesperson assignment match (do NOT match created_by_uid alone)
+      const enqSpId = (resolveSalespersonIdentifier(e) || '').trim().toUpperCase();
+      const enqSpName = (resolveSalespersonName(e) || '').trim().toLowerCase();
+
+      if (spIdUpper && (enqSpId === spIdUpper || (e.salesperson_id || '').toUpperCase() === spIdUpper || (e.sales_person_id || '').toUpperCase() === spIdUpper)) {
+        return true;
+      }
+      if (spInitUpper && (enqSpId === spInitUpper || (e.sales_person || '').trim().toUpperCase() === spInitUpper || ((e as any).salesperson_initials || '').trim().toUpperCase() === spInitUpper)) {
+        return true;
+      }
+      if (spNameLower && enqSpName && enqSpName === spNameLower) {
+        return true;
       }
       return false;
     });
@@ -818,7 +839,7 @@ export default function UserManagementHub({
             </button>
           </div>
 
-          {/* Prominent "+ Invite Teammate" Launcher */}
+          {/* Prominent "Invite Teammate" Launcher */}
           <button
             onClick={() => {
               setRecentlyGeneratedInvite(null);
@@ -828,7 +849,7 @@ export default function UserManagementHub({
             className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs transition cursor-pointer"
           >
             <UserPlus className="w-4 h-4" />
-            <span>+ Invite Teammate</span>
+            <span>Invite Teammate</span>
           </button>
         </div>
       </div>
@@ -909,9 +930,10 @@ export default function UserManagementHub({
                           </div>
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <span className="font-semibold text-slate-900 truncate max-w-[180px]">
-                                {member.name}
-                              </span>
+                              <HoverScrollText
+                                text={member.name}
+                                className="font-semibold text-slate-900 max-w-[180px]"
+                              />
                               {member.isOwner && (
                                 <span
                                   title="Workspace Owner: Immutable permissions"
@@ -927,9 +949,10 @@ export default function UserManagementHub({
                                 </span>
                               )}
                             </div>
-                            <div className="text-2xs text-slate-400 font-mono truncate max-w-[200px]">
-                              {member.email}
-                            </div>
+                            <HoverScrollText
+                              text={member.email}
+                              className="text-2xs text-slate-400 font-mono max-w-[200px] block"
+                            />
                           </div>
                         </div>
                       </td>

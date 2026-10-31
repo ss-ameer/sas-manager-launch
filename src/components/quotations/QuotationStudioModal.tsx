@@ -3092,29 +3092,37 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     workspaceProducts
   ]);
 
-  // Dynamically extract all unique attribute keys present across active line items
+  // Dynamically extract all unique attribute keys present across active line items (case-insensitive deduplication)
   const availableAttributeKeys = useMemo(() => {
-    const keysSet = new Set<string>();
+    const keysList: string[] = [];
+    const seenLower = new Set<string>();
+    const addKey = (raw?: string) => {
+      const trimmed = raw?.trim();
+      if (!trimmed) return;
+      const lower = trimmed.toLowerCase();
+      if (!seenLower.has(lower)) {
+        seenLower.add(lower);
+        keysList.push(trimmed);
+      }
+    };
     quotationLineItems.forEach((item) => {
       const { extractedSpecsAttrs } = extractLineItemAttributesAndCleanDescription(item);
       extractedSpecsAttrs.forEach((a) => {
-        if (a && a.key && a.key.trim()) keysSet.add(a.key.trim());
+        if (a && a.key) addKey(a.key);
       });
       if (item.attributes && Array.isArray(item.attributes)) {
         item.attributes.forEach((a) => {
-          if (a && a.key && a.key.trim()) {
-            keysSet.add(a.key.trim());
-          }
+          if (a && a.key) addKey(a.key);
         });
       }
       const itemAny = item as any;
       if (itemAny.specs && Array.isArray(itemAny.specs)) {
         itemAny.specs.forEach((s: any) => {
-          if (s && s.key && s.key.trim()) keysSet.add(s.key.trim());
+          if (s && s.key) addKey(s.key);
         });
       }
     });
-    return Array.from(keysSet);
+    return keysList;
   }, [quotationLineItems]);
 
   const toggleAttributeKeyVisibility = (key: string) => {
@@ -3142,43 +3150,51 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     }));
   };
 
-  // Helper to extract all specification attribute keys for a specific line item
+  // Helper to extract all specification attribute keys for a specific line item (case-insensitively deduplicated)
   const getItemAttributeKeys = useCallback((item: QuotationLineItem): string[] => {
     const keys: string[] = [];
+    const seenLower = new Set<string>();
+    const addKey = (raw?: string) => {
+      const trimmed = raw?.trim();
+      if (!trimmed) return;
+      const lower = trimmed.toLowerCase();
+      if (!seenLower.has(lower)) {
+        seenLower.add(lower);
+        keys.push(trimmed);
+      }
+    };
     if (Array.isArray(item.attributes)) {
       item.attributes.forEach((a) => {
-        if (a && a.key && a.key.trim() && !keys.includes(a.key.trim())) {
-          keys.push(a.key.trim());
-        }
+        if (a && a.key) addKey(a.key);
       });
     }
     const itemAny = item as any;
     if (itemAny.attributes && typeof itemAny.attributes === 'object' && !Array.isArray(itemAny.attributes)) {
       Object.keys(itemAny.attributes).forEach((k) => {
-        if (k.trim() && !keys.includes(k.trim())) keys.push(k.trim());
+        addKey(k);
       });
     }
     if (Array.isArray(itemAny.specs)) {
       itemAny.specs.forEach((s: any) => {
-        if (s && s.key && s.key.trim() && !keys.includes(s.key.trim())) keys.push(s.key.trim());
+        if (s && s.key) addKey(s.key);
       });
     }
     if (Array.isArray(itemAny.specifications)) {
       itemAny.specifications.forEach((s: any) => {
-        if (s && s.key && s.key.trim() && !keys.includes(s.key.trim())) keys.push(s.key.trim());
+        if (s && s.key) addKey(s.key);
       });
     }
-    if (item.brand_make && item.brand_make.trim() && item.brand_make !== '—' && !keys.includes('Brand')) {
-      keys.push('Brand');
+    if (item.brand_make && item.brand_make.trim() && item.brand_make !== '—') {
+      addKey('Brand');
     }
-    if (item.model_part_no && item.model_part_no.trim() && item.model_part_no !== '—' && !keys.includes('Model')) {
-      keys.push('Model');
+    if (item.model_part_no && item.model_part_no.trim() && item.model_part_no !== '—') {
+      addKey('Model');
     }
-    if (item.country_of_origin && item.country_of_origin.trim() && item.country_of_origin !== '—' && !keys.includes('Origin')) {
-      keys.push('Origin');
+    if (item.country_of_origin && item.country_of_origin.trim() && item.country_of_origin !== '—') {
+      addKey('Origin');
     }
-    if (item.availability && item.availability.trim() && !keys.includes('Delivery')) {
-      keys.push('Delivery');
+    if (item.availability && item.availability.trim()) {
+      addKey('Delivery');
     }
     return keys;
   }, []);
@@ -8058,16 +8074,6 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             {/* Preview Toolbar */}
             <div className="px-4 py-2 bg-slate-100 border-b border-slate-300/80 flex items-center justify-between text-xs text-slate-600 shrink-0 print:hidden flex-wrap gap-2">
               <div className="flex items-center space-x-2">
-                {!isLeftDrawerOpen && (
-                  <button
-                    type="button"
-                    onClick={() => setIsLeftDrawerOpen(true)}
-                    className="px-2 py-1 rounded-md bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 font-semibold text-[11px] flex items-center gap-1 shadow-2xs cursor-pointer transition"
-                  >
-                    <PanelLeft className="w-3.5 h-3.5" />
-                    <span>Show Controls</span>
-                  </button>
-                )}
                 <span className="font-semibold text-slate-700">Live Preview:</span>
                 <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded border border-slate-300 text-slate-600">
                   A4 210mm × 297mm

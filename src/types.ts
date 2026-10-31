@@ -532,7 +532,7 @@ export interface ProjectMilestone {
   notes?: string;
 }
 
-export interface Project {
+export interface Project extends SoftDeleteFields {
   id?: string;
   project_number: string; // e.g. PRJ-2026-XXXX
   workspace_id: string;
@@ -555,6 +555,7 @@ export interface Project {
   dispatched_at?: string;
   dispatched_items_count?: number;
   fulfillment_type?: 'WAREHOUSE_DISPATCH' | 'SERVICE_FULFILLMENT';
+  cancellation_reason?: string;
   created_at: string;
   updated_at: string;
 }
@@ -710,6 +711,8 @@ export interface Enquiry extends SoftDeleteFields {
   created_by_uid?: string;
   creator_id?: string;
   created_by_name?: string;
+  creator_access_released?: boolean;
+  creator_access_released_at?: string;
   assigned_to_id?: string;
   assigned_to?: string;
   company_id: string;
@@ -734,8 +737,8 @@ export interface Enquiry extends SoftDeleteFields {
   remarks?: string;
   invoice_po_no?: string;
   payment_status?: string;
-  project_id?: string;
-  project_number?: string;
+  project_id?: string | null;
+  project_number?: string | null;
   stock_reserved?: boolean;
   stock_reserved_at?: string | null;
   custom_project_details?: ProductAttribute[];

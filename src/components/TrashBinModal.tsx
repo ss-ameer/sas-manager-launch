@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Trash2, RefreshCw, AlertTriangle, Search, Filter, ShieldAlert, CheckCircle2, RotateCcw } from 'lucide-react';
-import { Enquiry, Company, Contact, Product, CallLogEntry, UserProfile, Workspace, Attachment, Quotation } from '../types';
+import { Enquiry, Company, Contact, Product, CallLogEntry, UserProfile, Workspace, Attachment, Quotation, Project } from '../types';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import { CallLogRepository } from '../services/repositories/CallLogRepository';
 import { MetadataRepository } from '../services/repositories/MetadataRepository';
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
+import { getDeletedWorkspaceProjects, restoreProject, purgeProjectPermanently } from '../services/projectService';
 import { purgeEnquiryAttachments } from '../services/attachmentStorage';
 
 interface TrashBinModalProps {
@@ -18,6 +19,9 @@ interface TrashBinModalProps {
   products: Product[];
   callLogs: CallLogEntry[];
   quotations?: Quotation[];
+  projects?: Project[];
+  setProjects?: React.Dispatch<React.SetStateAction<Project[]>>;
+  setEnquiries?: React.Dispatch<React.SetStateAction<Enquiry[]>>;
   onRefreshData: () => void;
   activeWorkspaceId?: string;
   activeWorkspace?: Workspace;
@@ -35,13 +39,13 @@ export function getEntityWorkspaceId(item: WorkspaceScopedItem): string | undefi
   return item.workspace_id ?? item.workspaceId;
 }
 
-type CategoryTab = 'all' | 'enquiries' | 'companies' | 'contacts' | 'products' | 'call_logs' | 'quotations';
+type CategoryTab = 'all' | 'enquiries' | 'companies' | 'contacts' | 'products' | 'call_logs' | 'quotations' | 'projects';
 
-type DeletedItemEntity = Enquiry | Company | Contact | Product | CallLogEntry | Quotation;
+type DeletedItemEntity = Enquiry | Company | Contact | Product | CallLogEntry | Quotation | Project;
 
 interface UnifiedDeletedItem {
   id: string;
-  type: 'enquiry' | 'company' | 'contact' | 'product' | 'call_log' | 'quotation';
+  type: 'enquiry' | 'company' | 'contact' | 'product' | 'call_log' | 'quotation' | 'project';
   typeLabel: string;
   title: string;
   subTitle?: string;
@@ -60,6 +64,9 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
   products,
   callLogs,
   quotations,
+  projects = [],
+  setProjects,
+  setEnquiries,
   onRefreshData,
   activeWorkspaceId,
   activeWorkspace,
@@ -74,6 +81,9 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
   const [deletedQuotations, setDeletedQuotations] = useState<Quotation[]>(
     quotations?.filter((q) => q.is_deleted) || []
   );
+  const [deletedProjectsState, setDeletedProjectsState] = useState<Project[]>(
+    projects?.filter((p) => p.is_deleted) || []
+  );
 
   const refreshDeletedQuotations = async () => {
     try {
@@ -82,9 +92,18 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
     } catch (_) {}
   };
 
+  const refreshDeletedProjects = async () => {
+    if (!activeWorkspaceId) return;
+    try {
+      const ps = await getDeletedWorkspaceProjects(activeWorkspaceId);
+      setDeletedProjectsState(ps);
+    } catch (_) {}
+  };
+
   useEffect(() => {
     if (isOpen) {
       refreshDeletedQuotations();
+      refreshDeletedProjects();
     }
   }, [isOpen, activeWorkspaceId]);
 
@@ -107,13 +126,25 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
   const deletedProducts = products.filter((p) => p.is_deleted && isWsMatch(getEntityWorkspaceId(p)));
   const deletedCallLogs = callLogs.filter((l) => l.is_deleted && isWsMatch(getEntityWorkspaceId(l)));
 
+  const deletedProjects = (() => {
+    const map = new Map<string, Project>();
+    projects.filter((p) => p.is_deleted && isWsMatch(getEntityWorkspaceId(p))).forEach((p) => {
+      if (p.id) map.set(p.id, p);
+    });
+    deletedProjectsState.filter((p) => p.is_deleted && isWsMatch(getEntityWorkspaceId(p))).forEach((p) => {
+      if (p.id) map.set(p.id, p);
+    });
+    return Array.from(map.values());
+  })();
+
   const totalDeletedCount =
     deletedEnquiries.length +
     deletedCompanies.length +
     deletedContacts.length +
     deletedProducts.length +
     deletedCallLogs.length +
-    deletedQuotations.length;
+    deletedQuotations.length +
+    deletedProjects.length;
 
   const items: UnifiedDeletedItem[] = [];
 
@@ -213,6 +244,21 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
     });
   }
 
+  if (activeTab === 'all' || activeTab === 'projects') {
+    deletedProjects.forEach((p) => {
+      items.push({
+        id: p.id || '',
+        type: 'project',
+        typeLabel: 'Project',
+        title: `${p.project_number} • ${p.title}`,
+        subTitle: `${p.client_name} • AED ${Number(p.contract_value || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+        deletedAt: p.deleted_at,
+        deletedByName: p.deleted_by_name || 'Unknown',
+        rawItem: p
+      });
+    });
+  }
+
   // Filter by search query
   const filteredItems = items.filter((item) => {
     if (!searchQuery.trim()) return true;
@@ -243,6 +289,27 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
         await refreshDeletedQuotations();
         if (triggerToast) {
           triggerToast(`Quotation ${item.title.split('•')[0].trim()} restored successfully.`, 'success');
+        }
+      } else if (item.type === 'project') {
+        const proj = item.rawItem as Project;
+        await restoreProject(proj);
+        await refreshDeletedProjects();
+        if (setProjects) {
+          setProjects((prev) =>
+            prev.map((p) => (p.id === proj.id ? { ...p, is_deleted: false } : p))
+          );
+        }
+        if (proj.enquiry_id && setEnquiries) {
+          setEnquiries((prev) =>
+            prev.map((eq) =>
+              eq.id === proj.enquiry_id
+                ? { ...eq, project_id: proj.id, project_number: proj.project_number }
+                : eq
+            )
+          );
+        }
+        if (triggerToast) {
+          triggerToast(`Project ${proj.project_number} restored and re-linked to enquiry.`, 'success');
         }
       }
       onRefreshData();
@@ -287,6 +354,15 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
         if (triggerToast) {
           triggerToast(`Quotation ${item.title.split('•')[0].trim()} permanently purged.`, 'info');
         }
+      } else if (item.type === 'project') {
+        await purgeProjectPermanently(item.id);
+        await refreshDeletedProjects();
+        if (setProjects) {
+          setProjects((prev) => prev.filter((p) => p.id !== item.id));
+        }
+        if (triggerToast) {
+          triggerToast(`Project ${item.title.split('•')[0].trim()} permanently purged.`, 'info');
+        }
       }
       setItemToPurge(null);
       setConfirmPurgeId(null);
@@ -328,9 +404,12 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
           await CallLogRepository.purgePermanent(item.id);
         } else if (item.type === 'quotation') {
           await QuotationRepository.purgeQuotationPermanently(item.id);
+        } else if (item.type === 'project') {
+          await purgeProjectPermanently(item.id);
         }
       }
       await refreshDeletedQuotations();
+      await refreshDeletedProjects();
       setShowEmptyTrashConfirm(false);
       if (triggerToast) {
         triggerToast('Recycle bin emptied and cloud attachments permanently freed.', 'info');
@@ -396,6 +475,7 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
               { id: 'all', label: 'All', count: totalDeletedCount },
               { id: 'enquiries', label: 'Enquiries', count: deletedEnquiries.length },
               { id: 'quotations', label: 'Quotations', count: deletedQuotations.length },
+              { id: 'projects', label: 'Projects', count: deletedProjects.length },
               { id: 'companies', label: 'Companies', count: deletedCompanies.length },
               { id: 'contacts', label: 'Contacts', count: deletedContacts.length },
               { id: 'products', label: 'Products', count: deletedProducts.length },

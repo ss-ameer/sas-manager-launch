@@ -1,7 +1,7 @@
 import { Project, ProjectMilestone, Enquiry, UserProfile } from '../types';
-import { safeAddDoc, safeGetDocs, safeUpdateDoc } from '../firebase';
+import { safeAddDoc, safeDeleteDoc, safeGetDocs, safeUpdateDoc } from '../firebase';
 import { where } from 'firebase/firestore';
-import { reserveEnquiryStock, isOptionActiveForInventoryAndBaseline } from './inventoryService';
+import { reserveEnquiryStock, releaseEnquiryStock, isOptionActiveForInventoryAndBaseline } from './inventoryService';
 
 export interface ProjectConversionOptions {
   project_type?: 'Supply Only' | 'Turnkey / Installation';
@@ -20,7 +20,7 @@ export function getDefaultMilestones(projectType: 'Supply Only' | 'Turnkey / Ins
       { id: 'm1', title: 'Procurement & Fabrication', status: 'In Progress' },
       { id: 'm2', title: 'Site Delivery', status: 'Pending' },
       { id: 'm3', title: 'Mechanical & Electrical Installation', status: 'Pending' },
-      { id: 'm4', title: 'Testing & Wet Commissioning', status: 'Pending' },
+      { id: 'm4', title: 'Testing & Commissioning', status: 'Pending' },
       { id: 'm5', title: 'Client Handover & Taking-Over Certificate (TOC)', status: 'Pending' }
     ];
   }
@@ -198,9 +198,9 @@ export async function getProjectForEnquiry(enquiryId: string): Promise<Project |
   try {
     const snap = await safeGetDocs('projects', where('enquiry_id', '==', enquiryId));
     if (snap && !snap.empty) {
-      const match = snap.docs[0];
-      if (match) {
-        return { id: match.id, ...match.data() } as Project;
+      const activeDoc = snap.docs.find((d) => !d.data().is_deleted);
+      if (activeDoc) {
+        return { id: activeDoc.id, ...activeDoc.data() } as Project;
       }
     }
   } catch (e) {
@@ -217,6 +217,7 @@ export async function getWorkspaceProjects(workspaceId: string): Promise<Project
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() } as Project))
         .filter((p) => {
+          if (p.is_deleted) return false;
           const wId = p.workspace_id || (p as any).workspaceId;
           return wId === workspaceId || (!wId && (workspaceId === 'default' || workspaceId === 'ws_default'));
         })
@@ -225,6 +226,26 @@ export async function getWorkspaceProjects(workspaceId: string): Promise<Project
     }
   } catch (err) {
     console.warn('Error fetching workspace projects:', err);
+  }
+  return [];
+}
+
+export async function getDeletedWorkspaceProjects(workspaceId: string): Promise<Project[]> {
+  if (!workspaceId) return [];
+  try {
+    const snap = await safeGetDocs('projects', where('workspace_id', '==', workspaceId));
+    if (snap && !snap.empty) {
+      return snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as Project))
+        .filter((p) => {
+          if (!p.is_deleted) return false;
+          const wId = p.workspace_id || (p as any).workspaceId;
+          return wId === workspaceId || (!wId && (workspaceId === 'default' || workspaceId === 'ws_default'));
+        })
+        .sort((a, b) => new Date(b.deleted_at || b.updated_at || 0).getTime() - new Date(a.deleted_at || a.updated_at || 0).getTime());
+    }
+  } catch (err) {
+    console.warn('Error fetching deleted workspace projects:', err);
   }
   return [];
 }
@@ -253,5 +274,118 @@ export async function updateProjectStatus(
     return false;
   }
 }
+
+export async function updateProjectMetadata(
+  projectId: string,
+  patch: Partial<Project>
+): Promise<boolean> {
+  if (!projectId) return false;
+  const nowIso = new Date().toISOString();
+  try {
+    await safeUpdateDoc('projects', projectId, {
+      ...patch,
+      updated_at: nowIso
+    });
+    return true;
+  } catch (err) {
+    console.error('Failed to update project metadata:', err);
+    return false;
+  }
+}
+
+export async function softDeleteProject(
+  project: Project,
+  parentEnquiry?: Enquiry | null,
+  user?: UserProfile | { uid?: string; full_name?: string; username?: string; email?: string } | null
+): Promise<boolean> {
+  if (!project?.id) return false;
+  const nowIso = new Date().toISOString();
+  const deletedByName =
+    user?.full_name || (user as any)?.username || user?.email || 'System';
+
+  try {
+    // 1. Release reserved warehouse stock on parent enquiry or synthesized enquiry from project line items
+    const enquiryForRelease: Enquiry = parentEnquiry || ({
+      id: project.enquiry_id || project.id,
+      workspace_id: project.workspace_id,
+      company_name: project.client_name,
+      subject: project.title,
+      line_items: project.line_items || [],
+      stock_reserved: true
+    } as any);
+
+    if (project.status !== 'Delivered' && project.status !== 'Completed') {
+      try {
+        await releaseEnquiryStock(enquiryForRelease, user || undefined);
+      } catch (stockErr) {
+        console.warn('Non-critical warning releasing stock during project soft-delete:', stockErr);
+      }
+    }
+
+    // 2. Unlink project_id & project_number on parent enquiry while keeping enquiry commercial status unchanged
+    if (project.enquiry_id) {
+      await safeUpdateDoc('enquiries', project.enquiry_id, {
+        project_id: null,
+        project_number: null,
+        stock_reserved: false,
+        stock_reserved_at: null,
+        updatedAt: nowIso
+      }).catch(() => {});
+    }
+
+    // 3. Soft-delete project document
+    await safeUpdateDoc('projects', project.id, {
+      is_deleted: true,
+      deleted_at: nowIso,
+      deleted_by_uid: user?.uid || 'system',
+      deleted_by_name: deletedByName,
+      updated_at: nowIso
+    });
+
+    return true;
+  } catch (err) {
+    console.error('Failed to soft-delete project:', err);
+    return false;
+  }
+}
+
+export async function restoreProject(project: Project): Promise<boolean> {
+  if (!project?.id) return false;
+  const nowIso = new Date().toISOString();
+  try {
+    await safeUpdateDoc('projects', project.id, {
+      is_deleted: false,
+      deleted_at: null as any,
+      deleted_by_uid: null as any,
+      deleted_by_name: null as any,
+      updated_at: nowIso
+    });
+
+    if (project.enquiry_id) {
+      await safeUpdateDoc('enquiries', project.enquiry_id, {
+        project_id: project.id,
+        project_number: project.project_number,
+        updatedAt: nowIso
+      }).catch(() => {});
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Failed to restore project:', err);
+    return false;
+  }
+}
+
+export async function purgeProjectPermanently(projectId: string): Promise<boolean> {
+  if (!projectId) return false;
+  try {
+    await safeDeleteDoc('projects', projectId);
+    return true;
+  } catch (err) {
+    console.error('Failed to permanently purge project:', err);
+    return false;
+  }
+}
+
 
 

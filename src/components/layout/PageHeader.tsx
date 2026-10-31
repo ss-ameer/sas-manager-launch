@@ -90,7 +90,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   };
 
   return (
-    <div className={`sticky top-0 z-20 w-full px-6 py-4 lg:px-8 border-b border-slate-200/80 bg-white/95 backdrop-blur-xs shadow-2xs ${className}`}>
+    <div className={`sticky top-0 z-20 shrink-0 w-full px-6 py-4 lg:px-8 border-b border-slate-200/80 bg-white/95 backdrop-blur-xs shadow-2xs ${className}`}>
       <div className={`${maxWidth} mx-auto w-full flex flex-col sm:flex-row sm:items-center justify-between gap-4`}>
         {/* Left Info Column with Mobile Hamburger & Secret 5-click trigger */}
         <div className="flex items-center space-x-3.5 min-w-0">

@@ -1,11 +1,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Project, Product, Workspace, UserProfile, LineItem, ProjectMilestone } from '../types';
+import { Project, Product, Workspace, UserProfile, LineItem, ProjectMilestone, Enquiry, Salesperson, getInitials } from '../types';
 import { dispatchProjectStock } from '../services/inventoryService';
-import { updateProjectStatus } from '../services/projectService';
+import { updateProjectStatus, updateProjectMetadata, softDeleteProject } from '../services/projectService';
 import { safeUpdateDoc, safeAddDoc, db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { PageHeader, PageBody, CardPanel, KpiStatCard } from './layout/UiContainer';
 import SearchResultCounter from './common/SearchResultCounter';
+import HoverScrollText from './common/HoverScrollText';
 import {
   Briefcase,
   Search,
@@ -31,7 +32,12 @@ import {
   Circle,
   PlayCircle,
   Flag,
-  Download
+  Download,
+  Trash2,
+  Edit2,
+  Plus,
+  ExternalLink,
+  Save
 } from 'lucide-react';
 
 interface ProjectRegistryProps {
@@ -39,6 +45,11 @@ interface ProjectRegistryProps {
   setProjects?: React.Dispatch<React.SetStateAction<Project[]>>;
   products?: Product[];
   setProducts?: React.Dispatch<React.SetStateAction<Product[]>>;
+  enquiries?: Enquiry[];
+  setEnquiries?: React.Dispatch<React.SetStateAction<Enquiry[]>>;
+  salespersons?: Salesperson[];
+  workspaceMembers?: any[];
+  onSelectEnquiry?: (id: string) => void;
   activeWorkspace: Workspace;
   user: UserProfile;
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
@@ -53,6 +64,11 @@ export default function ProjectRegistry({
   setProjects,
   products = [],
   setProducts,
+  enquiries = [],
+  setEnquiries,
+  salespersons = [],
+  workspaceMembers = [],
+  onSelectEnquiry,
   activeWorkspace,
   user,
   triggerToast,
@@ -69,6 +85,15 @@ export default function ProjectRegistry({
   const [confirmDispatchOpen, setConfirmDispatchOpen] = useState(false);
   const [voidConfirmTarget, setVoidConfirmTarget] = useState<Project | null>(null);
   const [isVoiding, setIsVoiding] = useState<boolean>(false);
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<Project | null>(null);
+  const [isDeletingProject, setIsDeletingProject] = useState<boolean>(false);
+  const [isEditingMetadata, setIsEditingMetadata] = useState<boolean>(false);
+  const [editEngineerName, setEditEngineerName] = useState<string>('');
+  const [editSiteLocation, setEditSiteLocation] = useState<string>('');
+  const [editTargetDate, setEditTargetDate] = useState<string>('');
+  const [editOperationalNotes, setEditOperationalNotes] = useState<string>('');
+  const [newMilestoneTitle, setNewMilestoneTitle] = useState<string>('');
+  const [isSavingMetadata, setIsSavingMetadata] = useState<boolean>(false);
   const [milestoneWarning, setMilestoneWarning] = useState<{
     milestoneId: string;
     targetStatus: ProjectMilestone['status'];
@@ -76,11 +101,194 @@ export default function ProjectRegistry({
     precedingTitle: string;
   } | null>(null);
 
+  // Sync inline metadata editor fields when selectedProject changes
+  useEffect(() => {
+    if (selectedProject) {
+      setEditEngineerName(selectedProject.assigned_engineer_name || '');
+      setEditSiteLocation(selectedProject.site_location || '');
+      setEditTargetDate(selectedProject.target_delivery_date ? selectedProject.target_delivery_date.split('T')[0] : '');
+      setEditOperationalNotes(selectedProject.operational_notes || '');
+      setIsEditingMetadata(false);
+      setNewMilestoneTitle('');
+    }
+  }, [selectedProject?.id]);
+
+  // Resolve Lead Engineer raw email prefix or UID to a clean "Full Name (Initials)" display string
+  const resolveEngineerDisplayName = (proj: Project): string => {
+    const rawName = (proj.assigned_engineer_name || '').trim();
+    const rawId = (proj.assigned_engineer_id || '').trim();
+    if (!rawName && !rawId) return 'Unassigned';
+
+    const matchedSp = salespersons.find(
+      (s) =>
+        (rawId && (s.id === rawId || s.uid === rawId || s.linked_user_id === rawId)) ||
+        (rawName && (
+          s.full_name?.toLowerCase() === rawName.toLowerCase() ||
+          s.initials?.toLowerCase() === rawName.toLowerCase() ||
+          (s.email && s.email.split('@')[0].toLowerCase() === rawName.toLowerCase()) ||
+          s.full_name?.toLowerCase().replace(/\s+/g, '.') === rawName.toLowerCase()
+        ))
+    );
+    if (matchedSp) {
+      const init = matchedSp.initials || getInitials(matchedSp.full_name);
+      return `${matchedSp.full_name}${init ? ` (${init})` : ''}`;
+    }
+
+    const matchedMember = workspaceMembers.find(
+      (m: any) =>
+        (rawId && (m.uid === rawId || m.user_id === rawId)) ||
+        (rawName && (
+          (m.name || m.full_name || '').toLowerCase() === rawName.toLowerCase() ||
+          (m.email && m.email.split('@')[0].toLowerCase() === rawName.toLowerCase())
+        ))
+    );
+    if (matchedMember) {
+      const fullName = matchedMember.name || matchedMember.full_name || rawName;
+      const init = getInitials(fullName);
+      return `${fullName}${init ? ` (${init})` : ''}`;
+    }
+
+    // If rawName looks like "pawan.verma" or an email prefix, format cleanly to Title Case
+    if (/^[a-z0-9._-]+$/i.test(rawName) && (rawName.includes('.') || rawName.includes('_') || rawName === rawName.toLowerCase())) {
+      const cleaned = rawName
+        .split('@')[0]
+        .split(/[._-]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+        .join(' ');
+      if (cleaned) {
+        const init = getInitials(cleaned);
+        return `${cleaned}${init ? ` (${init})` : ''}`;
+      }
+    }
+
+    return rawName;
+  };
+
+  // Save inline operational metadata changes
+  const handleSaveMetadata = async () => {
+    if (!selectedProject?.id || isSavingMetadata) return;
+    setIsSavingMetadata(true);
+    try {
+      const updates: Partial<Project> = {
+        assigned_engineer_name: editEngineerName.trim() || undefined,
+        site_location: editSiteLocation.trim() || undefined,
+        target_delivery_date: editTargetDate.trim() || undefined,
+        operational_notes: editOperationalNotes.trim() || undefined,
+      };
+      await updateProjectMetadata(selectedProject.id, updates);
+      const updatedProj: Project = {
+        ...selectedProject,
+        ...updates,
+        updated_at: new Date().toISOString()
+      };
+      setSelectedProject(updatedProj);
+      if (setProjects) {
+        setProjects((prev) => prev.map((p) => (p.id === selectedProject.id ? updatedProj : p)));
+      }
+      setIsEditingMetadata(false);
+      triggerToast?.('Updated project operational details.', 'success');
+    } catch (err: any) {
+      triggerToast?.('Failed to update project details: ' + (err?.message || err), 'error');
+    } finally {
+      setIsSavingMetadata(false);
+    }
+  };
+
+  // Add a custom milestone to the project
+  const handleAddMilestone = async () => {
+    if (!selectedProject?.id || !newMilestoneTitle.trim()) return;
+    const newItem: ProjectMilestone = {
+      id: `ms_${Date.now()}`,
+      title: newMilestoneTitle.trim(),
+      status: 'Pending'
+    };
+    const updatedMilestones = [...(selectedProject.milestones || []), newItem];
+    const nowIso = new Date().toISOString();
+    const updatedProj: Project = {
+      ...selectedProject,
+      milestones: updatedMilestones,
+      updated_at: nowIso
+    };
+    setSelectedProject(updatedProj);
+    setNewMilestoneTitle('');
+    if (setProjects) {
+      setProjects((prev) => prev.map((p) => (p.id === selectedProject.id ? updatedProj : p)));
+    }
+    await safeUpdateDoc('projects', selectedProject.id, {
+      milestones: updatedMilestones,
+      updated_at: nowIso
+    }).catch((e) => console.warn('Failed to add milestone:', e));
+    triggerToast?.(`Added milestone "${newItem.title}"`, 'success');
+  };
+
+  // Delete a milestone from the project
+  const handleDeleteMilestone = async (milestoneId: string) => {
+    if (!selectedProject?.id || !selectedProject.milestones) return;
+    const updatedMilestones = selectedProject.milestones.filter((m) => m.id !== milestoneId);
+    const nowIso = new Date().toISOString();
+    const updatedProj: Project = {
+      ...selectedProject,
+      milestones: updatedMilestones,
+      updated_at: nowIso
+    };
+    setSelectedProject(updatedProj);
+    if (setProjects) {
+      setProjects((prev) => prev.map((p) => (p.id === selectedProject.id ? updatedProj : p)));
+    }
+    await safeUpdateDoc('projects', selectedProject.id, {
+      milestones: updatedMilestones,
+      updated_at: nowIso
+    }).catch((e) => console.warn('Failed to delete milestone:', e));
+  };
+
+  // Soft-delete project to Recycle Bin, release reserved stock, and unlink parent enquiry
+  const handleConfirmDeleteProject = async (project: Project) => {
+    if (!project.id || isDeletingProject) return;
+    setIsDeletingProject(true);
+    try {
+      const parentEnq = project.enquiry_id
+        ? enquiries.find((eq) => eq.id === project.enquiry_id) || null
+        : null;
+      await softDeleteProject(project, parentEnq, user);
+      const nowIso = new Date().toISOString();
+      const userName = user?.full_name || user?.username || user?.email || 'Operator';
+      if (setProjects) {
+        setProjects((prev) =>
+          prev.map((p) =>
+            p.id === project.id
+              ? { ...p, is_deleted: true, deleted_at: nowIso, deleted_by_uid: user?.uid, deleted_by_name: userName }
+              : p
+          )
+        );
+      }
+      if (project.enquiry_id && setEnquiries) {
+        setEnquiries((prev) =>
+          prev.map((eq) =>
+            eq.id === project.enquiry_id
+              ? { ...eq, project_id: null, project_number: null, stock_reserved: false }
+              : eq
+          )
+        );
+      }
+      if (selectedProject?.id === project.id) {
+        setSelectedProject(null);
+      }
+      setDeleteConfirmTarget(null);
+      onStockUpdated?.();
+      triggerToast?.(`Project ${project.project_number} moved to Recycle Bin and unlinked from enquiry.`, 'info');
+    } catch (err: any) {
+      triggerToast?.('Failed to delete project: ' + (err?.message || err), 'error');
+    } finally {
+      setIsDeletingProject(false);
+    }
+  };
+
   // Automatic deep-link / navigation to target project
   useEffect(() => {
     if (initialProjectId) {
       const match = projects.find(
-        (p) => p.id === initialProjectId || p.project_number === initialProjectId
+        (p) => !p.is_deleted && (p.id === initialProjectId || p.project_number === initialProjectId)
       );
       if (match) {
         setSelectedProject(match);
@@ -93,9 +301,10 @@ export default function ProjectRegistry({
     onClearInitialProject?.();
   };
 
-  // Multi-Tenant Isolation: Ensure only active workspace projects are shown
+  // Multi-Tenant Isolation: Ensure only active (non-deleted) workspace projects are shown
   const workspaceProjects = useMemo(() => {
     return projects.filter((p) => {
+      if (p.is_deleted) return false;
       const wId = p.workspace_id || (p as any).workspaceId;
       return wId === activeWorkspace.id || (!wId && activeWorkspace.id === 'ws_default');
     });
@@ -739,12 +948,16 @@ export default function ProjectRegistry({
                           {project.project_number}
                         </td>
                         <td className="py-3 px-4">
-                          <div className="font-bold text-slate-900 font-sans truncate max-w-xs md:max-w-sm">
-                            {project.title}
-                          </div>
+                          <HoverScrollText
+                            text={project.title}
+                            className="font-bold text-slate-900 font-sans max-w-xs md:max-w-sm block"
+                          />
                           <div className="text-[11px] text-slate-500 flex items-center space-x-1 mt-0.5">
                             <Building className="w-3 h-3 text-slate-400 shrink-0" />
-                            <span className="truncate">{project.client_name}</span>
+                            <HoverScrollText
+                              text={project.client_name}
+                              className="max-w-[220px]"
+                            />
                           </div>
                         </td>
                         <td className="py-3 px-4 whitespace-nowrap">
@@ -792,17 +1005,30 @@ export default function ProjectRegistry({
                           )}
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedProject(project);
-                            }}
-                            className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>View</span>
-                          </button>
+                          <div className="inline-flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedProject(project);
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>View</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteConfirmTarget(project);
+                              }}
+                              title="Move project to Recycle Bin"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -847,7 +1073,22 @@ export default function ProjectRegistry({
                 </div>
               </div>
 
-              <div className="flex items-center space-x-3">
+              <div className="flex items-center space-x-2.5">
+                {selectedProject.enquiry_id && onSelectEnquiry && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const enqId = selectedProject.enquiry_id;
+                      handleCloseModal();
+                      onSelectEnquiry(enqId);
+                    }}
+                    className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 hover:border-blue-200 transition inline-flex items-center gap-1.5 cursor-pointer"
+                    title="Open Source Enquiry & Commercial Document Suite"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Source Enquiry</span>
+                  </button>
+                )}
                 {getStatusBadge(selectedProject.status, Boolean((selectedProject as any).stock_deducted))}
                 <button
                   type="button"
@@ -915,41 +1156,136 @@ export default function ProjectRegistry({
                 </div>
               </div>
 
-              {/* Secondary Operational Metadata Strip */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
-                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
-                    Lead Engineer
+              {/* Secondary Operational Metadata Strip (with inline Edit toggle) */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-slate-400 font-bold">
+                    Operational Assignment & Handover Schedule
                   </span>
-                  <div className="font-bold text-xs text-slate-800 dark:text-slate-100 flex items-center space-x-1.5">
-                    <User className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                    <span className="truncate">{selectedProject.assigned_engineer_name || 'Unassigned'}</span>
-                  </div>
+                  {!isEditingMetadata ? (
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingMetadata(true)}
+                      className="text-xs font-semibold text-blue-600 hover:text-blue-700 inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                      <span>Edit Details</span>
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingMetadata(false)}
+                        className="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isSavingMetadata}
+                        onClick={handleSaveMetadata}
+                        className="px-3 py-1 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      >
+                        <Save className="w-3 h-3" />
+                        <span>{isSavingMetadata ? 'Saving...' : 'Save'}</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
-                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
-                    Site / Delivery Location
-                  </span>
-                  <div className="font-bold text-xs text-slate-800 dark:text-slate-100 flex items-center space-x-1.5">
-                    <MapPin className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                    <span className="truncate">{selectedProject.site_location || 'Not Specified'}</span>
+                {isEditingMetadata ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-blue-50/40 border border-blue-200/80">
+                    <div>
+                      <label className="text-[10px] font-mono text-slate-500 uppercase tracking-widest block mb-1">
+                        Lead Engineer / Coordinator
+                      </label>
+                      <input
+                        type="text"
+                        list="project-engineers-list"
+                        value={editEngineerName}
+                        onChange={(e) => setEditEngineerName(e.target.value)}
+                        placeholder="Select or type name..."
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                      />
+                      <datalist id="project-engineers-list">
+                        {salespersons.map((sp) => (
+                          <option key={sp.id || sp.initials} value={`${sp.full_name} (${sp.initials})`} />
+                        ))}
+                      </datalist>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-mono text-slate-500 uppercase tracking-widest block mb-1">
+                        Site / Delivery Location
+                      </label>
+                      <input
+                        type="text"
+                        value={editSiteLocation}
+                        onChange={(e) => setEditSiteLocation(e.target.value)}
+                        placeholder="e.g. Client Warehouse / Site"
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-mono text-slate-500 uppercase tracking-widest block mb-1">
+                        Target Delivery Date
+                      </label>
+                      <input
+                        type="date"
+                        value={editTargetDate}
+                        onChange={(e) => setEditTargetDate(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-800 font-mono focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div className="sm:col-span-3">
+                      <label className="text-[10px] font-mono text-slate-500 uppercase tracking-widest block mb-1">
+                        Operational & Dispatch Notes
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={editOperationalNotes}
+                        onChange={(e) => setEditOperationalNotes(e.target.value)}
+                        placeholder="Add site access instructions, dispatch notes, or special handling requirements..."
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-blue-500 resize-y"
+                      />
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
+                      <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
+                        Lead Engineer
+                      </span>
+                      <div className="font-bold text-xs text-slate-800 dark:text-slate-100 flex items-center space-x-1.5">
+                        <User className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                        <span className="truncate">{resolveEngineerDisplayName(selectedProject)}</span>
+                      </div>
+                    </div>
 
-                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
-                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
-                    Target Delivery / Handover
-                  </span>
-                  <div className="font-bold text-xs text-slate-800 dark:text-slate-100 flex items-center space-x-1.5 font-mono">
-                    <Calendar className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                    <span>
-                      {selectedProject.target_delivery_date
-                        ? new Date(selectedProject.target_delivery_date).toLocaleDateString()
-                        : 'Unscheduled'}
-                    </span>
+                    <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
+                      <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
+                        Site / Delivery Location
+                      </span>
+                      <div className="font-bold text-xs text-slate-800 dark:text-slate-100 flex items-center space-x-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                        <span className="truncate">{selectedProject.site_location || 'Not Specified'}</span>
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
+                      <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
+                        Target Delivery / Handover
+                      </span>
+                      <div className="font-bold text-xs text-slate-800 dark:text-slate-100 flex items-center space-x-1.5 font-mono">
+                        <Calendar className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        <span>
+                          {selectedProject.target_delivery_date
+                            ? new Date(selectedProject.target_delivery_date).toLocaleDateString()
+                            : 'Unscheduled'}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Interactive Milestone Pipeline */}
@@ -1025,42 +1361,82 @@ export default function ProjectRegistry({
                               </div>
                             </div>
 
-                            {/* Interactive Status Toggle Button */}
-                            <button
-                              type="button"
-                              onClick={() => handleToggleMilestone(m.id)}
-                              title="Click to cycle status: Pending ➔ In Progress ➔ Completed"
-                              className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold flex items-center space-x-1.5 transition cursor-pointer ${
-                                isCompleted
-                                  ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-950/70 dark:hover:bg-emerald-900/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
-                                  : isInProgress
-                                  ? 'bg-amber-100 hover:bg-amber-200 text-amber-800 dark:bg-amber-950/70 dark:hover:bg-amber-900/80 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
-                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-                              }`}
-                            >
-                              {isCompleted && (
-                                <>
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                                  <span>Completed</span>
-                                </>
+                            {/* Interactive Status Toggle + Delete Button */}
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleMilestone(m.id)}
+                                title="Click to cycle status: Pending ➔ In Progress ➔ Completed"
+                                className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold flex items-center space-x-1.5 transition cursor-pointer ${
+                                  isCompleted
+                                    ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-950/70 dark:hover:bg-emerald-900/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+                                    : isInProgress
+                                    ? 'bg-amber-100 hover:bg-amber-200 text-amber-800 dark:bg-amber-950/70 dark:hover:bg-amber-900/80 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
+                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                }`}
+                              >
+                                {isCompleted && (
+                                  <>
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                    <span>Completed</span>
+                                  </>
+                                )}
+                                {isInProgress && (
+                                  <>
+                                    <PlayCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 animate-pulse" />
+                                    <span>In Progress</span>
+                                  </>
+                                )}
+                                {isPending && (
+                                  <>
+                                    <Circle className="w-3.5 h-3.5 text-slate-400" />
+                                    <span>Pending</span>
+                                  </>
+                                )}
+                              </button>
+                              {selectedProject.status !== 'Cancelled' && selectedProject.milestones.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteMilestone(m.id)}
+                                  title="Remove milestone"
+                                  className="p-1 rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
                               )}
-                              {isInProgress && (
-                                <>
-                                  <PlayCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 animate-pulse" />
-                                  <span>In Progress</span>
-                                </>
-                              )}
-                              {isPending && (
-                                <>
-                                  <Circle className="w-3.5 h-3.5 text-slate-400" />
-                                  <span>Pending</span>
-                                </>
-                              )}
-                            </button>
+                            </div>
                           </div>
                         );
                       })}
                     </div>
+
+                    {/* Add Custom Milestone Input */}
+                    {selectedProject.status !== 'Cancelled' && (
+                      <div className="flex items-center gap-2 pt-1">
+                        <input
+                          type="text"
+                          value={newMilestoneTitle}
+                          onChange={(e) => setNewMilestoneTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddMilestone();
+                            }
+                          }}
+                          placeholder="Add custom operational milestone (e.g. Site Readiness Inspection)..."
+                          className="flex-1 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-blue-500"
+                        />
+                        <button
+                          type="button"
+                          disabled={!newMilestoneTitle.trim()}
+                          onClick={handleAddMilestone}
+                          className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white text-xs font-semibold inline-flex items-center gap-1 transition cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add Phase</span>
+                        </button>
+                      </div>
+                    )}
 
                     <div className="flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500 pt-1 font-mono">
                       <span>Click milestone status to advance phase</span>
@@ -1096,16 +1472,27 @@ export default function ProjectRegistry({
                       {(selectedProject.line_items || []).map((it, idx) => {
                         const linkedProduct = it.product_id ? productMap.get(it.product_id) : null;
                         const lineTotal = (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
+                        const primaryTitle = (
+                          it.item_name ||
+                          (it.product_id ? productMap?.get(it.product_id)?.name : null) ||
+                          it.description ||
+                          it.product_type ||
+                          'Line Item'
+                        ).trim();
+                        const secondaryDesc = (it.description || '').trim();
+                        const showSecondaryDesc =
+                          Boolean(secondaryDesc) &&
+                          secondaryDesc.toLowerCase() !== primaryTitle.toLowerCase();
 
                         return (
                           <tr key={it.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                             <td className="py-3 px-4">
                               <div className="font-semibold text-slate-800 dark:text-slate-100">
-                                {it.item_name || (it.product_id ? productMap?.get(it.product_id)?.name : null) || it.description || 'Line Item'}
+                                {primaryTitle}
                               </div>
-                              {it.description && it.description !== (it.item_name || (it.product_id ? productMap?.get(it.product_id)?.name : null)) && (
+                              {showSecondaryDesc && (
                                 <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">
-                                  {it.description}
+                                  {secondaryDesc}
                                 </div>
                               )}
                               <div className="text-[11px] text-slate-400 mt-0.5">
@@ -1184,13 +1571,23 @@ export default function ProjectRegistry({
                   <button
                     type="button"
                     onClick={() => handleInitiateVoidProject(selectedProject)}
-                    className="px-3.5 py-1.5 border border-rose-200 dark:border-rose-900/50 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center space-x-1.5 shadow-2xs"
+                    className="px-3 py-1.5 border border-amber-200 hover:bg-amber-50 text-amber-700 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center space-x-1.5 shadow-2xs"
                     title="Cancel project and release reserved stock"
                   >
                     <AlertTriangle className="w-3.5 h-3.5" />
-                    <span>Void / Cancel Project</span>
+                    <span>Void / Cancel</span>
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmTarget(selectedProject)}
+                  className="px-3 py-1.5 border border-rose-200 hover:bg-rose-50 text-rose-600 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center space-x-1.5 shadow-2xs"
+                  title="Move project to Recycle Bin and unlink from Enquiry"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Move to Recycle Bin</span>
+                </button>
               </div>
 
               <div className="flex items-center space-x-3">
@@ -1437,6 +1834,49 @@ export default function ProjectRegistry({
               >
                 {isVoiding && <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
                 <span>{isVoiding ? 'Voiding...' : 'Yes, Void Project'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog for Soft-Deleting Project to Recycle Bin */}
+      {deleteConfirmTarget && (
+        <div className="fixed inset-0 z-70 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-900/60 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center space-x-3">
+              <span className="p-2.5 rounded-xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </span>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white font-sans">
+                  Move Project #{deleteConfirmTarget.project_number} to Recycle Bin?
+                </h3>
+                <span className="text-[11px] font-mono text-slate-400">{deleteConfirmTarget.title}</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-sans">
+              This will move the project to the <strong>Recycle Bin</strong>, release any undeducted reserved stock back to the catalog, and unlink the project from its parent enquiry while keeping the enquiry status unchanged. You can restore it anytime from the Recycle Bin.
+            </p>
+
+            <div className="flex items-center justify-end space-x-3 pt-2">
+              <button
+                type="button"
+                disabled={isDeletingProject}
+                onClick={() => setDeleteConfirmTarget(null)}
+                className="px-4 py-2 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl transition cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingProject}
+                onClick={() => handleConfirmDeleteProject(deleteConfirmTarget)}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center space-x-1.5 cursor-pointer disabled:cursor-not-allowed"
+              >
+                {isDeletingProject && <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+                <span>{isDeletingProject ? 'Moving...' : 'Move to Recycle Bin'}</span>
               </button>
             </div>
           </div>

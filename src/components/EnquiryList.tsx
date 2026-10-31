@@ -40,11 +40,13 @@ import {
   canDeleteEnquiry,
   canExportData,
   isAdmin,
-  getEffectiveWorkspaceRole
+  getEffectiveWorkspaceRole,
+  isCreatorOnlyViewer
 } from '../utils/permissions';
 import TemperatureBadge from './TemperatureBadge';
 import { IndustryBadge } from '../utils/taxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
+import HoverScrollText from './common/HoverScrollText';
 import { InitiateActivityOptions, useActivityLauncher } from '../context/ActivityLauncherContext';
 import Company360Modal from './Company360Modal';
 import { QuickClaimModal } from './QuickClaimModal';
@@ -168,6 +170,7 @@ export interface GapDetectorRowProps {
   isMarkingMode: boolean;
   isEditable: boolean;
   isReservingGap: number | null;
+  occupiedWorkspaceSns?: Set<number>;
   onFillGap: (sn: number) => void;
 }
 
@@ -178,6 +181,7 @@ export const GapDetectorRow = React.memo(function GapDetectorRow({
   isMarkingMode,
   isEditable,
   isReservingGap,
+  occupiedWorkspaceSns,
   onFillGap
 }: GapDetectorRowProps) {
   if (prevSn === null || curSn === null) return null;
@@ -195,28 +199,49 @@ export const GapDetectorRow = React.memo(function GapDetectorRow({
 
   if (gapMin === null || gapMax === null || gapMin > gapMax) return null;
 
-  const gapLabel = gapMin === gapMax ? `#${gapMin}` : `#${gapMin} - #${gapMax}`;
-  const fillSn = gapMin;
+  // Filter out sequence numbers that are already occupied anywhere in the workspace (e.g. owned by other reps)
+  const missingSns: number[] = [];
+  // Cap scan at 500 to avoid pathological loops on legacy imported SN jumps
+  const scanLimit = Math.min(gapMax, gapMin + 500);
+  for (let sn = gapMin; sn <= scanLimit; sn++) {
+    if (!occupiedWorkspaceSns || !occupiedWorkspaceSns.has(sn)) {
+      missingSns.push(sn);
+    }
+  }
+
+  if (missingSns.length === 0) return null;
+
+  const firstMissing = missingSns[0];
+  const lastMissing = missingSns[missingSns.length - 1];
+  const isContiguous = lastMissing - firstMissing + 1 === missingSns.length;
+  const gapLabel =
+    missingSns.length === 1
+      ? `#${firstMissing}`
+      : isContiguous
+      ? `#${firstMissing} – #${lastMissing}`
+      : `#${firstMissing} – #${lastMissing} (${missingSns.length} open)`;
+  const fillSn = sortAsc ? firstMissing : lastMissing;
 
   return (
     <tr key={`gap-${prevSn}-${curSn}`} className="bg-amber-500/5 border-y border-dashed border-amber-500/20">
-      <td colSpan={isMarkingMode ? 9 : 8} className="py-1.5 px-4">
-        <div className="flex items-center justify-between text-xs text-amber-600/90 dark:text-amber-400 font-mono">
-          <div className="flex items-center space-x-2">
+      <td colSpan={isMarkingMode ? 9 : 8} className="py-1.5 px-3">
+        <div className="flex items-center justify-between gap-2 text-xs text-amber-600/90 dark:text-amber-400 font-mono">
+          <div className="flex items-center space-x-2 min-w-0">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 inline-block animate-pulse" />
-            <span className="font-semibold">Missing Sequence: {gapLabel}</span>
+            <span className="font-semibold truncate">Missing Sequence: {gapLabel}</span>
           </div>
           {isEditable && (
             <button
               type="button"
               disabled={isReservingGap === fillSn}
               onClick={() => onFillGap(fillSn)}
-              className={`px-2.5 py-0.5 text-[11px] font-semibold rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-colors flex items-center gap-1 font-sans ${
+              className={`shrink-0 px-2.5 py-0.5 text-[11px] font-semibold rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-colors inline-flex items-center gap-1 font-sans whitespace-nowrap ${
                 isReservingGap === fillSn ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
               }`}
-              title={`Reserve sequence gap #${fillSn}`}
+              title={`Reserve unoccupied sequence gap #${fillSn}`}
             >
-              <span>{isReservingGap === fillSn ? 'Reserving...' : '+ Fill Gap'}</span>
+              <Plus className="w-3 h-3 shrink-0" />
+              <span>{isReservingGap === fillSn ? 'Reserving...' : `Fill Gap #${fillSn}`}</span>
             </button>
           )}
         </div>
@@ -236,6 +261,7 @@ export interface EnquiryTableRowProps {
   isEditable: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  isCreatorOnly?: boolean;
   companyName: string;
   resolvedCompany?: Company;
   salesperson?: Salesperson;
@@ -259,6 +285,7 @@ export function areRowPropsEqual(
   if (prevProps.isEditable !== nextProps.isEditable) return false;
   if (prevProps.canEdit !== nextProps.canEdit) return false;
   if (prevProps.canDelete !== nextProps.canDelete) return false;
+  if (prevProps.isCreatorOnly !== nextProps.isCreatorOnly) return false;
   if (prevProps.companyName !== nextProps.companyName) return false;
 
   // Active quotation status and value changes check
@@ -329,6 +356,7 @@ export function areRowPropsEqual(
       prevE.updatedAt !== nextE.updatedAt ||
       prevE.is_gap_placeholder !== nextE.is_gap_placeholder ||
       prevE.is_deleted !== nextE.is_deleted ||
+      prevE.creator_access_released !== nextE.creator_access_released ||
       prevE.attachments?.length !== nextE.attachments?.length ||
       prevE.line_items?.length !== nextE.line_items?.length
     ) {
@@ -354,6 +382,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
   isEditable,
   canEdit,
   canDelete,
+  isCreatorOnly,
   companyName,
   resolvedCompany,
   salesperson,
@@ -373,7 +402,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
     (e.company_name && e.company_name.includes('[Reserved Sequence'))
   );
 
-  const isClickable = Boolean(resolvedCompany?.id || e.company_id || resolvedCompany);
+  const isClickable = !isGapReserved && Boolean(resolvedCompany?.id || e.company_id || resolvedCompany);
 
   const spId = resolveSalespersonIdentifier(e);
   const spName = resolveSalespersonName(e);
@@ -391,7 +420,6 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
   const { prefix, formattedAmount } = getEnquiryCurrencyParts(e);
 
   const handleRowClick = (evt: React.MouseEvent<HTMLTableRowElement>) => {
-    // Text selection guard: If user highlighted/copied text, don't open drawer
     const selection = window.getSelection()?.toString();
     if (selection && selection.trim().length > 0) {
       return;
@@ -403,7 +431,6 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
 
   const handleRowKeyDown = (evt: React.KeyboardEvent<HTMLTableRowElement>) => {
     if (evt.key === 'Enter' || evt.key === ' ') {
-      // Don't trigger if focus is already inside an interactive child element
       const targetTag = (evt.target as HTMLElement)?.tagName?.toLowerCase();
       if (targetTag === 'input' || targetTag === 'select' || targetTag === 'button') {
         return;
@@ -415,6 +442,12 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
     }
   };
 
+  const cleanGapMemo = isGapReserved
+    ? (companyName || '')
+        .replace(/\[Reserved Sequence\s*\/?\s*#?\d*\]/gi, '')
+        .trim()
+    : '';
+
   return (
     <tr
       key={e.id}
@@ -424,7 +457,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
       onClick={handleRowClick}
       onKeyDown={handleRowKeyDown}
       className={`cursor-pointer border-b border-slate-200/80 border-l-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:bg-slate-50/90 group ${
-        isGapReserved ? 'opacity-75 bg-slate-50/50 border-dashed' : ''
+        isGapReserved ? 'opacity-80 bg-amber-50/20 border-dashed' : ''
       } ${
         isChecked && isMarkingMode
           ? 'border-l-blue-600 bg-blue-50/50 font-medium'
@@ -432,7 +465,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
       }`}
     >
       {isMarkingMode && (
-        <td className="py-3 px-4 text-center" onClick={(evt) => evt.stopPropagation()}>
+        <td className="py-2.5 px-2.5 text-center" onClick={(evt) => evt.stopPropagation()}>
           <input
             type="checkbox"
             checked={isChecked}
@@ -442,60 +475,75 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           />
         </td>
       )}
-      <td className="py-3 px-4 font-mono text-xs text-slate-500 font-semibold whitespace-nowrap text-center">
+      <td className="py-2.5 px-2.5 font-mono text-xs text-slate-500 font-semibold whitespace-nowrap text-center">
         #{e.sn}
       </td>
-      <td className="py-3 px-4 font-semibold text-slate-900 min-w-[160px] max-w-[220px]">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center space-x-1.5 min-w-0">
-            <span
-              className={`truncate text-sm font-semibold ${isClickable ? 'text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer' : 'text-slate-700 dark:text-slate-300'}`}
-              onClick={(evt) => {
-                if (isClickable) {
-                  evt.stopPropagation();
-                  onCompanyClick(e);
-                }
-              }}
-              title={isClickable ? `View 360° profile for ${companyName}` : undefined}
-            >
-              {companyName}
+      <td className="py-2.5 px-2.5 font-semibold text-slate-900 min-w-[150px] max-w-[210px]">
+        {isGapReserved ? (
+          <div className="flex flex-col gap-0.5">
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-400 font-mono">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+              <span>Reserved Sequence #{e.sn}</span>
             </span>
-            {companyName && companyName !== 'Unknown Client' && (
-              <div className="shrink-0" onClick={(evt) => evt.stopPropagation()}>
-                <GoogleSearchButton
-                  companyName={companyName}
-                  location={resolvedCompany?.city || (companies || []).find((c) => c && c.id === e.company_id)?.city}
-                  size="xs"
-                />
-              </div>
-            )}
+            <span className="text-[11px] font-normal text-slate-500 truncate">
+              {cleanGapMemo || 'Unassigned sequence placeholder'}
+            </span>
           </div>
-          <div className="flex items-center space-x-1.5 flex-wrap gap-y-1" onClick={(evt) => evt.stopPropagation()}>
-            {resolvedCompany && (
-              <>
-                <TemperatureBadge
-                  companyId={resolvedCompany.id}
-                  temperature={resolvedCompany.temperature}
-                  isDnc={resolvedCompany.is_dnc}
-                  variant="compact"
-                  companies={companies || []}
-                  setCompanies={setCompanies}
-                />
-                <IndustryBadge company={resolvedCompany} size="sm" />
-              </>
-            )}
-            {e.enquiry_source && (
-              <span
-                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-sans font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-700/60"
-                title={`Enquiry Source: ${normalizeEnquirySource(e.enquiry_source)}`}
-              >
-                {normalizeEnquirySource(e.enquiry_source)}
-              </span>
-            )}
+        ) : (
+          <div className="flex flex-col gap-1 min-w-0">
+            <div className="flex items-center space-x-1.5 min-w-0">
+              <HoverScrollText
+                text={companyName}
+                className={`text-sm font-semibold flex-1 ${
+                  isClickable
+                    ? 'text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer'
+                    : 'text-slate-700 dark:text-slate-300'
+                }`}
+                onClick={(evt) => {
+                  if (isClickable) {
+                    evt.stopPropagation();
+                    onCompanyClick(e);
+                  }
+                }}
+                title={isClickable ? `View 360° profile for ${companyName}` : companyName}
+              />
+              {companyName && companyName !== 'Unknown Client' && (
+                <div className="shrink-0" onClick={(evt) => evt.stopPropagation()}>
+                  <GoogleSearchButton
+                    companyName={companyName}
+                    location={resolvedCompany?.city || (companies || []).find((c) => c && c.id === e.company_id)?.city}
+                    size="xs"
+                  />
+                </div>
+              )}
+            </div>
+            <div className="flex items-center space-x-1.5 flex-wrap gap-y-1" onClick={(evt) => evt.stopPropagation()}>
+              {resolvedCompany && (
+                <>
+                  <TemperatureBadge
+                    companyId={resolvedCompany.id}
+                    temperature={resolvedCompany.temperature}
+                    isDnc={resolvedCompany.is_dnc}
+                    variant="compact"
+                    companies={companies || []}
+                    setCompanies={setCompanies}
+                  />
+                  <IndustryBadge company={resolvedCompany} size="sm" />
+                </>
+              )}
+              {e.enquiry_source && (
+                <span
+                  className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-sans font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-700/60"
+                  title={`Enquiry Source: ${normalizeEnquirySource(e.enquiry_source)}`}
+                >
+                  {normalizeEnquirySource(e.enquiry_source)}
+                </span>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </td>
-      <td className="py-3 px-4 whitespace-nowrap">
+      <td className="py-2.5 px-2.5 whitespace-nowrap">
         <div className="flex flex-col items-start gap-1">
           {(() => {
             // Find issued formal quotation attachment reference if present
@@ -582,20 +630,30 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           })()}
         </div>
       </td>
-      <td className="py-3 px-4 whitespace-nowrap">
-        <span
-          className="font-mono text-xs font-semibold text-slate-600 bg-slate-100/80 px-2 py-0.5 rounded border border-slate-200/60"
-          title={titleText}
-        >
-          {initials}
-        </span>
+      <td className="py-2.5 px-2.5 whitespace-nowrap">
+        <div className="flex flex-col items-start gap-0.5">
+          <span
+            className="font-mono text-xs font-semibold text-slate-600 bg-slate-100/80 px-2 py-0.5 rounded border border-slate-200/60"
+            title={titleText}
+          >
+            {initials}
+          </span>
+          {isCreatorOnly && (
+            <span
+              className="text-[9px] font-sans font-semibold px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 border border-amber-200/80 whitespace-nowrap"
+              title="Visible to you because you logged this enquiry on behalf of the assigned salesperson"
+            >
+              Logged by You
+            </span>
+          )}
+        </div>
       </td>
-      <td className="py-3 px-4 whitespace-nowrap">
+      <td className="py-2.5 px-2.5 whitespace-nowrap">
         <span className="font-mono text-xs text-slate-600 font-medium">
           {formatEnquiryDate(e.enquiry_date)}
         </span>
       </td>
-      <td className="py-3 px-4 whitespace-nowrap" onClick={(evt) => evt.stopPropagation()}>
+      <td className="py-2.5 px-2.5 whitespace-nowrap" onClick={(evt) => evt.stopPropagation()}>
         <div className="flex flex-col items-start gap-1">
           <div className="relative inline-flex items-center">
             <select
@@ -653,7 +711,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           )}
         </div>
       </td>
-      <td className="py-3 px-4 text-right whitespace-nowrap font-mono tabular-nums">
+      <td className="py-2.5 px-2.5 text-right whitespace-nowrap font-mono tabular-nums">
         <div className="flex flex-col items-end gap-0.5">
           <div className="inline-flex items-baseline justify-end">
             <span className="text-xs font-semibold text-slate-500 mr-1">{prefix}</span>
@@ -692,15 +750,15 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           })()}
         </div>
       </td>
-      <td className="py-3 px-4 text-center whitespace-nowrap" onClick={(evt) => evt.stopPropagation()}>
-        <div className="flex items-center justify-center space-x-1.5" onClick={(evt) => evt.stopPropagation()}>
+      <td className="py-2.5 pl-2 pr-3 text-center whitespace-nowrap" onClick={(evt) => evt.stopPropagation()}>
+        <div className="flex items-center justify-end space-x-1" onClick={(evt) => evt.stopPropagation()}>
           <button
             type="button"
             onClick={(evt) => {
               evt.stopPropagation();
               if (e.id) onSelectEnquiry(e.id);
             }}
-            className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
+            className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
             title="View enquiry details"
           >
             Details
@@ -713,7 +771,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                   evt.stopPropagation();
                   onEditEnquiry(e);
                 }}
-                className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-300 transition shadow-2xs cursor-pointer inline-flex items-center gap-1"
+                className="px-2 py-1 text-[11px] font-semibold rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-300 transition shadow-2xs cursor-pointer inline-flex items-center gap-1"
                 title="Claim and populate details for this reserved gap sequence"
               >
                 <span>Claim Gap</span>
@@ -725,7 +783,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                   evt.stopPropagation();
                   onEditEnquiry(e);
                 }}
-                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-50/70 hover:bg-blue-100/80 text-blue-700 border border-blue-200/80 transition inline-flex items-center gap-1 cursor-pointer"
+                className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-blue-50/70 hover:bg-blue-100/80 text-blue-700 border border-blue-200/80 transition inline-flex items-center gap-1 cursor-pointer"
                 title="Edit enquiry"
               >
                 Edit
@@ -739,7 +797,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                 evt.stopPropagation();
                 onDeleteEnquiry(e);
               }}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition cursor-pointer"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition cursor-pointer shrink-0"
               title={isGapReserved ? "Delete Reserved Gap" : "Delete Record"}
             >
               <Trash className="w-3.5 h-3.5" />
@@ -757,6 +815,7 @@ export type QuoteLifecycleFilter = 'all' | 'pending' | 'won' | 'lost' | 'unquote
 
 interface EnquiryListProps {
   enquiries: Enquiry[];
+  occupiedWorkspaceSns?: Set<number>;
   setEnquiries?: React.Dispatch<React.SetStateAction<Enquiry[]>>;
   companies: Company[];
   salespersons: Salesperson[];
@@ -794,6 +853,7 @@ interface EnquiryListProps {
 
 export default function EnquiryList({
   enquiries,
+  occupiedWorkspaceSns,
   setEnquiries,
   companies,
   salespersons,
@@ -1581,15 +1641,17 @@ export default function EnquiryList({
     setIsReservingGap(targetSn);
     try {
       const workspaceId = activeWorkspace?.id || 'default';
-      const alreadyExists = (enquiries || []).some(
-        (e) =>
-          !e.is_deleted &&
-          (e.workspace_id === workspaceId || (!e.workspace_id && activeWorkspace?.is_default)) &&
-          Number(e.sn) === targetSn
-      );
+      const alreadyExists =
+        Boolean(occupiedWorkspaceSns?.has(targetSn)) ||
+        (enquiries || []).some(
+          (e) =>
+            !e.is_deleted &&
+            (e.workspace_id === workspaceId || (!e.workspace_id && activeWorkspace?.is_default)) &&
+            Number(e.sn) === targetSn
+        );
       if (alreadyExists) {
         if (triggerToast) {
-          triggerToast(`Sequence #${targetSn} is already occupied or reserved.`, 'error');
+          triggerToast(`Sequence #${targetSn} is already occupied in this workspace.`, 'error');
         }
         return;
       }
@@ -1650,7 +1712,7 @@ export default function EnquiryList({
     } finally {
       setIsReservingGap(null);
     }
-  }, [isReservingGap, activeWorkspace, enquiries, triggerToast, user, setEnquiries]);
+  }, [isReservingGap, activeWorkspace, enquiries, occupiedWorkspaceSns, triggerToast, user, setEnquiries]);
 
   const handleReserveGapSubmit = async (evt: React.FormEvent) => {
     evt.preventDefault();
@@ -1663,16 +1725,18 @@ export default function EnquiryList({
     }
 
     const currentWorkspaceId = activeWorkspace?.id;
-    const isOccupied = (enquiries || []).some(
-      (e) =>
-        !e.is_deleted &&
-        (e.workspace_id === currentWorkspaceId || (!e.workspace_id && activeWorkspace?.is_default)) &&
-        Number(e.sn) === snNum
-    );
+    const isOccupied =
+      Boolean(occupiedWorkspaceSns?.has(snNum)) ||
+      (enquiries || []).some(
+        (e) =>
+          !e.is_deleted &&
+          (e.workspace_id === currentWorkspaceId || (!e.workspace_id && activeWorkspace?.is_default)) &&
+          Number(e.sn) === snNum
+      );
 
     if (isOccupied) {
       if (triggerToast) {
-        triggerToast(`S/N #${snNum} is already occupied or reserved.`, 'error');
+        triggerToast(`S/N #${snNum} is already occupied or reserved in this workspace.`, 'error');
       } else {
         alert(`S/N #${snNum} is already occupied or reserved in this workspace.`);
       }
@@ -2305,7 +2369,7 @@ export default function EnquiryList({
               <thead className="bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 sticky top-0 z-10 shadow-2xs select-none">
                 <tr>
                   {isMarkingMode && (
-                    <th className="py-3 px-4 w-10 text-center">
+                    <th className="py-2.5 px-2.5 w-9 text-center">
                       <input
                         type="checkbox"
                         checked={paginatedEnquiries.length > 0 && paginatedEnquiries.every((e) => selectedEnquiryIds.includes(e.id!))}
@@ -2328,29 +2392,29 @@ export default function EnquiryList({
                       />
                     </th>
                   )}
-                  <th onClick={() => handleSort('sn')} className="py-3 px-4 w-16 text-center cursor-pointer hover:text-slate-800 transition">
+                  <th onClick={() => handleSort('sn')} className="py-2.5 px-2.5 w-14 text-center cursor-pointer hover:text-slate-800 transition">
                     <div className="flex items-center space-x-1 justify-center">
                       <span>S/N</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-3 px-4 min-w-[160px] max-w-[220px]">Company Account</th>
-                  <th className="py-3 px-4">Quote Ref No</th>
-                  <th className="py-3 px-4">Rep</th>
-                  <th onClick={() => handleSort('enquiry_date')} className="py-3 px-4 cursor-pointer hover:text-slate-800 transition">
+                  <th className="py-2.5 px-2.5 min-w-[150px] max-w-[210px]">Company Account</th>
+                  <th className="py-2.5 px-2.5">Quote Ref No</th>
+                  <th className="py-2.5 px-2.5">Rep</th>
+                  <th onClick={() => handleSort('enquiry_date')} className="py-2.5 px-2.5 cursor-pointer hover:text-slate-800 transition">
                     <div className="flex items-center space-x-1">
                       <span>Received Date</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-3 px-4">Status</th>
-                  <th onClick={() => handleSort('value_aed')} className="py-3 px-4 cursor-pointer hover:text-slate-800 transition text-right">
+                  <th className="py-2.5 px-2.5">Status</th>
+                  <th onClick={() => handleSort('value_aed')} className="py-2.5 px-2.5 cursor-pointer hover:text-slate-800 transition text-right">
                     <div className="flex items-center space-x-1 justify-end">
                       <span>Enquiry Value</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-3 px-4 w-24 text-center">Actions</th>
+                  <th className="py-2.5 pl-2 pr-3 w-36 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 font-sans">
@@ -2362,6 +2426,7 @@ export default function EnquiryList({
                   const salesperson = resolveSalespersonForEnquiry(e);
                   const canEdit = canEditEnquiry(user, activeWorkspace, e);
                   const canDelete = canDeleteEnquiry(user, activeWorkspace, e);
+                  const isCreatorOnly = isCreatorOnlyViewer(user, e, activeWorkspace, salespersons);
 
                   // In-Table Gap Detector: Compare S/N of current row with previous row
                   let prevSn: number | null = null;
@@ -2381,6 +2446,7 @@ export default function EnquiryList({
                         isMarkingMode={isMarkingMode}
                         isEditable={isEditable}
                         isReservingGap={isReservingGap}
+                        occupiedWorkspaceSns={occupiedWorkspaceSns}
                         onFillGap={handleFillGap}
                       />
                       <EnquiryTableRow
@@ -2390,6 +2456,7 @@ export default function EnquiryList({
                         isEditable={isEditable}
                         canEdit={canEdit}
                         canDelete={canDelete}
+                        isCreatorOnly={isCreatorOnly}
                         companyName={companyName}
                         resolvedCompany={resolvedComp}
                         salesperson={salesperson}
@@ -2532,8 +2599,8 @@ export default function EnquiryList({
                   <textarea
                     rows={8}
                     placeholder={`S/N	Quote Ref No	Received Date	Sales Person	Client Company	AED Value
-1990	1963-020124	2024-01-02	PV	Ionex Industrial	145000
-1991	1964-020124	2024-01-03	NS	Astraea Water Solutions	72000`}
+1990	1963-020124	2024-01-02	PV	Apex Industrial Trading	145000
+1991	1964-020124	2024-01-03	NS	Global Logistics Corp	72000`}
                     value={importText}
                     onChange={(e) => setImportText(e.target.value)}
                     className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-3 px-4 text-xs font-mono text-slate-800 placeholder:text-slate-300 focus:outline-none"
@@ -2980,7 +3047,10 @@ export default function EnquiryList({
                   {isSubmittingGap ? (
                     <span>Reserving...</span>
                   ) : (
-                    <span>+ Reserve Gap</span>
+                    <>
+                      <Plus className="w-3.5 h-3.5 shrink-0" />
+                      <span>Reserve Gap</span>
+                    </>
                   )}
                 </button>
               </div>

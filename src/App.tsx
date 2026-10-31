@@ -659,10 +659,21 @@ export default function App() {
 
   const workspaceProjects = useMemo(() => {
     return projects.filter((p) => {
+      if (p.is_deleted) return false;
       const wId = p.workspace_id || (p as any).workspaceId;
       return wId === activeWorkspace.id || (!wId && isDefaultWorkspace);
     });
   }, [projects, activeWorkspace.id, isDefaultWorkspace]);
+
+  const occupiedWorkspaceSns = useMemo(() => {
+    const set = new Set<number>();
+    workspaceEnquiries.forEach((e) => {
+      if (!e.is_deleted && typeof e.sn === 'number' && !isNaN(e.sn)) {
+        set.add(e.sn);
+      }
+    });
+    return set;
+  }, [workspaceEnquiries]);
 
   const workspaceProductCategories = useMemo(() => {
     return productCategories.filter((c) => {
@@ -734,9 +745,9 @@ export default function App() {
       return workspaceCallLogs;
     }
 
-    // Non-Admin: strictly isolate to activities attributed to them
-    return workspaceCallLogs.filter((l) => isActivityAttributedToUser(user, l, salespersons));
-  }, [workspaceCallLogs, user, activeWorkspace, salespersons, dataVisibilityScope]);
+    // Non-Admin: strictly isolate to activities attributed to them (respecting creator_access_released on linked enquiries)
+    return workspaceCallLogs.filter((l) => isActivityAttributedToUser(user, l, salespersons, workspaceEnquiries));
+  }, [workspaceCallLogs, user, activeWorkspace, salespersons, dataVisibilityScope, workspaceEnquiries]);
 
   useEffect(() => { setLocalCache('omni_workspaces', workspaces); }, [workspaces]);
   useEffect(() => { 
@@ -789,8 +800,122 @@ export default function App() {
   useEffect(() => { setLocalCache('omni_company_temperatures', companyTemperatures); }, [companyTemperatures]);
   useEffect(() => { setLocalCache('omni_industry_types', industryTypes); }, [industryTypes]);
 
-  // Silent Auto-Provisioning: Automatically create salespersons record for active workspace if missing
+  // Silent Auto-Provisioning & Roster Deduplication:
+  // Link or create a single canonical salesperson record for the active workspace without creating duplicates
   const autoProvisionedKeysRef = React.useRef<Set<string>>(new Set());
+
+  const deduplicateWorkspaceSalespersons = useCallback(async (silent = true): Promise<number> => {
+    const wsId = activeWorkspace?.id;
+    if (!wsId) return 0;
+
+    const wsReps = salespersons.filter((s) => {
+      const sWsId = s.workspace_id || (s as any).workspaceId;
+      return sWsId === wsId || (!sWsId && isDefaultWorkspace);
+    });
+    if (wsReps.length <= 1) return 0;
+
+    // Group by normalized email OR normalized full_name
+    const groups = new Map<string, Salesperson[]>();
+    wsReps.forEach((sp) => {
+      const normName = (sp.full_name || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      const normEmail = (sp.email || '').toLowerCase().trim();
+      const key = normName || normEmail || sp.id;
+      if (!key) return;
+      const list = groups.get(key) || [];
+      list.push(sp);
+      groups.set(key, list);
+    });
+
+    const idsToRemove = new Set<string>();
+    const updatesToPersist: Salesperson[] = [];
+    const remapIdMap = new Map<string, Salesperson>();
+
+    groups.forEach((group) => {
+      if (group.length <= 1) return;
+      // Pick canonical record: prefer one with linked_user_id/uid & email, or deterministic sp_${wsId}_* id
+      const sorted = [...group].sort((a, b) => {
+        const score = (r: Salesperson) =>
+          (r.linked_user_id || r.uid ? 4 : 0) +
+          (r.email ? 2 : 0) +
+          (r.id.startsWith(`sp_${wsId}_`) ? 1 : 0);
+        return score(b) - score(a);
+      });
+      const primary = { ...sorted[0] };
+      for (let i = 1; i < sorted.length; i++) {
+        const dup = sorted[i];
+        if (!primary.linked_user_id && (dup.linked_user_id || dup.uid)) {
+          primary.linked_user_id = dup.linked_user_id || dup.uid;
+          primary.userId = dup.userId || dup.uid;
+          primary.uid = dup.uid || dup.linked_user_id;
+        }
+        if (!primary.email && dup.email) primary.email = dup.email;
+        if (!primary.phone && dup.phone) primary.phone = dup.phone;
+        if (!primary.initials && dup.initials) primary.initials = dup.initials;
+        idsToRemove.add(dup.id);
+        remapIdMap.set(dup.id, primary);
+      }
+      updatesToPersist.push(primary);
+    });
+
+    if (idsToRemove.size === 0) {
+      if (!silent) {
+        setToast({ id: Date.now().toString(), message: 'Team roster is already clean — no duplicate profiles found.', type: 'info' });
+      }
+      return 0;
+    }
+
+    // Update state immediately
+    setSalespersons((prev) => {
+      const updatedMap = new Map(updatesToPersist.map((u) => [u.id, u]));
+      const next = prev
+        .filter((sp) => !idsToRemove.has(sp.id))
+        .map((sp) => updatedMap.get(sp.id) || sp);
+      setLocalCache('omni_salespersons', next);
+      return next;
+    });
+
+    // Re-point any enquiries referencing a duplicate salesperson_id
+    setEnquiries((prev) => {
+      let changed = false;
+      const next = prev.map((enq) => {
+        const replacement = enq.salesperson_id ? remapIdMap.get(enq.salesperson_id) : undefined;
+        if (replacement) {
+          changed = true;
+          safeUpdateDoc('enquiries', enq.id, {
+            salesperson_id: replacement.id,
+            salesperson_initials: replacement.initials || enq.salesperson_initials,
+            assigned_to_uid: replacement.linked_user_id || replacement.uid || enq.assigned_to_uid
+          }).catch(() => {});
+          return {
+            ...enq,
+            salesperson_id: replacement.id,
+            salesperson_initials: replacement.initials || enq.salesperson_initials,
+            assigned_to_uid: replacement.linked_user_id || replacement.uid || enq.assigned_to_uid
+          };
+        }
+        return enq;
+      });
+      if (changed) setLocalCache('omni_enquiries', next);
+      return next;
+    });
+
+    // Persist merges & delete duplicate docs in Firestore
+    for (const primary of updatesToPersist) {
+      await safeSetDoc('salespersons', primary.id, primary, { merge: true }).catch(() => {});
+    }
+    for (const dupId of Array.from(idsToRemove)) {
+      await safeDeleteDoc('salespersons', dupId).catch(() => {});
+    }
+
+    if (!silent) {
+      setToast({
+        id: Date.now().toString(),
+        message: `Merged ${idsToRemove.size} duplicate salesperson profile${idsToRemove.size > 1 ? 's' : ''}.`,
+        type: 'success'
+      });
+    }
+    return idsToRemove.size;
+  }, [activeWorkspace?.id, isDefaultWorkspace, salespersons]);
 
   useEffect(() => {
     if (!user || !activeWorkspace?.id) return;
@@ -803,51 +928,105 @@ export default function App() {
     const key = `${wsId}_${userUid}`;
     if (autoProvisionedKeysRef.current.has(key)) return;
 
-    // Check if matching salesperson record exists in this workspace
-    const hasSalesperson = salespersons.some((s) => {
+    const displayName =
+      user.full_name ||
+      (user as any).displayName ||
+      user.username ||
+      (userEmail ? userEmail.split('@')[0] : 'User');
+    const normDisplayName = displayName.toLowerCase().replace(/\s+/g, ' ').trim();
+    const nameParts = displayName.trim().split(/\s+/);
+    let autoInitials = '';
+    if (nameParts.length >= 2) {
+      autoInitials = (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase();
+    } else if (nameParts.length === 1 && nameParts[0].length >= 2) {
+      autoInitials = nameParts[0].substring(0, 2).toUpperCase();
+    } else {
+      autoInitials = (displayName.substring(0, 2) || 'RM').toUpperCase();
+    }
+    const userInitials = (user.initials || autoInitials).toUpperCase().trim();
+
+    // Check if matching salesperson record exists in this workspace (by UID, email, or unlinked full_name/initials)
+    const existingMatch = salespersons.find((s) => {
       const sWsId = s.workspace_id || (s as any).workspaceId;
-      if (sWsId !== wsId) return false;
+      if (sWsId !== wsId && !(!sWsId && isDefaultWorkspace)) return false;
 
-      const matchesUid = (s.linked_user_id && s.linked_user_id === userUid) || (s.user_id && s.user_id === userUid) || s.uid === userUid;
+      const matchesUid =
+        (s.linked_user_id && s.linked_user_id === userUid) ||
+        (s.user_id && s.user_id === userUid) ||
+        s.uid === userUid;
       const matchesEmail = s.email && userEmail && s.email.toLowerCase().trim() === userEmail;
+      if (matchesUid || matchesEmail) return true;
 
-      return Boolean(matchesUid || matchesEmail);
+      const sNormName = (s.full_name || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      const isUnlinked = !s.linked_user_id && !s.uid;
+      if (sNormName && normDisplayName && sNormName === normDisplayName) return true;
+      if (isUnlinked && s.initials && userInitials && s.initials.toUpperCase().trim() === userInitials && sNormName === normDisplayName) {
+        return true;
+      }
+      return false;
     });
 
-    if (!hasSalesperson) {
+    if (existingMatch) {
       autoProvisionedKeysRef.current.add(key);
-
-      const displayName = user.full_name || (user as any).displayName || user.username || (userEmail ? userEmail.split('@')[0] : 'User');
-      const nameParts = displayName.trim().split(/\s+/);
-      let autoInitials = '';
-      if (nameParts.length >= 2) {
-        autoInitials = (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase();
-      } else if (nameParts.length === 1 && nameParts[0].length >= 2) {
-        autoInitials = nameParts[0].substring(0, 2).toUpperCase();
-      } else {
-        autoInitials = (displayName.substring(0, 2) || 'RM').toUpperCase();
+      // If existing record was created manually without UID/email, link it in-place rather than creating a second record
+      if (!existingMatch.linked_user_id || !existingMatch.email) {
+        const linkedPatch = {
+          ...existingMatch,
+          workspace_id: wsId,
+          email: existingMatch.email || user.email || '',
+          linked_user_id: userUid,
+          user_id: userUid,
+          uid: userUid,
+          updatedAt: new Date().toISOString()
+        };
+        safeSetDoc('salespersons', existingMatch.id, linkedPatch, { merge: true }).catch(() => {});
       }
-
-      const spDocId = `sp_${wsId}_${userUid}`;
-      const newSalespersonDoc = {
-        id: spDocId,
-        workspace_id: wsId,
-        full_name: displayName,
-        email: user.email || '',
-        initials: autoInitials,
-        linked_user_id: userUid,
-        user_id: userUid,
-        uid: userUid,
-        status: 'Active',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-
-      safeSetDoc('salespersons', spDocId, newSalespersonDoc, { merge: true }).catch((err) => {
-        console.warn('Silent auto-provisioning salesperson error:', err);
-      });
+      return;
     }
-  }, [user, activeWorkspace?.id, salespersons]);
+
+    autoProvisionedKeysRef.current.add(key);
+
+    const spDocId = `sp_${wsId}_${userUid}`;
+    const newSalespersonDoc = {
+      id: spDocId,
+      workspace_id: wsId,
+      full_name: displayName,
+      email: user.email || '',
+      initials: userInitials,
+      linked_user_id: userUid,
+      user_id: userUid,
+      uid: userUid,
+      status: 'Active' as const,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    safeSetDoc('salespersons', spDocId, newSalespersonDoc, { merge: true }).catch((err) => {
+      console.warn('Silent auto-provisioning salesperson error:', err);
+    });
+  }, [user, activeWorkspace?.id, salespersons, isDefaultWorkspace]);
+
+  // Auto-merge duplicate salesperson records in the active workspace on load
+  const autoDedupedWsRef = React.useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!activeWorkspace?.id || salespersons.length <= 1) return;
+    const wsId = activeWorkspace.id;
+    const wsReps = salespersons.filter((s) => (s.workspace_id || (s as any).workspaceId) === wsId);
+    const seenNames = new Set<string>();
+    let hasDuplicate = false;
+    for (const sp of wsReps) {
+      const k = (sp.full_name || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      if (k && seenNames.has(k)) {
+        hasDuplicate = true;
+        break;
+      }
+      if (k) seenNames.add(k);
+    }
+    if (hasDuplicate && !autoDedupedWsRef.current.has(`${wsId}_${wsReps.length}`)) {
+      autoDedupedWsRef.current.add(`${wsId}_${wsReps.length}`);
+      deduplicateWorkspaceSalespersons(true).catch(() => {});
+    }
+  }, [activeWorkspace?.id, salespersons, deduplicateWorkspaceSalespersons]);
 
   // Auto-Registration & Self-Healing: Register Active Workspace as an Internal Company if not exists
   const isAutoProvisioningInternalCompanyRef = React.useRef(false);
@@ -1517,10 +1696,10 @@ export default function App() {
     const enqToDelete = enquiries.find((e) => e.id === cleanId);
     console.log(`[handleDeleteEnquiry] Deleting enquiry ID ${cleanId} (#${enqToDelete?.sn || 'unknown'})`);
 
-    // Active project guard: block deletion if linked to an active project
+    // Active project guard: block deletion if linked to an active non-deleted project
     if (enqToDelete?.project_id) {
-      const linkedProject = projects.find((p) => p.id === enqToDelete.project_id || p.enquiry_id === cleanId);
-      const isCancelled = linkedProject ? linkedProject.status === 'Cancelled' : false;
+      const linkedProject = projects.find((p) => !p.is_deleted && (p.id === enqToDelete.project_id || p.enquiry_id === cleanId));
+      const isCancelled = linkedProject ? linkedProject.status === 'Cancelled' : true;
       if (!isCancelled) {
         const errorMsg = `Cannot delete Proposal #${enqToDelete.sn}: An active project is linked. Please cancel the project first.`;
         if (triggerToast) {
@@ -1852,12 +2031,13 @@ export default function App() {
         {currentTab === 'enquiries' && (
           <EnquiryList
             enquiries={visibleEnquiries}
+            occupiedWorkspaceSns={occupiedWorkspaceSns}
             setEnquiries={setEnquiries}
             companies={workspaceCompanies}
             setCompanies={setCompanies}
             contacts={workspaceContacts}
             salespersons={workspaceSalespersons}
-            projects={projects}
+            projects={workspaceProjects}
             setProjects={setProjects}
             onSelectEnquiry={setSelectedEnquiryId}
             onAddEnquiry={() => {
@@ -1888,6 +2068,10 @@ export default function App() {
           <ProjectRegistry
             projects={workspaceProjects}
             setProjects={setProjects}
+            enquiries={workspaceEnquiries}
+            setEnquiries={setEnquiries}
+            salespersons={workspaceSalespersons}
+            workspaceMembers={workspaceMembers}
             products={workspaceProducts}
             setProducts={setProducts}
             activeWorkspace={activeWorkspace}
@@ -1897,6 +2081,7 @@ export default function App() {
             initialProjectId={activeProjectId}
             onClearInitialProject={() => setActiveProjectId(null)}
             onStockUpdated={refreshProducts}
+            onSelectEnquiry={(enqId) => setSelectedEnquiryId(enqId)}
           />
         )}
 
@@ -1946,6 +2131,7 @@ export default function App() {
             activeWorkspace={activeWorkspace}
             currentUser={user}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+            onDeduplicateSalespersons={() => deduplicateWorkspaceSalespersons(false)}
           />
         )}
 
@@ -2199,6 +2385,9 @@ export default function App() {
         contacts={contacts}
         products={products}
         callLogs={callLogs}
+        projects={projects}
+        setProjects={setProjects}
+        setEnquiries={setEnquiries}
         activeWorkspaceId={activeWorkspace?.id}
         activeWorkspace={activeWorkspace}
         triggerToast={triggerToast}

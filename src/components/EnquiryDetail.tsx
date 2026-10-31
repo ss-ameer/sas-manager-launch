@@ -3,10 +3,11 @@ import { createPortal } from 'react-dom';
 import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone, Product, LineItem, QuotationLineItem, DropdownOption, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource, PIPELINE_STATUS_GROUPS } from '../types';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { safeUpdateDoc, safeAddDoc } from '../firebase';
-import { isRecordOwner, getUserWorkspaceRole, canManageEnquirySharing, canEditEnquiry, canDeleteEnquiry } from '../utils/permissions';
+import { isRecordOwner, getUserWorkspaceRole, canManageEnquirySharing, canEditEnquiry, canDeleteEnquiry, isCreatorOnlyViewer } from '../utils/permissions';
 import TemperatureBadge from './TemperatureBadge';
 import { IndustryBadge } from '../utils/taxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
+import HoverScrollText from './common/HoverScrollText';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { useEntityEdit } from '../context/EntityEditContext';
 import { getWhatsAppUrl } from '../utils/defaults';
@@ -2556,6 +2557,46 @@ export default function EnquiryDetail({
   const isBasicTier = user.role !== 'Admin' && user.dataVisibilityTier === 'BASIC';
   const isOwnerOrAttributed = isRecordOwner(user, currentEnquiry);
   const isMaskedForBasic = isBasicTier && !isOwnerOrAttributed;
+  const isCreatorOnly = isCreatorOnlyViewer(user, currentEnquiry, activeWorkspace, salespersons);
+
+  const handleReleaseCreatorAccess = async () => {
+    const enquiryId = currentEnquiry.id || (currentEnquiry as any)._id;
+    if (!enquiryId) return;
+    const nowIso = new Date().toISOString();
+    try {
+      const patch: Partial<Enquiry> = {
+        creator_access_released: true,
+        creator_access_released_at: nowIso,
+        updatedAt: nowIso
+      };
+      await safeUpdateDoc('enquiries', enquiryId, patch);
+      const updatedEnquiry: Enquiry = { ...currentEnquiry, ...patch };
+      await EnquiryRepository.save(updatedEnquiry).catch(() => {});
+      setCurrentEnquiry(updatedEnquiry);
+      if (onUpdateEnquiry) onUpdateEnquiry(updatedEnquiry);
+      if (setEnquiries) {
+        setEnquiries((prev) => prev.map((e) => (e.id === enquiryId ? updatedEnquiry : e)));
+      }
+      if (triggerToast) {
+        triggerToast('Ownership handed over to assigned representative. Creator-only access released.', 'success');
+      }
+      onClose();
+    } catch (err: any) {
+      console.error('Failed releasing creator access:', err);
+      if (triggerToast) {
+        triggerToast('Failed to release creator access: ' + (err?.message || 'Unknown error'), 'error');
+      }
+    }
+  };
+
+  const shouldShowProposalOptionBadge = (opt?: string | null) => {
+    const clean = (opt || '').trim();
+    if (!clean) return false;
+    const lower = clean.toLowerCase();
+    if (lower === 'none' || lower === 'none / single option' || lower === 'single option') return false;
+    if ((lower === 'default / included' || lower === 'baseline / all') && !optionAnalysis.hasMultipleOptions) return false;
+    return true;
+  };
 
   const formatCurrency = (val: number) => {
     if (isMaskedForBasic) return 'AED *** (Basic View)';
@@ -2787,10 +2828,10 @@ export default function EnquiryDetail({
                       'Unassigned Account';
                     return (
                       <h3
-                        className="text-base sm:text-lg lg:text-xl font-bold text-slate-900 font-sans truncate max-w-full"
+                        className="text-base sm:text-lg lg:text-xl font-bold text-slate-900 font-sans min-w-0 max-w-full"
                         title={resolvedCompanyName}
                       >
-                        {resolvedCompanyName}
+                        <HoverScrollText text={resolvedCompanyName} />
                       </h3>
                     );
                   })()}
@@ -2817,16 +2858,21 @@ export default function EnquiryDetail({
                       Ref: {currentEnquiry.customer_reference_code || enquiry.customer_reference_code}
                     </span>
                   )}
-                  {(currentEnquiry.proposal_option || enquiry.proposal_option) && (
+                  {shouldShowProposalOptionBadge(currentEnquiry.proposal_option || enquiry.proposal_option) && (
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-sans font-semibold bg-purple-50 text-purple-700 border border-purple-200 shrink-0" title="Proposal Option">
                       {currentEnquiry.proposal_option || enquiry.proposal_option}
                     </span>
                   )}
+                  {isCreatorOnly && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-sans font-semibold bg-amber-50 text-amber-700 border border-amber-200 shrink-0" title="Visible to you because you logged this enquiry on behalf of the assigned salesperson">
+                      Logged by You
+                    </span>
+                  )}
                 </div>
                 {(currentEnquiry.subject || enquiry.subject) && (
-                  <p className="text-xs text-slate-500 font-medium truncate mt-0.5" title={currentEnquiry.subject || enquiry.subject}>
-                    {currentEnquiry.subject || enquiry.subject}
-                  </p>
+                  <div className="text-xs text-slate-500 font-medium mt-0.5 min-w-0">
+                    <HoverScrollText text={currentEnquiry.subject || enquiry.subject || ''} />
+                  </div>
                 )}
               </div>
             </div>
@@ -3047,11 +3093,34 @@ export default function EnquiryDetail({
 
           {activeTab === 'details' && (
             <div className="space-y-6">
+              {/* Creator-Only Visibility Banner & 1-Click Ownership Hand Over */}
+              {isCreatorOnly && (
+                <div className="p-3.5 rounded-xl bg-amber-50/90 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
+                      <Shield className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>Logged by You — Assigned to {resolveSalespersonName(currentEnquiry) || resolveSalespersonIdentifier(currentEnquiry) || 'Another Representative'}</span>
+                    </div>
+                    <p className="text-[11px] text-amber-800/90 leading-relaxed">
+                      This enquiry is currently visible in your list because you created it. Once your entry work is complete, you can hand over exclusive visibility to the assigned salesperson.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleReleaseCreatorAccess}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0 shadow-2xs"
+                    title="Release creator-only visibility on this enquiry and its linked call logs so only the assigned rep (and Admins) see it"
+                  >
+                    Hand Over to Assigned Rep
+                  </button>
+                </div>
+              )}
+
               {/* Status and Value Header Card */}
               <div className="grid grid-cols-2 gap-4">
                 <div className={`p-4 rounded-xl border flex flex-col justify-between ${getStatusStyle(currentEnquiry.status)}`}>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-mono uppercase tracking-widest opacity-60">Status Code</span>
+                    <span className="text-[10px] font-mono uppercase tracking-widest opacity-60">Status</span>
                     {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
                       <select
                         value={normalizeEnquiryStatus(currentEnquiry.status)}
@@ -3119,9 +3188,9 @@ export default function EnquiryDetail({
                       <>
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">
-                            Package Value (Excl. & Incl. VAT)
+                            Package Value
                           </span>
-                          {(currentEnquiry.proposal_option || enquiry.proposal_option) && (
+                          {shouldShowProposalOptionBadge(currentEnquiry.proposal_option || enquiry.proposal_option) && (
                             <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-800 border border-purple-200" title="Selected Option">
                               {currentEnquiry.proposal_option || enquiry.proposal_option}
                             </span>
@@ -3635,7 +3704,7 @@ export default function EnquiryDetail({
                     <div className="flex items-center space-x-2">
                       <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest flex items-center space-x-2">
                         <Building className="w-3.5 h-3.5 text-slate-400" />
-                        <span>Company switchboard</span>
+                        <span>Client Account</span>
                       </h4>
                       <GoogleSearchButton
                         companyName={matchedCompany.display_name}
@@ -3894,9 +3963,9 @@ export default function EnquiryDetail({
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-mono text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold flex items-center space-x-1.5">
                     <FileText className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Identifiers & Timeline</span>
+                    <span>Enquiry Details</span>
                   </h4>
-                  {(currentEnquiry.proposal_option || enquiry.proposal_option) && (
+                  {shouldShowProposalOptionBadge(currentEnquiry.proposal_option || enquiry.proposal_option) && (
                     <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800" title="Proposal Option">
                       {currentEnquiry.proposal_option || enquiry.proposal_option}
                     </span>
@@ -3999,7 +4068,7 @@ export default function EnquiryDetail({
                   <div className="flex items-center space-x-2">
                     <Users className="w-4 h-4 text-indigo-600" />
                     <h4 className="text-xs font-mono text-slate-500 uppercase tracking-widest font-bold">
-                      Collaborating Team & Sharing ({totalCollaboratorsCount + 1})
+                      Team Access ({totalCollaboratorsCount + 1})
                     </h4>
                   </div>
                   {canManageSharing ? (
@@ -4123,7 +4192,7 @@ export default function EnquiryDetail({
                             className="inline-flex items-center space-x-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 border border-dashed border-indigo-300 text-indigo-700 rounded-lg text-xs font-semibold transition cursor-pointer"
                           >
                             <UserPlus className="w-3 h-3" />
-                            <span>+ Add</span>
+                            <span>Add</span>
                           </button>
                         )}
                       </div>
@@ -4138,7 +4207,7 @@ export default function EnquiryDetail({
                           className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
                         >
                           <UserPlus className="w-3.5 h-3.5" />
-                          <span>+ Add Collaborator</span>
+                          <span>Add Collaborator</span>
                         </button>
                       ) : (
                         <span className="text-[11px] text-slate-400">Only deal owners & admins can add</span>
@@ -4182,7 +4251,7 @@ export default function EnquiryDetail({
                 <div className="space-y-3">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest">
-                      Source RFQ & Proposal Attachments ({(currentEnquiry.attachments || []).length})
+                      Attachments ({(currentEnquiry.attachments || []).length})
                     </h4>
                     {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
                       <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-semibold transition cursor-pointer shadow-2xs">
@@ -4191,7 +4260,7 @@ export default function EnquiryDetail({
                         ) : (
                           <UploadCloud className="w-3.5 h-3.5 text-blue-600" />
                         )}
-                        <span>{isUploadingDetailAttachment ? 'Uploading...' : '+ Attach RFQ / Spec File'}</span>
+                        <span>{isUploadingDetailAttachment ? 'Uploading...' : 'Attach File'}</span>
                         <input
                           type="file"
                           multiple
@@ -4282,7 +4351,7 @@ export default function EnquiryDetail({
                                   title="Toggle to automatically include this file in Quotation Studio Technical Annexes"
                                 >
                                   <FileCheck className="w-3.5 h-3.5" />
-                                  <span>{file.include_in_quote_annex ? 'In Quote Annex' : '+ Quote Annex'}</span>
+                                  <span>{file.include_in_quote_annex ? 'In Quote Annex' : 'Quote Annex'}</span>
                                 </button>
                               )}
 
@@ -4485,7 +4554,7 @@ export default function EnquiryDetail({
                         <div className="flex items-center gap-2">
                           <DollarSign className="w-4 h-4 text-emerald-600" />
                           <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-700">
-                            Baseline Commercial Summary & Margin
+                            Commercial Summary
                           </span>
                           {baselineList.length < sourceList.length && (
                             <span className="text-[10px] font-mono bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded">
@@ -4621,7 +4690,7 @@ export default function EnquiryDetail({
                           className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
                         >
                           <Package className="w-3.5 h-3.5" />
-                          <span>+ Add from Catalog</span>
+                          <span>Add from Catalog</span>
                         </button>
                         <button
                           type="button"
@@ -4629,7 +4698,7 @@ export default function EnquiryDetail({
                           className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          <span>+ Custom Item</span>
+                          <span>Custom Item</span>
                         </button>
                         {isInlineEditingItems ? (
                           <>
@@ -4942,7 +5011,7 @@ export default function EnquiryDetail({
                               type="text"
                               value={item.item_name ?? ''}
                               onChange={(e) => handleDraftItemChange(idx, 'item_name', e.target.value)}
-                              placeholder={canSplitLegacy ? `Suggested: ${parsedLegacy.title}` : 'Item Name / Heading (e.g. FRP Vessel 30x72)'}
+                              placeholder={canSplitLegacy ? `Suggested: ${parsedLegacy.title}` : 'Item Name / Heading (e.g. Industrial Control Unit)'}
                               className="flex-1 min-w-[180px] bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-900 focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
                             />
                             {canSplitLegacy && (
@@ -5113,8 +5182,8 @@ export default function EnquiryDetail({
                           </div>
                         </div>
 
-                        {/* Row 3: Lead Time, Option Scope, Brand / Make, Model / Part # */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-start">
+                        {/* Row 3: Lead Time, Option Scope, Brand / Make, Model / Part #, Origin & HS Code */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 items-start">
                           <div className="min-w-0">
                             <div className="h-4 flex items-center mb-1">
                               <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Lead Time</label>
@@ -5137,7 +5206,7 @@ export default function EnquiryDetail({
                                 handleDraftItemChange(idx, 'option', e.target.value);
                                 handleDraftItemChange(idx, 'option_designation' as any, e.target.value);
                               }}
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-sans text-slate-800 focus:outline-none focus:border-blue-500"
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-sans text-slate-800 focus:outline-none focus:border-blue-500"
                             >
                               <option value="Default / Included">Baseline / Included</option>
                               <option value="Option A">Option A (Baseline)</option>
@@ -5153,7 +5222,7 @@ export default function EnquiryDetail({
                             <input
                               type="text"
                               value={item.brand_make ?? ''}
-                              placeholder="e.g. Pentair, Grundfos"
+                              placeholder="Manufacturer / Brand"
                               onChange={(e) => handleDraftItemChange(idx, 'brand_make', e.target.value)}
                               className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-sans text-slate-800 focus:outline-none focus:border-blue-500"
                             />
@@ -5165,51 +5234,49 @@ export default function EnquiryDetail({
                             <input
                               type="text"
                               value={item.model_part_no ?? ''}
-                              placeholder="e.g. Structural 30x72"
+                              placeholder="Model / Part No."
                               onChange={(e) => handleDraftItemChange(idx, 'model_part_no', e.target.value)}
                               className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500"
                             />
                           </div>
-                        </div>
-
-                        {/* Row 4: Country of Origin, HS Code & Technical Description */}
-                        <div className="grid grid-cols-12 gap-3 items-start">
-                          <div className="col-span-6 sm:col-span-3 min-w-0">
+                          <div className="min-w-0">
                             <div className="h-4 flex items-center mb-1">
                               <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Country of Origin</label>
                             </div>
                             <input
                               type="text"
                               value={item.country_of_origin ?? ''}
-                              placeholder="e.g. USA, Italy, UAE"
+                              placeholder="e.g. Germany, UAE"
                               onChange={(e) => handleDraftItemChange(idx, 'country_of_origin', e.target.value)}
                               className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-sans text-slate-800 focus:outline-none focus:border-blue-500"
                             />
                           </div>
-                          <div className="col-span-6 sm:col-span-3 min-w-0">
+                          <div className="min-w-0">
                             <div className="h-4 flex items-center mb-1">
                               <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">HS Code</label>
                             </div>
                             <input
                               type="text"
                               value={item.hs_code ?? ''}
-                              placeholder="e.g. 8421.21.00"
+                              placeholder="e.g. 8537.10.00"
                               onChange={(e) => handleDraftItemChange(idx, 'hs_code', e.target.value)}
                               className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-800 focus:outline-none focus:border-blue-500"
                             />
                           </div>
-                          <div className="col-span-12 sm:col-span-6 min-w-0">
-                            <div className="h-4 flex items-center mb-1">
-                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Technical Description & Notes</label>
-                            </div>
-                            <textarea
-                              rows={2}
-                              value={item.description ?? ''}
-                              onChange={(e) => handleDraftItemChange(idx, 'description', e.target.value)}
-                              placeholder="Technical description & specification notes..."
-                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 resize-y focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
-                            />
+                        </div>
+
+                        {/* Row 4: Full-Width Technical Description & Notes */}
+                        <div className="w-full min-w-0">
+                          <div className="h-4 flex items-center mb-1">
+                            <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Technical Description &amp; Notes</label>
                           </div>
+                          <textarea
+                            rows={3}
+                            value={item.description ?? ''}
+                            onChange={(e) => handleDraftItemChange(idx, 'description', e.target.value)}
+                            placeholder="Detailed technical description, scope of supply, and specification notes..."
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-700 resize-y focus:outline-none focus:border-blue-500 focus:bg-white transition-all leading-relaxed"
+                          />
                         </div>
 
                         {/* Row 4B: Progressive Image Options Popover, Annex Datasheet Toggle & Line Total Bar */}
@@ -5222,7 +5289,7 @@ export default function EnquiryDetail({
                                 ) : (
                                   <FileText className="w-3.5 h-3.5 text-indigo-600" />
                                 )}
-                                <span>{item.datasheet_attachment?.url ? 'Change Datasheet' : '+ Datasheet'}</span>
+                                <span>{item.datasheet_attachment?.url ? 'Change Datasheet' : 'Attach Datasheet'}</span>
                                 <input
                                   type="file"
                                   accept=".pdf,image/*"
@@ -5320,7 +5387,7 @@ export default function EnquiryDetail({
                                   <input
                                     type="text"
                                     value={attr.key ?? ''}
-                                    placeholder="Parameter (e.g. Flow Rate)"
+                                    placeholder="Parameter (e.g. Dimensions, Voltage)"
                                     onChange={(e) => {
                                       const nextAttrs = [...(item.attributes || [])];
                                       nextAttrs[attrIdx] = { ...nextAttrs[attrIdx], key: e.target.value };
@@ -5331,7 +5398,7 @@ export default function EnquiryDetail({
                                   <input
                                     type="text"
                                     value={attr.value ?? ''}
-                                    placeholder="Value (e.g. 15 m3/hr)"
+                                    placeholder="Value (e.g. 220V / 50Hz)"
                                     onChange={(e) => {
                                       const nextAttrs = [...(item.attributes || [])];
                                       nextAttrs[attrIdx] = { ...nextAttrs[attrIdx], value: e.target.value };

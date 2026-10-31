@@ -55,6 +55,7 @@ import {
   HardDrive
 } from 'lucide-react';
 import SearchResultCounter from './common/SearchResultCounter';
+import HoverScrollText from './common/HoverScrollText';
 import { PageHeader, PageBody, KpiStatCard } from './layout/UiContainer';
 
 const UNIVERSAL_QUICK_ATTRIBUTES = [
@@ -1069,7 +1070,7 @@ export default function ProductManager({
   };
 
   return (
-    <>
+    <div className="w-full">
       <PageHeader
         title="Product Catalog"
         subtitle="Manage quotation template products, images, technical datasheets, pricing, and live inventory."
@@ -1311,9 +1312,10 @@ export default function ProductManager({
 
                               <div className="space-y-1 min-w-0 flex-1">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="font-semibold text-slate-900 font-sans">
-                                    {p.name || p.product_type}
-                                  </span>
+                                  <HoverScrollText
+                                    text={p.name || p.product_type}
+                                    className="font-semibold text-slate-900 font-sans max-w-[280px]"
+                                  />
                                   {p.is_composite_set && p.sub_components && p.sub_components.length > 0 && (
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
                                       <Layers className="w-3 h-3" />
@@ -1408,7 +1410,7 @@ export default function ProductManager({
                                   >
                                     {isLowStock && <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />}
                                     <span>
-                                      Avail: {availableQty} {p.unit}
+                                      Avail: {availableQty} {p.unit && p.unit !== 'Custom Unit' ? p.unit : 'Nos'}
                                     </span>
                                   </span>
                                   <div className="text-[10px] font-mono text-slate-400 flex items-center gap-2">
@@ -1435,7 +1437,7 @@ export default function ProductManager({
                           </td>
 
                           <td className="py-3 px-4 font-mono text-xs text-slate-600 font-semibold whitespace-nowrap">
-                            {p.unit || 'Nos'}
+                            {p.unit && p.unit !== 'Custom Unit' ? p.unit : 'Nos'}
                           </td>
 
                           <td className="py-3 px-4 text-right whitespace-nowrap">
@@ -1463,7 +1465,7 @@ export default function ProductManager({
                                 )}
                               </div>
                             ) : (
-                              <span className="text-xs font-medium text-slate-400 italic">On Request / Variable</span>
+                              <span className="text-xs font-medium text-slate-400 italic">Price on Request</span>
                             )}
                           </td>
 
@@ -1762,7 +1764,7 @@ export default function ProductManager({
                         value={formName}
                         onChange={(e) => setFormName(e.target.value)}
                         className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2.5 px-3.5 text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/15"
-                        placeholder='e.g. High-Rejection Seawater RO Membrane Element (8" SWC5-LD)'
+                        placeholder="e.g. Industrial Control Module / Assembly"
                       />
                     </div>
 
@@ -1853,7 +1855,7 @@ export default function ProductManager({
                           value={formSku}
                           onChange={(e) => setFormSku(e.target.value)}
                           className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm font-mono text-slate-800 focus:outline-none"
-                          placeholder="e.g. SKU-SWC5-LD"
+                          placeholder="e.g. SKU-1042-A"
                         />
                       </div>
                     </div>
@@ -1869,7 +1871,7 @@ export default function ProductManager({
                           value={formBrandMake}
                           onChange={(e) => setFormBrandMake(e.target.value)}
                           className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm text-slate-800 focus:outline-none"
-                          placeholder="e.g. Hydranautics, Grundfos, Pentair, Aventura"
+                          placeholder="e.g. Siemens, ABB, Schneider, Bosch"
                         />
                       </div>
 
@@ -1882,7 +1884,7 @@ export default function ProductManager({
                           value={formModelPartNo}
                           onChange={(e) => setFormModelPartNo(e.target.value)}
                           className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-sm font-mono text-slate-800 focus:outline-none"
-                          placeholder="e.g. SWC5-LD-8040"
+                          placeholder="e.g. MOD-200X"
                         />
                       </div>
                     </div>
@@ -2311,7 +2313,7 @@ export default function ProductManager({
                               />
                               <input
                                 type="text"
-                                placeholder="Value (e.g. 8040, SS316L, 15 Bar)"
+                                placeholder="Value (e.g. SS316L, 24V DC, IP65)"
                                 value={attr.value ?? ''}
                                 onChange={(e) =>
                                   setFormAttributes((prev) =>
@@ -3274,6 +3276,6 @@ export default function ProductManager({
           </div>
         )}
       </PageBody>
-    </>
+    </div>
   );
 }

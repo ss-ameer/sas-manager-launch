@@ -5074,7 +5074,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     setShowCatalogModal(true);
                   }}
                   className="py-1.5 px-3 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-semibold font-sans transition flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap"
-                  title="Fuzzy insert prefilled water treatment components from product catalogs"
+                  title="Search and insert items from your product catalog"
                 >
                   <Search className="w-3.5 h-3.5 shrink-0" />
                   <span>Quick Catalog Insert</span>
@@ -5237,7 +5237,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 title="Register this custom line item into the master Products Catalog and link it"
                               >
                                 <BookmarkPlus className="w-2.5 h-2.5" />
-                                <span>+ Save to Catalog</span>
+                                <span>Save to Catalog</span>
                               </button>
                             </div>
                           );
@@ -5489,7 +5489,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         </div>
                         <input
                           type="text"
-                          placeholder="e.g. FRP Vessel 30x72 / Sand Media"
+                          placeholder="e.g. Industrial Control Unit / Equipment Package"
                           value={item.item_name ?? ''}
                           onChange={(e) => handleLineItemChange(index, 'item_name', e.target.value)}
                           className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none"
@@ -5583,7 +5583,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             </div>
                             <input
                               type="text"
-                              placeholder="e.g. Hydranautics, FIP"
+                              placeholder="e.g. Siemens, ABB, Schneider"
                               value={item.brand_make ?? matchedProd?.brand_make ?? ''}
                               onChange={(e) => handleLineItemChange(index, 'brand_make', e.target.value)}
                               className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
@@ -5597,7 +5597,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             </div>
                             <input
                               type="text"
-                              placeholder="e.g. SWC5-LD"
+                              placeholder="e.g. MOD-200X"
                               value={item.model_part_no ?? matchedProd?.model_part_no ?? ''}
                               onChange={(e) => handleLineItemChange(index, 'model_part_no', e.target.value)}
                               className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs font-mono text-slate-900 dark:text-white focus:outline-none"
@@ -7105,7 +7105,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Aeration Systems"
+                  placeholder="e.g. Automation & Controls"
                   value={newCategoryName}
                   onChange={(e) => setNewCategoryName(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-sans"

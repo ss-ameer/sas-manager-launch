@@ -787,7 +787,7 @@ export default function SaveToCatalogModal({
               required
               value={name ?? ''}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g.FRP Pressure Vessel 30x72 with Top & Bottom Opening"
+              placeholder="e.g. Industrial Control Module / Equipment Unit"
               className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm font-semibold text-slate-900 focus:outline-none"
             />
           </div>
@@ -869,7 +869,7 @@ export default function SaveToCatalogModal({
                 type="text"
                 value={sku ?? ''}
                 onChange={(e) => setSku(e.target.value)}
-                placeholder="e.g. VES-3072"
+                placeholder="e.g. SKU-1042"
                 className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-mono text-slate-800 focus:outline-none"
               />
             </div>
@@ -885,7 +885,7 @@ export default function SaveToCatalogModal({
                 type="text"
                 value={brandMake ?? ''}
                 onChange={(e) => setBrandMake(e.target.value)}
-                placeholder="e.g. Pentair, Grundfos, Hydranautics"
+                placeholder="e.g. Siemens, ABB, Schneider, Bosch"
                 className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 focus:outline-none"
               />
             </div>
@@ -897,7 +897,7 @@ export default function SaveToCatalogModal({
                 type="text"
                 value={modelPartNo ?? ''}
                 onChange={(e) => setModelPartNo(e.target.value)}
-                placeholder="e.g. 3072-FRP-4"
+                placeholder="e.g. MOD-200X"
                 className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-mono text-slate-800 focus:outline-none"
               />
             </div>
