@@ -15,7 +15,7 @@ import { resolveAttachmentUrl, deleteFromSupabaseStorage, deleteAttachmentBlob, 
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { ActivityLogRepository } from '../services/repositories/CallLogRepository';
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
-import { Quotation, WorkspaceDocumentProfile } from '../types';
+import { Quotation, WorkspaceDocumentProfile, CommercialDocumentType } from '../types';
 import { QuotationStudioModal } from './quotations/QuotationStudioModal';
 import { QuotationDocument } from './quotations/QuotationDocument';
 import EnquiryCollaboratorsModal from './EnquiryCollaboratorsModal';
@@ -206,12 +206,42 @@ export default function EnquiryDetail({
   const [isCreatingProject, setIsCreatingProject] = useState<boolean>(false);
   const [linkedProject, setLinkedProject] = useState<Project | null>(null);
 
-  // Quotation Studio & Formal Quotes State
+  // Quotation Studio & Commercial Documents Hub State
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [isQuotationStudioOpen, setIsQuotationStudioOpen] = useState<boolean>(false);
   const [viewingQuotation, setViewingQuotation] = useState<Quotation | null>(null);
   const [documentProfile, setDocumentProfile] = useState<WorkspaceDocumentProfile | null>(null);
   const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null);
+  const [docHubFilter, setDocHubFilter] = useState<'all' | CommercialDocumentType>('all');
+  const [poModalState, setPoModalState] = useState<{
+    isOpen: boolean;
+    sourceQuote: Quotation | null;
+    poVariant: 'supplier_po' | 'order_acknowledgment';
+    supplierCompanyId: string;
+    supplierName: string;
+    supplierContact: string;
+    supplierEmail: string;
+    supplierPhone: string;
+    supplierAddress: string;
+    supplierTrn: string;
+    shippingDestination: 'Warehouse' | 'Direct to Client Site' | 'Custom';
+    incoterms: 'Ex-Works' | 'FOB' | 'CIF' | 'DDP' | 'DAP';
+    selectedItemIndices: number[];
+  }>({
+    isOpen: false,
+    sourceQuote: null,
+    poVariant: 'supplier_po',
+    supplierCompanyId: '',
+    supplierName: '',
+    supplierContact: '',
+    supplierEmail: '',
+    supplierPhone: '',
+    supplierAddress: '',
+    supplierTrn: '',
+    shippingDestination: 'Warehouse',
+    incoterms: 'Ex-Works',
+    selectedItemIndices: []
+  });
 
   // Fork a new quotation revision from an existing quotation and open inside QuotationStudioModal
   const handleCreateQuotationRevision = async (sourceQuote: Quotation) => {
@@ -669,18 +699,445 @@ export default function EnquiryDetail({
     };
   }, [currentEnquiry?.id, currentEnquiry?.workspace_id, activeWorkspaceId]);
 
-  // Derived sorted quotations: pin approved quotation at top, then sort descending by revision number
+  // Derived sorted quotations: pin approved quotation at top, then sort descending by creation / revision
   const sortedQuotations = useMemo(() => {
     return [...quotations].sort((a, b) => {
       if (a.status === 'Approved' && b.status !== 'Approved') return -1;
       if (b.status === 'Approved' && a.status !== 'Approved') return 1;
+      const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      if (timeB !== timeA) return timeB - timeA;
       return (b.revision_number ?? 0) - (a.revision_number ?? 0);
     });
   }, [quotations]);
 
+  const filteredHubDocuments = useMemo(() => {
+    if (docHubFilter === 'all') return sortedQuotations;
+    return sortedQuotations.filter((q) => (q.document_type || 'quotation') === docHubFilter);
+  }, [sortedQuotations, docHubFilter]);
+
   const hasApprovedQuotation = useMemo(() => {
-    return quotations.some((q) => q.status === 'Approved');
+    return quotations.some(
+      (q) => (q.document_type || 'quotation') === 'quotation' && q.status === 'Approved'
+    );
   }, [quotations]);
+
+  // Helper to get the primary source Quotation for 1-click DO / PO / REC conversions
+  const getPrimarySourceQuotation = (): Quotation | null => {
+    const stdQuotes = sortedQuotations.filter(
+      (q) => (q.document_type || 'quotation') === 'quotation' && q.status !== 'Declined'
+    );
+    return (
+      stdQuotes.find((q) => q.status === 'Approved') ||
+      stdQuotes.find((q) => q.status === 'Sent') ||
+      stdQuotes[0] ||
+      null
+    );
+  };
+
+  // Helper to build QuotationLineItems from enquiry when no formal quotation exists yet
+  const buildBaseLineItemsFromSource = (sourceQuote?: Quotation | null): QuotationLineItem[] => {
+    if (sourceQuote?.line_items && sourceQuote.line_items.length > 0) {
+      return sourceQuote.line_items.map((it) => ({ ...it }));
+    }
+    return (currentEnquiry.line_items || []).map((li, idx) => {
+      const qty = Number(li.quantity) || 1;
+      const rate = Number(li.unit_price) || 0;
+      return {
+        id: li.id || `item_${idx}`,
+        product_id: li.product_id,
+        sku: li.sku,
+        item_name: li.item_name || li.product_type || `Item #${idx + 1}`,
+        description: li.description || '',
+        quantity: qty,
+        unit: li.unit || 'pcs',
+        unit_price: rate,
+        cost_price: li.cost_price,
+        total_price: QuotationRepository.roundCurrency(qty * rate),
+        brand_make: li.brand_make,
+        model_part_no: li.model_part_no,
+        country_of_origin: li.country_of_origin,
+        hs_code: li.hs_code,
+        availability: li.lead_time_note || 'Ex-Stock / Standard',
+        image_url: li.image_url,
+        secondary_image_url: li.secondary_image_url,
+        image_caption: li.image_caption,
+        secondary_image_caption: li.secondary_image_caption,
+        image_adjustments: li.image_adjustments,
+        is_composite_set: li.is_composite_set,
+        sub_components: li.sub_components,
+        package_pricing_mode: li.package_pricing_mode
+      };
+    });
+  };
+
+  // 1-Click Conversion: Issue Delivery Note (DO) with automatic partial-delivery balance tracking
+  const handleIssueDeliveryNote = (sourceQuoteOverride?: Quotation | null) => {
+    const sourceQuote = sourceQuoteOverride ?? getPrimarySourceQuotation();
+    const baseItems = buildBaseLineItemsFromSource(sourceQuote);
+    const baseQuoteRef =
+      sourceQuote?.quote_number ||
+      currentEnquiry.quote_ref_no ||
+      `QT-${new Date().getFullYear()}-${String(currentEnquiry.sn || 1).padStart(4, '0')}`;
+    const linkedDoRef = QuotationRepository.generateLinkedDocumentRef(
+      baseQuoteRef,
+      'delivery_note',
+      quotations
+    );
+    const todayIso = new Date().toISOString().slice(0, 10);
+
+    // Sum prior delivered quantities across existing Delivery Notes on this enquiry
+    const priorDeliveryNotes = quotations.filter(
+      (q) => !q.is_deleted && q.document_type === 'delivery_note'
+    );
+    const doLineItems: QuotationLineItem[] = baseItems.map((item, idx) => {
+      const orderedQty = Number(item.qty_ordered ?? item.quantity) || 0;
+      const alreadyDelivered = priorDeliveryNotes.reduce((sum, doDoc) => {
+        const matchedLine = (doDoc.line_items || []).find(
+          (li, lIdx) =>
+            (item.id && li.id === item.id) ||
+            (item.item_name && li.item_name === item.item_name && lIdx === idx)
+        );
+        if (!matchedLine) return sum;
+        return sum + (Number(matchedLine.qty_delivered ?? matchedLine.quantity) || 0);
+      }, 0);
+      const remainingToDeliver = Math.max(0, orderedQty - alreadyDelivered);
+      const deliverNow = remainingToDeliver > 0 ? remainingToDeliver : orderedQty;
+      const nextSubComponents = Array.isArray(item.sub_components)
+        ? item.sub_components.map((sub) => {
+            const subOrd = Number(sub.qty_ordered ?? sub.quantity) || 0;
+            return {
+              ...sub,
+              qty_ordered: subOrd,
+              qty_delivered: subOrd,
+              qty_balance: 0
+            };
+          })
+        : undefined;
+      return {
+        ...item,
+        qty_ordered: orderedQty,
+        qty_delivered: deliverNow,
+        qty_balance: Math.max(0, orderedQty - alreadyDelivered - deliverNow),
+        ...(nextSubComponents ? { sub_components: nextSubComponents } : {})
+      };
+    });
+
+    const wsId = currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default';
+    const draftDo: Quotation = {
+      ...(sourceQuote || {}),
+      id: `do_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      workspace_id: wsId,
+      workspaceId: wsId,
+      enquiry_id: currentEnquiry.id,
+      document_type: 'delivery_note',
+      quote_number: baseQuoteRef.replace(/-R\d+$/i, ''),
+      revision_number: 1,
+      formatted_quote_ref: linkedDoRef,
+      status: 'Draft',
+      subject: sourceQuote?.subject || currentEnquiry.subject || '',
+      client_snapshot: sourceQuote?.client_snapshot || {
+        entity_name: currentEnquiry.company_name || currentEnquiry.client_company || 'Client',
+        contact_person: currentEnquiry.concerned_person || undefined,
+        address: currentEnquiry.project_location || currentEnquiry.country || undefined
+      },
+      sender_snapshot: sourceQuote?.sender_snapshot || {
+        entity_name:
+          documentProfile?.legal_entity_name ||
+          activeWorkspace?.name ||
+          'Commercial Entity'
+      },
+      delivery_metadata: {
+        delivery_ref: linkedDoRef,
+        delivery_date: todayIso,
+        related_quote_ref: sourceQuote?.formatted_quote_ref || baseQuoteRef,
+        site_contact_name:
+          sourceQuote?.client_contact_person || currentEnquiry.concerned_person || '',
+        site_contact_phone: (currentEnquiry as any)?.contact_phone || '',
+        delivery_address:
+          sourceQuote?.client_address ||
+          currentEnquiry.project_location ||
+          currentEnquiry.country ||
+          '',
+        dispatch_mode: 'Company Transport',
+        dispatched_by_name:
+          sourceQuote?.prepared_by ||
+          user?.full_name ||
+          user?.name ||
+          user?.username ||
+          '',
+        goods_received_clause: 'Received the above items in good order and condition.'
+      },
+      line_items: doLineItems,
+      tax_mode: sourceQuote?.tax_mode || 'taxes_extra',
+      visible_columns: {
+        ...(sourceQuote?.visible_columns || documentProfile?.visible_columns || {}),
+        unit_price: false,
+        showUnitPrice: false,
+        showLineTotal: false
+      } as any,
+      subtotal: 0,
+      freight_amount: 0,
+      tax_rate_percent: 0,
+      tax_amount: 0,
+      grand_total: 0,
+      price_basis: sourceQuote?.price_basis || 'Delivered Site',
+      payment_terms: sourceQuote?.payment_terms || 'As Agreed',
+      signatories: sourceQuote?.signatories || [],
+      created_at: new Date().toISOString(),
+      valid_until: new Date().toISOString(),
+      currency: sourceQuote?.currency || currentEnquiry.currency || 'AED'
+    };
+
+    setEditingQuotation(draftDo);
+    setIsQuotationStudioOpen(true);
+  };
+
+  // 1-Click Conversion: Open Supplier PO Builder Modal
+  const handleOpenSupplierPoModal = (sourceQuoteOverride?: Quotation | null) => {
+    const sourceQuote = sourceQuoteOverride ?? getPrimarySourceQuotation();
+    const baseItems = buildBaseLineItemsFromSource(sourceQuote);
+    setPoModalState({
+      isOpen: true,
+      sourceQuote,
+      poVariant: 'supplier_po',
+      supplierCompanyId: '',
+      supplierName: '',
+      supplierContact: '',
+      supplierEmail: '',
+      supplierPhone: '',
+      supplierAddress: '',
+      supplierTrn: '',
+      shippingDestination: 'Warehouse',
+      incoterms: 'Ex-Works',
+      selectedItemIndices: baseItems.map((_, idx) => idx)
+    });
+  };
+
+  // Confirm Supplier PO Modal & Launch Studio with Supplier Costs
+  const handleConfirmLaunchSupplierPo = () => {
+    const sourceQuote = poModalState.sourceQuote ?? getPrimarySourceQuotation();
+    const allItems = buildBaseLineItemsFromSource(sourceQuote);
+    const chosenIndices =
+      poModalState.selectedItemIndices.length > 0
+        ? poModalState.selectedItemIndices
+        : allItems.map((_, idx) => idx);
+    const isOutboundSupplierPo = poModalState.poVariant === 'supplier_po';
+
+    const poLineItems: QuotationLineItem[] = allItems
+      .filter((_, idx) => chosenIndices.includes(idx))
+      .map((item) => {
+        const matchedProd = products.find(
+          (p) =>
+            (item.product_id && p.id === item.product_id) ||
+            (item.sku && p.sku && p.sku.toLowerCase() === item.sku.toLowerCase()) ||
+            (item.item_name &&
+              (p.name || p.description || '').trim().toLowerCase() ===
+                item.item_name.trim().toLowerCase())
+        );
+        const qty = Number(item.quantity) || 1;
+        // For Outbound Supplier POs, strictly use cost_price (or catalog cost_price, fallback 0.00) — never expose client selling price
+        const unitRate = isOutboundSupplierPo
+          ? item.cost_price !== undefined && item.cost_price !== null && Number(item.cost_price) > 0
+            ? Number(item.cost_price)
+            : matchedProd?.cost_price !== undefined && matchedProd?.cost_price !== null
+            ? Number(matchedProd.cost_price)
+            : 0
+          : Number(item.unit_price) || 0;
+        return {
+          ...item,
+          unit_price: unitRate,
+          cost_price: unitRate,
+          total_price: QuotationRepository.roundCurrency(qty * unitRate)
+        };
+      });
+
+    const baseQuoteRef =
+      sourceQuote?.quote_number ||
+      currentEnquiry.quote_ref_no ||
+      `QT-${new Date().getFullYear()}-${String(currentEnquiry.sn || 1).padStart(4, '0')}`;
+    const linkedPoRef = QuotationRepository.generateLinkedDocumentRef(
+      baseQuoteRef,
+      'purchase_order',
+      quotations
+    );
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const wsId = currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default';
+    const totals = QuotationRepository.calculateTotals(
+      poLineItems,
+      0,
+      sourceQuote?.tax_mode || 'taxes_extra',
+      sourceQuote?.tax_rate_percent ?? 5
+    );
+
+    const draftPo: Quotation = {
+      ...(sourceQuote || {}),
+      id: `po_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      workspace_id: wsId,
+      workspaceId: wsId,
+      enquiry_id: currentEnquiry.id,
+      document_type: 'purchase_order',
+      quote_number: baseQuoteRef.replace(/-R\d+$/i, ''),
+      revision_number: 1,
+      formatted_quote_ref: linkedPoRef,
+      status: 'Draft',
+      subject:
+        sourceQuote?.subject ||
+        currentEnquiry.subject ||
+        `Purchase Order against Ref ${baseQuoteRef}`,
+      client_snapshot: sourceQuote?.client_snapshot || {
+        entity_name: currentEnquiry.company_name || currentEnquiry.client_company || 'Client',
+        contact_person: currentEnquiry.concerned_person || undefined,
+        address: currentEnquiry.project_location || currentEnquiry.country || undefined
+      },
+      sender_snapshot: sourceQuote?.sender_snapshot || {
+        entity_name:
+          documentProfile?.legal_entity_name ||
+          activeWorkspace?.name ||
+          'Commercial Entity'
+      },
+      purchase_order_metadata: {
+        po_variant: poModalState.poVariant,
+        po_ref: linkedPoRef,
+        po_date: todayIso,
+        supplier_name:
+          poModalState.supplierName ||
+          (poModalState.poVariant === 'order_acknowledgment'
+            ? currentEnquiry.company_name || currentEnquiry.client_company || ''
+            : ''),
+        supplier_contact: poModalState.supplierContact || '',
+        supplier_email: poModalState.supplierEmail || '',
+        supplier_phone: poModalState.supplierPhone || '',
+        supplier_address: poModalState.supplierAddress || '',
+        supplier_tax_id: poModalState.supplierTrn || '',
+        supplier_trn: poModalState.supplierTrn || '',
+        shipping_destination: poModalState.shippingDestination,
+        incoterms: poModalState.incoterms,
+        requisitioner_name:
+          sourceQuote?.prepared_by || user?.full_name || user?.name || user?.username || ''
+      },
+      line_items: poLineItems,
+      tax_mode: sourceQuote?.tax_mode || 'taxes_extra',
+      visible_columns: {
+        ...(sourceQuote?.visible_columns || documentProfile?.visible_columns || {}),
+        unit_price: true,
+        showUnitPrice: true,
+        showLineTotal: true
+      } as any,
+      subtotal: totals.subtotal,
+      freight_amount: totals.freight_amount,
+      tax_rate_percent: totals.tax_rate_percent,
+      tax_amount: totals.tax_amount,
+      grand_total: totals.grand_total,
+      price_basis: poModalState.incoterms,
+      payment_terms: sourceQuote?.payment_terms || '30 Days Net',
+      signatories: sourceQuote?.signatories || [],
+      created_at: new Date().toISOString(),
+      valid_until: new Date().toISOString(),
+      currency: sourceQuote?.currency || currentEnquiry.currency || 'AED'
+    };
+
+    setPoModalState((prev) => ({ ...prev, isOpen: false }));
+    setEditingQuotation(draftPo);
+    setIsQuotationStudioOpen(true);
+  };
+
+  // 1-Click Conversion: Issue Payment Receipt (REC) with cumulative balance tracking
+  const handleIssuePaymentReceipt = (sourceQuoteOverride?: Quotation | null) => {
+    const sourceQuote = sourceQuoteOverride ?? getPrimarySourceQuotation();
+    const baseItems = buildBaseLineItemsFromSource(sourceQuote);
+    const baseQuoteRef =
+      sourceQuote?.quote_number ||
+      currentEnquiry.quote_ref_no ||
+      `QT-${new Date().getFullYear()}-${String(currentEnquiry.sn || 1).padStart(4, '0')}`;
+    const linkedRecRef = QuotationRepository.generateLinkedDocumentRef(
+      baseQuoteRef,
+      'receipt',
+      quotations
+    );
+    const todayIso = new Date().toISOString().slice(0, 10);
+
+    // Sum prior receipts on this enquiry to auto-populate previously_received
+    const previouslyReceived = quotations
+      .filter((q) => !q.is_deleted && q.document_type === 'receipt')
+      .reduce(
+        (sum, r) => sum + (Number(r.receipt_metadata?.amount_received ?? r.grand_total) || 0),
+        0
+      );
+    const contractTotal =
+      Number(sourceQuote?.grand_total) || Number(currentEnquiry.value_aed) || 0;
+    const defaultAmountNow = Math.max(0, contractTotal - previouslyReceived);
+
+    const wsId = currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default';
+    const draftRec: Quotation = {
+      ...(sourceQuote || {}),
+      id: `rec_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      workspace_id: wsId,
+      workspaceId: wsId,
+      enquiry_id: currentEnquiry.id,
+      document_type: 'receipt',
+      quote_number: baseQuoteRef.replace(/-R\d+$/i, ''),
+      revision_number: 1,
+      formatted_quote_ref: linkedRecRef,
+      status: 'Draft',
+      subject:
+        sourceQuote?.subject ||
+        currentEnquiry.subject ||
+        `Payment Receipt against ${sourceQuote?.formatted_quote_ref || baseQuoteRef}`,
+      client_snapshot: sourceQuote?.client_snapshot || {
+        entity_name: currentEnquiry.company_name || currentEnquiry.client_company || 'Client',
+        contact_person: currentEnquiry.concerned_person || undefined,
+        address: currentEnquiry.project_location || currentEnquiry.country || undefined
+      },
+      sender_snapshot: sourceQuote?.sender_snapshot || {
+        entity_name:
+          documentProfile?.legal_entity_name ||
+          activeWorkspace?.name ||
+          'Commercial Entity'
+      },
+      receipt_metadata: {
+        receipt_ref: linkedRecRef,
+        receipt_date: todayIso,
+        received_from:
+          sourceQuote?.client_snapshot?.entity_name ||
+          currentEnquiry.company_name ||
+          currentEnquiry.client_company ||
+          '',
+        settlement_for_ref: sourceQuote?.formatted_quote_ref || baseQuoteRef,
+        project_title:
+          sourceQuote?.subject ||
+          currentEnquiry.subject ||
+          `Settlement against Quotation ${sourceQuote?.formatted_quote_ref || baseQuoteRef}`,
+        payment_for:
+          sourceQuote?.subject ||
+          currentEnquiry.subject ||
+          `Settlement against Quotation ${sourceQuote?.formatted_quote_ref || baseQuoteRef}`,
+        payment_method: 'Bank Wire Transfer',
+        total_order_value: contractTotal,
+        previously_received: previouslyReceived,
+        amount_received: defaultAmountNow,
+        balance_outstanding: Math.max(0, contractTotal - previouslyReceived - defaultAmountNow),
+        balance_remaining: Math.max(0, contractTotal - previouslyReceived - defaultAmountNow),
+        show_line_items_table: false
+      },
+      line_items: baseItems,
+      tax_mode: sourceQuote?.tax_mode || 'taxes_extra',
+      subtotal: defaultAmountNow,
+      freight_amount: 0,
+      tax_rate_percent: 0,
+      tax_amount: 0,
+      grand_total: defaultAmountNow,
+      price_basis: sourceQuote?.price_basis || 'As Agreed',
+      payment_terms: sourceQuote?.payment_terms || 'Received with Thanks',
+      signatories: sourceQuote?.signatories || [],
+      created_at: new Date().toISOString(),
+      valid_until: new Date().toISOString(),
+      currency: sourceQuote?.currency || currentEnquiry.currency || 'AED'
+    };
+
+    setEditingQuotation(draftRec);
+    setIsQuotationStudioOpen(true);
+  };
 
   // Check if a project document is already attached to this enquiry
   useEffect(() => {
@@ -2830,43 +3287,144 @@ export default function EnquiryDetail({
                 </div>
               )}
 
-              {/* Formal Quotations & Revisions Section */}
+              {/* Commercial Documents & Quotes Hub */}
               <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-3.5">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center space-x-2">
                     <div className="w-6 h-6 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
                       <FileText className="w-3.5 h-3.5" />
                     </div>
                     <span className="text-xs font-mono text-slate-500 uppercase tracking-widest font-bold">
-                      Formal Quotations & Revisions ({quotations.length})
+                      Commercial Documents &amp; Quotes Hub ({quotations.length})
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingQuotation(null);
-                      setIsQuotationStudioOpen(true);
-                    }}
-                    className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer transition hover:underline"
-                  >
-                    <span>+ New Formal Offer</span>
-                  </button>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingQuotation(null);
+                        setIsQuotationStudioOpen(true);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>New Quotation</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleIssueDeliveryNote()}
+                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 text-xs font-semibold flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                      title="Generate an unpriced Delivery Note (DO) from the active quotation or line items"
+                    >
+                      <Truck className="w-3.5 h-3.5" />
+                      <span>Issue Delivery Note</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenSupplierPoModal()}
+                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-semibold flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                      title="Generate an Outbound Supplier PO (using cost prices) or Order Acknowledgment"
+                    >
+                      <Package className="w-3.5 h-3.5" />
+                      <span>Issue Supplier PO</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleIssuePaymentReceipt()}
+                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                      title="Generate a Payment Receipt Voucher (REC) with automatic balance tracking"
+                    >
+                      <DollarSign className="w-3.5 h-3.5" />
+                      <span>Issue Payment Receipt</span>
+                    </button>
+                  </div>
                 </div>
 
-                {quotations.length > 0 ? (
+                {/* Document Type Filter Pill Bar */}
+                {quotations.length > 0 && (
+                  <div className="flex items-center gap-1 flex-wrap pt-0.5">
+                    {(
+                      [
+                        { id: 'all' as const, label: `All (${quotations.length})` },
+                        {
+                          id: 'quotation' as const,
+                          label: `Quotations (${quotations.filter((q) => (q.document_type || 'quotation') === 'quotation').length})`
+                        },
+                        {
+                          id: 'delivery_note' as const,
+                          label: `Delivery Notes (${quotations.filter((q) => q.document_type === 'delivery_note').length})`
+                        },
+                        {
+                          id: 'purchase_order' as const,
+                          label: `Purchase Orders (${quotations.filter((q) => q.document_type === 'purchase_order').length})`
+                        },
+                        {
+                          id: 'receipt' as const,
+                          label: `Receipts (${quotations.filter((q) => q.document_type === 'receipt').length})`
+                        }
+                      ]
+                    ).map((f) => {
+                      const isSel = docHubFilter === f.id;
+                      return (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => setDocHubFilter(f.id)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+                            isSel
+                              ? 'bg-slate-800 text-white shadow-2xs'
+                              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {f.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {filteredHubDocuments.length > 0 ? (
                   <div className="space-y-2 pt-1">
-                    {sortedQuotations.map((q) => {
+                    {filteredHubDocuments.map((q) => {
+                      const docType = q.document_type || 'quotation';
+                      const isQuoteDoc = docType === 'quotation';
                       const isSuperseded = q.status === 'Superseded';
                       const isApproved = q.status === 'Approved';
                       const isDeclined = q.status === 'Declined';
                       const isSent = q.status === 'Sent';
                       const isDraft = q.status === 'Draft' || !q.status;
 
+                      const badgeLabel =
+                        docType === 'delivery_note'
+                          ? 'DO'
+                          : docType === 'purchase_order'
+                          ? 'PO'
+                          : docType === 'receipt'
+                          ? 'REC'
+                          : `QT R${q.revision_number || 1}`;
+
+                      const badgeClass =
+                        docType === 'delivery_note'
+                          ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                          : docType === 'purchase_order'
+                          ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                          : docType === 'receipt'
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                          : isApproved
+                          ? 'bg-emerald-200 text-emerald-900 font-extrabold'
+                          : isDeclined
+                          ? 'bg-rose-100 text-rose-800'
+                          : isSuperseded
+                          ? 'bg-slate-200 text-slate-600'
+                          : isSent
+                          ? 'bg-indigo-100 text-indigo-800'
+                          : 'bg-amber-100 text-amber-800';
+
                       return (
                         <div
                           key={q.id || q.formatted_quote_ref}
-                          className={`p-3 rounded-xl border transition flex items-center justify-between gap-3 ${
-                            isApproved
+                          className={`p-3 rounded-xl border transition flex items-center justify-between gap-3 flex-wrap ${
+                            isApproved && isQuoteDoc
                               ? 'bg-emerald-50/70 border-emerald-300 ring-1 ring-emerald-400/40 shadow-2xs'
                               : isDeclined
                               ? 'bg-rose-50/40 border-rose-200 text-slate-700 opacity-90'
@@ -2877,32 +3435,22 @@ export default function EnquiryDetail({
                         >
                           <div className="flex items-center space-x-3 min-w-0">
                             <span
-                              className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-bold shrink-0 ${
-                                isApproved
-                                  ? 'bg-emerald-200 text-emerald-900 font-extrabold'
-                                  : isDeclined
-                                  ? 'bg-rose-100 text-rose-800'
-                                  : isSuperseded
-                                  ? 'bg-slate-200 text-slate-600'
-                                  : isSent
-                                  ? 'bg-blue-100 text-blue-800'
-                                  : 'bg-amber-100 text-amber-800'
-                              }`}
+                              className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-bold shrink-0 ${badgeClass}`}
                             >
-                              R{q.revision_number}
+                              {badgeLabel}
                             </span>
                             <div className="min-w-0">
-                              <div className="flex items-center space-x-2">
+                              <div className="flex items-center space-x-2 flex-wrap">
                                 <span className="font-mono font-bold text-xs text-slate-900 truncate">
                                   {q.formatted_quote_ref}
                                 </span>
-                                {isApproved ? (
+                                {isApproved && isQuoteDoc ? (
                                   <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-emerald-100 text-emerald-800 border-emerald-300 shadow-2xs">
                                     <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                                     Approved / Won
                                   </span>
                                 ) : isDeclined ? (
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/60 shadow-2xs">
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-rose-50 text-rose-700 border-rose-200 shadow-2xs">
                                     <XCircle className="w-3 h-3 text-rose-600" />
                                     Declined
                                   </span>
@@ -2922,7 +3470,29 @@ export default function EnquiryDetail({
                               </div>
                               <p className="text-[11px] text-slate-400 mt-0.5">
                                 Issued: {new Date(q.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                {q.valid_until && ` • Valid: ${new Date(q.valid_until).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`}
+                                {docType === 'delivery_note' && (
+                                  <span>
+                                    {' '}• Dispatch: {q.delivery_metadata?.dispatch_mode || 'Company Transport'}
+                                    {q.delivery_metadata?.vehicle_plate_no
+                                      ? ` (${q.delivery_metadata.vehicle_plate_no})`
+                                      : ''}
+                                  </span>
+                                )}
+                                {docType === 'purchase_order' && (
+                                  <span>
+                                    {' '}• Supplier: {q.purchase_order_metadata?.supplier_name || 'Vendor'}
+                                  </span>
+                                )}
+                                {docType === 'receipt' && (
+                                  <span>
+                                    {' '}• Mode: {q.receipt_metadata?.payment_method || 'Bank Transfer'} • Rem. Bal:{' '}
+                                    {q.currency || 'AED'}{' '}
+                                    {Number(q.receipt_metadata?.balance_remaining ?? 0).toLocaleString('en-US', {
+                                      minimumFractionDigits: 2
+                                    })}
+                                  </span>
+                                )}
+                                {isQuoteDoc && q.valid_until && ` • Valid: ${new Date(q.valid_until).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`}
                                 {isDeclined && q.decline_reason && (
                                   <span className="text-rose-600 font-medium"> • Loss Reason: {q.decline_reason}</span>
                                 )}
@@ -2930,12 +3500,28 @@ export default function EnquiryDetail({
                             </div>
                           </div>
 
-                          <div className="flex items-center space-x-2 shrink-0">
-                            <span className="font-mono font-bold text-xs text-slate-800 mr-1">
-                              {q.currency || 'AED'} {Number(q.grand_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                            </span>
+                          <div className="flex items-center space-x-2 shrink-0 flex-wrap">
+                            {docType === 'delivery_note' ? (
+                              <span className="font-mono font-semibold text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 mr-1">
+                                Unpriced • {(q.line_items || []).length} item(s)
+                              </span>
+                            ) : docType === 'receipt' ? (
+                              <span className="font-mono font-bold text-xs text-emerald-800 mr-1">
+                                Paid: {q.currency || 'AED'}{' '}
+                                {Number(
+                                  q.receipt_metadata?.amount_received ?? q.grand_total ?? 0
+                                ).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </span>
+                            ) : (
+                              <span className="font-mono font-bold text-xs text-slate-800 mr-1">
+                                {q.currency || 'AED'}{' '}
+                                {Number(q.grand_total || 0).toLocaleString('en-US', {
+                                  minimumFractionDigits: 2
+                                })}
+                              </span>
+                            )}
 
-                            {isDraft && !isSuperseded && !isDeclined && (
+                            {!isSuperseded && !isDeclined && (
                               <button
                                 type="button"
                                 onClick={() => {
@@ -2943,14 +3529,14 @@ export default function EnquiryDetail({
                                   setIsQuotationStudioOpen(true);
                                 }}
                                 className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1 shadow-2xs"
-                                title="Edit Draft Quotation"
+                                title="Open in Studio"
                               >
                                 <Edit2 className="w-3.5 h-3.5" />
                                 <span>Edit</span>
                               </button>
                             )}
 
-                            {isSent && !isSuperseded && !isDeclined && (
+                            {isQuoteDoc && isSent && !isSuperseded && !isDeclined && (
                               <>
                                 <button
                                   type="button"
@@ -2977,7 +3563,7 @@ export default function EnquiryDetail({
                               type="button"
                               onClick={() => setViewingQuotation(q)}
                               className="px-2.5 py-1 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
-                              title="Preview Quotation Document"
+                              title="Preview Commercial Document"
                             >
                               <Eye className="w-3.5 h-3.5" />
                               <span>View</span>
@@ -2996,7 +3582,7 @@ export default function EnquiryDetail({
                               <span>Print</span>
                             </button>
 
-                            {!isSuperseded && !isDeclined && (isApproved || (isSent && !hasApprovedQuotation)) && (
+                            {isQuoteDoc && !isSuperseded && !isDeclined && (isApproved || (isSent && !hasApprovedQuotation)) && (
                               <button
                                 type="button"
                                 onClick={() => handleCreateQuotationRevision(q)}
@@ -3008,12 +3594,12 @@ export default function EnquiryDetail({
                               </button>
                             )}
 
-                            {/* Discard Draft / Delete Revision */}
+                            {/* Discard Draft / Delete Document */}
                             <button
                               type="button"
                               onClick={() => promptDeleteQuotation(q)}
                               className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                              title={isDraft ? 'Discard Draft Quotation' : 'Delete Revision / Move to Recycle Bin'}
+                              title={isDraft ? 'Discard Draft Document' : 'Move Document to Recycle Bin'}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -3025,7 +3611,7 @@ export default function EnquiryDetail({
                 ) : (
                   <div className="p-4 bg-white border border-dashed border-slate-200 rounded-xl text-center space-y-1.5">
                     <p className="text-xs text-slate-500">
-                      No formal quotation generated yet for this enquiry.
+                      No commercial documents matching this filter yet.
                     </p>
                     <button
                       type="button"
@@ -3036,7 +3622,7 @@ export default function EnquiryDetail({
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition cursor-pointer"
                     >
                       <FileText className="w-3.5 h-3.5" />
-                      <span>Launch Quotation Studio</span>
+                      <span>Launch Commercial Document Studio</span>
                     </button>
                   </div>
                 )}
@@ -6146,152 +6732,432 @@ export default function EnquiryDetail({
               }
             }}
             onQuotationCreated={async (newQuote) => {
-            setQuotations((prev) => {
-              const combined = [newQuote, ...prev.filter((q) => q.id !== newQuote.id)];
-              const parentId = newQuote.parent_quotation_id || newQuote.parent_quote_id;
-              if (parentId || combined.length > 1) {
-                return QuotationRepository.markPreviousRevisionsSuperseded(combined, newQuote.id!);
-              }
-              return combined;
-            });
+              const isStandardQuotation = (newQuote.document_type || 'quotation') === 'quotation';
 
-            // Deal Value Sync: Sync new quotation total and reference to enquiry
-            if (newQuote.grand_total !== undefined && currentEnquiry?.id) {
-              const syncPayload = QuotationRepository.buildEnquiryQuotationSyncPayload(newQuote);
-              const newTotal = syncPayload.quoted_amount;
-              const newRef = newQuote.formatted_quote_ref;
-              try {
-                await safeUpdateDoc('enquiries', currentEnquiry.id, {
-                  value_aed: newTotal,
-                  quoted_amount: newTotal,
-                  quote_ref_no: newRef,
-                  latest_quote_ref: newRef,
-                  active_quotation_id: newQuote.id,
-                  quotation_status: newQuote.status || 'Draft',
-                  latest_revision_number: newQuote.revision_number ?? 1,
-                  updated_at: new Date().toISOString()
-                });
-                setCurrentEnquiry((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        value_aed: newTotal,
-                        quoted_amount: newTotal,
-                        quote_ref_no: newRef,
-                        latest_quote_ref: newRef,
-                        active_quotation_id: newQuote.id,
-                        quotation_status: newQuote.status || 'Draft',
-                        latest_revision_number: newQuote.revision_number ?? 1
-                      }
-                    : prev
-                );
-                if (onUpdateEnquiry) {
-                  onUpdateEnquiry({
-                    ...currentEnquiry,
+              setQuotations((prev) => {
+                const combined = [newQuote, ...prev.filter((q) => q.id !== newQuote.id)];
+                const parentId = newQuote.parent_quotation_id || newQuote.parent_quote_id;
+                if (isStandardQuotation && (parentId || combined.length > 1)) {
+                  return QuotationRepository.markPreviousRevisionsSuperseded(combined, newQuote.id!);
+                }
+                return combined;
+              });
+
+              // Deal Value Sync: Only sync new quotation total and reference to enquiry for standard Quotations
+              if (isStandardQuotation && newQuote.grand_total !== undefined && currentEnquiry?.id) {
+                const syncPayload = QuotationRepository.buildEnquiryQuotationSyncPayload(newQuote);
+                const newTotal = syncPayload.quoted_amount;
+                const newRef = newQuote.formatted_quote_ref;
+                try {
+                  await safeUpdateDoc('enquiries', currentEnquiry.id, {
                     value_aed: newTotal,
                     quoted_amount: newTotal,
                     quote_ref_no: newRef,
                     latest_quote_ref: newRef,
                     active_quotation_id: newQuote.id,
                     quotation_status: newQuote.status || 'Draft',
-                    latest_revision_number: newQuote.revision_number ?? 1
-                  });
-                }
-              } catch (valErr) {
-                console.warn('[EnquiryDetail] Failed updating enquiry deal value from quotation:', valErr);
-              }
-            }
-
-            if (newQuote.status === 'Sent') {
-              handleStatusTransition('Sent / Pending Client');
-
-              // If new revision has a parent quotation, ensure predecessor is updated to Superseded
-              const parentId = newQuote.parent_quotation_id || newQuote.parent_quote_id;
-              if (parentId) {
-                try {
-                  await QuotationRepository.updateQuotation(parentId, {
-                    status: 'Superseded',
-                    superseded_by_id: newQuote.id
-                  });
-                  setQuotations((prev) =>
-                    prev.map((q) =>
-                      q.id === parentId
-                        ? { ...q, status: 'Superseded' as const, superseded_by_id: newQuote.id }
-                        : q
-                    )
-                  );
-                } catch (supErr) {
-                  console.warn('[EnquiryDetail] Failed superseding predecessor quotation:', supErr);
-                }
-              }
-
-              // 1. Append immutable activity log entry for the issued formal quote
-              try {
-                const activityId = `act_quote_${Date.now()}`;
-                const wsId = currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default';
-                const formattedVal = `${newQuote.currency || 'AED'} ${Number(newQuote.grand_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
-
-                await ActivityLogRepository.save({
-                  id: activityId,
-                  workspace_id: wsId,
-                  company_id: currentEnquiry.company_id || '',
-                  contact_id: currentEnquiry.contact_id || '',
-                  enquiry_id: currentEnquiry.id || '',
-                  enquiry_quote_ref: newQuote.formatted_quote_ref,
-                  channel: 'Email',
-                  status: 'Completed',
-                  outcome: 'Enquiry Received',
-                  notes: `Formal Commercial Offer Issued: ${newQuote.formatted_quote_ref} (Value: ${formattedVal}, Revision: R${newQuote.revision_number})`,
-                  logged_by: user?.full_name || user?.username || 'User',
-                  date: new Date().toISOString()
-                });
-              } catch (actErr) {
-                console.warn('[EnquiryDetail] Failed creating activity log for issued quotation:', actErr);
-              }
-
-              // 2. Register document / attachment reference on the enquiry record
-              try {
-                if (currentEnquiry?.id) {
-                  const newDocAttachment: Attachment = {
-                    name: `${newQuote.formatted_quote_ref}.pdf`,
-                    size: 0,
-                    type: 'application/pdf',
-                    url: `quotations/${newQuote.formatted_quote_ref}.pdf`,
-                    storageProvider: 'local',
-                    uploadedAt: new Date().toISOString(),
-                    uploadedByUserName: user?.full_name || user?.username || 'System'
-                  };
-
-                  const existingAttachments = currentEnquiry.attachments || [];
-                  const updatedAttachments = [
-                    ...existingAttachments.filter(
-                      (a) => a.name !== newDocAttachment.name
-                    ),
-                    newDocAttachment
-                  ];
-
-                  await safeUpdateDoc('enquiries', currentEnquiry.id, {
-                    attachments: updatedAttachments,
+                    latest_revision_number: newQuote.revision_number ?? 1,
                     updated_at: new Date().toISOString()
                   });
-
                   setCurrentEnquiry((prev) =>
-                    prev ? { ...prev, attachments: updatedAttachments } : prev
+                    prev
+                      ? {
+                          ...prev,
+                          value_aed: newTotal,
+                          quoted_amount: newTotal,
+                          quote_ref_no: newRef,
+                          latest_quote_ref: newRef,
+                          active_quotation_id: newQuote.id,
+                          quotation_status: newQuote.status || 'Draft',
+                          latest_revision_number: newQuote.revision_number ?? 1
+                        }
+                      : prev
                   );
-
                   if (onUpdateEnquiry) {
-                    onUpdateEnquiry({ ...currentEnquiry, attachments: updatedAttachments });
+                    onUpdateEnquiry({
+                      ...currentEnquiry,
+                      value_aed: newTotal,
+                      quoted_amount: newTotal,
+                      quote_ref_no: newRef,
+                      latest_quote_ref: newRef,
+                      active_quotation_id: newQuote.id,
+                      quotation_status: newQuote.status || 'Draft',
+                      latest_revision_number: newQuote.revision_number ?? 1
+                    });
+                  }
+                } catch (valErr) {
+                  console.warn('[EnquiryDetail] Failed updating enquiry deal value from quotation:', valErr);
+                }
+              }
+
+              if (newQuote.status === 'Sent') {
+                if (isStandardQuotation) {
+                  handleStatusTransition('Sent / Pending Client');
+
+                  // If new revision has a parent quotation, ensure predecessor is updated to Superseded
+                  const parentId = newQuote.parent_quotation_id || newQuote.parent_quote_id;
+                  if (parentId) {
+                    try {
+                      await QuotationRepository.updateQuotation(parentId, {
+                        status: 'Superseded',
+                        superseded_by_id: newQuote.id
+                      });
+                      setQuotations((prev) =>
+                        prev.map((q) =>
+                          q.id === parentId
+                            ? { ...q, status: 'Superseded' as const, superseded_by_id: newQuote.id }
+                            : q
+                        )
+                      );
+                    } catch (supErr) {
+                      console.warn('[EnquiryDetail] Failed superseding predecessor quotation:', supErr);
+                    }
                   }
                 }
-              } catch (attErr) {
-                console.warn('[EnquiryDetail] Failed registering quotation document attachment:', attErr);
+
+                // 1. Append immutable activity log entry for the issued commercial document
+                try {
+                  const activityId = `act_doc_${Date.now()}`;
+                  const wsId = currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default';
+                  const docTypeLabel =
+                    newQuote.document_type === 'delivery_note'
+                      ? 'Delivery Note'
+                      : newQuote.document_type === 'purchase_order'
+                      ? 'Purchase Order'
+                      : newQuote.document_type === 'receipt'
+                      ? 'Payment Receipt'
+                      : 'Formal Commercial Offer';
+                  const formattedVal = `${newQuote.currency || 'AED'} ${Number(newQuote.grand_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+
+                  await ActivityLogRepository.save({
+                    id: activityId,
+                    workspace_id: wsId,
+                    company_id: currentEnquiry.company_id || '',
+                    contact_id: currentEnquiry.contact_id || '',
+                    enquiry_id: currentEnquiry.id || '',
+                    enquiry_quote_ref: newQuote.formatted_quote_ref,
+                    channel: 'Email',
+                    status: 'Completed',
+                    outcome: 'Enquiry Received',
+                    notes:
+                      newQuote.document_type === 'delivery_note'
+                        ? `${docTypeLabel} Issued: ${newQuote.formatted_quote_ref} (${(newQuote.line_items || []).length} items)`
+                        : `${docTypeLabel} Issued: ${newQuote.formatted_quote_ref} (Value: ${formattedVal})`,
+                    logged_by: user?.full_name || user?.username || 'User',
+                    date: new Date().toISOString()
+                  });
+                } catch (actErr) {
+                  console.warn('[EnquiryDetail] Failed creating activity log for issued document:', actErr);
+                }
+
+                // 2. Register document / attachment reference on the enquiry record
+                try {
+                  if (currentEnquiry?.id) {
+                    const newDocAttachment: Attachment = {
+                      name: `${newQuote.formatted_quote_ref}.pdf`,
+                      size: 0,
+                      type: 'application/pdf',
+                      url: `quotations/${newQuote.formatted_quote_ref}.pdf`,
+                      storageProvider: 'local',
+                      uploadedAt: new Date().toISOString(),
+                      uploadedByUserName: user?.full_name || user?.username || 'System'
+                    };
+
+                    const existingAttachments = currentEnquiry.attachments || [];
+                    const updatedAttachments = [
+                      ...existingAttachments.filter(
+                        (a) => a.name !== newDocAttachment.name
+                      ),
+                      newDocAttachment
+                    ];
+
+                    await safeUpdateDoc('enquiries', currentEnquiry.id, {
+                      attachments: updatedAttachments,
+                      updated_at: new Date().toISOString()
+                    });
+
+                    setCurrentEnquiry((prev) =>
+                      prev ? { ...prev, attachments: updatedAttachments } : prev
+                    );
+
+                    if (onUpdateEnquiry) {
+                      onUpdateEnquiry({ ...currentEnquiry, attachments: updatedAttachments });
+                    }
+                  }
+                } catch (attErr) {
+                  console.warn('[EnquiryDetail] Failed registering quotation document attachment:', attErr);
+                }
               }
-            }
-          }}
+            }}
             triggerToast={triggerToast}
           />
         );
       })()}
+
+      {/* Supplier Purchase Order (PO) Builder Modal */}
+      {poModalState.isOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-3.5 bg-indigo-50/70 border-b border-indigo-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center">
+                  <Package className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Generate Purchase Order (PO)
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Select supplier, PO mode, and line items to include
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPoModalState((prev) => ({ ...prev, isOpen: false }))}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-white transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs max-h-[75vh] overflow-y-auto">
+              {/* PO Mode Selector */}
+              <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl border border-slate-200">
+                {[
+                  {
+                    id: 'supplier_po' as const,
+                    title: 'Outbound Supplier PO',
+                    desc: 'Uses unit cost prices (hides client sell rate)'
+                  },
+                  {
+                    id: 'order_acknowledgment' as const,
+                    title: 'Order Acknowledgment',
+                    desc: 'Confirms client order with agreed rates'
+                  }
+                ].map((opt) => {
+                  const isSel = poModalState.poVariant === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setPoModalState((prev) => ({ ...prev, poVariant: opt.id }))}
+                      className={`p-2.5 rounded-lg text-left transition cursor-pointer ${
+                        isSel
+                          ? 'bg-white text-indigo-700 shadow-xs border border-indigo-200'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <span className="font-bold block text-xs">{opt.title}</span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5">{opt.desc}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Quick Select Supplier from Companies Directory */}
+              <div className="space-y-2">
+                <label className="block font-semibold text-slate-700">
+                  Select from Companies Directory (Optional)
+                </label>
+                <select
+                  value={poModalState.supplierCompanyId}
+                  onChange={(e) => {
+                    const compId = e.target.value;
+                    const found = companies.find((c) => c.id === compId);
+                    if (found) {
+                      const primaryContact = contacts.find((ct) => ct.company_id === found.id);
+                      setPoModalState((prev) => ({
+                        ...prev,
+                        supplierCompanyId: compId,
+                        supplierName: found.display_name || found.canonical_name || '',
+                        supplierContact: primaryContact?.full_name || '',
+                        supplierEmail: primaryContact?.email || found.email || '',
+                        supplierPhone: primaryContact?.phone || found.phone || '',
+                        supplierAddress: [(found as any).address, found.city, found.country]
+                          .filter(Boolean)
+                          .join(', '),
+                        supplierTrn: (found as any).trn || ''
+                      }));
+                    } else {
+                      setPoModalState((prev) => ({ ...prev, supplierCompanyId: '' }));
+                    }
+                  }}
+                  className="w-full rounded-lg border border-slate-300 p-2 bg-white text-slate-800"
+                >
+                  <option value="">-- Enter Custom Supplier or Pick Company --</option>
+                  {companies
+                    .filter((c) => !c.is_deleted)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.display_name} {c.city ? `(${c.city})` : ''}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-500 font-medium mb-1">
+                    Supplier / Vendor Name
+                  </label>
+                  <input
+                    type="text"
+                    value={poModalState.supplierName}
+                    onChange={(e) =>
+                      setPoModalState((prev) => ({ ...prev, supplierName: e.target.value }))
+                    }
+                    placeholder="Vendor Legal Name"
+                    className="w-full rounded-lg border border-slate-300 p-2 text-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-500 font-medium mb-1">
+                    Contact Person
+                  </label>
+                  <input
+                    type="text"
+                    value={poModalState.supplierContact}
+                    onChange={(e) =>
+                      setPoModalState((prev) => ({ ...prev, supplierContact: e.target.value }))
+                    }
+                    placeholder="Account Representative"
+                    className="w-full rounded-lg border border-slate-300 p-2 text-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-500 font-medium mb-1">
+                    Shipping Destination
+                  </label>
+                  <select
+                    value={poModalState.shippingDestination}
+                    onChange={(e) =>
+                      setPoModalState((prev) => ({
+                        ...prev,
+                        shippingDestination: e.target.value as any
+                      }))
+                    }
+                    className="w-full rounded-lg border border-slate-300 p-2 bg-white text-slate-800"
+                  >
+                    <option value="Warehouse">Our Warehouse / Facility</option>
+                    <option value="Direct to Client Site">Direct to Client Site</option>
+                    <option value="Custom">Custom Address</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-500 font-medium mb-1">
+                    Incoterms
+                  </label>
+                  <select
+                    value={poModalState.incoterms}
+                    onChange={(e) =>
+                      setPoModalState((prev) => ({
+                        ...prev,
+                        incoterms: e.target.value as any
+                      }))
+                    }
+                    className="w-full rounded-lg border border-slate-300 p-2 bg-white text-slate-800"
+                  >
+                    <option value="Ex-Works">Ex-Works</option>
+                    <option value="FOB">FOB</option>
+                    <option value="CIF">CIF</option>
+                    <option value="DDP">DDP (Delivered Duty Paid)</option>
+                    <option value="DAP">DAP (Delivered at Place)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Select Line Items to Include */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-800">
+                    Select Line Items for this PO
+                  </span>
+                  <span className="text-[11px] font-mono text-indigo-600 font-semibold">
+                    {poModalState.selectedItemIndices.length} selected
+                  </span>
+                </div>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                  {buildBaseLineItemsFromSource(poModalState.sourceQuote).map((it, idx) => {
+                    const isChecked = poModalState.selectedItemIndices.includes(idx);
+                    const matchedProd = products.find(
+                      (p) =>
+                        (it.product_id && p.id === it.product_id) ||
+                        (it.sku && p.sku && p.sku.toLowerCase() === it.sku.toLowerCase()) ||
+                        (it.item_name &&
+                          (p.name || p.description || '').trim().toLowerCase() ===
+                            it.item_name.trim().toLowerCase())
+                    );
+                    const unitCost =
+                      it.cost_price !== undefined && it.cost_price !== null && Number(it.cost_price) > 0
+                        ? Number(it.cost_price)
+                        : matchedProd?.cost_price !== undefined && matchedProd?.cost_price !== null
+                        ? Number(matchedProd.cost_price)
+                        : 0;
+                    return (
+                      <label
+                        key={it.id || idx}
+                        className={`flex items-center justify-between gap-3 p-2.5 rounded-xl border cursor-pointer transition ${
+                          isChecked
+                            ? 'bg-indigo-50/60 border-indigo-200'
+                            : 'bg-white border-slate-200 opacity-65'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              setPoModalState((prev) => ({
+                                ...prev,
+                                selectedItemIndices: e.target.checked
+                                  ? [...prev.selectedItemIndices, idx]
+                                  : prev.selectedItemIndices.filter((i) => i !== idx)
+                              }));
+                            }}
+                            className="rounded border-slate-300 text-indigo-600 cursor-pointer"
+                          />
+                          <div className="min-w-0">
+                            <span className="font-semibold text-slate-800 block truncate">
+                              #{idx + 1} {it.item_name}
+                            </span>
+                            <span className="text-[10.5px] text-slate-400 font-mono">
+                              Qty: {it.quantity} {it.unit || 'pcs'}
+                            </span>
+                          </div>
+                        </div>
+                        <span className="font-mono text-[11px] font-bold text-slate-700 shrink-0">
+                          {poModalState.poVariant === 'supplier_po'
+                            ? `Cost: ${unitCost.toFixed(2)}`
+                            : `Rate: ${Number(it.unit_price || 0).toFixed(2)}`}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPoModalState((prev) => ({ ...prev, isOpen: false }))}
+                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmLaunchSupplierPo}
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>Launch PO in Studio</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Standalone Quotation Document View Modal (Inspection) */}
       {viewingQuotation && (

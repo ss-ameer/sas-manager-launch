@@ -6,12 +6,14 @@ import {
   BankAccountProfile,
   DocumentProfileBankAccount
 } from '../types';
+import { amountToWords } from './numberToWords';
 
 export type QuotationAtTagCategory =
   | 'Dates'
   | 'Client & Project'
   | 'Our Company & Quote'
-  | 'Commercial, Bank & Totals';
+  | 'Commercial, Bank & Totals'
+  | 'Delivery, PO & Receipt';
 
 export interface QuotationAtTagDefinition {
   key: string; // e.g. 'client_name'
@@ -342,6 +344,110 @@ export const QUOTATION_AT_TAGS: QuotationAtTagDefinition[] = [
     label: 'Quotation Subject / Scope Summary',
     category: 'Commercial, Bank & Totals',
     structuralSyncTarget: 'subject.banner'
+  },
+
+  // 5. Delivery Note, Purchase Order & Payment Receipt Tags
+  {
+    key: 'delivery_ref',
+    tag: '@delivery_ref',
+    label: 'Delivery Note Reference',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'delivery_date',
+    tag: '@delivery_date',
+    label: 'Delivery / Dispatch Date',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'vehicle_no',
+    tag: '@vehicle_no',
+    label: 'Vehicle Plate / Carrier Ref',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'driver_name',
+    tag: '@driver_name',
+    label: 'Driver / Courier Name',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'site_address',
+    tag: '@site_address',
+    label: 'Delivery / Site Address',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'customer_po',
+    tag: '@customer_po',
+    label: 'Customer PO Number',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'po_ref',
+    tag: '@po_ref',
+    label: 'Purchase Order Reference',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'po_date',
+    tag: '@po_date',
+    label: 'Purchase Order Date',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'supplier_name',
+    tag: '@supplier_name',
+    label: 'Supplier / Vendor Name',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'supplier_tax_id',
+    tag: '@supplier_tax_id',
+    label: 'Supplier Tax ID / TRN',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'incoterms',
+    tag: '@incoterms',
+    label: 'Delivery Incoterms',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'receipt_ref',
+    tag: '@receipt_ref',
+    label: 'Receipt Voucher Reference',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'payment_mode',
+    tag: '@payment_mode',
+    label: 'Payment Mode / Method',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'bank_ref',
+    tag: '@bank_ref',
+    label: 'Bank Transaction / Cheque Ref',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'amount_paid',
+    tag: '@amount_paid',
+    label: 'Current Amount Paid / Received',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'previously_paid',
+    tag: '@previously_paid',
+    label: 'Previously Received Amount',
+    category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'balance_due',
+    tag: '@balance_due',
+    label: 'Balance Outstanding',
+    category: 'Delivery, PO & Receipt'
   }
 ];
 
@@ -382,7 +488,18 @@ const TOKEN_ALIAS_MAP: Record<string, string> = {
   beneficiary: 'account_name',
   account_number: 'account_no',
   swift_code: 'swift',
-  subject: 'scope_summary'
+  subject: 'scope_summary',
+  do_ref: 'delivery_ref',
+  vehicle_plate_no: 'vehicle_no',
+  delivery_address: 'site_address',
+  customer_po_no: 'customer_po',
+  vendor_name: 'supplier_name',
+  vendor_trn: 'supplier_tax_id',
+  payment_method: 'payment_mode',
+  bank_txn_ref: 'bank_ref',
+  amount_received: 'amount_paid',
+  previously_received: 'previously_paid',
+  balance_outstanding: 'balance_due'
 };
 
 const WHITELISTED_TOKEN_KEYS = new Set<string>([
@@ -649,12 +766,27 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
   const warrantyPeriod =
     warrantyCustomRow?.value || '12 Months Standard Manufacturer Warranty';
 
-  const currency = q.currency || (!frozen ? enq.currency : '') || 'AED';
+  const currency =
+    q.receipt_metadata?.currency || q.currency || (!frozen ? enq.currency : '') || 'AED';
   const subtotal = `${currency} ${formatAmount(q.subtotal)}`;
   const freightAmount = `${currency} ${formatAmount(q.freight_amount)}`;
   const vatAmount = `${currency} ${formatAmount(q.tax_amount)}`;
   const grandTotal = `${currency} ${formatAmount(q.grand_total)}`;
-  const amountInWords = ctx.amountInWordsText || '';
+
+  const docType = q.document_type || 'quotation';
+  const delMeta = q.delivery_metadata || {};
+  const poMeta = q.purchase_order_metadata || {};
+  const recMeta = q.receipt_metadata || {};
+
+  const effectiveAmountForWords =
+    docType === 'receipt' && recMeta.amount_received !== undefined
+      ? Number(recMeta.amount_received) || 0
+      : Number(q.grand_total) || 0;
+
+  const amountInWords =
+    ctx.amountInWordsText ||
+    amountToWords(effectiveAmountForWords, currency) ||
+    '';
 
   // Bank resolution (snapshot-first)
   const bankSnap: any =
@@ -683,6 +815,46 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
   );
   const scopeSummary =
     q.subject || (!frozen ? enq.subject || '' : '') || '';
+
+  // Delivery Note tokens
+  const deliveryRef = delMeta.delivery_ref || (docType === 'delivery_note' ? quoteRef : '');
+  const deliveryDate = formatReadableDate(delMeta.delivery_date || rawIssueDate);
+  const vehicleNo = delMeta.vehicle_plate_no || '';
+  const driverName = delMeta.driver_name || '';
+  const siteAddress =
+    delMeta.delivery_address ||
+    poMeta.shipping_address ||
+    projectLocation ||
+    clientAddress ||
+    '';
+  const customerPo =
+    delMeta.customer_po_no ||
+    customerRef ||
+    '';
+
+  // Purchase Order tokens
+  const poRef = poMeta.po_ref || (docType === 'purchase_order' ? quoteRef : '');
+  const poDate = formatReadableDate(poMeta.po_date || rawIssueDate);
+  const supplierName = poMeta.supplier_name || (docType === 'purchase_order' ? clientName : '');
+  const supplierTaxId = poMeta.supplier_tax_id || (docType === 'purchase_order' ? clientTrn : '');
+  const incotermsVal = poMeta.incoterms || priceBasis || '';
+
+  // Receipt Voucher tokens
+  const receiptRef = recMeta.receipt_ref || (docType === 'receipt' ? quoteRef : '');
+  const paymentModeVal = recMeta.payment_method || '';
+  const bankRefVal = recMeta.bank_txn_ref || recMeta.cheque_no || '';
+  const amountPaidVal = `${currency} ${formatAmount(recMeta.amount_received ?? q.grand_total)}`;
+  const previouslyPaidVal = `${currency} ${formatAmount(recMeta.previously_received ?? 0)}`;
+  const computedBalance =
+    recMeta.balance_outstanding !== undefined
+      ? Number(recMeta.balance_outstanding)
+      : Math.max(
+          0,
+          (Number(recMeta.total_order_value ?? q.grand_total) || 0) -
+            (Number(recMeta.previously_received) || 0) -
+            (Number(recMeta.amount_received) || 0)
+        );
+  const balanceDueVal = `${currency} ${formatAmount(computedBalance)}`;
 
   return {
     quote_date: String(quoteDateStr || '').trim(),
@@ -730,7 +902,27 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
     iban: String(iban || '').trim(),
     swift: String(swift || '').trim(),
     item_count: String(itemCount || '').trim(),
-    scope_summary: String(scopeSummary || '').trim()
+    scope_summary: String(scopeSummary || '').trim(),
+
+    delivery_ref: String(deliveryRef || '').trim(),
+    delivery_date: String(deliveryDate || '').trim(),
+    vehicle_no: String(vehicleNo || '').trim(),
+    driver_name: String(driverName || '').trim(),
+    site_address: String(siteAddress || '').trim(),
+    customer_po: String(customerPo || '').trim(),
+
+    po_ref: String(poRef || '').trim(),
+    po_date: String(poDate || '').trim(),
+    supplier_name: String(supplierName || '').trim(),
+    supplier_tax_id: String(supplierTaxId || '').trim(),
+    incoterms: String(incotermsVal || '').trim(),
+
+    receipt_ref: String(receiptRef || '').trim(),
+    payment_mode: String(paymentModeVal || '').trim(),
+    bank_ref: String(bankRefVal || '').trim(),
+    amount_paid: String(amountPaidVal || '').trim(),
+    previously_paid: String(previouslyPaidVal || '').trim(),
+    balance_due: String(balanceDueVal || '').trim()
   };
 }
 

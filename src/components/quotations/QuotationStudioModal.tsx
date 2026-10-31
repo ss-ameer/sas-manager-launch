@@ -40,7 +40,11 @@ import {
   QuotationBlockPieceType,
   QuotationTextFormatStyle,
   QuotationBlockFieldRowItem,
-  SavedCustomBlockTemplate
+  SavedCustomBlockTemplate,
+  CommercialDocumentType,
+  DeliveryNoteMetadata,
+  PurchaseOrderMetadata,
+  ReceiptVoucherMetadata
 } from '../../types';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
 import { uploadWorkspaceMediaAsset } from '../../services/attachmentStorage';
@@ -51,7 +55,7 @@ import SaveToCatalogModal, {
 } from '../SaveToCatalogModal';
 import CompositePackageEditor from './CompositePackageEditor';
 import LineItemImageOptionsPopover from '../common/LineItemImageOptionsPopover';
-import { db } from '../../firebase';
+import { db, safeUpdateDoc } from '../../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import {
   QuotationDocument,
@@ -852,6 +856,22 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   const [quotationStatus, setQuotationStatus] = useState<Quotation['status']>(
     () => editingQuotation?.status || 'Draft'
   );
+
+  // Commercial Document Suite Mode & Metadata State
+  const [documentType, setDocumentType] = useState<CommercialDocumentType>(
+    () => editingQuotation?.document_type || 'quotation'
+  );
+  const [deliveryMetadata, setDeliveryMetadata] = useState<DeliveryNoteMetadata>(
+    () => editingQuotation?.delivery_metadata || {}
+  );
+  const [purchaseOrderMetadata, setPurchaseOrderMetadata] = useState<PurchaseOrderMetadata>(
+    () => editingQuotation?.purchase_order_metadata || { po_variant: 'supplier_po' }
+  );
+  const [receiptMetadata, setReceiptMetadata] = useState<ReceiptVoucherMetadata>(
+    () => editingQuotation?.receipt_metadata || {}
+  );
+  const [isDeductingStock, setIsDeductingStock] = useState<boolean>(false);
+  const [stockDeductedForDoc, setStockDeductedForDoc] = useState<boolean>(false);
 
   // Column visibility & technical attributes toggles
   const [visibleColumns, setVisibleColumns] = useState<QuotationPresetColumns>(() => ({
@@ -1969,6 +1989,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setRevisionNumber(hydrated.revisionNumber);
       setFormattedQuoteRefOverride(hydrated.formattedQuoteRefOverride);
       setQuotationStatus(hydrated.quotationStatus);
+      setDocumentType(hydrated.documentType || 'quotation');
+      setDeliveryMetadata(hydrated.deliveryMetadata || {});
+      setPurchaseOrderMetadata(hydrated.purchaseOrderMetadata || { po_variant: 'supplier_po' });
+      setReceiptMetadata(hydrated.receiptMetadata || {});
+      setStockDeductedForDoc(false);
       setVisibleColumns(hydrated.visibleColumns);
       setFreightAmount(hydrated.freightAmount);
       setTaxMode(hydrated.taxMode);
@@ -2732,41 +2757,39 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     const FALLBACK_ITEMS: QuotationLineItem[] = [
       {
         id: 'sample_item_1',
-        item_name: 'Jackson Disk Diffuser',
-        description: 'Fine bubble membrane aeration diffuser for biological wastewater treatment and aeration basins.',
-        quantity: 120,
+        item_name: 'Commercial Grade Equipment Unit',
+        description: 'Heavy-duty industrial specification unit complete with standard mounting accessories and factory test certificate.',
+        quantity: 10,
         unit: 'pcs',
-        unit_price: 185.0,
-        total_price: 22200.0,
-        brand_make: 'Jackson Environmental',
-        model_part_no: 'JDD-9-EPDM',
-        country_of_origin: 'USA / UAE Assembly',
+        unit_price: 450.0,
+        total_price: 4500.0,
+        brand_make: 'OEM Standard',
+        model_part_no: 'MOD-100-PRO',
+        country_of_origin: 'EU / International',
         availability: 'Ex-Stock (1-2 Days)',
         is_optional: false,
         attributes: [
-          { key: 'Size', value: '9 Inch / DN200' },
-          { key: 'Material', value: 'EPDM Membrane / ABS Body' },
-          { key: 'Connection', value: '3/4" NPT Thread' },
-          { key: 'Design Flow', value: '2 - 5 Nm³/h' }
+          { key: 'Specification', value: 'ISO 9001 Certified' },
+          { key: 'Construction', value: 'Heavy-Duty Enclosure' },
+          { key: 'Warranty', value: '12 Months Standard' }
         ]
       },
       {
         id: 'sample_item_2',
-        item_name: 'Item One / Dosing Pump',
-        description: 'Electromagnetic diaphragm metering pump for chemical dosage and pH correction with digital stroke control.',
+        item_name: 'Digital Control & Monitoring Assembly',
+        description: 'Integrated control assembly with digital status display, overload protection, and standard wiring harness.',
         quantity: 2,
         unit: 'set',
-        unit_price: 2450.0,
-        total_price: 4900.0,
-        brand_make: 'Seko / Prominent',
-        model_part_no: 'KMS-MF-1510',
-        country_of_origin: 'Italy',
+        unit_price: 1850.0,
+        total_price: 3700.0,
+        brand_make: 'Industrial Controls',
+        model_part_no: 'DCA-220-S',
+        country_of_origin: 'Germany',
         availability: '3 - 5 Days',
         is_optional: false,
         attributes: [
-          { key: 'Capacity', value: '15 LPH' },
-          { key: 'Pressure', value: '10 bar' },
-          { key: 'Power Supply', value: '220V / 50Hz / 1Ph' }
+          { key: 'Protection Rating', value: 'IP65 Weatherproof' },
+          { key: 'Power Supply', value: '220-240V / 50-60Hz' }
         ]
       }
     ];
@@ -3029,6 +3052,26 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         ...(compOverride.total_price !== undefined ? { total_price: compOverride.total_price } : {}),
         ...(compOverride.item_name !== undefined ? { item_name: compOverride.item_name } : {}),
         ...(compOverride.description !== undefined ? { description: compOverride.description } : {}),
+        ...(compOverride.qty_ordered !== undefined
+          ? { qty_ordered: compOverride.qty_ordered }
+          : item.qty_ordered !== undefined
+          ? { qty_ordered: item.qty_ordered }
+          : {}),
+        ...(compOverride.qty_delivered !== undefined
+          ? { qty_delivered: compOverride.qty_delivered }
+          : item.qty_delivered !== undefined
+          ? { qty_delivered: item.qty_delivered }
+          : {}),
+        ...(compOverride.qty_balance !== undefined
+          ? { qty_balance: compOverride.qty_balance }
+          : item.qty_balance !== undefined
+          ? { qty_balance: item.qty_balance }
+          : {}),
+        ...(compOverride.serial_batch_no !== undefined
+          ? { serial_batch_no: compOverride.serial_batch_no }
+          : item.serial_batch_no !== undefined
+          ? { serial_batch_no: item.serial_batch_no }
+          : {}),
         ...(compOverride.option !== undefined
           ? { option: compOverride.option, option_group: compOverride.option }
           : {})
@@ -3357,6 +3400,214 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     }
   };
 
+  // Switch active Commercial Document Suite Mode (QT / DO / PO / REC)
+  const handleSwitchDocumentType = (nextType: CommercialDocumentType) => {
+    if (nextType === documentType) return;
+    const prevType = documentType;
+    setDocumentType(nextType);
+
+    const baseQuoteRef =
+      editingQuotation?.quote_number ||
+      enquiry.quote_ref_no ||
+      `QT-${new Date().getFullYear()}-${String(enquiry.sn || 1).padStart(4, '0')}`;
+    const todayIso = new Date().toISOString().slice(0, 10);
+
+    if (nextType === 'delivery_note') {
+      handleEnterUnpricedSubmittalMode();
+      const linkedDoRef =
+        deliveryMetadata.delivery_ref ||
+        QuotationRepository.generateLinkedDocumentRef(baseQuoteRef, 'delivery_note', enquiryRevisions);
+      setFormattedQuoteRefOverride(linkedDoRef);
+      setDeliveryMetadata((prev) => ({
+        ...prev,
+        delivery_ref: prev.delivery_ref || linkedDoRef,
+        delivery_date: prev.delivery_date || todayIso,
+        related_quote_ref: prev.related_quote_ref || baseQuoteRef,
+        site_contact_name:
+          prev.site_contact_name ||
+          clientContactPerson ||
+          enquiry.concerned_person ||
+          '',
+        site_contact_phone: prev.site_contact_phone || (enquiry as any)?.contact_phone || '',
+        delivery_address:
+          prev.delivery_address ||
+          clientAddressOverride ||
+          enquiry.project_location ||
+          enquiry.country ||
+          '',
+        dispatch_mode: prev.dispatch_mode || 'Company Transport',
+        dispatched_by_name: prev.dispatched_by_name || preparedBy || signatoryName || '',
+        goods_received_clause:
+          prev.goods_received_clause ||
+          'Received the above items in good order and condition.'
+      }));
+    } else if (nextType === 'purchase_order') {
+      if (prevType === 'delivery_note') {
+        handleRestorePricedQuoteMode();
+      }
+      const linkedPoRef =
+        purchaseOrderMetadata.po_ref ||
+        QuotationRepository.generateLinkedDocumentRef(baseQuoteRef, 'purchase_order', enquiryRevisions);
+      setFormattedQuoteRefOverride(linkedPoRef);
+      setPurchaseOrderMetadata((prev) => ({
+        ...prev,
+        po_variant: prev.po_variant || 'supplier_po',
+        po_ref: prev.po_ref || linkedPoRef,
+        po_date: prev.po_date || todayIso,
+        shipping_destination: prev.shipping_destination || 'Warehouse',
+        incoterms: prev.incoterms || 'Ex-Works',
+        requisitioner_name: prev.requisitioner_name || preparedBy || signatoryName || ''
+      }));
+    } else if (nextType === 'receipt') {
+      const linkedRecRef =
+        receiptMetadata.receipt_ref ||
+        QuotationRepository.generateLinkedDocumentRef(baseQuoteRef, 'receipt', enquiryRevisions);
+      setFormattedQuoteRefOverride(linkedRecRef);
+      const priorReceiptsTotal = enquiryRevisions
+        .filter((d) => d.document_type === 'receipt' && d.id !== activeQuotationId)
+        .reduce((sum, d) => sum + (Number(d.receipt_metadata?.amount_received) || 0), 0);
+      const contractVal =
+        Number(receiptMetadata.total_order_value) ||
+        Number(financialTotals.grand_total) ||
+        Number(enquiry.value_aed) ||
+        0;
+      const prevPaid =
+        receiptMetadata.previously_received !== undefined
+          ? Number(receiptMetadata.previously_received)
+          : priorReceiptsTotal;
+      const amtNow =
+        receiptMetadata.amount_received !== undefined
+          ? Number(receiptMetadata.amount_received)
+          : Math.max(0, contractVal - prevPaid);
+      setReceiptMetadata((prev) => ({
+        ...prev,
+        receipt_ref: prev.receipt_ref || linkedRecRef,
+        receipt_date: prev.receipt_date || todayIso,
+        received_from:
+          prev.received_from ||
+          clientNameOverride ||
+          enquiry.company_name ||
+          enquiry.client_company ||
+          '',
+        payment_for:
+          prev.payment_for ||
+          quotationSubject ||
+          `Settlement against Quotation ${baseQuoteRef}`,
+        payment_method: prev.payment_method || 'Bank Transfer / TT',
+        total_order_value: contractVal,
+        previously_received: prevPaid,
+        amount_received: amtNow,
+        balance_remaining: Math.max(0, contractVal - prevPaid - amtNow)
+      }));
+    } else {
+      // Returning to Quotation (QT)
+      if (prevType === 'delivery_note') {
+        handleRestorePricedQuoteMode();
+      }
+      const cleanQuoteNumber = baseQuoteRef.replace(/-R\d+$/i, '');
+      const revNum = revisionNumber ?? editingQuotation?.revision_number ?? 1;
+      setFormattedQuoteRefOverride(`${cleanQuoteNumber}-R${revNum}`);
+    }
+  };
+
+  // Load Supplier Cost Prices from Line Items / Product Catalog for Outbound Supplier PO
+  const handleLoadSupplierCostsForPO = () => {
+    setItemCompositeOverrides((prev) => {
+      const next = { ...prev };
+      quotationLineItems.forEach((item, idx) => {
+        const itemKey = item.id || `item_${idx}`;
+        const matchedProd = workspaceProducts.find(
+          (p) =>
+            (item.product_id && p.id === item.product_id) ||
+            (item.sku && p.sku && p.sku.toLowerCase() === item.sku.toLowerCase()) ||
+            (item.item_name &&
+              (p.name || p.description || '').trim().toLowerCase() ===
+                item.item_name.trim().toLowerCase())
+        );
+        const resolvedCost =
+          item.cost_price !== undefined && item.cost_price !== null && Number(item.cost_price) > 0
+            ? Number(item.cost_price)
+            : matchedProd?.cost_price !== undefined && matchedProd?.cost_price !== null
+            ? Number(matchedProd.cost_price)
+            : 0;
+        const qty = Number(item.quantity) || 1;
+        next[itemKey] = {
+          ...(next[itemKey] || {}),
+          unit_price: resolvedCost,
+          cost_price: resolvedCost,
+          total_price: QuotationRepository.roundCurrency(qty * resolvedCost)
+        };
+      });
+      return next;
+    });
+    triggerToast?.(
+      'Initialized PO unit rates from item & catalog cost prices (client selling prices hidden).',
+      'info'
+    );
+  };
+
+  // Optional 1-click stock deduction when issuing a Delivery Note
+  const handleDeductDeliveredStock = async () => {
+    if (isDeductingStock || stockDeductedForDoc) return;
+    const trackedItems = quotationLineItems
+      .map((item) => {
+        const matchedProd = workspaceProducts.find(
+          (p) =>
+            (item.product_id && p.id === item.product_id) ||
+            (item.sku && p.sku && p.sku.toLowerCase() === item.sku.toLowerCase()) ||
+            (item.item_name &&
+              (p.name || p.description || '').trim().toLowerCase() ===
+                item.item_name.trim().toLowerCase())
+        );
+        const deliveredQty =
+          item.qty_delivered !== undefined ? Number(item.qty_delivered) : Number(item.quantity) || 0;
+        return { item, matchedProd, deliveredQty };
+      })
+      .filter((entry) => entry.matchedProd?.id && entry.deliveredQty > 0);
+
+    if (trackedItems.length === 0) {
+      triggerToast?.('No catalog-linked line items with delivered quantity > 0 found.', 'info');
+      return;
+    }
+
+    setIsDeductingStock(true);
+    try {
+      let updatedCount = 0;
+      for (const { matchedProd, deliveredQty } of trackedItems) {
+        if (!matchedProd?.id) continue;
+        const currentStock = Number(matchedProd.stock_on_hand ?? matchedProd.current_stock ?? 0);
+        const nextStock = Math.max(0, currentStock - deliveredQty);
+        const patch: Partial<Product> = {
+          stock_on_hand: nextStock,
+          current_stock: nextStock,
+          is_inventoried: true,
+          updatedAt: new Date().toISOString()
+        };
+        await safeUpdateDoc('products', matchedProd.id, patch);
+        const updatedProduct: Product = { ...matchedProd, ...patch };
+        setWorkspaceProducts((prev) =>
+          prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p))
+        );
+        if (propSetProducts) {
+          propSetProducts((prev) =>
+            prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p))
+          );
+        }
+        updatedCount++;
+      }
+      setStockDeductedForDoc(true);
+      triggerToast?.(
+        `Deducted delivered quantities from warehouse stock for ${updatedCount} catalog item(s).`,
+        'success'
+      );
+    } catch (err) {
+      console.error('[QuotationStudioModal] Stock deduction failed:', err);
+      triggerToast?.('Failed to deduct stock quantities.', 'error');
+    } finally {
+      setIsDeductingStock(false);
+    }
+  };
+
   // Calculate live financial figures based on active optionDisplayMode
   const financialTotals = useMemo(() => {
     const itemsForTotals =
@@ -3622,7 +3873,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       `QT-${new Date().getFullYear()}-${String(enquiry.sn || 1).padStart(4, '0')}`;
     const cleanQuoteNumber = rawQuoteNumber.replace(/-R\d+$/, '');
     const revNum = revisionNumber ?? editingQuotation?.revision_number ?? 1;
-    const formattedQuoteRef = formattedQuoteRefOverride
+    const isNonQuoteDoc = documentType && documentType !== 'quotation';
+    const formattedQuoteRef = isNonQuoteDoc
+      ? (documentType === 'delivery_note' && deliveryMetadata.delivery_ref) ||
+        (documentType === 'purchase_order' && purchaseOrderMetadata.po_ref) ||
+        (documentType === 'receipt' && receiptMetadata.receipt_ref) ||
+        formattedQuoteRefOverride ||
+        QuotationRepository.generateLinkedDocumentRef(cleanQuoteNumber, documentType, enquiryRevisions)
+      : formattedQuoteRefOverride
       ? formattedQuoteRefOverride.replace(/-R\d+$/i, `-R${revNum}`)
       : `${cleanQuoteNumber}-R${revNum}`;
 
@@ -3631,6 +3889,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       workspace_id: activeWorkspaceId,
       workspaceId: activeWorkspaceId,
       enquiry_id: enquiry.id || '',
+      document_type: documentType || 'quotation',
+      delivery_metadata: deliveryMetadata,
+      purchase_order_metadata: purchaseOrderMetadata,
+      receipt_metadata: receiptMetadata,
       quote_number: cleanQuoteNumber,
       revision_number: revNum,
       formatted_quote_ref: formattedQuoteRef,
@@ -3820,7 +4082,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     parentQuotationId,
     revisionNumber,
     formattedQuoteRefOverride,
-    quotationStatus
+    quotationStatus,
+    documentType,
+    deliveryMetadata,
+    purchaseOrderMetadata,
+    receiptMetadata,
+    enquiryRevisions
   ]);
 
   // Smart '@' Token Resolution Context & Map
@@ -4073,6 +4340,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         workspace_id: activeWorkspaceId,
         workspaceId: activeWorkspaceId,
         enquiry_id: enquiry.id || '',
+        document_type: liveQuotation.document_type || 'quotation',
+        delivery_metadata: liveQuotation.delivery_metadata,
+        purchase_order_metadata: liveQuotation.purchase_order_metadata,
+        receipt_metadata: liveQuotation.receipt_metadata,
         quote_number: liveQuotation.quote_number,
         revision_number: liveQuotation.revision_number,
         formatted_quote_ref: liveQuotation.formatted_quote_ref,
@@ -4165,9 +4436,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
       const saved = await QuotationRepository.saveQuotation(payload);
 
-      // Mark superseded revisions where applicable and sync Enquiry pipeline fields
+      // Mark superseded revisions where applicable (only for formal Quotations) and sync Enquiry pipeline fields
       const parentId = payload.parent_quotation_id || payload.parent_quote_id;
-      if (parentId) {
+      if (parentId && (payload.document_type || 'quotation') === 'quotation') {
         try {
           await QuotationRepository.updateQuotation(parentId, {
             status: 'Superseded',
@@ -4179,12 +4450,23 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       }
 
       const syncPayload = await QuotationRepository.syncQuotationRevisionAndEnquiry(saved);
-      onEnquirySync?.(syncPayload);
+      if ((payload.document_type || 'quotation') === 'quotation') {
+        onEnquirySync?.(syncPayload);
+      }
+
+      const docLabel =
+        payload.document_type === 'delivery_note'
+          ? 'Delivery Note'
+          : payload.document_type === 'purchase_order'
+          ? 'Purchase Order'
+          : payload.document_type === 'receipt'
+          ? 'Payment Receipt'
+          : 'Quotation';
 
       triggerToast?.(
         effectiveStatus === 'Sent'
-          ? `Quotation #${saved.formatted_quote_ref} issued successfully!`
-          : `Quotation #${saved.formatted_quote_ref} (${effectiveStatus}) saved!`,
+          ? `${docLabel} #${saved.formatted_quote_ref} issued successfully!`
+          : `${docLabel} #${saved.formatted_quote_ref} (${effectiveStatus}) saved!`,
         'success'
       );
 
@@ -4599,10 +4881,46 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             </div>
             <div>
               <div className="flex items-center flex-wrap gap-2">
-                <h2 className="text-base font-bold text-slate-900">Quotation Studio</h2>
+                <h2 className="text-base font-bold text-slate-900">
+                  {documentType === 'delivery_note'
+                    ? 'Delivery Note Studio'
+                    : documentType === 'purchase_order'
+                    ? 'Purchase Order Studio'
+                    : documentType === 'receipt'
+                    ? 'Payment Receipt Studio'
+                    : 'Quotation Studio'}
+                </h2>
                 <span className="px-2 py-0.5 text-xs font-mono font-bold bg-blue-50 text-blue-700 border border-blue-200 rounded-md">
                   {liveQuotation.formatted_quote_ref}
                 </span>
+
+                {/* Commercial Document Suite Mode Switcher Pill Bar */}
+                <div className="inline-flex items-center gap-0.5 bg-slate-100 border border-slate-200 rounded-lg p-0.5">
+                  {(
+                    [
+                      { id: 'quotation' as const, label: 'Quotation (QT)' },
+                      { id: 'delivery_note' as const, label: 'Delivery Note (DO)' },
+                      { id: 'purchase_order' as const, label: 'Purchase Order (PO)' },
+                      { id: 'receipt' as const, label: 'Receipt (REC)' }
+                    ]
+                  ).map((docOpt) => {
+                    const isActive = (documentType || 'quotation') === docOpt.id;
+                    return (
+                      <button
+                        key={docOpt.id}
+                        type="button"
+                        onClick={() => handleSwitchDocumentType(docOpt.id)}
+                        className={`px-2 py-0.5 text-[10.5px] font-semibold rounded-md transition cursor-pointer whitespace-nowrap ${
+                          isActive
+                            ? 'bg-blue-600 text-white shadow-2xs'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
+                        }`}
+                      >
+                        {docOpt.label}
+                      </button>
+                    );
+                  })}
+                </div>
 
                 <button
                   type="button"
@@ -4657,23 +4975,52 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   })}
                 </div>
 
-                {/* One-Click Revision Cloner Button */}
-                <button
-                  type="button"
-                  onClick={handleCloneAsNextRevision}
-                  title={`Deep-clone current quotation into Revision R${(liveQuotation.revision_number || 1) + 1}`}
-                  className="px-2.5 py-1 text-[11px] font-bold font-mono bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg transition flex items-center gap-1 cursor-pointer shadow-2xs"
-                >
-                  <span>⎘ Clone as R{(liveQuotation.revision_number || 1) + 1}</span>
-                </button>
+                {/* One-Click Revision Cloner Button (Quotations only) */}
+                {documentType === 'quotation' && (
+                  <button
+                    type="button"
+                    onClick={handleCloneAsNextRevision}
+                    title={`Deep-clone current quotation into Revision R${(liveQuotation.revision_number || 1) + 1}`}
+                    className="px-2.5 py-1 text-[11px] font-bold font-mono bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg transition flex items-center gap-1 cursor-pointer shadow-2xs"
+                  >
+                    <span>⎘ Clone as R{(liveQuotation.revision_number || 1) + 1}</span>
+                  </button>
+                )}
+
+                {/* Optional 1-Click Stock Deduction Button (Delivery Notes only) */}
+                {documentType === 'delivery_note' && (
+                  <button
+                    type="button"
+                    disabled={isDeductingStock || stockDeductedForDoc}
+                    onClick={handleDeductDeliveredStock}
+                    title="Deduct delivered quantities on this Delivery Note from linked Product Catalog stock on hand"
+                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg border transition flex items-center gap-1 cursor-pointer shadow-2xs whitespace-nowrap ${
+                      stockDeductedForDoc
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 cursor-default'
+                        : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                    }`}
+                  >
+                    <Truck className="w-3.5 h-3.5" />
+                    <span>
+                      {stockDeductedForDoc
+                        ? '✓ Stock Deducted'
+                        : isDeductingStock
+                        ? 'Deducting...'
+                        : 'Deduct Delivered Qty from Stock'}
+                    </span>
+                  </button>
+                )}
 
                 {/* In-Studio Revision History Switcher (R1 <-> R2) */}
-                {enquiryRevisions.length > 1 && (
+                {enquiryRevisions.filter((r) => (r.document_type || 'quotation') === 'quotation').length > 1 &&
+                  documentType === 'quotation' && (
                   <div className="inline-flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-0.5">
                     <span className="text-[10px] font-mono font-bold text-slate-400 uppercase mr-1">
                       Revisions:
                     </span>
-                    {enquiryRevisions.map((rev) => {
+                    {enquiryRevisions
+                      .filter((r) => (r.document_type || 'quotation') === 'quotation')
+                      .map((rev) => {
                       const isCurrent =
                         rev.id === liveQuotation.id ||
                         rev.revision_number === liveQuotation.revision_number;
@@ -4707,9 +5054,24 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Client: <span className="font-semibold text-slate-700">{liveQuotation.client_snapshot.entity_name}</span>
+                {documentType === 'purchase_order' &&
+                purchaseOrderMetadata.po_variant !== 'order_acknowledgment' ? (
+                  <>
+                    Supplier:{' '}
+                    <span className="font-semibold text-slate-700">
+                      {purchaseOrderMetadata.supplier_name || 'Select / Enter Supplier'}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    Client:{' '}
+                    <span className="font-semibold text-slate-700">
+                      {liveQuotation.client_snapshot.entity_name}
+                    </span>
+                  </>
+                )}
                 {salespersonName && ` • Assigned: ${salespersonName}`}
-                {liveQuotation.parent_quotation_id && (
+                {liveQuotation.parent_quotation_id && documentType === 'quotation' && (
                   <span className="ml-2 text-[10.5px] font-mono text-indigo-600">
                     • Revision R{liveQuotation.revision_number || 1}
                   </span>
@@ -4750,7 +5112,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
                   >
                     <Save className="w-3.5 h-3.5 text-slate-500" />
-                    <span className="hidden sm:inline">Save Quotation</span>
+                    <span className="hidden sm:inline">
+                      {documentType === 'delivery_note'
+                        ? 'Save Delivery Note'
+                        : documentType === 'purchase_order'
+                        ? 'Save Purchase Order'
+                        : documentType === 'receipt'
+                        ? 'Save Receipt'
+                        : 'Save Quotation'}
+                    </span>
                   </button>
                   <button
                     type="button"
@@ -4759,7 +5129,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer"
                   >
                     <Send className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Issue Quotation</span>
+                    <span className="hidden sm:inline">
+                      {documentType === 'delivery_note'
+                        ? 'Issue Delivery Note'
+                        : documentType === 'purchase_order'
+                        ? 'Issue Purchase Order'
+                        : documentType === 'receipt'
+                        ? 'Issue Receipt'
+                        : 'Issue Quotation'}
+                    </span>
                   </button>
                 </div>
               )
@@ -6153,7 +6531,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               'Dates',
                               'Client & Project',
                               'Our Company & Quote',
-                              'Commercial, Bank & Totals'
+                              'Commercial, Bank & Totals',
+                              'Delivery, PO & Receipt'
                             ] as const
                           ).map((cat) => {
                             const items = QUOTATION_AT_TAGS.filter((t) => t.category === cat);
@@ -6266,6 +6645,638 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     )}
                   </div>
 
+                  {/* Contextual Document Mode Metadata Card (DO / PO / REC) */}
+                  {documentType === 'delivery_note' && (
+                    <div className="border border-blue-200 rounded-xl p-4 bg-blue-50/40 space-y-3 text-xs shadow-2xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+                          <Truck className="w-3.5 h-3.5 text-blue-600" />
+                          Delivery Note &amp; Dispatch Details (DO)
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full bg-white border border-blue-200 text-[10px] font-mono font-bold text-blue-700 whitespace-nowrap">
+                          Unpriced Dispatch
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Delivery Note #
+                          </label>
+                          <input
+                            type="text"
+                            value={deliveryMetadata.delivery_ref || liveQuotation.formatted_quote_ref}
+                            onChange={(e) => {
+                              setFormattedQuoteRefOverride(e.target.value);
+                              setDeliveryMetadata((prev) => ({ ...prev, delivery_ref: e.target.value }));
+                            }}
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Dispatch Date
+                          </label>
+                          <input
+                            type="date"
+                            value={
+                              (deliveryMetadata.delivery_date || '').slice(0, 10) ||
+                              new Date().toISOString().slice(0, 10)
+                            }
+                            onChange={(e) =>
+                              setDeliveryMetadata((prev) => ({ ...prev, delivery_date: e.target.value }))
+                            }
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Customer PO #
+                          </label>
+                          <input
+                            type="text"
+                            value={deliveryMetadata.customer_po_no || ''}
+                            onChange={(e) =>
+                              setDeliveryMetadata((prev) => ({ ...prev, customer_po_no: e.target.value }))
+                            }
+                            placeholder="e.g. PO-88412"
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Dispatch Mode
+                          </label>
+                          <select
+                            value={deliveryMetadata.dispatch_mode || 'Company Transport'}
+                            onChange={(e) =>
+                              setDeliveryMetadata((prev) => ({
+                                ...prev,
+                                dispatch_mode: e.target.value as any
+                              }))
+                            }
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          >
+                            <option value="Company Transport">Company Transport</option>
+                            <option value="Courier / Freight">Courier / Freight</option>
+                            <option value="Customer Collection (Ex-Works)">Customer Collection (Ex-Works)</option>
+                          </select>
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Site Contact Person
+                          </label>
+                          <input
+                            type="text"
+                            value={deliveryMetadata.site_contact_name ?? clientContactPerson}
+                            onChange={(e) =>
+                              setDeliveryMetadata((prev) => ({
+                                ...prev,
+                                site_contact_name: e.target.value
+                              }))
+                            }
+                            placeholder="Receiving Contact Name"
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Site Contact Phone
+                          </label>
+                          <input
+                            type="text"
+                            value={deliveryMetadata.site_contact_phone || ''}
+                            onChange={(e) =>
+                              setDeliveryMetadata((prev) => ({
+                                ...prev,
+                                site_contact_phone: e.target.value
+                              }))
+                            }
+                            placeholder="+971 50 000 0000"
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Vehicle Plate / AWB #
+                          </label>
+                          <input
+                            type="text"
+                            value={deliveryMetadata.vehicle_plate_no || ''}
+                            onChange={(e) =>
+                              setDeliveryMetadata((prev) => ({
+                                ...prev,
+                                vehicle_plate_no: e.target.value
+                              }))
+                            }
+                            placeholder="e.g. DXB 44219"
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Driver Name &amp; Phone
+                          </label>
+                          <input
+                            type="text"
+                            value={deliveryMetadata.driver_name || ''}
+                            onChange={(e) =>
+                              setDeliveryMetadata((prev) => ({
+                                ...prev,
+                                driver_name: e.target.value
+                              }))
+                            }
+                            placeholder="Driver Name / Contact"
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-500 font-medium text-[11px] mb-1">
+                          Delivery Site Address / Location
+                        </label>
+                        <input
+                          type="text"
+                          value={deliveryMetadata.delivery_address ?? clientAddressOverride}
+                          onChange={(e) =>
+                            setDeliveryMetadata((prev) => ({
+                              ...prev,
+                              delivery_address: e.target.value
+                            }))
+                          }
+                          placeholder="Project site or warehouse receiving address"
+                          className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Dispatched By (Storekeeper)
+                          </label>
+                          <input
+                            type="text"
+                            value={deliveryMetadata.dispatched_by_name ?? preparedBy}
+                            onChange={(e) =>
+                              setDeliveryMetadata((prev) => ({
+                                ...prev,
+                                dispatched_by_name: e.target.value
+                              }))
+                            }
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Received By (Optional Pre-fill)
+                          </label>
+                          <input
+                            type="text"
+                            value={deliveryMetadata.received_by_name || ''}
+                            onChange={(e) =>
+                              setDeliveryMetadata((prev) => ({
+                                ...prev,
+                                received_by_name: e.target.value
+                              }))
+                            }
+                            placeholder="Blank for physical sign-off"
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {documentType === 'purchase_order' && (
+                    <div className="border border-indigo-200 rounded-xl p-4 bg-indigo-50/40 space-y-3 text-xs shadow-2xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+                          <Building className="w-3.5 h-3.5 text-indigo-600" />
+                          Purchase Order Configuration (PO)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleLoadSupplierCostsForPO}
+                          className="px-2 py-1 rounded-lg bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold text-[10px] transition cursor-pointer whitespace-nowrap"
+                          title="Set line item rates from item/catalog cost_price instead of client selling price"
+                        >
+                          Load Cost Prices
+                        </button>
+                      </div>
+
+                      {/* PO Variant Segmented Bar */}
+                      <div className="grid grid-cols-2 gap-1 p-1 bg-white rounded-lg border border-indigo-200">
+                        {[
+                          { id: 'supplier_po' as const, label: 'Outbound Supplier PO' },
+                          { id: 'order_acknowledgment' as const, label: 'Order Acknowledgment' }
+                        ].map((v) => {
+                          const isSel = (purchaseOrderMetadata.po_variant || 'supplier_po') === v.id;
+                          return (
+                            <button
+                              key={v.id}
+                              type="button"
+                              onClick={() =>
+                                setPurchaseOrderMetadata((prev) => ({ ...prev, po_variant: v.id }))
+                              }
+                              className={`py-1.5 px-2 rounded-md text-[10.5px] font-semibold transition cursor-pointer whitespace-nowrap ${
+                                isSel
+                                  ? 'bg-indigo-600 text-white shadow-2xs'
+                                  : 'text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              {v.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            PO Reference #
+                          </label>
+                          <input
+                            type="text"
+                            value={purchaseOrderMetadata.po_ref || liveQuotation.formatted_quote_ref}
+                            onChange={(e) => {
+                              setFormattedQuoteRefOverride(e.target.value);
+                              setPurchaseOrderMetadata((prev) => ({ ...prev, po_ref: e.target.value }));
+                            }}
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            PO Date
+                          </label>
+                          <input
+                            type="date"
+                            value={
+                              (purchaseOrderMetadata.po_date || '').slice(0, 10) ||
+                              new Date().toISOString().slice(0, 10)
+                            }
+                            onChange={(e) =>
+                              setPurchaseOrderMetadata((prev) => ({ ...prev, po_date: e.target.value }))
+                            }
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Supplier / Vendor Name
+                          </label>
+                          <input
+                            type="text"
+                            value={purchaseOrderMetadata.supplier_name || ''}
+                            onChange={(e) =>
+                              setPurchaseOrderMetadata((prev) => ({
+                                ...prev,
+                                supplier_name: e.target.value
+                              }))
+                            }
+                            placeholder="Vendor Legal Entity Name"
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Supplier Contact Person
+                          </label>
+                          <input
+                            type="text"
+                            value={purchaseOrderMetadata.supplier_contact || ''}
+                            onChange={(e) =>
+                              setPurchaseOrderMetadata((prev) => ({
+                                ...prev,
+                                supplier_contact: e.target.value
+                              }))
+                            }
+                            placeholder="Account / Sales Contact"
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Supplier Tax ID / TRN
+                          </label>
+                          <input
+                            type="text"
+                            value={purchaseOrderMetadata.supplier_trn || ''}
+                            onChange={(e) =>
+                              setPurchaseOrderMetadata((prev) => ({
+                                ...prev,
+                                supplier_trn: e.target.value
+                              }))
+                            }
+                            placeholder="Tax Registration #"
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Incoterms
+                          </label>
+                          <select
+                            value={purchaseOrderMetadata.incoterms || 'Ex-Works'}
+                            onChange={(e) =>
+                              setPurchaseOrderMetadata((prev) => ({
+                                ...prev,
+                                incoterms: e.target.value as any
+                              }))
+                            }
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          >
+                            <option value="Ex-Works">Ex-Works</option>
+                            <option value="FOB">FOB</option>
+                            <option value="CIF">CIF</option>
+                            <option value="DDP">DDP (Delivered Duty Paid)</option>
+                            <option value="DAP">DAP (Delivered at Place)</option>
+                          </select>
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Ship To Destination
+                          </label>
+                          <select
+                            value={purchaseOrderMetadata.shipping_destination || 'Warehouse'}
+                            onChange={(e) =>
+                              setPurchaseOrderMetadata((prev) => ({
+                                ...prev,
+                                shipping_destination: e.target.value as any
+                              }))
+                            }
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          >
+                            <option value="Warehouse">Our Warehouse / Facility</option>
+                            <option value="Direct to Client Site">Direct to Client Site</option>
+                            <option value="Custom">Custom Address</option>
+                          </select>
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Expected Delivery Date
+                          </label>
+                          <input
+                            type="date"
+                            value={(purchaseOrderMetadata.expected_delivery_date || '').slice(0, 10)}
+                            onChange={(e) =>
+                              setPurchaseOrderMetadata((prev) => ({
+                                ...prev,
+                                expected_delivery_date: e.target.value
+                              }))
+                            }
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-500 font-medium text-[11px] mb-1">
+                          Supplier Address / Ship-To Address Override
+                        </label>
+                        <input
+                          type="text"
+                          value={
+                            purchaseOrderMetadata.shipping_destination === 'Custom'
+                              ? purchaseOrderMetadata.ship_to_address || ''
+                              : purchaseOrderMetadata.supplier_address || ''
+                          }
+                          onChange={(e) =>
+                            setPurchaseOrderMetadata((prev) =>
+                              prev.shipping_destination === 'Custom'
+                                ? { ...prev, ship_to_address: e.target.value }
+                                : { ...prev, supplier_address: e.target.value }
+                            )
+                          }
+                          placeholder={
+                            purchaseOrderMetadata.shipping_destination === 'Custom'
+                              ? 'Enter custom delivery destination address'
+                              : 'Enter supplier street, city & country'
+                          }
+                          className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {documentType === 'receipt' && (
+                    <div className="border border-emerald-200 rounded-xl p-4 bg-emerald-50/40 space-y-3 text-xs shadow-2xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+                          <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                          Payment Receipt Voucher (REC)
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full bg-white border border-emerald-200 text-[10px] font-mono font-bold text-emerald-700 whitespace-nowrap">
+                          Balance: {liveQuotation.currency}{' '}
+                          {Math.max(
+                            0,
+                            (Number(receiptMetadata.total_order_value) || Number(financialTotals.grand_total) || 0) -
+                              (Number(receiptMetadata.previously_received) || 0) -
+                              (Number(receiptMetadata.amount_received) || 0)
+                          ).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Receipt Voucher #
+                          </label>
+                          <input
+                            type="text"
+                            value={receiptMetadata.receipt_ref || liveQuotation.formatted_quote_ref}
+                            onChange={(e) => {
+                              setFormattedQuoteRefOverride(e.target.value);
+                              setReceiptMetadata((prev) => ({ ...prev, receipt_ref: e.target.value }));
+                            }}
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Receipt Date
+                          </label>
+                          <input
+                            type="date"
+                            value={
+                              (receiptMetadata.receipt_date || '').slice(0, 10) ||
+                              new Date().toISOString().slice(0, 10)
+                            }
+                            onChange={(e) =>
+                              setReceiptMetadata((prev) => ({ ...prev, receipt_date: e.target.value }))
+                            }
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Payment Mode
+                          </label>
+                          <select
+                            value={receiptMetadata.payment_method || 'Bank Transfer / TT'}
+                            onChange={(e) =>
+                              setReceiptMetadata((prev) => ({
+                                ...prev,
+                                payment_method: e.target.value as any
+                              }))
+                            }
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          >
+                            <option value="Bank Transfer / TT">Bank Transfer / TT</option>
+                            <option value="Cheque">Cheque</option>
+                            <option value="Cash">Cash</option>
+                            <option value="Card">Card</option>
+                            <option value="Online">Online</option>
+                          </select>
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Cheque / Transfer Ref #
+                          </label>
+                          <input
+                            type="text"
+                            value={receiptMetadata.reference_no || ''}
+                            onChange={(e) =>
+                              setReceiptMetadata((prev) => ({ ...prev, reference_no: e.target.value }))
+                            }
+                            placeholder="Cheque # / UTR / Swift Ref"
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Total Contract Value
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={
+                              receiptMetadata.total_order_value !== undefined
+                                ? receiptMetadata.total_order_value
+                                : financialTotals.grand_total
+                            }
+                            onChange={(e) => {
+                              const totalVal = Number(e.target.value) || 0;
+                              const prevVal = Number(receiptMetadata.previously_received) || 0;
+                              const currVal = Number(receiptMetadata.amount_received) || 0;
+                              setReceiptMetadata((prev) => ({
+                                ...prev,
+                                total_order_value: totalVal,
+                                balance_remaining: Math.max(0, totalVal - prevVal - currVal)
+                              }));
+                            }}
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Previously Received
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={receiptMetadata.previously_received ?? 0}
+                            onChange={(e) => {
+                              const prevVal = Number(e.target.value) || 0;
+                              const totalVal =
+                                Number(receiptMetadata.total_order_value) ||
+                                Number(financialTotals.grand_total) ||
+                                0;
+                              const currVal = Number(receiptMetadata.amount_received) || 0;
+                              setReceiptMetadata((prev) => ({
+                                ...prev,
+                                previously_received: prevVal,
+                                balance_remaining: Math.max(0, totalVal - prevVal - currVal)
+                              }));
+                            }}
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div className="min-w-0">
+                          <label className="block text-emerald-800 font-bold text-[11px] mb-1 truncate">
+                            Amount Received Now ({liveQuotation.currency})
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={
+                              receiptMetadata.amount_received !== undefined
+                                ? receiptMetadata.amount_received
+                                : financialTotals.grand_total
+                            }
+                            onChange={(e) => {
+                              const currVal = Number(e.target.value) || 0;
+                              const totalVal =
+                                Number(receiptMetadata.total_order_value) ||
+                                Number(financialTotals.grand_total) ||
+                                0;
+                              const prevVal = Number(receiptMetadata.previously_received) || 0;
+                              setReceiptMetadata((prev) => ({
+                                ...prev,
+                                amount_received: currVal,
+                                balance_remaining: Math.max(0, totalVal - prevVal - currVal)
+                              }));
+                            }}
+                            className="w-full rounded-lg border-2 border-emerald-500 p-2 bg-white font-mono font-bold text-xs text-emerald-900"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Received From (Payer)
+                          </label>
+                          <input
+                            type="text"
+                            value={
+                              receiptMetadata.received_from ??
+                              liveQuotation.client_snapshot.entity_name
+                            }
+                            onChange={(e) =>
+                              setReceiptMetadata((prev) => ({
+                                ...prev,
+                                received_from: e.target.value
+                              }))
+                            }
+                            className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-500 font-medium text-[11px] mb-1">
+                          Being Payment Towards (Narration / Milestone)
+                        </label>
+                        <input
+                          type="text"
+                          value={receiptMetadata.payment_for ?? quotationSubject}
+                          onChange={(e) =>
+                            setReceiptMetadata((prev) => ({ ...prev, payment_for: e.target.value }))
+                          }
+                          placeholder="e.g. 50% Advance Payment against Quotation Ref..."
+                          className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
+                        />
+                      </div>
+
+                      <label className="flex items-center justify-between gap-2 pt-1 border-t border-emerald-200/70 text-[11px] text-slate-700 cursor-pointer">
+                        <span>Also show itemized Line Items Table on Receipt Voucher</span>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(receiptMetadata.show_line_items_table)}
+                          onChange={(e) =>
+                            setReceiptMetadata((prev) => ({
+                              ...prev,
+                              show_line_items_table: e.target.checked
+                            }))
+                          }
+                          className="rounded border-slate-300 text-emerald-600 cursor-pointer"
+                        />
+                      </label>
+                    </div>
+                  )}
+
                   {/* Card 1: Tax & Financial Adjustments */}
                   <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-3.5">
                     <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
@@ -6334,7 +7345,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         value={quotationSubject}
                         onChange={setQuotationSubject}
                         tokenContext={studioTokenContext}
-                        placeholder="e.g., Supply of RO Equipment for @project_name — Ref @enquiry_ref"
+                        placeholder="e.g., Supply of Commercial Equipment for @project_name — Ref @enquiry_ref"
                         className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
                       />
                     </div>
@@ -6346,7 +7357,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         value={priceBasis}
                         onChange={setPriceBasis}
                         tokenContext={studioTokenContext}
-                        placeholder="e.g., Ex-Works Dubai / Delivered to @project_location"
+                        placeholder="e.g., Ex-Works Warehouse / Delivered to @project_location"
                         className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
                       />
                     </div>
@@ -7008,7 +8019,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     className="px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-xl shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
                   >
                     <Save className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Save Quotation</span>
+                    <span>
+                      {documentType === 'delivery_note'
+                        ? 'Save Delivery Note'
+                        : documentType === 'purchase_order'
+                        ? 'Save Purchase Order'
+                        : documentType === 'receipt'
+                        ? 'Save Receipt'
+                        : 'Save Quotation'}
+                    </span>
                   </button>
 
                   <button
@@ -7018,7 +8037,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
                   >
                     <Send className="w-3.5 h-3.5" />
-                    <span>Issue Quotation</span>
+                    <span>
+                      {documentType === 'delivery_note'
+                        ? 'Issue Delivery Note'
+                        : documentType === 'purchase_order'
+                        ? 'Issue Purchase Order'
+                        : documentType === 'receipt'
+                        ? 'Issue Receipt'
+                        : 'Issue Quotation'}
+                    </span>
                   </button>
                 </div>
               )}
@@ -10062,6 +11089,107 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 }}
                                 compact
                               />
+
+                              {/* Delivery Note Per-Item Quantity & Serial / Batch Controls */}
+                              {documentType === 'delivery_note' && (
+                                <div className="pt-1.5 border-t border-slate-200/70 space-y-1.5">
+                                  <div className="grid grid-cols-3 gap-1.5">
+                                    <div className="min-w-0">
+                                      <label className="block text-[9.5px] font-mono text-slate-500 truncate">
+                                        Ordered Qty
+                                      </label>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={
+                                          item.qty_ordered !== undefined
+                                            ? item.qty_ordered
+                                            : item.quantity
+                                        }
+                                        onChange={(e) => {
+                                          const ord = Number(e.target.value) || 0;
+                                          const deliv =
+                                            item.qty_delivered !== undefined
+                                              ? Number(item.qty_delivered)
+                                              : Number(item.quantity) || 0;
+                                          handleUpdateTopItemRowOption(itemKey, {
+                                            qty_ordered: ord,
+                                            qty_balance: Math.max(0, ord - deliv)
+                                          });
+                                        }}
+                                        className="w-full px-1.5 py-1 rounded border border-slate-300 bg-white font-mono text-[10.5px] text-slate-800"
+                                      />
+                                    </div>
+                                    <div className="min-w-0">
+                                      <label className="block text-[9.5px] font-mono font-bold text-blue-700 truncate">
+                                        Delivered Now
+                                      </label>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={
+                                          item.qty_delivered !== undefined
+                                            ? item.qty_delivered
+                                            : item.quantity
+                                        }
+                                        onChange={(e) => {
+                                          const deliv = Number(e.target.value) || 0;
+                                          const ord =
+                                            item.qty_ordered !== undefined
+                                              ? Number(item.qty_ordered)
+                                              : Number(item.quantity) || 0;
+                                          handleUpdateTopItemRowOption(itemKey, {
+                                            qty_delivered: deliv,
+                                            qty_balance: Math.max(0, ord - deliv)
+                                          });
+                                        }}
+                                        className="w-full px-1.5 py-1 rounded border border-blue-400 bg-white font-mono font-bold text-[10.5px] text-blue-900"
+                                      />
+                                    </div>
+                                    <div className="min-w-0">
+                                      <label className="block text-[9.5px] font-mono text-slate-500 truncate">
+                                        Balance Qty
+                                      </label>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={
+                                          item.qty_balance !== undefined
+                                            ? item.qty_balance
+                                            : Math.max(
+                                                0,
+                                                (item.qty_ordered !== undefined
+                                                  ? Number(item.qty_ordered)
+                                                  : Number(item.quantity) || 0) -
+                                                  (item.qty_delivered !== undefined
+                                                    ? Number(item.qty_delivered)
+                                                    : Number(item.quantity) || 0)
+                                              )
+                                        }
+                                        onChange={(e) =>
+                                          handleUpdateTopItemRowOption(itemKey, {
+                                            qty_balance: Math.max(0, Number(e.target.value) || 0)
+                                          })
+                                        }
+                                        className="w-full px-1.5 py-1 rounded border border-slate-300 bg-slate-100 font-mono text-[10.5px] text-slate-700"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <input
+                                      type="text"
+                                      value={item.serial_batch_no || ''}
+                                      onChange={(e) =>
+                                        handleUpdateTopItemRowOption(itemKey, {
+                                          serial_batch_no: e.target.value
+                                        })
+                                      }
+                                      placeholder="Serial / Batch / Lot # (optional, prints below item title)"
+                                      className="w-full px-2 py-1 rounded border border-slate-300 bg-white font-mono text-[10px] text-slate-800"
+                                    />
+                                  </div>
+                                </div>
+                              )}
 
                               {/* Two-Way Catalog Sync Actions */}
                               <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60">

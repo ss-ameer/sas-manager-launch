@@ -6,7 +6,8 @@ import {
   DocumentProfileBankAccount,
   BankAccountProfile,
   EnquiryQuotationSyncPayload,
-  QuotationBlockConfig
+  QuotationBlockConfig,
+  CommercialDocumentType
 } from '../../types';
 import { safeGetDocs, safeGetDoc, safeSetDoc, safeAddDoc, safeUpdateDoc, safeDeleteDoc, db } from '../../firebase';
 import { getFromLocalStore, saveToLocalStore } from '../db';
@@ -108,6 +109,10 @@ export class QuotationRepository {
       id: id || data.id,
       workspace_id: wsId,
       workspaceId: wsId,
+      document_type: data.document_type || 'quotation',
+      delivery_metadata: data.delivery_metadata ? { ...data.delivery_metadata } : undefined,
+      purchase_order_metadata: data.purchase_order_metadata ? { ...data.purchase_order_metadata } : undefined,
+      receipt_metadata: data.receipt_metadata ? { ...data.receipt_metadata } : undefined,
       revision_number: typeof data.revision_number === 'number' ? data.revision_number : 0,
       status: data.status || 'Draft',
       parent_quotation_id: parentId,
@@ -126,6 +131,36 @@ export class QuotationRepository {
       deleted_by_name: data.deleted_by_name || null,
       created_at: data.created_at || new Date().toISOString()
     } as Quotation;
+  }
+
+  /**
+   * Generates a deterministic linked reference number for DO, PO, or REC documents
+   * derived from a base quotation or enquiry reference (e.g., QT-2026-0042-R1 -> DO-2026-0042-01).
+   */
+  public static generateLinkedDocumentRef(
+    baseRef: string | undefined | null,
+    targetType: CommercialDocumentType,
+    existingDocs: Quotation[] = []
+  ): string {
+    const prefixMap: Record<CommercialDocumentType, string> = {
+      quotation: 'QT',
+      delivery_note: 'DO',
+      purchase_order: 'PO',
+      receipt: 'REC',
+      proforma_invoice: 'PI',
+      tax_invoice: 'INV'
+    };
+    const prefix = prefixMap[targetType] || 'DOC';
+    const rawClean = String(baseRef || '')
+      .trim()
+      .replace(/-R\d+$/i, '')
+      .replace(/^(QT|DO|PO|REC|LPO|PI|INV)[-_/\s]*/i, '');
+    const coreBase = rawClean || String(Date.now()).slice(-4);
+    const sameTypeCount = (existingDocs || []).filter(
+      (d) => !d.is_deleted && (d.document_type || 'quotation') === targetType
+    ).length;
+    const seqStr = String(sameTypeCount + 1).padStart(2, '0');
+    return `${prefix}-${coreBase}-${seqStr}`;
   }
 
   /**
@@ -463,6 +498,10 @@ export class QuotationRepository {
               ? { row_spacer_after_mm: item.row_spacer_after_mm }
               : {}),
             ...(item.row_note !== undefined ? { row_note: item.row_note } : {}),
+            ...(typeof item.qty_ordered === 'number' ? { qty_ordered: item.qty_ordered } : {}),
+            ...(typeof item.qty_delivered === 'number' ? { qty_delivered: item.qty_delivered } : {}),
+            ...(typeof item.qty_balance === 'number' ? { qty_balance: item.qty_balance } : {}),
+            ...(item.serial_batch_no !== undefined ? { serial_batch_no: item.serial_batch_no } : {}),
             row_highlight: Boolean(item.row_highlight),
             row_bold: Boolean(item.row_bold),
             hide_row_price: Boolean(item.hide_row_price),
@@ -657,6 +696,12 @@ export class QuotationRepository {
       company_logo_url: source.company_logo_url || source.header_config?.logoUrl,
       company_seal_url: source.company_seal_url || source.footer_config?.companySealUrl,
       signature_image_url: source.signature_image_url,
+      document_type: source.document_type || 'quotation',
+      ...(source.delivery_metadata ? { delivery_metadata: { ...source.delivery_metadata } } : {}),
+      ...(source.purchase_order_metadata
+        ? { purchase_order_metadata: { ...source.purchase_order_metadata } }
+        : {}),
+      ...(source.receipt_metadata ? { receipt_metadata: { ...source.receipt_metadata } } : {}),
       created_at: now,
       updatedAt: now
     };
@@ -734,11 +779,19 @@ export class QuotationRepository {
   ): Promise<EnquiryQuotationSyncPayload> {
     const syncPayload = this.buildEnquiryQuotationSyncPayload(quotation);
     const now = new Date().toISOString();
+    const docType = quotation.document_type || 'quotation';
+
+    // Only commercial quotations ('quotation') supersede earlier quote revisions or overwrite Enquiry quoted_amount
+    if (docType !== 'quotation') {
+      return syncPayload;
+    }
 
     if (quotation.enquiry_id && quotation.id) {
       try {
         const wsId = quotation.workspace_id || quotation.workspaceId || 'ws_default';
-        const existingRevisions = await this.getQuotationsForEnquiry(quotation.enquiry_id, wsId);
+        const existingRevisions = (await this.getQuotationsForEnquiry(quotation.enquiry_id, wsId)).filter(
+          (r) => !r.document_type || r.document_type === 'quotation'
+        );
         if (existingRevisions.length > 1) {
           const updatedChain = this.markPreviousRevisionsSuperseded(
             existingRevisions,
@@ -981,7 +1034,11 @@ export class QuotationRepository {
           '',
         signatureImageUrl: fromPreset.signatureImageUrl || profile?.signature_image_url || '',
         omittedFields: { ...(fromPreset.omittedFields || {}) },
-        autoPaginateItems: Boolean(fromPreset.autoPaginateItems)
+        autoPaginateItems: Boolean(fromPreset.autoPaginateItems),
+        documentType: 'quotation' as const,
+        deliveryMetadata: undefined,
+        purchaseOrderMetadata: undefined,
+        receiptMetadata: undefined
       };
     }
 
@@ -1135,7 +1192,13 @@ export class QuotationRepository {
         profile?.signature_image_url ||
         '',
       omittedFields: quotation?.omitted_fields ? { ...quotation.omitted_fields } : {},
-      autoPaginateItems: Boolean(quotation?.auto_paginate_items)
+      autoPaginateItems: Boolean(quotation?.auto_paginate_items),
+      documentType: quotation?.document_type || ('quotation' as const),
+      deliveryMetadata: quotation?.delivery_metadata ? { ...quotation.delivery_metadata } : undefined,
+      purchaseOrderMetadata: quotation?.purchase_order_metadata
+        ? { ...quotation.purchase_order_metadata }
+        : undefined,
+      receiptMetadata: quotation?.receipt_metadata ? { ...quotation.receipt_metadata } : undefined
     };
   }
 

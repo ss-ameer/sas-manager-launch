@@ -2551,13 +2551,21 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   const showModel = columnConfig.model ?? true;
   const showOrigin = columnConfig.origin ?? true;
   const showAvailability = columnConfig.availability ?? true;
+  const documentType = quotation.document_type || 'quotation';
+  const isDeliveryNote = documentType === 'delivery_note';
+  const isPurchaseOrder = documentType === 'purchase_order';
+  const isReceiptVoucher = documentType === 'receipt';
+  const deliveryMeta = quotation.delivery_metadata;
+  const poMeta = quotation.purchase_order_metadata;
+  const receiptMeta = quotation.receipt_metadata;
+
   const tableColLayout = React.useMemo(
     () => resolveTableColumnLayout(columnConfig, rawLineItems),
     [columnConfig, rawLineItems]
   );
-  const showUnitPrice = tableColLayout.showUnitPrice;
+  const showUnitPrice = isDeliveryNote ? false : tableColLayout.showUnitPrice;
   const showUom = tableColLayout.showUom;
-  const showLineTotal = tableColLayout.showLineTotal;
+  const showLineTotal = isDeliveryNote ? false : tableColLayout.showLineTotal;
   const showItemAttributes = tableColLayout.showItemAttributes;
   const showLineItemImages = tableColLayout.showLineItemImages;
   const lineItemImageLayout = tableColLayout.lineItemImageLayout;
@@ -5287,6 +5295,33 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
     const targetBlocks = blocksForSheet.filter((b) => {
       if (b.enabled === false || b.is_visible === false) return false;
+      const bType = b.type || b.id;
+      if (isDeliveryNote) {
+        if (
+          bType === 'totals' ||
+          b.id === 'totals' ||
+          bType === 'remittance' ||
+          b.id === 'remittance' ||
+          bType === 'acceptance' ||
+          b.id === 'acceptance' ||
+          bType === 'signatory' ||
+          bType === 'signatories' ||
+          b.id === 'signatory' ||
+          b.id === 'signatories'
+        ) {
+          return false;
+        }
+      }
+      if (isReceiptVoucher) {
+        if (
+          bType === 'totals' ||
+          b.id === 'totals' ||
+          bType === 'acceptance' ||
+          b.id === 'acceptance'
+        ) {
+          return false;
+        }
+      }
       if (!hasExplicitLayoutBlocks) {
         if (b.id === 'terms' && !resolvedShowCommercialTerms) return false;
         if (b.id === 'remittance' && !resolvedShowBankDetails) return false;
@@ -6426,40 +6461,377 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       </div>
     );
 
+    const renderDeliveryNoteTopCards = () => {
+      const doRef =
+        deliveryMeta?.delivery_ref || quotation.formatted_quote_ref || quotation.quote_number;
+      const doDate = formatDate(deliveryMeta?.delivery_date || quotation.created_at);
+      const relatedQuote = deliveryMeta?.related_quote_ref || '—';
+      const custPo = deliveryMeta?.customer_po_no || (enquiry as any)?.po_number || '—';
+      const siteContact = deliveryMeta?.site_contact_name || clientContactPerson || 'Site / Receiving Officer';
+      const sitePhone = deliveryMeta?.site_contact_phone || clientPhone || '';
+      const siteAddress = deliveryMeta?.delivery_address || clientAddress;
+      const dispatchMode = deliveryMeta?.dispatch_mode || 'Company Transport';
+      const vehicleNo = deliveryMeta?.vehicle_plate_no || '—';
+      const driverInfo =
+        [deliveryMeta?.driver_name, deliveryMeta?.driver_phone].filter(Boolean).join(' • ') || '—';
+      const dispatchedBy =
+        deliveryMeta?.dispatched_by_name || resolvedSalesRep || senderEntityName;
+
+      return (
+        <div
+          className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
+          style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
+        >
+          <div className={`${recipientCardBase} flex flex-col justify-between`}>
+            <div>
+              <div
+                className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
+                style={{ color: themePalette.textAccent }}
+              >
+                Consignee &amp; Delivery Destination
+              </div>
+              <h3 className={`${typoScale.entityTitle} font-bold text-slate-900`}>
+                {clientEntityName}
+              </h3>
+              <p className={`${typoScale.body} text-slate-700 font-medium mt-0.5`}>
+                Site Contact: <span className="text-slate-900 font-semibold">{siteContact}</span>
+                {sitePhone ? ` • ${sitePhone}` : ''}
+              </p>
+              <p className={`${typoScale.body} text-slate-600 mt-1 whitespace-pre-line`}>
+                <span className="font-semibold text-slate-700">Delivery Address: </span>
+                {siteAddress}
+              </p>
+            </div>
+            <div className={`${typoScale.body} text-slate-600 pt-1.5 mt-1.5 border-t border-slate-200/60 flex items-center justify-between gap-2`}>
+              <span>
+                <span className={`${typoScale.sub} text-slate-500 font-medium`}>Customer PO #: </span>
+                <span className="font-mono font-bold text-slate-800">{custPo}</span>
+              </span>
+              {clientTrn && (
+                <span className={`${typoScale.sub} text-slate-500 font-mono`}>
+                  Tax ID: {clientTrn}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className={`${offerCardBase} flex flex-col justify-between`}>
+            <div>
+              <div className="pb-1 border-b border-slate-200/60 flex items-center justify-between gap-2">
+                <span
+                  className={`${typoScale.heading} uppercase tracking-wider font-extrabold`}
+                  style={{ color: themePalette.textAccent }}
+                >
+                  Delivery Note / Order
+                </span>
+                <span className={`${typoScale.sub} font-mono font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200`}>
+                  UNPRICED DISPATCH
+                </span>
+              </div>
+              <div className="py-1.5 text-center">
+                <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900`}>
+                  {doRef}
+                </div>
+              </div>
+            </div>
+            <div className={`grid grid-cols-2 gap-x-3 gap-y-1 pt-1.5 border-t border-slate-200/60 ${typoScale.body}`}>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Delivery Date</span>
+                <span className="font-semibold text-slate-800">{doDate}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Quote Ref</span>
+                <span className="font-mono font-semibold text-slate-800 truncate block">{relatedQuote}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Dispatch Mode</span>
+                <span className="font-semibold text-slate-800 truncate block">{dispatchMode}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vehicle / Carrier</span>
+                <span className="font-mono font-semibold text-slate-800 truncate block">{vehicleNo}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Driver Contact</span>
+                <span className="font-semibold text-slate-800 truncate block">{driverInfo}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Dispatched By</span>
+                <span className="font-semibold text-slate-800 truncate block">{dispatchedBy}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const renderPurchaseOrderTopCards = () => {
+      const isOrderAck = poMeta?.po_variant === 'order_acknowledgment';
+      const poRef = poMeta?.po_ref || quotation.formatted_quote_ref || quotation.quote_number;
+      const poDate = formatDate(poMeta?.po_date || quotation.created_at);
+      const vendorName = isOrderAck
+        ? clientEntityName
+        : poMeta?.supplier_name || clientEntityName;
+      const vendorAttn = isOrderAck
+        ? clientContactPerson
+        : poMeta?.supplier_contact || clientContactPerson || 'Order Desk / Commercial Dept.';
+      const vendorAddress = isOrderAck
+        ? clientAddress
+        : poMeta?.supplier_address || clientAddress;
+      const vendorTrn = isOrderAck
+        ? clientTrn
+        : poMeta?.supplier_tax_id || clientTrn;
+      const vendorContactLine = [
+        isOrderAck ? clientPhone : poMeta?.supplier_phone || clientPhone,
+        isOrderAck ? clientEmail : poMeta?.supplier_email || clientEmail
+      ]
+        .filter(Boolean)
+        .join(' • ');
+      const shipDestLabel =
+        poMeta?.shipping_destination === 'project_site'
+          ? 'Direct to Project Site'
+          : poMeta?.shipping_destination === 'custom'
+          ? 'Designated Delivery Point'
+          : 'Warehouse / Receiving Office';
+      const shipAddress =
+        poMeta?.shipping_address || senderAddress || 'As per shipping instructions';
+
+      return (
+        <div
+          className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
+          style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
+        >
+          <div className={`${recipientCardBase} flex flex-col justify-between`}>
+            <div>
+              <div
+                className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
+                style={{ color: themePalette.textAccent }}
+              >
+                {isOrderAck ? 'Customer / Ordering Entity' : 'Vendor / Supplier Details'}
+              </div>
+              <h3 className={`${typoScale.entityTitle} font-bold text-slate-900`}>
+                {vendorName}
+              </h3>
+              {vendorAttn && (
+                <p className={`${typoScale.body} text-slate-700 font-medium mt-0.5`}>
+                  Attn: <span className="text-slate-900 font-semibold">{vendorAttn}</span>
+                </p>
+              )}
+              {vendorAddress && (
+                <p className={`${typoScale.body} text-slate-600 mt-0.5`}>{vendorAddress}</p>
+              )}
+              {(vendorTrn || vendorContactLine) && (
+                <div className={`${typoScale.sub} text-slate-500 mt-1 space-y-0.5`}>
+                  {vendorTrn && (
+                    <div>
+                      Tax ID / TRN: <span className="font-mono text-slate-700">{vendorTrn}</span>
+                    </div>
+                  )}
+                  {vendorContactLine && <div>{vendorContactLine}</div>}
+                </div>
+              )}
+            </div>
+            <div className={`${typoScale.body} text-slate-700 pt-1.5 mt-1.5 border-t border-slate-200/70`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className={`${typoScale.sub} uppercase font-bold text-slate-500`}>
+                  Ship To ({shipDestLabel}):
+                </span>
+              </div>
+              <p className={`${typoScale.sub} text-slate-700 font-medium mt-0.5 leading-snug`}>
+                {shipAddress}
+              </p>
+            </div>
+          </div>
+
+          <div className={`${offerCardBase} flex flex-col justify-between`}>
+            <div>
+              <div className="pb-1 border-b border-slate-200/60 flex items-center justify-between gap-2">
+                <span
+                  className={`${typoScale.heading} uppercase tracking-wider font-extrabold`}
+                  style={{ color: themePalette.textAccent }}
+                >
+                  {isOrderAck ? 'Order Acknowledgment' : 'Purchase Order'}
+                </span>
+                <span className={`${typoScale.sub} font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200`}>
+                  Rev {quotation.revision_number || 1}
+                </span>
+              </div>
+              <div className="py-1.5 text-center">
+                <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900`}>
+                  {poRef}
+                </div>
+              </div>
+            </div>
+            <div className={`grid grid-cols-2 gap-x-3 gap-y-1 pt-1.5 border-t border-slate-200/60 ${typoScale.body}`}>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>PO Date</span>
+                <span className="font-semibold text-slate-800">{poDate}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Requisition / Ref</span>
+                <span className="font-mono font-semibold text-slate-800 truncate block">
+                  {poMeta?.requisition_ref || enquiryRef || '—'}
+                </span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Incoterms</span>
+                <span className="font-semibold text-slate-800 truncate block">
+                  {poMeta?.incoterms || quotation.price_basis || 'Ex-Works'}
+                </span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Payment Terms</span>
+                <span className="font-semibold text-slate-800 truncate block">
+                  {poMeta?.payment_terms || quotation.payment_terms || 'Standard'}
+                </span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Target Delivery</span>
+                <span className="font-semibold text-slate-800 truncate block">
+                  {poMeta?.expected_delivery_date
+                    ? formatDate(poMeta.expected_delivery_date)
+                    : 'Immediate / As Agreed'}
+                </span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Issued By</span>
+                <span className="font-semibold text-slate-800 truncate block">
+                  {resolvedSalesRep || senderEntityName}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const renderReceiptTopCards = () => {
+      const recRef =
+        receiptMeta?.receipt_ref || quotation.formatted_quote_ref || quotation.quote_number;
+      const recDate = formatDate(receiptMeta?.receipt_date || quotation.created_at);
+      const payerName = receiptMeta?.received_from || clientEntityName;
+      const settlementFor =
+        receiptMeta?.settlement_for_ref || enquiryRef || quotation.quote_number || 'Commercial Account';
+      const payMethod = receiptMeta?.payment_method || 'Bank Transfer';
+      const txnRef = receiptMeta?.transaction_ref || receiptMeta?.cheque_no || '—';
+
+      return (
+        <div
+          className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
+          style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
+        >
+          <div className={`${recipientCardBase} flex flex-col justify-between`}>
+            <div>
+              <div
+                className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
+                style={{ color: themePalette.textAccent }}
+              >
+                Received With Thanks From
+              </div>
+              <h3 className={`${typoScale.entityTitle} font-bold text-slate-900`}>
+                {payerName}
+              </h3>
+              {clientContactPerson && (
+                <p className={`${typoScale.body} text-slate-700 font-medium mt-0.5`}>
+                  Attn: <span className="text-slate-900 font-semibold">{clientContactPerson}</span>
+                </p>
+              )}
+              {clientAddress && (
+                <p className={`${typoScale.body} text-slate-600 mt-0.5`}>{clientAddress}</p>
+              )}
+            </div>
+            {(clientTrn || clientPhone || clientEmail) && (
+              <div className={`${typoScale.sub} text-slate-500 pt-1.5 mt-1.5 border-t border-slate-200/60 flex items-center justify-between gap-2`}>
+                {clientTrn && <span className="font-mono">Tax ID / TRN: {clientTrn}</span>}
+                <span>{[clientPhone, clientEmail].filter(Boolean).join(' • ')}</span>
+              </div>
+            )}
+          </div>
+
+          <div className={`${offerCardBase} flex flex-col justify-between`}>
+            <div>
+              <div className="pb-1 border-b border-slate-200/60 flex items-center justify-between gap-2">
+                <span
+                  className={`${typoScale.heading} uppercase tracking-wider font-extrabold`}
+                  style={{ color: themePalette.textAccent }}
+                >
+                  Official Payment Receipt
+                </span>
+                <span className={`${typoScale.sub} font-mono font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200`}>
+                  RECEIPT VOUCHER
+                </span>
+              </div>
+              <div className="py-1.5 text-center">
+                <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900`}>
+                  {recRef}
+                </div>
+              </div>
+            </div>
+            <div className={`grid grid-cols-2 gap-x-3 gap-y-1 pt-1.5 border-t border-slate-200/60 ${typoScale.body}`}>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Receipt Date</span>
+                <span className="font-semibold text-slate-800">{recDate}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Settlement Ref</span>
+                <span className="font-mono font-semibold text-slate-800 truncate block">{settlementFor}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Payment Mode</span>
+                <span className="font-semibold text-slate-800 truncate block">{payMethod}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Transaction / Ref</span>
+                <span className="font-mono font-semibold text-slate-800 truncate block">{txnRef}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
     return (
       <>
         {renderHeaderBrandingElement(false)}
 
         {resolvedSubjectPlacement === 'above_cards' && renderSubjectBanner()}
-        <div
-          className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
-          style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
-        >
+        {isDeliveryNote ? (
+          renderDeliveryNoteTopCards()
+        ) : isPurchaseOrder ? (
+          renderPurchaseOrderTopCards()
+        ) : isReceiptVoucher ? (
+          renderReceiptTopCards()
+        ) : (
           <div
-            className={`${topCardsLayout.recipientGridPosition.placementClass} flex flex-col break-inside-avoid page-break-inside-avoid`}
-            style={{
-              gridRowStart: topCardsLayout.recipientGridPosition.gridRowStart,
-              gridColumnStart: topCardsLayout.recipientGridPosition.gridColumnStart,
-              gridColumnEnd: topCardsLayout.recipientGridPosition.gridColumnEnd,
-              breakInside: 'avoid',
-              pageBreakInside: 'avoid'
-            }}
+            className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
+            style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
           >
-            {renderRecipientCard()}
+            <div
+              className={`${topCardsLayout.recipientGridPosition.placementClass} flex flex-col break-inside-avoid page-break-inside-avoid`}
+              style={{
+                gridRowStart: topCardsLayout.recipientGridPosition.gridRowStart,
+                gridColumnStart: topCardsLayout.recipientGridPosition.gridColumnStart,
+                gridColumnEnd: topCardsLayout.recipientGridPosition.gridColumnEnd,
+                breakInside: 'avoid',
+                pageBreakInside: 'avoid'
+              }}
+            >
+              {renderRecipientCard()}
+            </div>
+            <div
+              className={`${topCardsLayout.offerGridPosition.placementClass} flex flex-col break-inside-avoid page-break-inside-avoid`}
+              style={{
+                gridRowStart: topCardsLayout.offerGridPosition.gridRowStart,
+                gridColumnStart: topCardsLayout.offerGridPosition.gridColumnStart,
+                gridColumnEnd: topCardsLayout.offerGridPosition.gridColumnEnd,
+                breakInside: 'avoid',
+                pageBreakInside: 'avoid'
+              }}
+            >
+              {renderOfferCard()}
+            </div>
           </div>
-          <div
-            className={`${topCardsLayout.offerGridPosition.placementClass} flex flex-col break-inside-avoid page-break-inside-avoid`}
-            style={{
-              gridRowStart: topCardsLayout.offerGridPosition.gridRowStart,
-              gridColumnStart: topCardsLayout.offerGridPosition.gridColumnStart,
-              gridColumnEnd: topCardsLayout.offerGridPosition.gridColumnEnd,
-              breakInside: 'avoid',
-              pageBreakInside: 'avoid'
-            }}
-          >
-            {renderOfferCard()}
-          </div>
-        </div>
+        )}
         {resolvedSubjectPlacement === 'below_cards' && renderSubjectBanner()}
       </>
     );
@@ -6897,18 +7269,45 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   style={{ tableLayout: 'fixed', width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}
                 >
                   <colgroup>
-                    <col style={{ width: tableColLayout.widths.sl }} />
-                    {showImageColumn && isImgColBeforeDesc && (
-                      <col style={{ width: tableColLayout.widths.image }} />
+                    {isDeliveryNote ? (
+                      <>
+                        <col style={{ width: '6%' }} />
+                        {showImageColumn && isImgColBeforeDesc && <col style={{ width: '11%' }} />}
+                        <col
+                          style={{
+                            width: `${
+                              100 -
+                              6 -
+                              (showImageColumn ? 11 : 0) -
+                              11 -
+                              12 -
+                              11 -
+                              (showUom ? 8 : 0)
+                            }%`
+                          }}
+                        />
+                        {showImageColumn && !isImgColBeforeDesc && <col style={{ width: '11%' }} />}
+                        <col style={{ width: '11%' }} />
+                        <col style={{ width: '12%' }} />
+                        <col style={{ width: '11%' }} />
+                        {showUom && <col style={{ width: '8%' }} />}
+                      </>
+                    ) : (
+                      <>
+                        <col style={{ width: tableColLayout.widths.sl }} />
+                        {showImageColumn && isImgColBeforeDesc && (
+                          <col style={{ width: tableColLayout.widths.image }} />
+                        )}
+                        <col style={{ width: tableColLayout.widths.description }} />
+                        {showImageColumn && !isImgColBeforeDesc && (
+                          <col style={{ width: tableColLayout.widths.image }} />
+                        )}
+                        <col style={{ width: tableColLayout.widths.qty }} />
+                        {showUom && <col style={{ width: tableColLayout.widths.uom }} />}
+                        {showUnitPrice && <col style={{ width: tableColLayout.widths.unitPrice }} />}
+                        {showLineTotal && <col style={{ width: tableColLayout.widths.lineTotal }} />}
+                      </>
                     )}
-                    <col style={{ width: tableColLayout.widths.description }} />
-                    {showImageColumn && !isImgColBeforeDesc && (
-                      <col style={{ width: tableColLayout.widths.image }} />
-                    )}
-                    <col style={{ width: tableColLayout.widths.qty }} />
-                    {showUom && <col style={{ width: tableColLayout.widths.uom }} />}
-                    {showUnitPrice && <col style={{ width: tableColLayout.widths.unitPrice }} />}
-                    {showLineTotal && <col style={{ width: tableColLayout.widths.lineTotal }} />}
                   </colgroup>
                   <thead style={{ display: 'table-header-group' }}>
                     {(() => {
@@ -6983,35 +7382,68 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                               Image
                             </th>
                           )}
-                          <th
-                            className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center font-mono whitespace-nowrap`}
-                            style={{ color: thTextColor }}
-                          >
-                            Qty
-                          </th>
-                          {showUom && (
-                            <th
-                              className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center whitespace-nowrap`}
-                              style={{ color: thTextColor }}
-                            >
-                              UOM
-                            </th>
-                          )}
-                          {showUnitPrice && (
-                            <th
-                              className={`${thPad} pl-2 pr-3.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-right whitespace-nowrap`}
-                              style={{ paddingRight: !showLineTotal ? '16px' : undefined, color: thTextColor }}
-                            >
-                              Unit Price
-                            </th>
-                          )}
-                          {showLineTotal && (
-                            <th
-                              className={`${thPad} pl-3 pr-4 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider text-right whitespace-nowrap`}
-                              style={{ paddingRight: '16px', color: thTextColor }}
-                            >
-                              Total ({currency})
-                            </th>
+                          {isDeliveryNote ? (
+                            <>
+                              <th
+                                className={`${thPad} px-1 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center font-mono whitespace-nowrap`}
+                                style={{ color: thTextColor }}
+                              >
+                                Ordered
+                              </th>
+                              <th
+                                className={`${thPad} px-1 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center font-mono whitespace-nowrap`}
+                                style={{ color: thTextColor }}
+                              >
+                                Delivered
+                              </th>
+                              <th
+                                className={`${thPad} px-1 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center font-mono whitespace-nowrap`}
+                                style={{ color: thTextColor }}
+                              >
+                                Balance
+                              </th>
+                              {showUom && (
+                                <th
+                                  className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider text-center whitespace-nowrap`}
+                                  style={{ color: thTextColor }}
+                                >
+                                  UOM
+                                </th>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <th
+                                className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center font-mono whitespace-nowrap`}
+                                style={{ color: thTextColor }}
+                              >
+                                Qty
+                              </th>
+                              {showUom && (
+                                <th
+                                  className={`${thPad} px-1.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-center whitespace-nowrap`}
+                                  style={{ color: thTextColor }}
+                                >
+                                  UOM
+                                </th>
+                              )}
+                              {showUnitPrice && (
+                                <th
+                                  className={`${thPad} pl-2 pr-3.5 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider ${thBorderClass} text-right whitespace-nowrap`}
+                                  style={{ paddingRight: !showLineTotal ? '16px' : undefined, color: thTextColor }}
+                                >
+                                  Unit Price
+                                </th>
+                              )}
+                              {showLineTotal && (
+                                <th
+                                  className={`${thPad} pl-3 pr-4 py-2 ${tableHeadingSize} font-bold uppercase tracking-wider text-right whitespace-nowrap`}
+                                  style={{ paddingRight: '16px', color: thTextColor }}
+                                >
+                                  Total ({currency})
+                                </th>
+                              )}
+                            </>
                           )}
                         </tr>
                       );
@@ -7069,29 +7501,44 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                                   </div>
                                 </td>
                                 {showImageColumn && !isImgColBeforeDesc && <td className={`${tdPad} px-1.5`} />}
-                                <td className={`${tdPad} px-1 text-center font-mono text-slate-400 align-top ${tableFontSize}`}>
-                                  —
-                                </td>
-                                {showUom && (
-                                  <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-500 uppercase align-top`}>
-                                    SET
-                                  </td>
-                                )}
-                                {showUnitPrice && (
-                                  <td
-                                    className={`${tdPad} pl-2 pr-3.5 text-right font-mono text-slate-400 align-top ${typoScale.micro} italic whitespace-nowrap`}
-                                    style={{ paddingRight: !showLineTotal ? '16px' : undefined }}
-                                  >
-                                    —
-                                  </td>
-                                )}
-                                {showLineTotal && (
-                                  <td
-                                    className={`${tdPad} pl-3 pr-4 text-right font-mono text-slate-400 align-top ${typoScale.micro} italic whitespace-nowrap`}
-                                    style={{ paddingRight: '16px' }}
-                                  >
-                                    Included above
-                                  </td>
+                                {isDeliveryNote ? (
+                                  <>
+                                    <td className={`${tdPad} px-1 text-center font-mono text-slate-400 align-top ${tableFontSize}`}>—</td>
+                                    <td className={`${tdPad} px-1 text-center font-mono text-slate-400 align-top ${tableFontSize}`}>—</td>
+                                    <td className={`${tdPad} px-1 text-center font-mono text-slate-400 align-top ${tableFontSize}`}>—</td>
+                                    {showUom && (
+                                      <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-500 uppercase align-top`}>
+                                        SET
+                                      </td>
+                                    )}
+                                  </>
+                                ) : (
+                                  <>
+                                    <td className={`${tdPad} px-1 text-center font-mono text-slate-400 align-top ${tableFontSize}`}>
+                                      —
+                                    </td>
+                                    {showUom && (
+                                      <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-500 uppercase align-top`}>
+                                        SET
+                                      </td>
+                                    )}
+                                    {showUnitPrice && (
+                                      <td
+                                        className={`${tdPad} pl-2 pr-3.5 text-right font-mono text-slate-400 align-top ${typoScale.micro} italic whitespace-nowrap`}
+                                        style={{ paddingRight: !showLineTotal ? '16px' : undefined }}
+                                      >
+                                        —
+                                      </td>
+                                    )}
+                                    {showLineTotal && (
+                                      <td
+                                        className={`${tdPad} pl-3 pr-4 text-right font-mono text-slate-400 align-top ${typoScale.micro} italic whitespace-nowrap`}
+                                        style={{ paddingRight: '16px' }}
+                                      >
+                                        Included above
+                                      </td>
+                                    )}
+                                  </>
                                 )}
                               </tr>
                             ) : (
@@ -7180,24 +7627,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
                                               const rawAttrs: Array<{ key: string; value: string }> = [...extractedSpecsAttrs];
                                               const itemAny = item as any;
-                                              const isRealDiffuserOrPump =
-                                                item.item_name?.toLowerCase().includes('diffuser') ||
-                                                item.item_name?.toLowerCase().includes('jackson') ||
-                                                item.item_name?.toLowerCase().includes('dosing pump') ||
-                                                item.item_name?.toLowerCase().includes('item one');
-
-                                              const isLegacySampleAttr = (k: string, v: string) => {
-                                                if (isRealDiffuserOrPump || extractedSpecsAttrs.length === 0) return false;
-                                                return (
-                                                  (k === 'Size' && v === '9 Inch / DN200') ||
-                                                  (k === 'Material' && v === 'EPDM Membrane / ABS Body') ||
-                                                  (k === 'Connection' && v === '3/4" NPT Thread') ||
-                                                  (k === 'Design Flow' && v === '2 - 5 Nm³/h') ||
-                                                  (k === 'Capacity' && v === '15 LPH') ||
-                                                  (k === 'Pressure' && v === '10 bar') ||
-                                                  (k === 'Power Supply' && v === '220V / 50Hz / 1Ph')
-                                                );
-                                              };
+                                              const isLegacySampleAttr = (_k: string, _v: string) => false;
 
                                               if (Array.isArray(item.attributes)) {
                                                 item.attributes.forEach((attr) => {
@@ -7302,63 +7732,96 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                                   </div>
                                 </td>
                                 {showImageColumn && !isImgColBeforeDesc && renderDedicatedImageCell()}
-                                <td className={`${tdPad} px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
-                                  {isItemizedSet ? '' : item.quantity}
-                                </td>
-                                {showUom && (
-                                  <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-700 break-words align-top`}>
-                                    <span className="block px-1 text-center uppercase" title={item.unit || 'pcs'}>
-                                      {isItemizedSet ? 'SET' : item.unit || 'pcs'}
-                                    </span>
-                                  </td>
-                                )}
-                                {showUnitPrice && (
-                                  <td
-                                    className={`${tdPad} pl-2 pr-3.5 text-right font-mono text-slate-700 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
-                                    style={{ paddingRight: !showLineTotal ? '16px' : undefined }}
-                                  >
-                                    {item.hide_row_price ? (
-                                      <span className={`${typoScale.micro} text-slate-400 italic`}>—</span>
-                                    ) : isItemizedSet ? (
-                                      <span className={`${typoScale.micro} text-slate-400 uppercase font-sans font-semibold`}>
-                                        Itemized Below
-                                      </span>
-                                    ) : (
-                                      Number(item.unit_price || 0).toLocaleString('en-US', {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2
-                                      })
+                                {isDeliveryNote ? (
+                                  (() => {
+                                    const ordQty = Number(item.qty_ordered ?? item.quantity ?? 0);
+                                    const delQty = Number(item.qty_delivered ?? item.quantity ?? 0);
+                                    const balQty =
+                                      item.qty_balance !== undefined
+                                        ? Number(item.qty_balance)
+                                        : Math.max(0, ordQty - delQty);
+                                    return (
+                                      <>
+                                        <td className={`${tdPad} px-1 text-center font-mono text-slate-600 align-top ${tableFontSize} whitespace-nowrap`}>
+                                          {isItemizedSet ? '' : ordQty}
+                                        </td>
+                                        <td className={`${tdPad} px-1 text-center font-mono font-bold text-slate-900 align-top ${tableFontSize} whitespace-nowrap`}>
+                                          {isItemizedSet ? '' : delQty}
+                                        </td>
+                                        <td className={`${tdPad} px-1 text-center font-mono ${balQty > 0 ? 'text-amber-700 font-bold' : 'text-slate-500'} align-top ${tableFontSize} whitespace-nowrap`}>
+                                          {isItemizedSet ? '' : balQty}
+                                        </td>
+                                        {showUom && (
+                                          <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-700 break-words align-top`}>
+                                            <span className="block px-1 text-center uppercase" title={item.unit || 'pcs'}>
+                                              {isItemizedSet ? 'SET' : item.unit || 'pcs'}
+                                            </span>
+                                          </td>
+                                        )}
+                                      </>
+                                    );
+                                  })()
+                                ) : (
+                                  <>
+                                    <td className={`${tdPad} px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
+                                      {isItemizedSet ? '' : item.quantity}
+                                    </td>
+                                    {showUom && (
+                                      <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-700 break-words align-top`}>
+                                        <span className="block px-1 text-center uppercase" title={item.unit || 'pcs'}>
+                                          {isItemizedSet ? 'SET' : item.unit || 'pcs'}
+                                        </span>
+                                      </td>
                                     )}
-                                  </td>
-                                )}
-                                {showLineTotal && (
-                                  <td
-                                    className={`${tdPad} pl-3 pr-4 text-right font-mono font-bold text-slate-900 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
-                                    style={{ paddingRight: '16px' }}
-                                  >
-                                    {item.hide_row_price ? (
-                                      <span className={`${typoScale.micro} text-emerald-700 font-sans font-medium`}>
-                                        Included
-                                      </span>
-                                    ) : isItemizedSet ? (
-                                      <span className={`${typoScale.micro} text-slate-500 font-mono`}>
-                                        ({item.sub_components?.length} items)
-                                      </span>
-                                    ) : item.is_optional && !shouldSplitByOptionTables ? (
-                                      <span className={`text-amber-700 ${tableFontSize} italic font-normal`}>
-                                        {Number(item.total_price || 0).toLocaleString('en-US', {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2
-                                        })}{' '}
-                                        [Opt]
-                                      </span>
-                                    ) : (
-                                      Number(item.total_price || 0).toLocaleString('en-US', {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2
-                                      })
+                                    {showUnitPrice && (
+                                      <td
+                                        className={`${tdPad} pl-2 pr-3.5 text-right font-mono text-slate-700 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
+                                        style={{ paddingRight: !showLineTotal ? '16px' : undefined }}
+                                      >
+                                        {item.hide_row_price ? (
+                                          <span className={`${typoScale.micro} text-slate-400 italic`}>—</span>
+                                        ) : isItemizedSet ? (
+                                          <span className={`${typoScale.micro} text-slate-400 uppercase font-sans font-semibold`}>
+                                            Itemized Below
+                                          </span>
+                                        ) : (
+                                          Number(item.unit_price || 0).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2
+                                          })
+                                        )}
+                                      </td>
                                     )}
-                                  </td>
+                                    {showLineTotal && (
+                                      <td
+                                        className={`${tdPad} pl-3 pr-4 text-right font-mono font-bold text-slate-900 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
+                                        style={{ paddingRight: '16px' }}
+                                      >
+                                        {item.hide_row_price ? (
+                                          <span className={`${typoScale.micro} text-emerald-700 font-sans font-medium`}>
+                                            Included
+                                          </span>
+                                        ) : isItemizedSet ? (
+                                          <span className={`${typoScale.micro} text-slate-500 font-mono`}>
+                                            ({item.sub_components?.length} items)
+                                          </span>
+                                        ) : item.is_optional && !shouldSplitByOptionTables ? (
+                                          <span className={`text-amber-700 ${tableFontSize} italic font-normal`}>
+                                            {Number(item.total_price || 0).toLocaleString('en-US', {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2
+                                            })}{' '}
+                                            [Opt]
+                                          </span>
+                                        ) : (
+                                          Number(item.total_price || 0).toLocaleString('en-US', {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2
+                                          })
+                                        )}
+                                      </td>
+                                    )}
+                                  </>
                                 )}
                               </tr>
                             )}
@@ -7449,54 +7912,85 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                                         </div>
                                       </td>
                                       {showImageColumn && !isImgColBeforeDesc && renderSubImageCell()}
-                                      <td className={`py-1.5 px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
-                                        {Number(sub.quantity || 0).toLocaleString('en-US', {
-                                          minimumFractionDigits: sub.quantity % 1 === 0 ? 0 : 2,
-                                          maximumFractionDigits: 2
-                                        })}
-                                      </td>
-                                      {showUom && (
-                                        <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-700 uppercase align-top`}>
-                                          {sub.unit || 'NOS'}
-                                        </td>
-                                      )}
-                                      {showUnitPrice && (
-                                        <td
-                                          className={`py-1.5 pl-2 pr-3.5 text-right font-mono text-slate-700 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
-                                          style={{ paddingRight: !showLineTotal ? '16px' : undefined }}
-                                        >
-                                          {isAcc || sub.hide_row_price ? (
-                                            <span className={`${typoScale.micro} text-slate-400 italic`}>—</span>
-                                          ) : item.package_pricing_mode === 'lump_sum' ? (
-                                            <span className={`${typoScale.micro} text-slate-400 italic`}>Included</span>
-                                          ) : (
-                                            Number(sub.unit_price || 0).toLocaleString('en-US', {
-                                              minimumFractionDigits: 2,
+                                      {isDeliveryNote ? (
+                                        (() => {
+                                          const subOrd = Number(sub.qty_ordered ?? sub.quantity ?? 0);
+                                          const subDel = Number(sub.qty_delivered ?? sub.quantity ?? 0);
+                                          const subBal =
+                                            sub.qty_balance !== undefined
+                                              ? Number(sub.qty_balance)
+                                              : Math.max(0, subOrd - subDel);
+                                          return (
+                                            <>
+                                              <td className={`py-1.5 px-1 text-center font-mono text-slate-600 align-top ${tableFontSize} whitespace-nowrap`}>
+                                                {subOrd}
+                                              </td>
+                                              <td className={`py-1.5 px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
+                                                {subDel}
+                                              </td>
+                                              <td className={`py-1.5 px-1 text-center font-mono ${subBal > 0 ? 'text-amber-700 font-bold' : 'text-slate-500'} align-top ${tableFontSize} whitespace-nowrap`}>
+                                                {subBal}
+                                              </td>
+                                              {showUom && (
+                                                <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-700 uppercase align-top`}>
+                                                  {sub.unit || 'NOS'}
+                                                </td>
+                                              )}
+                                            </>
+                                          );
+                                        })()
+                                      ) : (
+                                        <>
+                                          <td className={`py-1.5 px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
+                                            {Number(sub.quantity || 0).toLocaleString('en-US', {
+                                              minimumFractionDigits: sub.quantity % 1 === 0 ? 0 : 2,
                                               maximumFractionDigits: 2
-                                            })
+                                            })}
+                                          </td>
+                                          {showUom && (
+                                            <td className={`${tableFontSize} font-mono text-center py-1.5 px-1 leading-tight text-slate-700 uppercase align-top`}>
+                                              {sub.unit || 'NOS'}
+                                            </td>
                                           )}
-                                        </td>
-                                      )}
-                                      {showLineTotal && (
-                                        <td
-                                          className={`py-1.5 pl-3 pr-4 text-right font-mono font-semibold text-slate-900 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
-                                          style={{ paddingRight: '16px' }}
-                                        >
-                                          {isAcc || sub.hide_row_price ? (
-                                            <span className={`${typoScale.micro} text-emerald-700 font-sans font-medium`}>
-                                              Included
-                                            </span>
-                                          ) : item.package_pricing_mode === 'lump_sum' ? (
-                                            <span className={`${typoScale.micro} text-slate-400 italic`}>
-                                              Included in Set
-                                            </span>
-                                          ) : (
-                                            Number(sub.total_price || 0).toLocaleString('en-US', {
-                                              minimumFractionDigits: 2,
-                                              maximumFractionDigits: 2
-                                            })
+                                          {showUnitPrice && (
+                                            <td
+                                              className={`py-1.5 pl-2 pr-3.5 text-right font-mono text-slate-700 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
+                                              style={{ paddingRight: !showLineTotal ? '16px' : undefined }}
+                                            >
+                                              {isAcc || sub.hide_row_price ? (
+                                                <span className={`${typoScale.micro} text-slate-400 italic`}>—</span>
+                                              ) : item.package_pricing_mode === 'lump_sum' ? (
+                                                <span className={`${typoScale.micro} text-slate-400 italic`}>Included</span>
+                                              ) : (
+                                                Number(sub.unit_price || 0).toLocaleString('en-US', {
+                                                  minimumFractionDigits: 2,
+                                                  maximumFractionDigits: 2
+                                                })
+                                              )}
+                                            </td>
                                           )}
-                                        </td>
+                                          {showLineTotal && (
+                                            <td
+                                              className={`py-1.5 pl-3 pr-4 text-right font-mono font-semibold text-slate-900 align-top ${tableFontSize} tabular-nums whitespace-nowrap`}
+                                              style={{ paddingRight: '16px' }}
+                                            >
+                                              {isAcc || sub.hide_row_price ? (
+                                                <span className={`${typoScale.micro} text-emerald-700 font-sans font-medium`}>
+                                                  Included
+                                                </span>
+                                              ) : item.package_pricing_mode === 'lump_sum' ? (
+                                                <span className={`${typoScale.micro} text-slate-400 italic`}>
+                                                  Included in Set
+                                                </span>
+                                              ) : (
+                                                Number(sub.total_price || 0).toLocaleString('en-US', {
+                                                  minimumFractionDigits: 2,
+                                                  maximumFractionDigits: 2
+                                                })
+                                              )}
+                                            </td>
+                                          )}
+                                        </>
                                       )}
                                     </tr>
                                     {subSpacerMm > 0 && (
@@ -7729,6 +8223,342 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               </div>
             );
           })}
+        </div>
+      </section>
+    );
+  };
+
+  const renderDeliveryNoteSignOffBlock = () => {
+    if (!isDeliveryNote) return null;
+    const radiusClass =
+      (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp'
+        ? 'rounded-none'
+        : 'rounded-lg';
+    const dispatchedBy =
+      deliveryMeta?.dispatched_by_name || resolvedSalesRep || resolvedSignatories[0]?.name || 'Authorized Officer';
+    const receivedBy = deliveryMeta?.received_by_name || '';
+    const receivedTitle = deliveryMeta?.received_by_title || 'Site / Receiving Officer';
+    const goodsClause =
+      deliveryMeta?.goods_received_clause?.trim() ||
+      'Received the above items in good order and condition as per the specified quantities.';
+
+    return (
+      <section
+        className="w-full mb-3 print:mb-2 grid grid-cols-2 gap-3 break-inside-avoid page-break-inside-avoid"
+        style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+      >
+        {/* Left: Dispatched By (Our Company) */}
+        <div className={`p-3 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+          <div>
+            <div
+              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-2 border-b border-slate-200`}
+              style={{ color: themePalette.textAccent }}
+            >
+              Dispatched &amp; Released By — {senderEntityName}
+            </div>
+            <div className={`grid grid-cols-2 gap-2 ${typoScale.body} text-slate-700`}>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared / Checked By</span>
+                <span className="font-semibold text-slate-900">{dispatchedBy}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Dispatch Mode</span>
+                <span className="font-semibold text-slate-900">
+                  {deliveryMeta?.dispatch_mode || 'Company Transport'}
+                </span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vehicle / Plate #</span>
+                <span className="font-mono font-semibold text-slate-900">
+                  {deliveryMeta?.vehicle_plate_no || '__________________'}
+                </span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Driver Name &amp; Tel</span>
+                <span className="font-semibold text-slate-900">
+                  {[deliveryMeta?.driver_name, deliveryMeta?.driver_phone].filter(Boolean).join(' • ') ||
+                    '__________________'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-4 mt-3 border-t border-slate-200/80 flex items-end justify-between gap-3">
+            {(() => {
+              const doStampSigOverlay = resolveStampSignatureOverlayConfig(
+                resolvedFooterConfig,
+                quotation,
+                profile
+              );
+              const doCompanySealUrl = doStampSigOverlay.activeSealUrl;
+              return (
+                <>
+                  <div className="flex-1">
+                    <div className="h-10 flex items-end">
+                      {doStampSigOverlay.activeSignatureUrl ? (
+                        <img
+                          src={doStampSigOverlay.activeSignatureUrl}
+                          alt="Authorized Dispatch Signature"
+                          className="h-9 w-auto object-contain"
+                        />
+                      ) : (
+                        <span className="font-serif italic text-sm text-slate-700">{dispatchedBy}</span>
+                      )}
+                    </div>
+                    <div className="border-t border-slate-300 pt-1 mt-1">
+                      <div className={`${typoScale.sub} font-bold text-slate-800`}>
+                        Authorized Dispatch Signature
+                      </div>
+                      <div className={`${typoScale.micro} text-slate-500`}>
+                        For {senderEntityName}
+                      </div>
+                    </div>
+                  </div>
+                  {resolvedShowCompanySeal && (
+                    <div className="w-16 h-14 flex items-center justify-center shrink-0">
+                      {doCompanySealUrl ? (
+                        <img
+                          src={doCompanySealUrl}
+                          alt="Official Seal"
+                          className="h-14 w-auto object-contain opacity-90"
+                        />
+                      ) : (
+                        <div className="h-12 w-12 rounded-full border border-dashed border-slate-300 flex items-center justify-center text-center p-1">
+                          <span className="text-[7px] font-mono uppercase text-slate-400 leading-tight">
+                            Dispatch Stamp
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        </div>
+
+        {/* Right: Received By (Client / Consignee) */}
+        <div className={`p-3 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+          <div>
+            <div
+              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
+              style={{ color: themePalette.textAccent }}
+            >
+              Goods Received Acknowledgment — {clientEntityName}
+            </div>
+            <p className={`${typoScale.sub} text-slate-700 italic leading-snug mb-2`}>
+              {goodsClause}
+            </p>
+            <div className={`grid grid-cols-2 gap-2 ${typoScale.body} text-slate-700`}>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Received By (Name)</span>
+                <span className="font-semibold text-slate-900">
+                  {receivedBy || '______________________'}
+                </span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Designation / ID</span>
+                <span className="font-semibold text-slate-900">
+                  {receivedBy ? receivedTitle : '______________________'}
+                </span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Date &amp; Time Received</span>
+                <span className="font-mono text-slate-800">____ / ____ / 20____</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Contact / Mobile</span>
+                <span className="font-mono text-slate-800">
+                  {deliveryMeta?.site_contact_phone || '______________________'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-4 mt-3 border-t border-slate-200/80 flex items-end justify-between gap-3">
+            <div className="flex-1">
+              <div className="h-10" />
+              <div className="border-t border-slate-300 pt-1 mt-1">
+                <div className={`${typoScale.sub} font-bold text-slate-800`}>
+                  Receiver Signature
+                </div>
+                <div className={`${typoScale.micro} text-slate-500`}>
+                  Consignee / Site Representative
+                </div>
+              </div>
+            </div>
+            <div className="w-20 h-14 rounded border border-dashed border-slate-300 flex items-center justify-center text-center p-1 shrink-0 bg-white/70">
+              <span className="text-[7.5px] font-mono uppercase text-slate-400 leading-tight">
+                Receiving Stamp
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  };
+
+  const renderReceiptVoucherBody = () => {
+    if (!isReceiptVoucher) return null;
+    const radiusClass =
+      (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp'
+        ? 'rounded-none'
+        : 'rounded-lg';
+
+    const amtReceived = Number(receiptMeta?.amount_received ?? quotation.grand_total ?? 0);
+    const totalOrderVal = Number(receiptMeta?.total_order_value ?? quotation.grand_total ?? amtReceived);
+    const prevReceived = Number(receiptMeta?.previously_received ?? 0);
+    const balanceDue =
+      receiptMeta?.balance_outstanding !== undefined
+        ? Number(receiptMeta.balance_outstanding)
+        : receiptMeta?.balance_due !== undefined
+        ? Number(receiptMeta.balance_due)
+        : Math.max(0, totalOrderVal - prevReceived - amtReceived);
+    const payMethod = receiptMeta?.payment_method || 'Bank Wire Transfer';
+    const txnRef = receiptMeta?.bank_txn_ref || receiptMeta?.transaction_ref || '—';
+    const settlementFor =
+      receiptMeta?.settlement_for_ref || enquiryRef || quotation.quote_number || 'Commercial Account';
+    const projectTitle =
+      receiptMeta?.project_title || receiptMeta?.payment_for || quotation.subject || enquiry?.subject || 'Commercial Supply & Services';
+    const depositAcct =
+      receiptMeta?.deposit_account ||
+      receiptMeta?.deposit_account_label ||
+      (resolvedBank
+        ? `${resolvedBank.bankName} — ${resolvedBank.iban || resolvedBank.accountNumber || resolvedBank.currency}`
+        : 'Corporate Treasury Account');
+
+    return (
+      <section className="w-full mb-3 print:mb-2 space-y-3 break-inside-avoid page-break-inside-avoid">
+        {/* Highlighted Amount Received Banner */}
+        <div
+          className={`p-3.5 border-2 ${radiusClass} flex flex-col gap-1.5`}
+          style={{
+            backgroundColor: themePalette.tintBg,
+            borderColor: themePalette.primaryHex
+          }}
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <span
+                className={`${typoScale.heading} font-extrabold uppercase tracking-wider block`}
+                style={{ color: themePalette.textAccent }}
+              >
+                Amount Received ({currency})
+              </span>
+              <span className={`${typoScale.sub} text-slate-600`}>
+                In settlement of <span className="font-mono font-bold text-slate-800">{settlementFor}</span> — {projectTitle}
+              </span>
+            </div>
+            <div
+              className="font-mono tabular-nums font-extrabold text-xl sm:text-2xl px-3 py-1.5 rounded bg-white border border-slate-200 shadow-2xs shrink-0"
+              style={{ color: themePalette.textAccent }}
+            >
+              {formatCurrency(amtReceived)}
+            </div>
+          </div>
+          <div className={`pt-1.5 border-t border-slate-200/80 ${typoScale.body} text-slate-800`}>
+            <span className="font-bold text-slate-900">Amount in Words ({currency}): </span>
+            <span className="font-semibold italic">{amountToWords(amtReceived, currency)}</span>
+          </div>
+        </div>
+
+        {/* 2-Column Payment Instrument & Settlement Balance Statement */}
+        <div className="grid grid-cols-2 gap-3 items-stretch">
+          <div className={`p-3 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+            <div>
+              <div
+                className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-2 border-b border-slate-200`}
+                style={{ color: themePalette.textAccent }}
+              >
+                Payment Instrument &amp; Reference Details
+              </div>
+              <div className={`space-y-1.5 ${typoScale.body} text-slate-700`}>
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-slate-500">Payment Mode:</span>
+                  <span className="font-bold text-slate-900">{payMethod}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-slate-500">Transaction / Bank Ref:</span>
+                  <span className="font-mono font-semibold text-slate-900">{txnRef}</span>
+                </div>
+                {payMethod === 'Cheque' && (
+                  <>
+                    <div className="flex justify-between gap-2">
+                      <span className="font-semibold text-slate-500">Cheque Number:</span>
+                      <span className="font-mono font-semibold text-slate-900">
+                        {receiptMeta?.cheque_no || '—'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="font-semibold text-slate-500">Drawee Bank &amp; Date:</span>
+                      <span className="font-semibold text-slate-900">
+                        {[
+                          receiptMeta?.cheque_bank_name,
+                          receiptMeta?.cheque_date ? formatDate(receiptMeta.cheque_date) : ''
+                        ]
+                          .filter(Boolean)
+                          .join(' • ') || '—'}
+                      </span>
+                    </div>
+                  </>
+                )}
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-slate-500">Credited Account:</span>
+                  <span className="font-medium text-slate-800 text-right">{depositAcct}</span>
+                </div>
+                {receiptMeta?.receipt_notes && (
+                  <div className="pt-1.5 mt-1.5 border-t border-slate-200/70">
+                    <span className="font-semibold text-slate-500 block">Remarks / Allocation Notes:</span>
+                    <span className="text-slate-700 whitespace-pre-line">{receiptMeta.receipt_notes}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className={`p-3 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+            <div>
+              <div
+                className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-2 border-b border-slate-200`}
+                style={{ color: themePalette.textAccent }}
+              >
+                Account Settlement &amp; Balance Statement
+              </div>
+              <div className={`space-y-1.5 ${typoScale.body}`}>
+                <div className="flex justify-between items-center text-slate-700">
+                  <span className="font-semibold text-slate-500">Total Order / Contract Value:</span>
+                  <span className="font-mono tabular-nums font-bold text-slate-900">
+                    {formatCurrency(totalOrderVal)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-slate-700 border-t border-slate-200/60 pt-1">
+                  <span className="font-semibold text-slate-500">Less: Previously Received:</span>
+                  <span className="font-mono tabular-nums font-semibold text-slate-700">
+                    {formatCurrency(prevReceived)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-emerald-800 bg-emerald-50/80 px-2 py-1 rounded border border-emerald-200">
+                  <span className="font-bold">Current Receipt Amount:</span>
+                  <span className="font-mono tabular-nums font-extrabold">
+                    {formatCurrency(amtReceived)}
+                  </span>
+                </div>
+                <div
+                  className="flex justify-between items-center pt-2 mt-1 border-t-2 font-extrabold"
+                  style={{ borderColor: themePalette.primaryHex }}
+                >
+                  <span className="uppercase tracking-tight text-slate-900">Balance Outstanding:</span>
+                  <span
+                    className={`font-mono tabular-nums text-base ${
+                      balanceDue > 0 ? 'text-amber-700' : 'text-emerald-700'
+                    }`}
+                  >
+                    {formatCurrency(balanceDue)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     );
@@ -8037,7 +8867,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   <>
                     {renderTopSection()}
                     {preTableBlocks.length > 0 && renderBlocksGrid(preTableBlocks)}
+                    {isReceiptVoucher && renderReceiptVoucherBody()}
                     {sheet.tableChunk &&
+                      (!isReceiptVoucher || Boolean(receiptMeta?.show_line_items_table)) &&
                       renderItemsTable(
                         sheet.tableChunk.items,
                         sheet.tableChunk.startIndex,
@@ -8057,6 +8889,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                     )}
                     {sheet.tableChunk &&
                       sheet.tableChunk.items.length > 0 &&
+                      (!isReceiptVoucher || Boolean(receiptMeta?.show_line_items_table)) &&
                       renderItemsTable(
                         sheet.tableChunk.items,
                         sheet.tableChunk.startIndex,
@@ -8068,6 +8901,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 )}
 
                 {renderBlocksGrid(sheet.blocks)}
+                {isLastMainSheet && isDeliveryNote && renderDeliveryNoteSignOffBlock()}
                 {isLastMainSheet && renderSubmittalsIndex()}
               </div>
 

@@ -402,6 +402,10 @@ export interface LineItemComponent {
   row_highlight?: boolean;
   row_bold?: boolean;
   hide_row_price?: boolean;
+  qty_ordered?: number;
+  qty_delivered?: number;
+  qty_balance?: number;
+  serial_batch_no?: string;
 }
 
 export type QuotationOptionDisplayMode =
@@ -455,6 +459,10 @@ export interface LineItem {
   row_highlight?: boolean;
   row_bold?: boolean;
   hide_row_price?: boolean;
+  qty_ordered?: number;
+  qty_delivered?: number;
+  qty_balance?: number;
+  serial_batch_no?: string;
 }
 
 export type StockMovementType = 'STOCK_IN' | 'STOCK_RESERVE' | 'STOCK_RELEASE' | 'STOCK_OUT' | 'ADJUSTMENT';
@@ -850,6 +858,7 @@ export interface Product extends SoftDeleteFields {
   attributes?: ProductAttribute[];
   is_inventoried?: boolean;
   stock_on_hand?: number;
+  current_stock?: number;
   stock_reserved?: number;
   reorder_level?: number;
   hs_code?: string;
@@ -1179,6 +1188,10 @@ export interface QuotationLineItem {
   subComponentStartIndex?: number;
   parentItemNumber?: number;
   globalOptionItemNumber?: number;
+  qty_ordered?: number;
+  qty_delivered?: number;
+  qty_balance?: number;
+  serial_batch_no?: string;
 }
 
 export type QuotationItem = QuotationLineItem;
@@ -1763,11 +1776,116 @@ export interface QuotationSignatory {
   date?: string;
 }
 
+export type CommercialDocumentType =
+  | 'quotation'
+  | 'delivery_note'
+  | 'purchase_order'
+  | 'receipt'
+  | 'proforma_invoice'
+  | 'tax_invoice';
+
+export type DeliveryDispatchMode =
+  | 'Company Transport'
+  | 'Courier / Freight'
+  | 'Customer Collection (Ex-Works)';
+
+export interface DeliveryNoteMetadata {
+  delivery_ref?: string;
+  delivery_date?: string;
+  related_quote_ref?: string;
+  customer_po_no?: string;
+  site_contact_name?: string;
+  site_contact_phone?: string;
+  delivery_address?: string;
+  vehicle_plate_no?: string;
+  driver_name?: string;
+  driver_phone?: string;
+  dispatch_mode?: DeliveryDispatchMode | string;
+  dispatched_by_name?: string;
+  received_by_name?: string;
+  received_by_title?: string;
+  goods_received_clause?: string;
+  stock_deducted?: boolean;
+  stock_deducted_at?: string;
+}
+
+export type PurchaseOrderVariant = 'supplier_po' | 'order_acknowledgment';
+
+export type PurchaseOrderShippingDestination =
+  | 'Company Warehouse'
+  | 'Direct Client Site';
+
+export type PurchaseOrderIncoterms =
+  | 'Ex-Works'
+  | 'FOB'
+  | 'CIF'
+  | 'DDP'
+  | 'Standard Delivery';
+
+export interface PurchaseOrderMetadata {
+  po_variant?: PurchaseOrderVariant;
+  po_ref?: string;
+  po_date?: string;
+  requisition_ref?: string;
+  requisitioner_name?: string;
+  supplier_id?: string;
+  supplier_name?: string;
+  supplier_contact?: string;
+  supplier_email?: string;
+  supplier_phone?: string;
+  supplier_address?: string;
+  supplier_tax_id?: string;
+  supplier_trn?: string;
+  shipping_destination?: PurchaseOrderShippingDestination | string;
+  shipping_address?: string;
+  incoterms?: PurchaseOrderIncoterms | string;
+  payment_terms?: string;
+  target_delivery_date?: string;
+  expected_delivery_date?: string;
+}
+
+export type ReceiptPaymentMethod =
+  | 'Bank Wire Transfer'
+  | 'Cheque'
+  | 'Cash'
+  | 'Online / Card';
+
+export interface ReceiptVoucherMetadata {
+  receipt_ref?: string;
+  receipt_date?: string;
+  received_from?: string;
+  settlement_for_ref?: string;
+  payment_for?: string;
+  project_title?: string;
+  amount_received?: number;
+  currency?: string;
+  payment_method?: ReceiptPaymentMethod | string;
+  bank_txn_ref?: string;
+  transaction_ref?: string;
+  cheque_no?: string;
+  cheque_bank?: string;
+  cheque_bank_name?: string;
+  cheque_date?: string;
+  deposit_account?: string;
+  deposit_account_label?: string;
+  receipt_notes?: string;
+  total_order_value?: number;
+  previously_received?: number;
+  balance_outstanding?: number;
+  balance_due?: number;
+  balance_remaining?: number;
+  show_line_items_table?: boolean;
+}
+
 export interface Quotation extends SoftDeleteFields {
   id?: string;
   workspace_id: string;
   workspaceId: string;
   enquiry_id: string;
+  document_type?: CommercialDocumentType;
+  delivery_metadata?: DeliveryNoteMetadata;
+  purchase_order_metadata?: PurchaseOrderMetadata;
+  receipt_metadata?: ReceiptVoucherMetadata;
   quote_number: string; // e.g., 'QT-2026-0042'
   revision_number: number; // 0 for R0, 1 for R1, etc.
   formatted_quote_ref: string; // e.g., 'QT-2026-0042-R0'
