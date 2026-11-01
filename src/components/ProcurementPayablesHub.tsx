@@ -1394,37 +1394,32 @@ export default function ProcurementPayablesHub({
       <PageHeader
         title="Procurement, Stock Receiving (GRN) & Vendor Payables"
         subtitle="Manage Outbound Supplier POs, Warehouse GRN Landed Cost Allocation, 3-Way Bill Matching, and Outbound Payment Vouchers"
-        icon={<ShoppingBag className="w-5 h-5" />}
-        onOpenMobileMenu={onOpenMobileMenu}
-        actions={[
+        icon={ShoppingBag}
+        currentUser={user}
+        onOpenSidebar={onOpenMobileMenu}
+        primaryAction={{
+          label: 'New Supplier PO',
+          icon: Plus,
+          onClick: () => {
+            setNewPoVendorId('');
+            setNewPoSupplierName('');
+            setNewPoEnquiryId('');
+            setNewPoExpectedDate('');
+            setNewPoLines([
+              { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
+            ]);
+            setShowCreatePoModal(true);
+          }
+        }}
+        secondaryActions={[
           {
-            id: 'new-po',
-            label: 'New Supplier PO',
-            icon: <Plus className="w-4 h-4" />,
-            variant: 'primary',
-            onClick: () => {
-              setNewPoVendorId('');
-              setNewPoSupplierName('');
-              setNewPoEnquiryId('');
-              setNewPoExpectedDate('');
-              setNewPoLines([
-                { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
-              ]);
-              setShowCreatePoModal(true);
-            }
-          },
-          {
-            id: 'record-bill',
             label: 'Record Supplier Bill',
-            icon: <FileText className="w-4 h-4 text-amber-600" />,
-            variant: 'secondary',
+            icon: FileText,
             onClick: () => handleOpenBillModal()
           },
           {
-            id: 'issue-pv',
             label: 'Issue Payment Voucher',
-            icon: <DollarSign className="w-4 h-4 text-emerald-600" />,
-            variant: 'secondary',
+            icon: DollarSign,
             onClick: () => handleIssuePaymentVoucher()
           }
         ]}

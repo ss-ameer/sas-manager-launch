@@ -114,7 +114,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
           >
             {Icon && (
               <div className="p-2.5 bg-blue-50 border border-blue-200/80 rounded-xl text-blue-600 shrink-0 shadow-2xs group-hover:border-purple-500/50 transition">
-                <Icon className="w-6 h-6" />
+                {React.isValidElement(Icon) ? Icon : React.createElement(Icon as React.ComponentType<{ className?: string }>, { className: 'w-6 h-6' })}
               </div>
             )}
             <div className="min-w-0">
@@ -156,7 +156,11 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
                       : 'px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 shadow-2xs rounded-xl transition cursor-pointer flex items-center gap-1.5'
                   }
                 >
-                  {SecIcon && <SecIcon className="w-4 h-4 text-slate-500" />}
+                  {SecIcon && (
+                    React.isValidElement(SecIcon)
+                      ? SecIcon
+                      : React.createElement(SecIcon as React.ComponentType<{ className?: string }>, { className: 'w-4 h-4 text-slate-500' })
+                  )}
                   <span>{act.label}</span>
                 </button>
               );
@@ -168,7 +172,11 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
                 onClick={primaryAction.onClick}
                 className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition cursor-pointer flex items-center gap-2 border border-blue-500/20 active:scale-[0.98]"
               >
-                {primaryAction.icon && <primaryAction.icon className="w-4 h-4" />}
+                {primaryAction.icon && (
+                  React.isValidElement(primaryAction.icon)
+                    ? primaryAction.icon
+                    : React.createElement(primaryAction.icon as React.ComponentType<{ className?: string }>, { className: 'w-4 h-4' })
+                )}
                 <span>{primaryAction.label}</span>
               </button>
             )}
