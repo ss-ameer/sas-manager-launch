@@ -163,6 +163,8 @@ export interface QuotationStudioModalProps {
   user: UserProfile;
   profile?: WorkspaceDocumentProfile | null;
   editingQuotation?: Quotation | null;
+  existingQuotation?: Quotation | null;
+  initialDocumentType?: CommercialDocumentType;
   isSandboxMode?: boolean;
   initialPresetId?: string;
   onProfileAndPresetSaved?: (
@@ -828,7 +830,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   activeWorkspace,
   user,
   profile,
-  editingQuotation,
+  editingQuotation: propEditingQuotation,
+  existingQuotation: propExistingQuotation,
+  initialDocumentType,
   isSandboxMode = false,
   initialPresetId,
   onProfileAndPresetSaved,
@@ -838,6 +842,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   setProducts: propSetProducts,
   triggerToast
 }) => {
+  const editingQuotation = propEditingQuotation || propExistingQuotation || null;
   const isEffectiveSandbox =
     Boolean(isSandboxMode) || editingQuotation?.id === 'sandbox_preview_quotation';
 
@@ -869,7 +874,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
   // Commercial Document Suite Mode & Metadata State
   const [documentType, setDocumentType] = useState<CommercialDocumentType>(
-    () => editingQuotation?.document_type || 'quotation'
+    () => editingQuotation?.document_type || initialDocumentType || 'quotation'
   );
   const [deliveryMetadata, setDeliveryMetadata] = useState<DeliveryNoteMetadata>(
     () => editingQuotation?.delivery_metadata || {}
@@ -1162,15 +1167,22 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     }));
   });
 
-  const [activeLeftTab, setActiveLeftTab] = useState<'structure' | 'content'>('structure');
+  const [activeLeftTab, setActiveLeftTab] = useState<'structure' | 'content'>(() =>
+    (editingQuotation?.document_type || initialDocumentType || 'quotation') !== 'quotation'
+      ? 'content'
+      : 'structure'
+  );
   const [isLeftDrawerOpen, setIsLeftDrawerOpen] = useState<boolean>(true);
+  const [highlightDocMetaCard, setHighlightDocMetaCard] = useState<boolean>(false);
   const pieceInputRefs = useRef<Record<string, HTMLInputElement | HTMLTextAreaElement | null>>({});
   const activeListItemIndexRef = useRef<Record<string, number>>({});
   const [showPageBreakGuides, setShowPageBreakGuides] = useState<boolean>(true);
   const [omittedFields, setOmittedFields] = useState<Record<string, boolean>>(() =>
     editingQuotation?.omitted_fields ? { ...editingQuotation.omitted_fields } : {}
   );
-  const [isIncludeOmitOpen, setIsIncludeOmitOpen] = useState<boolean>(true);
+  const [isIncludeOmitOpen, setIsIncludeOmitOpen] = useState<boolean>(() =>
+    (editingQuotation?.document_type || initialDocumentType || 'quotation') === 'quotation'
+  );
   const [copiedTagKey, setCopiedTagKey] = useState<string | null>(null);
   const [pendingPrintWarnings, setPendingPrintWarnings] = useState<
     Array<{ token: string; location: string }> | null
@@ -1626,6 +1638,31 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   }, [inspectorSubTarget, selectedSection]);
 
   const handleCanvasSelectSection = (section: StudioSelectedSection, subTarget?: string) => {
+    const isNonQuoteMode = (documentType || 'quotation') !== 'quotation';
+    if (
+      isNonQuoteMode &&
+      (section === 'recipient_info' ||
+        section === 'quote_meta' ||
+        section === 'recipient_meta' ||
+        (section === 'items_table' &&
+          (documentType === 'payment_voucher' || documentType === 'receipt')))
+    ) {
+      setIsLeftDrawerOpen(true);
+      setActiveLeftTab('content');
+      setSelectedSection(null);
+      setHighlightDocMetaCard(true);
+      window.setTimeout(() => {
+        const metaEl = document.getElementById('studio-doc-meta-editor');
+        if (metaEl && typeof metaEl.scrollIntoView === 'function') {
+          metaEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 60);
+      window.setTimeout(() => {
+        setHighlightDocMetaCard(false);
+      }, 2200);
+      return;
+    }
+
     setSelectedSection(section);
     if (subTarget) {
       setInspectorSubTarget(`${subTarget}::${Date.now()}`);
@@ -2071,7 +2108,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setRevisionNumber(hydrated.revisionNumber);
       setFormattedQuoteRefOverride(hydrated.formattedQuoteRefOverride);
       setQuotationStatus(hydrated.quotationStatus);
-      setDocumentType(hydrated.documentType || 'quotation');
+      const resolvedDocType = hydrated.documentType || initialDocumentType || 'quotation';
+      setDocumentType(resolvedDocType);
+      if (resolvedDocType !== 'quotation') {
+        setActiveLeftTab('content');
+        setIsLeftDrawerOpen(true);
+        setIsIncludeOmitOpen(false);
+      }
       setDeliveryMetadata(hydrated.deliveryMetadata || {});
       setPurchaseOrderMetadata(hydrated.purchaseOrderMetadata || { po_variant: 'supplier_po' });
       setReceiptMetadata(hydrated.receiptMetadata || {});
@@ -2081,12 +2124,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setVendorReturnMetadata(
         hydrated.vendorReturnMetadata || {
           return_mode:
-            hydrated.documentType === 'debit_note'
+            resolvedDocType === 'debit_note'
               ? 'debit_note'
               : 'material_return_note',
           return_reason: 'Defective / Non-Conforming',
           resolution_type:
-            hydrated.documentType === 'debit_note'
+            resolvedDocType === 'debit_note'
               ? 'Credit Note / Bill Deduction'
               : 'Replacement Dispatch'
         }
@@ -2943,8 +2986,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       });
     } else {
       const rawItems: LineItem[] = enquiry?.line_items || [];
+      const activeDocMode =
+        documentType || sourceQuotation?.document_type || initialDocumentType || 'quotation';
       if (rawItems.length === 0) {
-        baseItems = FALLBACK_ITEMS;
+        baseItems =
+          activeDocMode === 'payment_voucher' ||
+          (activeDocMode !== 'quotation' && !isEffectiveSandbox)
+            ? []
+            : FALLBACK_ITEMS;
       } else {
         baseItems = rawItems.map((li, idx) => {
           const qty = Number(li.quantity) || 1;
@@ -3522,14 +3571,20 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     }
   };
 
-  // Switch active Commercial Document Suite Mode (QT / DO / PO / REC)
+  // Switch active Commercial Document Suite Mode (QT / DO / PO / REC / PV / MRN / DN)
   const handleSwitchDocumentType = (nextType: CommercialDocumentType) => {
     if (nextType === documentType) return;
     const prevType = documentType;
     setDocumentType(nextType);
+    if (nextType !== 'quotation') {
+      setActiveLeftTab('content');
+      setIsLeftDrawerOpen(true);
+      setIsIncludeOmitOpen(false);
+    }
 
     const baseQuoteRef =
       editingQuotation?.quote_number ||
+      (editingQuotation as any)?.quote_ref_no ||
       enquiry.quote_ref_no ||
       `QT-${new Date().getFullYear()}-${String(enquiry.sn || 1).padStart(4, '0')}`;
     const todayIso = new Date().toISOString().slice(0, 10);
@@ -3868,13 +3923,42 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             .map((it) => ({ ...it, is_optional: false }))
         : quotationLineItems;
 
-    return QuotationRepository.calculateTotals(
+    const calc = QuotationRepository.calculateTotals(
       itemsForTotals,
       freightAmount,
       taxMode,
       taxRatePercent
     );
-  }, [quotationLineItems, optionDisplayMode, freightAmount, taxMode, taxRatePercent]);
+    if (documentType === 'payment_voucher') {
+      const allocSum = (paymentVoucherMetadata.allocated_bills || []).reduce(
+        (sum, a) => sum + (Number(a.paid_this_voucher) || 0),
+        0
+      );
+      const pvAmt =
+        Number(paymentVoucherMetadata.amount_paid) ||
+        allocSum ||
+        Number(editingQuotation?.grand_total) ||
+        Number((editingQuotation as any)?.financial_totals?.grand_total) ||
+        calc.grand_total ||
+        0;
+      return {
+        ...calc,
+        subtotal: pvAmt,
+        grand_total: pvAmt
+      };
+    }
+    return calc;
+  }, [
+    quotationLineItems,
+    optionDisplayMode,
+    freightAmount,
+    taxMode,
+    taxRatePercent,
+    documentType,
+    paymentVoucherMetadata.amount_paid,
+    paymentVoucherMetadata.allocated_bills,
+    editingQuotation
+  ]);
 
   // Dynamic Bank Profile Registry from workspace document profile
   const bankRegistry: BankAccountProfile[] = useMemo(() => {
@@ -4103,6 +4187,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   const liveQuotation: Quotation = useMemo(() => {
     const rawQuoteNumber =
       editingQuotation?.quote_number ||
+      (editingQuotation as any)?.quote_ref_no ||
       enquiry.quote_ref_no ||
       `QT-${new Date().getFullYear()}-${String(enquiry.sn || 1).padStart(4, '0')}`;
     const cleanQuoteNumber = rawQuoteNumber.replace(/-R\d+$/, '');
@@ -4112,7 +4197,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       ? (documentType === 'delivery_note' && deliveryMetadata.delivery_ref) ||
         (documentType === 'purchase_order' && purchaseOrderMetadata.po_ref) ||
         (documentType === 'receipt' && receiptMetadata.receipt_ref) ||
-        (documentType === 'payment_voucher' && paymentVoucherMetadata.pv_ref) ||
+        (documentType === 'payment_voucher' &&
+          (paymentVoucherMetadata.voucher_ref || paymentVoucherMetadata.pv_ref)) ||
         ((documentType === 'material_return_note' || documentType === 'debit_note') &&
           vendorReturnMetadata.return_ref) ||
         formattedQuoteRefOverride ||
@@ -5179,36 +5265,84 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   {liveQuotation.formatted_quote_ref}
                 </span>
 
-                {/* Commercial Document Suite Mode Switcher Pill Bar */}
-                <div className="inline-flex items-center gap-0.5 bg-slate-100 border border-slate-200 rounded-lg p-0.5">
-                  {(
-                    [
-                      { id: 'quotation' as const, label: 'Quotation (QT)' },
-                      { id: 'delivery_note' as const, label: 'Delivery Note (DO)' },
-                      { id: 'purchase_order' as const, label: 'Purchase Order (PO)' },
-                      { id: 'receipt' as const, label: 'Receipt (REC)' },
-                      { id: 'payment_voucher' as const, label: 'Payment Voucher (PV)' },
-                      { id: 'material_return_note' as const, label: 'Material Return (MRN)' },
-                      { id: 'debit_note' as const, label: 'Debit Note (DN)' }
-                    ]
-                  ).map((docOpt) => {
-                    const isActive = (documentType || 'quotation') === docOpt.id;
-                    return (
-                      <button
-                        key={docOpt.id}
-                        type="button"
-                        onClick={() => handleSwitchDocumentType(docOpt.id)}
-                        className={`px-2 py-0.5 text-[10.5px] font-semibold rounded-md transition cursor-pointer whitespace-nowrap ${
-                          isActive
-                            ? 'bg-blue-600 text-white shadow-2xs'
-                            : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
-                        }`}
-                      >
-                        {docOpt.label}
-                      </button>
-                    );
-                  })}
-                </div>
+                {/* Commercial Document Suite Mode Switcher: Separated Client vs Vendor Groups */}
+                {(() => {
+                  const isVendorDocMode =
+                    documentType === 'purchase_order' ||
+                    documentType === 'payment_voucher' ||
+                    documentType === 'material_return_note' ||
+                    documentType === 'debit_note';
+                  const isStandaloneRecord =
+                    !enquiry?.id ||
+                    /^standalone_qdoc_/i.test(String(enquiry.id)) ||
+                    /^sandbox_/i.test(String(enquiry.id));
+                  const clientModes = [
+                    { id: 'quotation' as const, label: 'Quotation (QT)' },
+                    { id: 'delivery_note' as const, label: 'Delivery Note (DO)' },
+                    { id: 'receipt' as const, label: 'Receipt (REC)' }
+                  ];
+                  const vendorModes = [
+                    { id: 'purchase_order' as const, label: 'Purchase Order (PO)' },
+                    { id: 'payment_voucher' as const, label: 'Payment Voucher (PV)' },
+                    { id: 'material_return_note' as const, label: 'Material Return (MRN)' },
+                    { id: 'debit_note' as const, label: 'Debit Note (DN)' }
+                  ];
+                  const showClientGroup = !isStandaloneRecord || !isVendorDocMode;
+                  const showVendorGroup = !isStandaloneRecord || isVendorDocMode;
+
+                  return (
+                    <div className="inline-flex items-center gap-1.5 flex-wrap">
+                      {showClientGroup && (
+                        <div className="inline-flex items-center gap-0.5 bg-slate-100 border border-slate-200 rounded-lg p-0.5">
+                          <span className="px-1.5 text-[9.5px] font-mono font-bold uppercase tracking-wider text-slate-400 select-none">
+                            Client:
+                          </span>
+                          {clientModes.map((docOpt) => {
+                            const isActive = (documentType || 'quotation') === docOpt.id;
+                            return (
+                              <button
+                                key={docOpt.id}
+                                type="button"
+                                onClick={() => handleSwitchDocumentType(docOpt.id)}
+                                className={`px-2 py-0.5 text-[10.5px] font-semibold rounded-md transition cursor-pointer whitespace-nowrap ${
+                                  isActive
+                                    ? 'bg-blue-600 text-white shadow-2xs'
+                                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
+                                }`}
+                              >
+                                {docOpt.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {showVendorGroup && (
+                        <div className="inline-flex items-center gap-0.5 bg-indigo-50/70 border border-indigo-200/80 rounded-lg p-0.5">
+                          <span className="px-1.5 text-[9.5px] font-mono font-bold uppercase tracking-wider text-indigo-400 select-none">
+                            Vendor:
+                          </span>
+                          {vendorModes.map((docOpt) => {
+                            const isActive = (documentType || 'quotation') === docOpt.id;
+                            return (
+                              <button
+                                key={docOpt.id}
+                                type="button"
+                                onClick={() => handleSwitchDocumentType(docOpt.id)}
+                                className={`px-2 py-0.5 text-[10.5px] font-semibold rounded-md transition cursor-pointer whitespace-nowrap ${
+                                  isActive
+                                    ? 'bg-indigo-600 text-white shadow-2xs'
+                                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
+                                }`}
+                              >
+                                {docOpt.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 <button
                   type="button"
@@ -5373,9 +5507,31 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 {documentType === 'purchase_order' &&
                 purchaseOrderMetadata.po_variant !== 'order_acknowledgment' ? (
                   <>
-                    Supplier:{' '}
+                    Vendor / Supplier:{' '}
                     <span className="font-semibold text-slate-700">
-                      {purchaseOrderMetadata.supplier_name || 'Select / Enter Supplier'}
+                      {purchaseOrderMetadata.supplier_name ||
+                        liveQuotation.client_snapshot.entity_name ||
+                        'Select / Enter Supplier'}
+                    </span>
+                  </>
+                ) : documentType === 'payment_voucher' ? (
+                  <>
+                    Payee / Vendor:{' '}
+                    <span className="font-semibold text-slate-700">
+                      {paymentVoucherMetadata.payee_name ||
+                        paymentVoucherMetadata.paid_to_vendor_name ||
+                        liveQuotation.client_snapshot.entity_name ||
+                        'Select / Enter Vendor'}
+                    </span>
+                  </>
+                ) : documentType === 'material_return_note' || documentType === 'debit_note' ? (
+                  <>
+                    Vendor / Supplier:{' '}
+                    <span className="font-semibold text-slate-700">
+                      {vendorReturnMetadata.supplier_name ||
+                        vendorReturnMetadata.vendor_name ||
+                        liveQuotation.client_snapshot.entity_name ||
+                        'Select / Enter Vendor'}
                     </span>
                   </>
                 ) : (
@@ -5435,6 +5591,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         ? 'Save Purchase Order'
                         : documentType === 'receipt'
                         ? 'Save Receipt'
+                        : documentType === 'payment_voucher'
+                        ? 'Save Payment Voucher'
+                        : documentType === 'material_return_note'
+                        ? 'Save Material Return'
+                        : documentType === 'debit_note'
+                        ? 'Save Debit Note'
                         : 'Save Quotation'}
                     </span>
                   </button>
@@ -5452,6 +5614,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         ? 'Issue Purchase Order'
                         : documentType === 'receipt'
                         ? 'Issue Receipt'
+                        : documentType === 'payment_voucher'
+                        ? 'Issue Payment Voucher'
+                        : documentType === 'material_return_note'
+                        ? 'Issue Material Return'
+                        : documentType === 'debit_note'
+                        ? 'Issue Debit Note'
                         : 'Issue Quotation'}
                     </span>
                   </button>
@@ -6961,7 +7129,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     )}
                   </div>
 
-                  {/* Contextual Document Mode Metadata Card (DO / PO / REC) */}
+                  {/* Contextual Document Mode Metadata Card (DO / PO / REC / PV / MRN / DN) */}
+                  <div
+                    id="studio-doc-meta-editor"
+                    className={`transition-all duration-300 rounded-xl ${
+                      highlightDocMetaCard ? 'ring-2 ring-blue-500 shadow-md' : ''
+                    }`}
+                  >
                   {documentType === 'delivery_note' && (
                     <div className="border border-blue-200 rounded-xl p-4 bg-blue-50/40 space-y-3 text-xs shadow-2xs">
                       <div className="flex items-center justify-between gap-2">
@@ -7998,10 +8172,18 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           </label>
                           <input
                             type="text"
-                            value={paymentVoucherMetadata.voucher_ref || liveQuotation.formatted_quote_ref}
+                            value={
+                              paymentVoucherMetadata.voucher_ref ||
+                              paymentVoucherMetadata.pv_ref ||
+                              liveQuotation.formatted_quote_ref
+                            }
                             onChange={(e) => {
                               setFormattedQuoteRefOverride(e.target.value);
-                              setPaymentVoucherMetadata((prev) => ({ ...prev, voucher_ref: e.target.value }));
+                              setPaymentVoucherMetadata((prev) => ({
+                                ...prev,
+                                voucher_ref: e.target.value,
+                                pv_ref: e.target.value
+                              }));
                             }}
                             className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
                           />
@@ -8013,11 +8195,18 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           <input
                             type="date"
                             value={
-                              (paymentVoucherMetadata.payment_date || '').slice(0, 10) ||
-                              new Date().toISOString().slice(0, 10)
+                              (
+                                paymentVoucherMetadata.payment_date ||
+                                paymentVoucherMetadata.pv_date ||
+                                ''
+                              ).slice(0, 10) || new Date().toISOString().slice(0, 10)
                             }
                             onChange={(e) =>
-                              setPaymentVoucherMetadata((prev) => ({ ...prev, payment_date: e.target.value }))
+                              setPaymentVoucherMetadata((prev) => ({
+                                ...prev,
+                                payment_date: e.target.value,
+                                pv_date: e.target.value
+                              }))
                             }
                             className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
                           />
@@ -8028,9 +8217,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           </label>
                           <input
                             type="text"
-                            value={paymentVoucherMetadata.payee_name || ''}
+                            value={
+                              paymentVoucherMetadata.payee_name ||
+                              paymentVoucherMetadata.paid_to_vendor_name ||
+                              ''
+                            }
                             onChange={(e) =>
-                              setPaymentVoucherMetadata((prev) => ({ ...prev, payee_name: e.target.value }))
+                              setPaymentVoucherMetadata((prev) => ({
+                                ...prev,
+                                payee_name: e.target.value,
+                                paid_to_vendor_name: e.target.value
+                              }))
                             }
                             placeholder="Supplier Legal Entity"
                             className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
@@ -8078,9 +8275,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           </label>
                           <input
                             type="text"
-                            value={paymentVoucherMetadata.reference_no || ''}
+                            value={
+                              paymentVoucherMetadata.reference_no ||
+                              paymentVoucherMetadata.utr_or_cheque_no ||
+                              ''
+                            }
                             onChange={(e) =>
-                              setPaymentVoucherMetadata((prev) => ({ ...prev, reference_no: e.target.value }))
+                              setPaymentVoucherMetadata((prev) => ({
+                                ...prev,
+                                reference_no: e.target.value,
+                                utr_or_cheque_no: e.target.value
+                              }))
                             }
                             placeholder="Bank Transfer Ref / Cheque #"
                             className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
@@ -8372,9 +8577,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           </label>
                           <input
                             type="text"
-                            value={vendorReturnMetadata.supplier_name || ''}
+                            value={
+                              vendorReturnMetadata.supplier_name ||
+                              vendorReturnMetadata.vendor_name ||
+                              ''
+                            }
                             onChange={(e) =>
-                              setVendorReturnMetadata((prev) => ({ ...prev, supplier_name: e.target.value }))
+                              setVendorReturnMetadata((prev) => ({
+                                ...prev,
+                                supplier_name: e.target.value,
+                                vendor_name: e.target.value
+                              }))
                             }
                             placeholder="Supplier Entity Name"
                             className="w-full rounded-lg border border-slate-300 p-2 bg-white text-xs text-slate-800"
@@ -8477,6 +8690,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
                   )}
+                  </div>
 
                   {/* Card 1: Tax & Financial Adjustments */}
                   <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-3.5">
@@ -9227,6 +9441,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         ? 'Save Purchase Order'
                         : documentType === 'receipt'
                         ? 'Save Receipt'
+                        : documentType === 'payment_voucher'
+                        ? 'Save Payment Voucher'
+                        : documentType === 'material_return_note'
+                        ? 'Save Material Return'
+                        : documentType === 'debit_note'
+                        ? 'Save Debit Note'
                         : 'Save Quotation'}
                     </span>
                   </button>
@@ -9245,6 +9465,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         ? 'Issue Purchase Order'
                         : documentType === 'receipt'
                         ? 'Issue Receipt'
+                        : documentType === 'payment_voucher'
+                        ? 'Issue Payment Voucher'
+                        : documentType === 'material_return_note'
+                        ? 'Issue Material Return'
+                        : documentType === 'debit_note'
+                        ? 'Issue Debit Note'
                         : 'Issue Quotation'}
                     </span>
                   </button>

@@ -21,7 +21,7 @@ import {
   formatByteSize
 } from '../services/attachmentStorage';
 import { isAdmin, isSuperAdmin } from '../utils/permissions';
-import { PageHeader, KpiStatCard } from './layout/UiContainer';
+import { PageHeader, PageBody, KpiStatCard } from './layout/UiContainer';
 import HoverScrollText from './common/HoverScrollText';
 import { QuotationStudioModal } from './quotations/QuotationStudioModal';
 import {
@@ -148,6 +148,50 @@ export default function ProcurementPayablesHub({
   const [isUploadingBillFile, setIsUploadingBillFile] = useState(false);
   const [isSavingBill, setIsSavingBill] = useState(false);
 
+  // Issue Payment Voucher Pre-Launch Modal State
+  const [showCreatePvModal, setShowCreatePvModal] = useState(false);
+  const [pvSettlementType, setPvSettlementType] = useState<'single_bill' | 'multi_bill' | 'vendor_advance'>('single_bill');
+  const [pvVendorId, setPvVendorId] = useState('');
+  const [pvPayeeName, setPvPayeeName] = useState('');
+  const [pvPoId, setPvPoId] = useState('');
+  const [pvSelectedBills, setPvSelectedBills] = useState<Record<string, number>>({});
+  const [pvPaymentDate, setPvPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [pvPaymentMethod, setPvPaymentMethod] = useState<
+    'Bank Transfer / TT' | 'Cheque' | 'Cash' | 'Corporate Card' | 'Letter of Credit (LC)' | 'Online'
+  >('Bank Transfer / TT');
+  const [pvReferenceNo, setPvReferenceNo] = useState('');
+  const [pvAmountPaid, setPvAmountPaid] = useState<number>(0);
+  const [pvNarration, setPvNarration] = useState('');
+
+  // Issue Material Return (MRN) / Debit Note (DN) Pre-Launch Modal State
+  const [showCreateReturnModal, setShowCreateReturnModal] = useState(false);
+  const [retMode, setRetMode] = useState<'material_return_note' | 'debit_note'>('material_return_note');
+  const [retVendorId, setRetVendorId] = useState('');
+  const [retSupplierName, setRetSupplierName] = useState('');
+  const [retPoId, setRetPoId] = useState('');
+  const [retBillId, setRetBillId] = useState('');
+  const [retReason, setRetReason] = useState<
+    | 'Defective / Damaged'
+    | 'Wrong Item Supplied'
+    | 'Excess Quantity'
+    | 'Quality Rejection'
+    | 'Commercial Price Adjustment'
+    | 'Other'
+  >('Defective / Damaged');
+  const [retResolution, setRetResolution] = useState<
+    'Replacement Required' | 'Credit / Bill Deduction' | 'Refund Requested'
+  >('Credit / Bill Deduction');
+  const [retLines, setRetLines] = useState<
+    Array<{
+      product_id?: string;
+      item_name: string;
+      part_no: string;
+      qty: number;
+      unit: string;
+      unit_cost: number;
+    }>
+  >([]);
+
   const userIsAdmin = useMemo(
     () => isAdmin(user, activeWorkspace.id) || isSuperAdmin(user),
     [user, activeWorkspace.id]
@@ -271,21 +315,24 @@ export default function ProcurementPayablesHub({
       status: 'Active',
       salesperson_id: '',
       sales_person: user.initials || 'PR',
-      line_items: (docRecord.line_items || []).map((li) => ({
-        id: li.id,
-        product_id: li.product_id,
-        product_type: 'Standard',
-        item_name: li.item_name || li.description,
-        part_no: li.part_no || '',
-        brand_make: li.brand || li.brand_make || '',
-        description: li.description,
-        quantity: Number(li.quantity ?? li.qty) || 1,
-        qty: Number(li.quantity ?? li.qty) || 1,
-        unit: li.unit || 'pcs',
-        unit_price: Number(li.unit_price) || 0,
-        cost_price: li.cost_price ?? li.unit_price,
-        total_price: Number(li.total_price ?? li.line_total) || 0
-      }))
+      line_items:
+        docRecord.document_type === 'payment_voucher'
+          ? []
+          : (docRecord.line_items || []).map((li) => ({
+              id: li.id,
+              product_id: li.product_id,
+              product_type: 'Standard',
+              item_name: li.item_name || li.description,
+              part_no: li.part_no || '',
+              brand_make: li.brand || li.brand_make || '',
+              description: li.description,
+              quantity: Number(li.quantity ?? li.qty) || 1,
+              qty: Number(li.quantity ?? li.qty) || 1,
+              unit: li.unit || 'pcs',
+              unit_price: Number(li.unit_price) || 0,
+              cost_price: li.cost_price ?? li.unit_price,
+              total_price: Number(li.total_price ?? li.line_total) || 0
+            }))
     };
   };
 
@@ -551,6 +598,9 @@ export default function ProcurementPayablesHub({
           : undefined
       },
       line_items: lineItems,
+      subtotal: totals.items_subtotal,
+      tax_amount: totals.tax_amount,
+      grand_total: totals.grand_total,
       financial_totals: totals,
       terms_blocks: {
         price_basis: selectedVendor?.default_incoterms || 'Ex-Works',
@@ -827,48 +877,143 @@ export default function ProcurementPayablesHub({
     }
   };
 
-  // Issue Outbound Payment Voucher (PV) from a Bill or PO
-  const handleIssuePaymentVoucher = async (bill?: SupplierBill, po?: QuotationDocumentRecord) => {
-    const nowIso = new Date().toISOString();
-    const pvSeq = String(
-      quotations.filter((q) => q.document_type === 'payment_voucher').length + 1
-    ).padStart(4, '0');
-    const pvRef = `PV-${pvSeq}`;
-
-    const vendorId = bill?.vendor_company_id || po?.purchase_order_metadata?.vendor_company_id;
+  // Open Pre-Launch Modal for Outbound Payment Voucher (PV)
+  const handleIssuePaymentVoucher = (bill?: SupplierBill, po?: QuotationDocumentRecord) => {
+    const vendorId = bill?.vendor_company_id || po?.purchase_order_metadata?.vendor_company_id || '';
     const vendor = companies.find((c) => c.id === vendorId);
     const payeeName =
       bill?.vendor_name ||
       po?.purchase_order_metadata?.supplier_name ||
       getCompanyName(vendor) ||
-      'Vendor / Supplier';
+      '';
 
-    const payableTotal = bill
-      ? Number(bill.grand_total) || 0
-      : Number(po?.financial_totals?.grand_total) || 0;
-    const creditsApplied = bill ? Number(bill.credit_applied_amount) || 0 : 0;
-    const prevPaid = bill ? Number(bill.amount_paid) || 0 : 0;
-    const amountNow = bill ? Number(bill.balance_due) || 0 : payableTotal;
+    setPvVendorId(vendorId);
+    setPvPayeeName(payeeName);
+    setPvPoId(po?.id || bill?.po_id || '');
+    setPvPaymentDate(new Date().toISOString().slice(0, 10));
+    setPvPaymentMethod('Bank Transfer / TT');
+    setPvReferenceNo('');
+
+    if (bill) {
+      const bal = Math.max(0, Number(bill.balance_due) || 0);
+      setPvSettlementType('single_bill');
+      setPvSelectedBills({ [bill.id]: bal });
+      setPvAmountPaid(bal);
+      setPvNarration(`Payment against Supplier Bill ${bill.bill_number} (Inv # ${bill.vendor_invoice_no})`);
+    } else if (po) {
+      const poTotal = Number(po.financial_totals?.grand_total ?? po.grand_total ?? 0);
+      setPvSettlementType('vendor_advance');
+      setPvSelectedBills({});
+      setPvAmountPaid(poTotal);
+      setPvNarration(`Advance / Settlement against Purchase Order ${po.purchase_order_metadata?.po_ref || po.formatted_quote_ref}`);
+    } else {
+      setPvSettlementType('single_bill');
+      setPvSelectedBills({});
+      setPvAmountPaid(0);
+      setPvNarration('');
+    }
+    setShowCreatePvModal(true);
+  };
+
+  // Confirm & Create Outbound Payment Voucher (PV) and Open in Studio
+  const handleConfirmCreatePv = async () => {
+    const selectedVendor = companies.find((c) => c.id === pvVendorId);
+    const payeeName = (pvPayeeName || getCompanyName(selectedVendor) || '').trim();
+    if (!payeeName) {
+      triggerToast?.('Please select or enter a Payee / Supplier name.', 'error');
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const pvSeq = String(
+      quotations.filter((q) => q.document_type === 'payment_voucher').length + 1
+    ).padStart(4, '0');
+    const pvRef = `PV-${pvSeq}`;
+    const linkedPo = supplierPOs.find((p) => p.id === pvPoId);
+
+    const selectedBillEntries = Object.entries(pvSelectedBills)
+      .filter(([, amt]) => Number(amt) > 0)
+      .map(([billId, amt]) => {
+        const b = supplierBills.find((x) => x.id === billId);
+        if (!b) return null;
+        const bTotal = Number(b.grand_total) || 0;
+        const cred = Number(b.credit_applied_amount) || 0;
+        const prev = Number(b.amount_paid) || 0;
+        const paidNow = QuotationRepository.roundCurrency(Number(amt) || 0);
+        return {
+          bill_id: b.id,
+          bill_ref: b.bill_number,
+          vendor_invoice_no: b.vendor_invoice_no,
+          po_ref: b.po_ref,
+          bill_total: bTotal,
+          credit_applied: cred,
+          previously_paid: prev,
+          paid_this_voucher: paidNow,
+          remaining_balance: Math.max(0, QuotationRepository.roundCurrency(bTotal - cred - prev - paidNow))
+        };
+      })
+      .filter(Boolean) as NonNullable<
+      QuotationDocumentRecord['payment_voucher_metadata']
+    >['allocated_bills'];
+
+    const allocatedSum = (selectedBillEntries || []).reduce((s, a) => s + a.paid_this_voucher, 0);
+    const amountNow = QuotationRepository.roundCurrency(
+      (selectedBillEntries && selectedBillEntries.length > 0 ? allocatedSum : Number(pvAmountPaid)) || 0
+    );
+    const totalPayable =
+      selectedBillEntries && selectedBillEntries.length > 0
+        ? selectedBillEntries.reduce((s, a) => s + a.bill_total, 0)
+        : Number(linkedPo?.financial_totals?.grand_total ?? linkedPo?.grand_total ?? amountNow) || amountNow;
+    const totalCredits =
+      selectedBillEntries && selectedBillEntries.length > 0
+        ? selectedBillEntries.reduce((s, a) => s + (a.credit_applied || 0), 0)
+        : 0;
+    const totalPrevPaid =
+      selectedBillEntries && selectedBillEntries.length > 0
+        ? selectedBillEntries.reduce((s, a) => s + a.previously_paid, 0)
+        : 0;
+    const balanceRemaining = Math.max(
+      0,
+      QuotationRepository.roundCurrency(totalPayable - totalCredits - totalPrevPaid - amountNow)
+    );
+
+    const vendorInvString =
+      selectedBillEntries && selectedBillEntries.length > 0
+        ? selectedBillEntries.map((b) => b.vendor_invoice_no).join(', ')
+        : '';
 
     const recordId = `qdoc_pv_${Date.now()}`;
+    const pvCurrency =
+      linkedPo?.currency || selectedVendor?.default_currency || defaultCurrency;
+
     const pvRecord: QuotationDocumentRecord = {
       id: recordId,
       workspace_id: activeWorkspace.id,
-      enquiry_id: bill?.enquiry_id || po?.enquiry_id || `standalone_${recordId}`,
-      enquiry_sn: po?.enquiry_sn || 0,
+      enquiry_id: linkedPo?.enquiry_id || `standalone_${recordId}`,
+      enquiry_sn: linkedPo?.enquiry_sn || 0,
       document_type: 'payment_voucher',
+      quote_number: pvRef,
       formatted_quote_ref: pvRef,
       revision_no: 0,
       status: 'issued',
-      quotation_date: nowIso.slice(0, 10),
-      valid_until_date: nowIso.slice(0, 10),
-      client_reference: bill?.vendor_invoice_no || po?.formatted_quote_ref || '',
-      quotation_subject: bill
-        ? `Settlement of Supplier Bill ${bill.bill_number} (Inv # ${bill.vendor_invoice_no})`
-        : po
-        ? `Supplier Advance / Settlement against ${po.formatted_quote_ref}`
-        : `Outbound Vendor Payment Voucher`,
-      currency: bill?.currency || po?.currency || vendor?.default_currency || defaultCurrency,
+      quotation_date: pvPaymentDate || nowIso.slice(0, 10),
+      valid_until_date: pvPaymentDate || nowIso.slice(0, 10),
+      client_reference: vendorInvString || linkedPo?.formatted_quote_ref || '',
+      subject:
+        pvNarration.trim() ||
+        (vendorInvString
+          ? `Settlement of Vendor Invoice(s): ${vendorInvString}`
+          : linkedPo
+          ? `Supplier Advance / Settlement against ${linkedPo.formatted_quote_ref}`
+          : `Outbound Vendor Payment Voucher — ${payeeName}`),
+      quotation_subject:
+        pvNarration.trim() ||
+        (vendorInvString
+          ? `Settlement of Vendor Invoice(s): ${vendorInvString}`
+          : linkedPo
+          ? `Supplier Advance / Settlement against ${linkedPo.formatted_quote_ref}`
+          : `Outbound Vendor Payment Voucher — ${payeeName}`),
+      currency: pvCurrency,
       tax_mode: 'taxes_extra',
       show_brand_column: false,
       show_part_no_column: true,
@@ -891,56 +1036,69 @@ export default function ProcurementPayablesHub({
       },
       client_snapshot: {
         entity_name: payeeName,
-        attention_to: po?.purchase_order_metadata?.supplier_contact || '',
+        attention_to: linkedPo?.purchase_order_metadata?.supplier_contact || '',
         designation: '',
-        address: po?.purchase_order_metadata?.supplier_address || vendor?.address || '',
-        phone: po?.purchase_order_metadata?.supplier_phone || vendor?.phone || '',
-        email: po?.purchase_order_metadata?.supplier_email || vendor?.email || '',
-        tax_registration_no: bill?.vendor_trn || po?.purchase_order_metadata?.supplier_trn || vendor?.tax_registration_no || ''
+        address:
+          linkedPo?.purchase_order_metadata?.supplier_address ||
+          [selectedVendor?.address, selectedVendor?.city, selectedVendor?.country]
+            .filter(Boolean)
+            .join(', '),
+        phone: linkedPo?.purchase_order_metadata?.supplier_phone || selectedVendor?.phone || '',
+        email: linkedPo?.purchase_order_metadata?.supplier_email || selectedVendor?.email || '',
+        tax_registration_no:
+          linkedPo?.purchase_order_metadata?.supplier_trn ||
+          selectedVendor?.tax_registration_no ||
+          ''
       },
       payment_voucher_metadata: {
         voucher_ref: pvRef,
-        payment_date: nowIso.slice(0, 10),
-        settlement_type: bill ? 'single_bill' : 'vendor_advance',
-        vendor_company_id: vendorId,
+        pv_ref: pvRef,
+        payment_date: pvPaymentDate || nowIso.slice(0, 10),
+        pv_date: pvPaymentDate || nowIso.slice(0, 10),
+        settlement_type: pvSettlementType,
+        vendor_company_id: pvVendorId || undefined,
+        vendor_id: pvVendorId || undefined,
         payee_name: payeeName,
-        payee_trn: bill?.vendor_trn || po?.purchase_order_metadata?.supplier_trn || vendor?.tax_registration_no || '',
-        payment_method: 'Bank Transfer / TT',
+        paid_to_vendor_name: payeeName,
+        payee_trn:
+          linkedPo?.purchase_order_metadata?.supplier_trn ||
+          selectedVendor?.tax_registration_no ||
+          '',
+        vendor_trn:
+          linkedPo?.purchase_order_metadata?.supplier_trn ||
+          selectedVendor?.tax_registration_no ||
+          '',
+        payment_method: pvPaymentMethod,
+        reference_no: pvReferenceNo.trim() || undefined,
+        utr_or_cheque_no: pvReferenceNo.trim() || undefined,
         disbursing_bank_name: activeWorkspace.document_profile?.bank_details?.bank_name || '',
         disbursing_account_no: activeWorkspace.document_profile?.bank_details?.iban || '',
         beneficiary_bank_details:
-          po?.purchase_order_metadata?.beneficiary_bank_details || vendor?.vendor_bank_details,
-        linked_po_id: po?.id || bill?.po_id,
-        linked_po_ref: po?.formatted_quote_ref || bill?.po_ref,
-        vendor_invoice_no: bill?.vendor_invoice_no || '',
-        allocated_bills: bill
-          ? [
-              {
-                bill_id: bill.id,
-                bill_ref: bill.bill_number,
-                vendor_invoice_no: bill.vendor_invoice_no,
-                po_ref: bill.po_ref,
-                bill_total: payableTotal,
-                credit_applied: creditsApplied,
-                previously_paid: prevPaid,
-                paid_this_voucher: amountNow,
-                remaining_balance: 0
-              }
-            ]
-          : [],
-        total_payable_amount: payableTotal,
-        credits_applied_amount: creditsApplied,
-        previously_paid_amount: prevPaid,
+          linkedPo?.purchase_order_metadata?.beneficiary_bank_details ||
+          selectedVendor?.vendor_bank_details,
+        linked_po_id: linkedPo?.id,
+        linked_po_ref: linkedPo?.purchase_order_metadata?.po_ref || linkedPo?.formatted_quote_ref,
+        vendor_invoice_no: vendorInvString,
+        allocated_bills: selectedBillEntries || [],
+        total_payable_amount: totalPayable,
+        credits_applied_amount: totalCredits,
+        previously_paid_amount: totalPrevPaid,
+        previously_paid: totalPrevPaid,
         amount_paid: amountNow,
-        balance_remaining: 0,
-        narration: bill
-          ? `Payment against Vendor Invoice ${bill.vendor_invoice_no}`
-          : po
-          ? `Payment against Purchase Order ${po.formatted_quote_ref}`
-          : 'Vendor Settlement',
+        balance_remaining: balanceRemaining,
+        narration:
+          pvNarration.trim() ||
+          (vendorInvString
+            ? `Payment against Vendor Invoice(s) ${vendorInvString}`
+            : linkedPo
+            ? `Payment against Purchase Order ${linkedPo.formatted_quote_ref}`
+            : 'Vendor Settlement'),
         prepared_by_name: user.full_name || user.username || 'Accounts'
       },
-      line_items: po?.line_items || [],
+      line_items: [],
+      subtotal: amountNow,
+      tax_amount: 0,
+      grand_total: amountNow,
       financial_totals: {
         items_subtotal: amountNow,
         total_line_discounts: 0,
@@ -975,59 +1133,155 @@ export default function ProcurementPayablesHub({
     };
 
     await QuotationRepository.save(pvRecord);
+    const updatedQuotations = await QuotationRepository.listByWorkspace(activeWorkspace.id);
+    const currentBills = await ProcurementRepository.listByWorkspace(activeWorkspace.id);
+    for (const alloc of selectedBillEntries || []) {
+      const targetBill = currentBills.find((b) => b.id === alloc.bill_id);
+      if (targetBill) {
+        const recalc = ProcurementRepository.recalculateBillSettlement(targetBill, updatedQuotations);
+        await ProcurementRepository.save(recalc);
+      }
+    }
+
+    setShowCreatePvModal(false);
     handleOpenInStudio(pvRecord);
   };
 
-  // Issue Material Return Note (MRN) or Vendor Debit Note (DN)
-  const handleIssueVendorReturn = async (
+  // Open Pre-Launch Modal for Material Return Note (MRN) or Vendor Debit Note (DN)
+  const handleIssueVendorReturn = (
     mode: 'material_return_note' | 'debit_note',
     po?: QuotationDocumentRecord,
     bill?: SupplierBill
   ) => {
+    const vId = po?.purchase_order_metadata?.vendor_company_id || bill?.vendor_company_id || '';
+    const vObj = companies.find((c) => c.id === vId);
+    const sName =
+      po?.purchase_order_metadata?.supplier_name ||
+      bill?.vendor_name ||
+      getCompanyName(vObj) ||
+      '';
+
+    setRetMode(mode);
+    setRetVendorId(vId);
+    setRetSupplierName(sName);
+    setRetPoId(po?.id || bill?.po_id || '');
+    setRetBillId(bill?.id || '');
+    setRetReason('Defective / Damaged');
+    setRetResolution(
+      mode === 'debit_note' ? 'Credit / Bill Deduction' : 'Replacement Required'
+    );
+
+    if (po && po.line_items && po.line_items.length > 0) {
+      setRetLines(
+        po.line_items.map((li) => ({
+          product_id: li.product_id,
+          item_name: li.item_name || li.description || '',
+          part_no: li.part_no || '',
+          qty: Number(li.qty_received || li.qty_ordered || li.qty) || 1,
+          unit: li.unit || 'Nos',
+          unit_cost: Number(li.unit_price ?? li.cost_price ?? 0)
+        }))
+      );
+    } else if (bill && bill.line_items && bill.line_items.length > 0) {
+      setRetLines(
+        bill.line_items.map((bl) => ({
+          product_id: bl.product_id,
+          item_name: bl.item_name || '',
+          part_no: bl.part_no || '',
+          qty: Number(bl.billed_qty) || 1,
+          unit: bl.unit || 'Nos',
+          unit_cost: Number(bl.billed_unit_cost) || 0
+        }))
+      );
+    } else {
+      setRetLines([
+        { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
+      ]);
+    }
+
+    setShowCreateReturnModal(true);
+  };
+
+  // Confirm & Create Material Return Note (MRN) or Vendor Debit Note (DN) and Open in Studio
+  const handleConfirmCreateReturn = async () => {
+    const selectedVendor = companies.find((c) => c.id === retVendorId);
+    const supplierName = (retSupplierName || getCompanyName(selectedVendor) || '').trim();
+    if (!supplierName) {
+      triggerToast?.('Please select or enter a Supplier / Vendor name.', 'error');
+      return;
+    }
+
     const nowIso = new Date().toISOString();
-    const prefix = mode === 'material_return_note' ? 'MRN' : 'DN';
+    const prefix = retMode === 'material_return_note' ? 'MRN' : 'DN';
     const seq = String(
       quotations.filter(
         (q) => q.document_type === 'material_return_note' || q.document_type === 'debit_note'
       ).length + 1
     ).padStart(4, '0');
     const refNo = `${prefix}-${seq}`;
-
-    const supplierName =
-      po?.purchase_order_metadata?.supplier_name || bill?.vendor_name || 'Vendor / Supplier';
     const recordId = `qdoc_${prefix.toLowerCase()}_${Date.now()}`;
 
-    const sourceLines: QuotationLineItem[] = (po?.line_items || []).map((li, idx) => ({
-      ...li,
-      id: `retli_${Date.now()}_${idx}`,
-      return_qty: li.qty,
-      return_reason: 'Defective / Damaged'
-    }));
+    const linkedPo = supplierPOs.find((p) => p.id === retPoId);
+    const linkedBill = supplierBills.find((b) => b.id === retBillId);
+
+    const sourceLines: QuotationLineItem[] = retLines
+      .filter((l) => l.item_name.trim() !== '')
+      .map((l, idx) => {
+        const qty = Math.max(1, Number(l.qty) || 1);
+        const rate = Math.max(0, Number(l.unit_cost) || 0);
+        return {
+          id: `retli_${Date.now()}_${idx}`,
+          sr_no: idx + 1,
+          product_id: l.product_id || undefined,
+          part_no: l.part_no || '',
+          item_name: l.item_name,
+          description: l.item_name,
+          quantity: qty,
+          qty,
+          return_qty: qty,
+          return_reason: retReason,
+          unit: l.unit || 'Nos',
+          unit_price: rate,
+          cost_price: rate,
+          total_price: QuotationRepository.roundCurrency(qty * rate),
+          discount_Type: 'none',
+          discount_value: 0,
+          tax_rate: 5,
+          line_subtotal: QuotationRepository.roundCurrency(qty * rate),
+          line_total: QuotationRepository.roundCurrency(qty * rate)
+        };
+      });
 
     const totals = QuotationRepository.calculateFinancialTotals(sourceLines, 'taxes_extra', 0);
 
     const returnDoc: QuotationDocumentRecord = {
       id: recordId,
       workspace_id: activeWorkspace.id,
-      enquiry_id: po?.enquiry_id || bill?.enquiry_id || `standalone_${recordId}`,
-      enquiry_sn: po?.enquiry_sn || 0,
-      document_type: mode,
+      enquiry_id: linkedPo?.enquiry_id || linkedBill?.enquiry_id || `standalone_${recordId}`,
+      enquiry_sn: linkedPo?.enquiry_sn || 0,
+      document_type: retMode,
+      quote_number: refNo,
       formatted_quote_ref: refNo,
       revision_no: 0,
       status: 'draft',
       quotation_date: nowIso.slice(0, 10),
       valid_until_date: nowIso.slice(0, 10),
-      client_reference: po?.formatted_quote_ref || bill?.vendor_invoice_no || '',
-      quotation_subject:
-        mode === 'material_return_note'
+      client_reference: linkedPo?.formatted_quote_ref || linkedBill?.vendor_invoice_no || '',
+      subject:
+        retMode === 'material_return_note'
           ? `Material Return Dispatch Note — ${supplierName}`
           : `Vendor Debit Note / Credit Claim — ${supplierName}`,
-      currency: po?.currency || bill?.currency || defaultCurrency,
+      quotation_subject:
+        retMode === 'material_return_note'
+          ? `Material Return Dispatch Note — ${supplierName}`
+          : `Vendor Debit Note / Credit Claim — ${supplierName}`,
+      currency:
+        linkedPo?.currency || linkedBill?.currency || selectedVendor?.default_currency || defaultCurrency,
       tax_mode: 'taxes_extra',
       show_brand_column: true,
       show_part_no_column: true,
       show_discount_column: false,
-      show_tax_column: mode === 'debit_note',
+      show_tax_column: retMode === 'debit_note',
       show_item_images: false,
       company_letterhead_snapshot: {
         company_name: activeWorkspace.document_profile?.company_legal_name || activeWorkspace.name,
@@ -1045,36 +1299,65 @@ export default function ProcurementPayablesHub({
       },
       client_snapshot: {
         entity_name: supplierName,
-        attention_to: po?.purchase_order_metadata?.supplier_contact || '',
+        attention_to: linkedPo?.purchase_order_metadata?.supplier_contact || '',
         designation: '',
-        address: po?.purchase_order_metadata?.supplier_address || '',
-        phone: po?.purchase_order_metadata?.supplier_phone || '',
-        email: po?.purchase_order_metadata?.supplier_email || '',
-        tax_registration_no: po?.purchase_order_metadata?.supplier_trn || bill?.vendor_trn || ''
+        address:
+          linkedPo?.purchase_order_metadata?.supplier_address ||
+          [selectedVendor?.address, selectedVendor?.city, selectedVendor?.country]
+            .filter(Boolean)
+            .join(', '),
+        phone: linkedPo?.purchase_order_metadata?.supplier_phone || selectedVendor?.phone || '',
+        email: linkedPo?.purchase_order_metadata?.supplier_email || selectedVendor?.email || '',
+        tax_registration_no:
+          linkedPo?.purchase_order_metadata?.supplier_trn ||
+          linkedBill?.vendor_trn ||
+          selectedVendor?.tax_registration_no ||
+          ''
       },
       vendor_return_metadata: {
-        return_mode: mode,
+        return_mode: retMode,
         return_ref: refNo,
         return_date: nowIso.slice(0, 10),
-        vendor_company_id: po?.purchase_order_metadata?.vendor_company_id || bill?.vendor_company_id,
+        vendor_company_id: retVendorId || undefined,
+        vendor_id: retVendorId || undefined,
         supplier_name: supplierName,
-        supplier_contact: po?.purchase_order_metadata?.supplier_contact || '',
-        supplier_address: po?.purchase_order_metadata?.supplier_address || '',
-        supplier_trn: po?.purchase_order_metadata?.supplier_trn || bill?.vendor_trn || '',
-        original_po_id: po?.id || bill?.po_id,
-        original_po_ref: po?.formatted_quote_ref || bill?.po_ref,
-        linked_bill_id: bill?.id,
-        vendor_invoice_no: bill?.vendor_invoice_no,
-        return_reason: 'Defective / Damaged',
-        resolution_type: 'Credit / Bill Deduction',
-        dispatched_by_name: user.full_name || user.username || 'Storekeeper'
+        vendor_name: supplierName,
+        supplier_contact: linkedPo?.purchase_order_metadata?.supplier_contact || '',
+        vendor_contact: linkedPo?.purchase_order_metadata?.supplier_contact || '',
+        supplier_address:
+          linkedPo?.purchase_order_metadata?.supplier_address ||
+          [selectedVendor?.address, selectedVendor?.city, selectedVendor?.country]
+            .filter(Boolean)
+            .join(', '),
+        supplier_trn:
+          linkedPo?.purchase_order_metadata?.supplier_trn ||
+          linkedBill?.vendor_trn ||
+          selectedVendor?.tax_registration_no ||
+          '',
+        vendor_trn:
+          linkedPo?.purchase_order_metadata?.supplier_trn ||
+          linkedBill?.vendor_trn ||
+          selectedVendor?.tax_registration_no ||
+          '',
+        original_po_id: linkedPo?.id,
+        original_po_ref: linkedPo?.purchase_order_metadata?.po_ref || linkedPo?.formatted_quote_ref,
+        linked_bill_id: linkedBill?.id,
+        vendor_invoice_no: linkedBill?.vendor_invoice_no,
+        return_reason: retReason,
+        resolution_type: retResolution,
+        dispatched_by_name: user.full_name || user.username || 'Storekeeper',
+        returned_by_name: user.full_name || user.username || 'Storekeeper',
+        credit_applied_to_bill: Boolean(retMode === 'debit_note' && linkedBill?.id)
       },
       line_items: sourceLines,
+      subtotal: totals.items_subtotal,
+      tax_amount: totals.tax_amount,
+      grand_total: totals.grand_total,
       financial_totals: totals,
       terms_blocks: {
         price_basis: '',
         delivery_schedule: '',
-        payment_terms: 'Credit / Bill Deduction',
+        payment_terms: retResolution,
         validity_period: '',
         warranty_terms: '',
         packing_forwarding: '',
@@ -1096,22 +1379,30 @@ export default function ProcurementPayablesHub({
     };
 
     await QuotationRepository.save(returnDoc);
+    if (retMode === 'debit_note' && linkedBill) {
+      const updatedQuotations = await QuotationRepository.listByWorkspace(activeWorkspace.id);
+      const recalc = ProcurementRepository.recalculateBillSettlement(linkedBill, updatedQuotations);
+      await ProcurementRepository.save(recalc);
+    }
+
+    setShowCreateReturnModal(false);
     handleOpenInStudio(returnDoc);
   };
 
   return (
-    <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-5 space-y-5">
+    <div className="flex-1 flex flex-col min-w-0 bg-slate-50/50">
       <PageHeader
         title="Procurement, Stock Receiving (GRN) & Vendor Payables"
         subtitle="Manage Outbound Supplier POs, Warehouse GRN Landed Cost Allocation, 3-Way Bill Matching, and Outbound Payment Vouchers"
-        icon={ShoppingBag}
-        currentUser={user}
-        onOpenSidebar={onOpenMobileMenu}
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
+        icon={<ShoppingBag className="w-5 h-5" />}
+        onOpenMobileMenu={onOpenMobileMenu}
+        actions={[
+          {
+            id: 'new-po',
+            label: 'New Supplier PO',
+            icon: <Plus className="w-4 h-4" />,
+            variant: 'primary',
+            onClick: () => {
               setNewPoVendorId('');
               setNewPoSupplierName('');
               setNewPoEnquiryId('');
@@ -1120,30 +1411,25 @@ export default function ProcurementPayablesHub({
                 { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
               ]);
               setShowCreatePoModal(true);
-            }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-2xs transition cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>New Supplier PO</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleOpenBillModal()}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 text-xs font-bold shadow-2xs transition cursor-pointer"
-          >
-            <FileText className="w-3.5 h-3.5 text-amber-600" />
-            <span>Record Supplier Bill</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleIssuePaymentVoucher()}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-2xs transition cursor-pointer"
-          >
-            <DollarSign className="w-3.5 h-3.5" />
-            <span>Issue Payment Voucher</span>
-          </button>
-        </div>
-      </PageHeader>
+            }
+          },
+          {
+            id: 'record-bill',
+            label: 'Record Supplier Bill',
+            icon: <FileText className="w-4 h-4 text-amber-600" />,
+            variant: 'secondary',
+            onClick: () => handleOpenBillModal()
+          },
+          {
+            id: 'issue-pv',
+            label: 'Issue Payment Voucher',
+            icon: <DollarSign className="w-4 h-4 text-emerald-600" />,
+            variant: 'secondary',
+            onClick: () => handleIssuePaymentVoucher()
+          }
+        ]}
+      />
+      <PageBody>
 
       {/* KPI Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
@@ -1327,7 +1613,7 @@ export default function ProcurementPayablesHub({
                         </td>
                         <td className="py-3 px-3 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
                           {po.currency}{' '}
-                          {Number(po.financial_totals?.grand_total || 0).toLocaleString('en-US', {
+                          {Number(po.financial_totals?.grand_total ?? po.grand_total ?? 0).toLocaleString('en-US', {
                             minimumFractionDigits: 2
                           })}
                         </td>
@@ -1741,8 +2027,13 @@ export default function ProcurementPayablesHub({
                   const isPv = doc.document_type === 'payment_voucher';
                   const isMrn = doc.document_type === 'material_return_note';
                   const amt = isPv
-                    ? Number(doc.payment_voucher_metadata?.amount_paid ?? doc.financial_totals?.grand_total ?? 0)
-                    : Number(doc.financial_totals?.grand_total ?? 0);
+                    ? Number(
+                        doc.payment_voucher_metadata?.amount_paid ??
+                          doc.financial_totals?.grand_total ??
+                          doc.grand_total ??
+                          0
+                      )
+                    : Number(doc.financial_totals?.grand_total ?? doc.grand_total ?? 0);
                   return (
                     <tr key={doc.id} className="hover:bg-slate-50/80">
                       <td className="py-3 px-4 font-mono font-bold text-slate-900">
@@ -1768,7 +2059,9 @@ export default function ProcurementPayablesHub({
                       <td className="py-3 px-3 font-mono text-slate-600">{doc.quotation_date}</td>
                       <td className="py-3 px-3 font-semibold text-slate-800">
                         {doc.payment_voucher_metadata?.payee_name ||
+                          doc.payment_voucher_metadata?.paid_to_vendor_name ||
                           doc.vendor_return_metadata?.supplier_name ||
+                          doc.vendor_return_metadata?.vendor_name ||
                           doc.client_snapshot?.entity_name}
                       </td>
                       <td className="py-3 px-3 text-slate-600 max-w-xs">
@@ -2618,6 +2911,616 @@ export default function ProcurementPayablesHub({
         </div>
       )}
 
+      {/* MODAL 4: ISSUE OUTBOUND PAYMENT VOUCHER (PV) */}
+      {showCreatePvModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-amber-50/70">
+              <div>
+                <h3 className="text-sm font-black text-slate-900">
+                  Issue Outbound Payment Voucher (PV)
+                </h3>
+                <p className="text-[11px] text-slate-600">
+                  Select Payee / Vendor, allocate against open Supplier Bills or POs, and open in A4 Studio
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCreatePvModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Select Vendor from Directory
+                  </label>
+                  <select
+                    value={pvVendorId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setPvVendorId(id);
+                      const v = companies.find((c) => c.id === id);
+                      if (v) {
+                        const vName = getCompanyName(v);
+                        setPvPayeeName(vName);
+                        const matchingBills = supplierBills.filter(
+                          (b) => (b.vendor_id === id || b.vendor_name === vName) && b.balance_due > 0 && !b.is_on_hold
+                        );
+                        if (matchingBills.length > 0 && pvAllocatedBills.length === 0) {
+                          const first = matchingBills[0];
+                          setPvAllocatedBills([
+                            {
+                              bill_id: first.id,
+                              bill_number: first.bill_number,
+                              vendor_invoice_no: first.vendor_invoice_no,
+                              invoice_date: first.invoice_date,
+                              bill_total: first.grand_total,
+                              previously_paid: first.amount_paid,
+                              allocated_amount: first.balance_due
+                            }
+                          ]);
+                          setPvAmountPaid(first.balance_due);
+                          setPvNarration(`Settlement of Supplier Invoice #${first.vendor_invoice_no} (${first.bill_number})`);
+                        }
+                      }
+                    }}
+                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                  >
+                    <option value="">-- Select Registered Vendor (or type Payee name) --</option>
+                    {vendors.map((v) => {
+                      const vName = getCompanyName(v);
+                      return (
+                        <option key={v.id} value={v.id}>
+                          {vName} {v.relationship_type ? `(${v.relationship_type})` : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Payee / Vendor Legal Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={pvPayeeName}
+                    onChange={(e) => setPvPayeeName(e.target.value)}
+                    placeholder="e.g. Atlas Industrial Supply LLC"
+                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Link to Supplier PO (Optional)
+                  </label>
+                  <select
+                    value={pvPoId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setPvPoId(id);
+                      const po = supplierPOs.find((p) => p.id === id);
+                      if (po) {
+                        const sName = po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name || '';
+                        if (sName && !pvPayeeName) setPvPayeeName(sName);
+                        const poTotal = Number(po.financial_totals?.grand_total ?? po.grand_total ?? 0);
+                        if (pvAmountPaid === 0 && poTotal > 0) setPvAmountPaid(poTotal);
+                        if (!pvNarration) {
+                          setPvNarration(`Advance / Payment against PO ${po.purchase_order_metadata?.po_ref || po.formatted_quote_ref}`);
+                        }
+                      }
+                    }}
+                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                  >
+                    <option value="">-- Direct / Bill Settlement (No Specific PO) --</option>
+                    {supplierPOs.map((po) => (
+                      <option key={po.id} value={po.id}>
+                        {po.purchase_order_metadata?.po_ref || po.formatted_quote_ref} — {po.purchase_order_metadata?.supplier_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Payment Mode</label>
+                    <select
+                      value={pvPaymentMode}
+                      onChange={(e) => setPvPaymentMode(e.target.value as any)}
+                      className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                    >
+                      <option value="Bank Transfer">Bank Transfer</option>
+                      <option value="Cheque">Cheque</option>
+                      <option value="Cash">Cash</option>
+                      <option value="Corporate Card">Corporate Card</option>
+                      <option value="LC / Trade Finance">LC / Trade Finance</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">UTR / Cheque / Ref #</label>
+                    <input
+                      type="text"
+                      value={pvReferenceNo}
+                      onChange={(e) => setPvReferenceNo(e.target.value)}
+                      placeholder="e.g. UTR-994120"
+                      className="w-full rounded-xl border border-slate-300 p-2 font-mono bg-white"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Open Supplier Bills Allocation */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <div className="bg-slate-50 px-3 py-2 border-b border-slate-200 flex items-center justify-between">
+                  <span className="font-bold text-slate-700">
+                    Allocate Against Open Supplier Bills (Optional)
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    Select bills to automatically update their Balance Due
+                  </span>
+                </div>
+                <div className="max-h-44 overflow-y-auto divide-y divide-slate-100">
+                  {supplierBills
+                    .filter((b) => {
+                      if (b.balance_due <= 0) return false;
+                      if (!pvPayeeName.trim()) return true;
+                      return (
+                        b.vendor_name.toLowerCase().includes(pvPayeeName.toLowerCase()) ||
+                        (pvVendorId && b.vendor_id === pvVendorId)
+                      );
+                    })
+                    .map((bill) => {
+                      const alloc = pvAllocatedBills.find((a) => a.bill_id === bill.id);
+                      const isChecked = Boolean(alloc);
+                      return (
+                        <div key={bill.id} className="px-3 py-2 flex items-center justify-between gap-3 hover:bg-slate-50">
+                          <label className="flex items-center gap-2 cursor-pointer flex-1">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              disabled={bill.is_on_hold}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  const next = [
+                                    ...pvAllocatedBills,
+                                    {
+                                      bill_id: bill.id,
+                                      bill_number: bill.bill_number,
+                                      vendor_invoice_no: bill.vendor_invoice_no,
+                                      invoice_date: bill.invoice_date,
+                                      bill_total: bill.grand_total,
+                                      previously_paid: bill.amount_paid,
+                                      allocated_amount: bill.balance_due
+                                    }
+                                  ];
+                                  setPvAllocatedBills(next);
+                                  setPvAmountPaid(
+                                    QuotationRepository.roundCurrency(
+                                      next.reduce((s, a) => s + Number(a.allocated_amount || 0), 0)
+                                    )
+                                  );
+                                  if (!pvPayeeName) setPvPayeeName(bill.vendor_name);
+                                } else {
+                                  const next = pvAllocatedBills.filter((a) => a.bill_id !== bill.id);
+                                  setPvAllocatedBills(next);
+                                  setPvAmountPaid(
+                                    QuotationRepository.roundCurrency(
+                                      next.reduce((s, a) => s + Number(a.allocated_amount || 0), 0)
+                                    )
+                                  );
+                                }
+                              }}
+                              className="rounded border-slate-300 text-amber-600"
+                            />
+                            <div>
+                              <div className="font-mono font-bold text-slate-900">
+                                {bill.bill_number} • Inv #{bill.vendor_invoice_no}{' '}
+                                <span className="font-sans font-semibold text-slate-600">({bill.vendor_name})</span>
+                              </div>
+                              <div className="text-[10.5px] text-slate-500">
+                                Total: {bill.currency} {bill.grand_total.toFixed(2)} • Balance Due: {bill.currency}{' '}
+                                {bill.balance_due.toFixed(2)}
+                              </div>
+                            </div>
+                          </label>
+                          {isChecked && alloc && (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10.5px] text-slate-500">Allocate:</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={alloc.allocated_amount}
+                                onChange={(e) => {
+                                  const val = Math.max(0, Number(e.target.value) || 0);
+                                  const next = pvAllocatedBills.map((a) =>
+                                    a.bill_id === bill.id ? { ...a, allocated_amount: val } : a
+                                  );
+                                  setPvAllocatedBills(next);
+                                  setPvAmountPaid(
+                                    QuotationRepository.roundCurrency(
+                                      next.reduce((s, a) => s + Number(a.allocated_amount || 0), 0)
+                                    )
+                                  );
+                                }}
+                                className="w-28 rounded-lg border border-amber-400 px-2 py-1 text-right font-mono font-bold bg-amber-50/40"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  {supplierBills.filter((b) => b.balance_due > 0).length === 0 && (
+                    <div className="p-3 text-center text-slate-400 text-[11px]">
+                      No open unpaid Supplier Bills found. You can still issue an Advance / Direct Payment Voucher below.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Amount Paid ({defaultCurrency}) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={pvAmountPaid}
+                    onChange={(e) => setPvAmountPaid(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-full rounded-xl border border-amber-400 p-2 font-mono font-bold bg-amber-50/30 text-slate-900"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Payment Narration / Purpose
+                  </label>
+                  <input
+                    type="text"
+                    value={pvNarration}
+                    onChange={(e) => setPvNarration(e.target.value)}
+                    placeholder="e.g. Settlement of Supplier Invoice / Advance against PO"
+                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCreatePvModal(false)}
+                className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCreatePv}
+                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold cursor-pointer"
+              >
+                Create PV &amp; Open in Studio
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: ISSUE MATERIAL RETURN NOTE (MRN) OR VENDOR DEBIT NOTE (DN) */}
+      {showCreateReturnModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-rose-50/70">
+              <div>
+                <h3 className="text-sm font-black text-slate-900">
+                  {returnDocType === 'material_return_note'
+                    ? 'Issue Material Return Note (MRN — Unpriced Gate-Pass)'
+                    : 'Issue Vendor Debit Note (DN — Commercial Claim)'}
+                </h3>
+                <p className="text-[11px] text-slate-600">
+                  Select Supplier, linked PO or Bill, return reason, and items to return
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCreateReturnModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4 text-xs">
+              <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl w-fit">
+                <button
+                  type="button"
+                  onClick={() => setReturnDocType('material_return_note')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    returnDocType === 'material_return_note'
+                      ? 'bg-white text-slate-900 shadow-2xs'
+                      : 'text-slate-600'
+                  }`}
+                >
+                  Material Return Note (MRN)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReturnDocType('debit_note')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    returnDocType === 'debit_note'
+                      ? 'bg-rose-600 text-white shadow-2xs'
+                      : 'text-slate-600'
+                  }`}
+                >
+                  Vendor Debit Note (DN)
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Select Vendor from Directory
+                  </label>
+                  <select
+                    value={returnVendorId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setReturnVendorId(id);
+                      const v = companies.find((c) => c.id === id);
+                      if (v) setReturnVendorName(getCompanyName(v));
+                    }}
+                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                  >
+                    <option value="">-- Select Registered Vendor --</option>
+                    {vendors.map((v) => {
+                      const vName = getCompanyName(v);
+                      return (
+                        <option key={v.id} value={v.id}>
+                          {vName}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Supplier / Vendor Legal Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={returnVendorName}
+                    onChange={(e) => setReturnVendorName(e.target.value)}
+                    placeholder="Supplier Name"
+                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Link to Supplier PO (Optional)
+                  </label>
+                  <select
+                    value={returnPoId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setReturnPoId(id);
+                      const po = supplierPOs.find((p) => p.id === id);
+                      if (po) {
+                        setReturnVendorName(
+                          po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name || returnVendorName
+                        );
+                        if (po.line_items && po.line_items.length > 0) {
+                          setReturnLines(
+                            po.line_items.map((li) => ({
+                              product_id: li.product_id || '',
+                              item_name: li.item_name || li.description || '',
+                              part_no: li.part_no || '',
+                              qty: Number(li.qty) || 1,
+                              unit: li.unit || 'Nos',
+                              unit_cost: Number(li.unit_price ?? li.cost_price ?? 0) || 0
+                            }))
+                          );
+                        }
+                      }
+                    }}
+                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                  >
+                    <option value="">-- No Linked PO --</option>
+                    {supplierPOs.map((po) => (
+                      <option key={po.id} value={po.id}>
+                        {po.purchase_order_metadata?.po_ref || po.formatted_quote_ref} — {po.purchase_order_metadata?.supplier_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Link to Supplier Bill (Reduces Bill Balance on DN)
+                  </label>
+                  <select
+                    value={returnBillId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setReturnBillId(id);
+                      const bill = supplierBills.find((b) => b.id === id);
+                      if (bill) {
+                        setReturnVendorName(bill.vendor_name);
+                        if (bill.line_items && bill.line_items.length > 0) {
+                          setReturnLines(
+                            bill.line_items.map((li) => ({
+                              product_id: li.product_id || '',
+                              item_name: li.item_name || '',
+                              part_no: li.part_no || '',
+                              qty: Number(li.billed_qty) || 1,
+                              unit: li.unit || 'Nos',
+                              unit_cost: Number(li.billed_unit_cost) || 0
+                            }))
+                          );
+                        }
+                      }
+                    }}
+                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                  >
+                    <option value="">-- No Linked Supplier Bill --</option>
+                    {supplierBills.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.bill_number} (Inv #{b.vendor_invoice_no}) — {b.vendor_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Return / Claim Reason</label>
+                  <input
+                    type="text"
+                    value={returnReason}
+                    onChange={(e) => setReturnReason(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Resolution Requested</label>
+                  <select
+                    value={returnResolution}
+                    onChange={(e) => setReturnResolution(e.target.value as any)}
+                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                  >
+                    <option value="Credit / Account Adjustment">Credit / Account Adjustment</option>
+                    <option value="Replacement Required">Replacement Required</option>
+                    <option value="Refund">Refund</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-800">Return / Claim Line Items</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setReturnLines((prev) => [
+                        ...prev,
+                        { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
+                      ])
+                    }
+                    className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 font-bold text-[11px] cursor-pointer"
+                  >
+                    + Add Line
+                  </button>
+                </div>
+                {returnLines.map((line, idx) => (
+                  <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-slate-50 p-2 rounded-xl border border-slate-200">
+                    <div className="col-span-4">
+                      <select
+                        value={line.product_id}
+                        onChange={(e) => {
+                          const pid = e.target.value;
+                          const prod = products.find((p) => p.id === pid);
+                          setReturnLines((prev) =>
+                            prev.map((l, i) =>
+                              i === idx
+                                ? {
+                                    ...l,
+                                    product_id: pid,
+                                    item_name: prod?.name || l.item_name,
+                                    part_no: prod?.part_no || l.part_no,
+                                    unit: prod?.unit || l.unit,
+                                    unit_cost: Number(prod?.cost_price ?? prod?.last_landed_cost ?? 0)
+                                  }
+                                : l
+                            )
+                          );
+                        }}
+                        className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-[11px]"
+                      >
+                        <option value="">-- Pick Catalog Item or Type --</option>
+                        {products.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} {p.part_no ? `(${p.part_no})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="col-span-3">
+                      <input
+                        type="text"
+                        value={line.item_name}
+                        onChange={(e) =>
+                          setReturnLines((prev) =>
+                            prev.map((l, i) => (i === idx ? { ...l, item_name: e.target.value } : l))
+                          )
+                        }
+                        placeholder="Item Description"
+                        className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-[11px]"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <input
+                        type="number"
+                        min="1"
+                        value={line.qty}
+                        onChange={(e) =>
+                          setReturnLines((prev) =>
+                            prev.map((l, i) => (i === idx ? { ...l, qty: Number(e.target.value) || 1 } : l))
+                          )
+                        }
+                        placeholder="Qty"
+                        className="w-full rounded-lg border border-slate-300 p-1.5 bg-white font-mono text-[11px]"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={line.unit_cost}
+                        onChange={(e) =>
+                          setReturnLines((prev) =>
+                            prev.map((l, i) =>
+                              i === idx ? { ...l, unit_cost: Number(e.target.value) || 0 } : l
+                            )
+                          )
+                        }
+                        placeholder="Claim Rate"
+                        className="w-full rounded-lg border border-slate-300 p-1.5 bg-white font-mono text-[11px]"
+                      />
+                    </div>
+                    <div className="col-span-1 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setReturnLines((prev) => prev.filter((_, i) => i !== idx))}
+                        className="p-1 text-rose-500 hover:bg-rose-50 rounded"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCreateReturnModal(false)}
+                className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCreateReturn}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer"
+              >
+                {returnDocType === 'material_return_note'
+                  ? 'Create MRN & Open in Studio'
+                  : 'Create Debit Note & Open in Studio'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* A4 QUOTATION / COMMERCIAL DOCUMENT STUDIO MODAL */}
       {studioOpen && studioEnquiry && (
         <QuotationStudioModal
@@ -2628,16 +3531,26 @@ export default function ProcurementPayablesHub({
           }}
           enquiry={studioEnquiry}
           activeWorkspace={activeWorkspace}
+          activeWorkspaceId={activeWorkspace.id}
+          salespersonName={user.full_name || user.username || user.email || 'Procurement'}
           user={user}
-          existingQuotation={studioQuotation}
+          editingQuotation={studioQuotation as any}
+          existingQuotation={studioQuotation as any}
           products={products}
+          setProducts={setProducts}
+          triggerToast={triggerToast}
+          onQuotationCreated={(savedDoc) => {
+            setStudioQuotation(savedDoc as any);
+            triggerToast?.(`${savedDoc.formatted_quote_ref} saved.`, 'success');
+          }}
           onSaved={(savedDoc) => {
-            setStudioQuotation(savedDoc);
+            setStudioQuotation(savedDoc as any);
             triggerToast?.(`${savedDoc.formatted_quote_ref} saved.`, 'success');
           }}
           onStockUpdated={async () => {}}
         />
       )}
+      </PageBody>
     </div>
   );
 }

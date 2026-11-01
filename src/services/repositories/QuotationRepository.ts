@@ -126,29 +126,85 @@ export class QuotationRepository {
     if (!data) return { id } as Quotation;
     const wsId = data.workspace_id || data.workspaceId || 'ws_default';
     const parentId = data.parent_quotation_id || data.parent_quote_id;
+    const docType = data.document_type || 'quotation';
+
+    const rawSubtotal = Number(data.subtotal ?? data.financial_totals?.subtotal ?? 0) || 0;
+    const rawFreight = Number(data.freight_amount ?? data.financial_totals?.freight_amount ?? 0) || 0;
+    const rawTaxRate = Number(data.tax_rate_percent ?? data.financial_totals?.tax_rate ?? 0) || 0;
+    const rawTaxAmount = Number(data.tax_amount ?? data.financial_totals?.tax_amount ?? 0) || 0;
+
+    // Resolve PV total from allocated_bills or amount_paid if grand_total is 0
+    const pvAllocSum = Array.isArray(data.payment_voucher_metadata?.allocated_bills)
+      ? data.payment_voucher_metadata.allocated_bills.reduce(
+          (sum: number, row: any) => sum + (Number(row?.paid_this_voucher) || 0),
+          0
+        )
+      : 0;
+    const pvPaid = Number(data.payment_voucher_metadata?.amount_paid ?? pvAllocSum ?? 0) || 0;
+
+    const rawGrandTotal =
+      Number(
+        data.grand_total ??
+          data.financial_totals?.grand_total ??
+          (docType === 'payment_voucher' ? pvPaid : 0)
+      ) ||
+      (docType === 'payment_voucher' ? pvPaid : 0);
+
+    const formattedRef =
+      data.formatted_quote_ref || data.quote_ref_no || data.quote_number || '';
+    const resolvedSubject = data.subject || data.quotation_subject || '';
+
+    const normalizedPvMeta = data.payment_voucher_metadata
+      ? {
+          ...data.payment_voucher_metadata,
+          amount_paid:
+            Number(data.payment_voucher_metadata.amount_paid) > 0
+              ? Number(data.payment_voucher_metadata.amount_paid)
+              : pvAllocSum > 0
+              ? pvAllocSum
+              : rawGrandTotal
+        }
+      : undefined;
+
     return {
       ...data,
       id: id || data.id,
       workspace_id: wsId,
       workspaceId: wsId,
-      document_type: data.document_type || 'quotation',
+      document_type: docType,
+      formatted_quote_ref: formattedRef,
+      quote_number: data.quote_number || formattedRef,
+      subject: resolvedSubject,
+      quotation_subject: data.quotation_subject || resolvedSubject,
       delivery_metadata: data.delivery_metadata ? { ...data.delivery_metadata } : undefined,
       purchase_order_metadata: data.purchase_order_metadata ? { ...data.purchase_order_metadata } : undefined,
       receipt_metadata: data.receipt_metadata ? { ...data.receipt_metadata } : undefined,
-      payment_voucher_metadata: data.payment_voucher_metadata ? { ...data.payment_voucher_metadata } : undefined,
+      payment_voucher_metadata: normalizedPvMeta,
       vendor_return_metadata: data.vendor_return_metadata ? { ...data.vendor_return_metadata } : undefined,
-      revision_number: typeof data.revision_number === 'number' ? data.revision_number : 0,
+      revision_number:
+        typeof data.revision_number === 'number'
+          ? data.revision_number
+          : typeof data.revision_no === 'number'
+          ? data.revision_no
+          : 0,
       status: data.status || 'Draft',
       parent_quotation_id: parentId,
       parent_quote_id: parentId,
       superseded_by_id: data.superseded_by_id,
       line_items: Array.isArray(data.line_items) ? data.line_items : [],
       tax_mode: data.tax_mode || 'taxes_extra',
-      subtotal: Number(data.subtotal) || 0,
-      freight_amount: Number(data.freight_amount) || 0,
-      tax_rate_percent: Number(data.tax_rate_percent) || 0,
-      tax_amount: Number(data.tax_amount) || 0,
-      grand_total: Number(data.grand_total) || 0,
+      subtotal: rawSubtotal,
+      freight_amount: rawFreight,
+      tax_rate_percent: rawTaxRate,
+      tax_amount: rawTaxAmount,
+      grand_total: rawGrandTotal,
+      financial_totals: {
+        subtotal: rawSubtotal,
+        total_discount: Number(data.financial_totals?.total_discount ?? 0) || 0,
+        taxable_amount: Number(data.financial_totals?.taxable_amount ?? rawSubtotal) || 0,
+        tax_amount: rawTaxAmount,
+        grand_total: rawGrandTotal
+      },
       is_deleted: Boolean(data.is_deleted),
       deleted_at: data.deleted_at || null,
       deleted_by_id: data.deleted_by_id || null,
@@ -158,8 +214,9 @@ export class QuotationRepository {
   }
 
   /**
-   * Generates a deterministic linked reference number for DO, PO, or REC documents
-   * derived from a base quotation or enquiry reference (e.g., QT-2026-0042-R1 -> DO-2026-0042-01).
+   * Generates a deterministic linked reference number for DO, PO, REC, PV, MRN, or DN documents
+   * derived from a base quotation, PO, or enquiry reference (e.g., QT-2026-0042-R1 -> DO-2026-0042-01),
+   * stripping all existing document prefixes so chained prefixes (e.g., PO-PV-0002-01) never occur.
    */
   public static generateLinkedDocumentRef(
     baseRef: string | undefined | null,
@@ -181,7 +238,8 @@ export class QuotationRepository {
     const rawClean = String(baseRef || '')
       .trim()
       .replace(/-R\d+$/i, '')
-      .replace(/^(QT|DO|PO|REC|LPO|PI|INV)[-_/\s]*/i, '');
+      .replace(/^(?:(?:QT|DO|PO|REC|PV|MRN|DN|LPO|PI|INV|STK)[-_/\s]*)+/i, '')
+      .replace(/-\d{2}$/, '');
     const coreBase = rawClean || String(Date.now()).slice(-4);
     const sameTypeCount = (existingDocs || []).filter(
       (d) => !d.is_deleted && (d.document_type || 'quotation') === targetType
@@ -1139,8 +1197,13 @@ export class QuotationRepository {
     return {
       activeQuotationId: quotation?.id || '',
       parentQuotationId: quotation?.parent_quotation_id || quotation?.parent_quote_id,
-      revisionNumber: quotation?.revision_number ?? 1,
-      formattedQuoteRefOverride: quotation?.formatted_quote_ref || '',
+      revisionNumber:
+        quotation?.revision_number ?? (quotation as any)?.revision_no ?? 1,
+      formattedQuoteRefOverride:
+        quotation?.formatted_quote_ref ||
+        (quotation as any)?.quote_ref_no ||
+        quotation?.quote_number ||
+        '',
       quotationStatus: (quotation?.status || 'Draft') as Quotation['status'],
       visibleColumns,
       layoutBlocks,
@@ -1554,12 +1617,55 @@ export class QuotationRepository {
   public static async saveQuotation(quotation: Quotation): Promise<Quotation> {
     const wsId = quotation.workspace_id || quotation.workspaceId || 'ws_default';
     const now = new Date().toISOString();
+    const docType = quotation.document_type || 'quotation';
+
+    const pvAllocSum = Array.isArray(quotation.payment_voucher_metadata?.allocated_bills)
+      ? quotation.payment_voucher_metadata!.allocated_bills!.reduce(
+          (sum, row) => sum + (Number(row?.paid_this_voucher) || 0),
+          0
+        )
+      : 0;
+    const resolvedGrandTotal =
+      docType === 'payment_voucher'
+        ? Number(quotation.payment_voucher_metadata?.amount_paid) > 0
+          ? Number(quotation.payment_voucher_metadata?.amount_paid)
+          : pvAllocSum > 0
+          ? pvAllocSum
+          : Number(quotation.grand_total ?? (quotation as any).financial_totals?.grand_total ?? 0)
+        : Number(quotation.grand_total ?? (quotation as any).financial_totals?.grand_total ?? 0);
+
+    const resolvedSubtotal = Number(quotation.subtotal ?? (quotation as any).financial_totals?.subtotal ?? resolvedGrandTotal) || 0;
+    const resolvedTax = Number(quotation.tax_amount ?? (quotation as any).financial_totals?.tax_amount ?? 0) || 0;
+    const resolvedSubject = quotation.subject || (quotation as any).quotation_subject || '';
+
     const toSave: Quotation = this.sanitizePayloadForFirestoreLimit({
       ...quotation,
       workspace_id: wsId,
       workspaceId: wsId,
-      updatedAt: now
-    });
+      subject: resolvedSubject,
+      quotation_subject: resolvedSubject,
+      quotation_date: (quotation as any).quotation_date || (quotation.created_at || now).slice(0, 10),
+      subtotal: resolvedSubtotal,
+      tax_amount: resolvedTax,
+      grand_total: resolvedGrandTotal,
+      financial_totals: {
+        subtotal: resolvedSubtotal,
+        total_discount: Number((quotation as any).financial_totals?.total_discount ?? 0) || 0,
+        taxable_amount: resolvedSubtotal,
+        tax_amount: resolvedTax,
+        grand_total: resolvedGrandTotal
+      },
+      ...(docType === 'payment_voucher' && quotation.payment_voucher_metadata
+        ? {
+            payment_voucher_metadata: {
+              ...quotation.payment_voucher_metadata,
+              amount_paid: resolvedGrandTotal
+            }
+          }
+        : {}),
+      updatedAt: now,
+      updated_at: now
+    } as any);
 
     try {
       await safeSetDoc('quotations', toSave.id!, toSave);

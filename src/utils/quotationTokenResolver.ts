@@ -8,6 +8,54 @@ import {
 } from '../types';
 import { amountToWords } from './numberToWords';
 
+/**
+ * Detects whether a reference string is a raw internal database or synthetic standalone ID
+ * (e.g., "standalone_qdoc_po_1793524721119", "qdoc_pv_...", "quote_...", "enq_...", or UUID)
+ * that must never be printed on official A4 customer/vendor documents.
+ */
+export function isSyntheticInternalId(val?: string | null): boolean {
+  if (!val || typeof val !== 'string') return false;
+  const trimmed = val.trim();
+  if (!trimmed) return false;
+  return /^(standalone_|qdoc_|quote_|enq_|poli_|retli_|bline_|bill_|comp_|prod_|[0-9a-f]{8}-[0-9a-f]{4}-)/i.test(
+    trimmed
+  );
+}
+
+/**
+ * Formats an enquiry or settlement reference for display on official A4 documents,
+ * replacing synthetic internal IDs with clean business labels.
+ */
+export function formatCleanDocumentEnquiryRef(
+  rawRef?: string | null,
+  docType?: string | null,
+  fallbackCleanRef?: string | null
+): string {
+  const candidate = (rawRef || '').trim();
+  if (candidate && !isSyntheticInternalId(candidate)) {
+    return candidate;
+  }
+  const fallback = (fallbackCleanRef || '').trim();
+  if (fallback && !isSyntheticInternalId(fallback)) {
+    return fallback;
+  }
+  switch (docType) {
+    case 'purchase_order':
+      return 'Stock Replenishment';
+    case 'payment_voucher':
+      return 'Direct Vendor Settlement';
+    case 'receipt':
+      return 'Direct Account Settlement';
+    case 'material_return_note':
+    case 'debit_note':
+      return 'Vendor Return';
+    case 'delivery_note':
+      return 'Direct Dispatch';
+    default:
+      return 'Direct Commercial Offer';
+  }
+}
+
 export type QuotationAtTagCategory =
   | 'Dates'
   | 'Client & Project'
@@ -739,11 +787,20 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
     (!frozen ? enq.customer_reference_code || '' : '') ||
     '';
 
-  const enquiryRef =
+  const rawEnquiryRef =
     (clientSnap as any)?.enquiry_ref ||
-    (!frozen ? enq.quote_ref_no || enq.customer_reference_code || enq.id || '' : '') ||
+    (!frozen ? enq.quote_ref_no || enq.customer_reference_code || (enq.sn ? `ENQ-${String(enq.sn).padStart(4, '0')}` : '') || enq.id || '' : '') ||
     q.quote_number ||
     '';
+  const enquiryRef = formatCleanDocumentEnquiryRef(
+    rawEnquiryRef,
+    q.document_type,
+    q.purchase_order_metadata?.requisition_ref ||
+      q.payment_voucher_metadata?.vendor_invoice_no ||
+      q.vendor_return_metadata?.original_po_ref ||
+      q.receipt_metadata?.settlement_for_ref ||
+      q.formatted_quote_ref
+  );
 
   // Our Company & Quote
   const quoteRef = q.formatted_quote_ref || q.quote_number || '';

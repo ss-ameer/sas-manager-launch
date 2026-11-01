@@ -46,7 +46,9 @@ import {
   resolveQuotationTokens,
   renderResolvedQuotationText,
   shouldHideCustomRow,
-  isFieldOmitted
+  isFieldOmitted,
+  formatCleanDocumentEnquiryRef,
+  isSyntheticInternalId
 } from '../../utils/quotationTokenResolver';
 export { amountToWords, amountToWordsAED, amountInWordsAED, formatAmountInWords };
 import {
@@ -2685,7 +2687,21 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   }, [rawBank, profile, senderEntityName, currency]);
 
   const bankAccount: DocumentProfileBankAccount | undefined = rawBank;
-  const enquiryRef = quotation.enquiry_id || enquiry?.enquiry_number || enquiry?.reference || enquiry?.id;
+  const rawEnquiryRefCandidate =
+    (enquiry?.sn ? `ENQ-${String(enquiry.sn).padStart(4, '0')}` : '') ||
+    (enquiry as any)?.quote_ref_no ||
+    enquiry?.enquiry_number ||
+    enquiry?.reference ||
+    (!isSyntheticInternalId(quotation.enquiry_id) ? quotation.enquiry_id : '') ||
+    (!isSyntheticInternalId(enquiry?.id) ? enquiry?.id : '');
+  const enquiryRef = formatCleanDocumentEnquiryRef(
+    rawEnquiryRefCandidate,
+    quotation.document_type,
+    poMeta?.requisition_ref ||
+      pvMeta?.vendor_invoice_no ||
+      returnMeta?.original_po_ref ||
+      receiptMeta?.settlement_for_ref
+  );
   const resolvedSalesRep =
     salesRepName ||
     quotation.prepared_by ||
@@ -6489,6 +6505,35 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       </div>
     );
 
+    const interactiveRecipientClass = isInteractive
+      ? `cursor-pointer group relative transition-all ${
+          isRecipientSelected
+            ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0'
+            : 'hover:ring-1 hover:ring-blue-400 print:ring-0 !print:ring-0'
+        }`
+      : '';
+    const interactiveMetaClass = isInteractive
+      ? `cursor-pointer group relative transition-all ${
+          isQuoteMetaSelected
+            ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0'
+            : 'hover:ring-1 hover:ring-blue-400 print:ring-0 !print:ring-0'
+        }`
+      : '';
+    const handleClickRecipientCard = isInteractive
+      ? (e: React.MouseEvent) => {
+          e.stopPropagation();
+          onSelectSection?.('recipient_info');
+          onSelectBlock?.('recipient_info' as any);
+        }
+      : undefined;
+    const handleClickMetaCard = isInteractive
+      ? (e: React.MouseEvent) => {
+          e.stopPropagation();
+          onSelectSection?.('quote_meta');
+          onSelectBlock?.('quote_meta' as any);
+        }
+      : undefined;
+
     const renderDeliveryNoteTopCards = () => {
       const doRef =
         deliveryMeta?.delivery_ref || quotation.formatted_quote_ref || quotation.quote_number;
@@ -6510,7 +6555,17 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
           style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
         >
-          <div className={`${recipientCardBase} flex flex-col justify-between`}>
+          <div
+            className={`${recipientCardBase} ${interactiveRecipientClass} flex flex-col justify-between`}
+            onClick={handleClickRecipientCard}
+          >
+            {isInteractive && (
+              <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+                isRecipientSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+              }`}>
+                Click to Edit Consignee
+              </div>
+            )}
             <div>
               <div
                 className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
@@ -6543,7 +6598,17 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             </div>
           </div>
 
-          <div className={`${offerCardBase} flex flex-col justify-between`}>
+          <div
+            className={`${offerCardBase} ${interactiveMetaClass} flex flex-col justify-between`}
+            onClick={handleClickMetaCard}
+          >
+            {isInteractive && (
+              <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+                isQuoteMetaSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+              }`}>
+                Click to Edit Dispatch Details
+              </div>
+            )}
             <div>
               <div className="pb-1 border-b border-slate-200/60 flex items-center justify-between gap-2">
                 <span
@@ -6608,7 +6673,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         : poMeta?.supplier_address || clientAddress;
       const vendorTrn = isOrderAck
         ? clientTrn
-        : poMeta?.supplier_tax_id || clientTrn;
+        : poMeta?.supplier_trn || poMeta?.supplier_tax_id || clientTrn;
       const vendorContactLine = [
         isOrderAck ? clientPhone : poMeta?.supplier_phone || clientPhone,
         isOrderAck ? clientEmail : poMeta?.supplier_email || clientEmail
@@ -6623,13 +6688,28 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           : 'Warehouse / Receiving Office';
       const shipAddress =
         poMeta?.shipping_address || senderAddress || 'As per shipping instructions';
+      const cleanReqRef = formatCleanDocumentEnquiryRef(
+        poMeta?.requisition_ref || enquiryRef,
+        'purchase_order',
+        'Stock Replenishment'
+      );
 
       return (
         <div
           className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
           style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
         >
-          <div className={`${recipientCardBase} flex flex-col justify-between`}>
+          <div
+            className={`${recipientCardBase} ${interactiveRecipientClass} flex flex-col justify-between`}
+            onClick={handleClickRecipientCard}
+          >
+            {isInteractive && (
+              <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+                isRecipientSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+              }`}>
+                Click to Edit Vendor &amp; Shipping
+              </div>
+            )}
             <div>
               <div
                 className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
@@ -6695,7 +6775,17 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             </div>
           </div>
 
-          <div className={`${offerCardBase} flex flex-col justify-between`}>
+          <div
+            className={`${offerCardBase} ${interactiveMetaClass} flex flex-col justify-between`}
+            onClick={handleClickMetaCard}
+          >
+            {isInteractive && (
+              <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+                isQuoteMetaSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+              }`}>
+                Click to Edit PO Terms &amp; Dates
+              </div>
+            )}
             <div>
               <div className="pb-1 border-b border-slate-200/60 flex items-center justify-between gap-2">
                 <span
@@ -6722,7 +6812,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               <div>
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Requisition / Ref</span>
                 <span className="font-mono font-semibold text-slate-800 truncate block">
-                  {poMeta?.requisition_ref || enquiryRef || '—'}
+                  {cleanReqRef}
                 </span>
               </div>
               <div>
@@ -6762,8 +6852,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         receiptMeta?.receipt_ref || quotation.formatted_quote_ref || quotation.quote_number;
       const recDate = formatDate(receiptMeta?.receipt_date || quotation.created_at);
       const payerName = receiptMeta?.received_from || clientEntityName;
-      const settlementFor =
-        receiptMeta?.settlement_for_ref || enquiryRef || quotation.quote_number || 'Commercial Account';
+      const settlementFor = formatCleanDocumentEnquiryRef(
+        receiptMeta?.settlement_for_ref || enquiryRef,
+        'receipt',
+        quotation.quote_number || 'Direct Account Settlement'
+      );
       const payMethod = receiptMeta?.payment_method || 'Bank Transfer';
       const txnRef = receiptMeta?.transaction_ref || receiptMeta?.cheque_no || '—';
 
@@ -6772,7 +6865,17 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
           style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
         >
-          <div className={`${recipientCardBase} flex flex-col justify-between`}>
+          <div
+            className={`${recipientCardBase} ${interactiveRecipientClass} flex flex-col justify-between`}
+            onClick={handleClickRecipientCard}
+          >
+            {isInteractive && (
+              <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+                isRecipientSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+              }`}>
+                Click to Edit Payer
+              </div>
+            )}
             <div>
               <div
                 className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
@@ -6800,7 +6903,17 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             )}
           </div>
 
-          <div className={`${offerCardBase} flex flex-col justify-between`}>
+          <div
+            className={`${offerCardBase} ${interactiveMetaClass} flex flex-col justify-between`}
+            onClick={handleClickMetaCard}
+          >
+            {isInteractive && (
+              <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+                isQuoteMetaSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+              }`}>
+                Click to Edit Receipt Details
+              </div>
+            )}
             <div>
               <div className="pb-1 border-b border-slate-200/60 flex items-center justify-between gap-2">
                 <span
@@ -6843,27 +6956,50 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     };
 
     const renderPaymentVoucherTopCards = () => {
-      const pvRef = pvMeta?.pv_ref || quotation.formatted_quote_ref || quotation.quote_number;
-      const pvDate = formatDate(pvMeta?.pv_date || quotation.created_at);
-      const payeeName = pvMeta?.paid_to_vendor_name || poMeta?.supplier_name || clientEntityName;
-      const payeeAttn = pvMeta?.vendor_contact || poMeta?.supplier_contact || clientContactPerson;
-      const payeeAddress = pvMeta?.vendor_address || poMeta?.supplier_address || clientAddress;
-      const payeeTrn = pvMeta?.vendor_trn || poMeta?.supplier_trn || clientTrn;
+      const pvRef =
+        pvMeta?.voucher_ref || pvMeta?.pv_ref || quotation.formatted_quote_ref || quotation.quote_number;
+      const pvDate = formatDate(pvMeta?.voucher_date || pvMeta?.pv_date || quotation.created_at);
+      const payeeName =
+        pvMeta?.payee_name || pvMeta?.paid_to_vendor_name || poMeta?.supplier_name || clientEntityName;
+      const payeeAttn =
+        pvMeta?.payee_contact || pvMeta?.vendor_contact || poMeta?.supplier_contact || clientContactPerson;
+      const payeeAddress =
+        pvMeta?.payee_address || pvMeta?.vendor_address || poMeta?.supplier_address || clientAddress;
+      const payeeTrn =
+        pvMeta?.payee_trn || pvMeta?.vendor_trn || poMeta?.supplier_trn || clientTrn;
       const payMethod = pvMeta?.payment_method || 'Bank Transfer / TT';
-      const txnRef = pvMeta?.bank_txn_ref || pvMeta?.cheque_no || '—';
-      const linkedRef =
+      const txnRef = pvMeta?.utr_or_cheque_no || pvMeta?.bank_txn_ref || pvMeta?.cheque_no || '—';
+      const allocList = pvMeta?.allocated_bills || pvMeta?.allocations || [];
+      const rawLinkedRef =
         pvMeta?.vendor_invoice_no ||
         pvMeta?.linked_po_ref ||
-        (Array.isArray(pvMeta?.allocations) && pvMeta!.allocations!.length > 0
-          ? `${pvMeta!.allocations!.length} Vendor Bill(s)`
-          : enquiryRef || 'Vendor Account');
+        (Array.isArray(allocList) && allocList.length > 0
+          ? allocList.length === 1
+            ? allocList[0].vendor_invoice_no || allocList[0].bill_ref || allocList[0].bill_number
+            : `${allocList.length} Vendor Bills`
+          : enquiryRef);
+      const linkedRef = formatCleanDocumentEnquiryRef(
+        rawLinkedRef,
+        'payment_voucher',
+        'Direct Vendor Settlement'
+      );
 
       return (
         <div
           className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
           style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
         >
-          <div className={`${recipientCardBase} flex flex-col justify-between`}>
+          <div
+            className={`${recipientCardBase} ${interactiveRecipientClass} flex flex-col justify-between`}
+            onClick={handleClickRecipientCard}
+          >
+            {isInteractive && (
+              <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+                isRecipientSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+              }`}>
+                Click to Edit Payee / Vendor
+              </div>
+            )}
             <div>
               <div
                 className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
@@ -6891,7 +7027,17 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             )}
           </div>
 
-          <div className={`${offerCardBase} flex flex-col justify-between`}>
+          <div
+            className={`${offerCardBase} ${interactiveMetaClass} flex flex-col justify-between`}
+            onClick={handleClickMetaCard}
+          >
+            {isInteractive && (
+              <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+                isQuoteMetaSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+              }`}>
+                Click to Edit Voucher &amp; Allocations
+              </div>
+            )}
             <div>
               <div className="pb-1 border-b border-slate-200/60 flex items-center justify-between gap-2">
                 <span
@@ -6937,11 +7083,19 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       const isDn = isDebitNote || returnMeta?.return_mode === 'debit_note';
       const retRef = returnMeta?.return_ref || quotation.formatted_quote_ref || quotation.quote_number;
       const retDate = formatDate(returnMeta?.return_date || quotation.created_at);
-      const vendorName = returnMeta?.vendor_name || poMeta?.supplier_name || clientEntityName;
-      const vendorAttn = returnMeta?.vendor_contact || poMeta?.supplier_contact || clientContactPerson;
-      const vendorAddress = returnMeta?.vendor_address || poMeta?.supplier_address || clientAddress;
-      const vendorTrn = returnMeta?.vendor_trn || poMeta?.supplier_trn || clientTrn;
-      const origPo = returnMeta?.original_po_ref || poMeta?.po_ref || '—';
+      const vendorName =
+        returnMeta?.supplier_name || returnMeta?.vendor_name || poMeta?.supplier_name || clientEntityName;
+      const vendorAttn =
+        returnMeta?.supplier_contact || returnMeta?.vendor_contact || poMeta?.supplier_contact || clientContactPerson;
+      const vendorAddress =
+        returnMeta?.supplier_address || returnMeta?.vendor_address || poMeta?.supplier_address || clientAddress;
+      const vendorTrn =
+        returnMeta?.supplier_trn || returnMeta?.vendor_trn || poMeta?.supplier_trn || clientTrn;
+      const origPo = formatCleanDocumentEnquiryRef(
+        returnMeta?.original_po_ref || poMeta?.po_ref,
+        quotation.document_type,
+        '—'
+      );
       const origGrnOrInv = returnMeta?.vendor_invoice_no || returnMeta?.original_grn_ref || '—';
       const reason = returnMeta?.return_reason || 'Defective / Non-Conforming';
       const resolution = returnMeta?.resolution_type || (isDn ? 'Credit Note / Bill Deduction' : 'Replacement Dispatch');
@@ -6951,7 +7105,17 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
           style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
         >
-          <div className={`${recipientCardBase} flex flex-col justify-between`}>
+          <div
+            className={`${recipientCardBase} ${interactiveRecipientClass} flex flex-col justify-between`}
+            onClick={handleClickRecipientCard}
+          >
+            {isInteractive && (
+              <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+                isRecipientSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+              }`}>
+                Click to Edit Vendor &amp; Reason
+              </div>
+            )}
             <div>
               <div
                 className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
@@ -6979,7 +7143,17 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             </div>
           </div>
 
-          <div className={`${offerCardBase} flex flex-col justify-between`}>
+          <div
+            className={`${offerCardBase} ${interactiveMetaClass} flex flex-col justify-between`}
+            onClick={handleClickMetaCard}
+          >
+            {isInteractive && (
+              <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+                isQuoteMetaSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+              }`}>
+                Click to Edit Return / Debit Details
+              </div>
+            )}
             <div>
               <div className="pb-1 border-b border-slate-200/60 flex items-center justify-between gap-2">
                 <span
@@ -8479,8 +8653,19 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
     return (
       <section
-        className="w-full mb-3 print:mb-2 grid grid-cols-2 gap-3 break-inside-avoid page-break-inside-avoid"
+        className={`w-full mb-3 print:mb-2 grid grid-cols-2 gap-3 break-inside-avoid page-break-inside-avoid ${
+          isInteractive ? 'cursor-pointer hover:ring-1 hover:ring-blue-400 rounded-lg transition-all' : ''
+        }`}
         style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+        onClick={
+          isInteractive
+            ? (e) => {
+                e.stopPropagation();
+                onSelectSection?.('quote_meta');
+                onSelectBlock?.('quote_meta' as any);
+              }
+            : undefined
+        }
       >
         {/* Left: Dispatched By (Our Company) */}
         <div className={`p-3 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
@@ -8651,8 +8836,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         : Math.max(0, totalOrderVal - prevReceived - amtReceived);
     const payMethod = receiptMeta?.payment_method || 'Bank Wire Transfer';
     const txnRef = receiptMeta?.bank_txn_ref || receiptMeta?.transaction_ref || '—';
-    const settlementFor =
-      receiptMeta?.settlement_for_ref || enquiryRef || quotation.quote_number || 'Commercial Account';
+    const settlementFor = formatCleanDocumentEnquiryRef(
+      receiptMeta?.settlement_for_ref || enquiryRef,
+      'receipt',
+      quotation.quote_number || 'Direct Account Settlement'
+    );
     const projectTitle =
       receiptMeta?.project_title || receiptMeta?.payment_for || quotation.subject || enquiry?.subject || 'Commercial Supply & Services';
     const depositAcct =
@@ -8663,7 +8851,20 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         : 'Corporate Treasury Account');
 
     return (
-      <section className="w-full mb-3 print:mb-2 space-y-3 break-inside-avoid page-break-inside-avoid">
+      <section
+        className={`w-full mb-3 print:mb-2 space-y-3 break-inside-avoid page-break-inside-avoid ${
+          isInteractive ? 'cursor-pointer hover:ring-1 hover:ring-blue-400 rounded-lg transition-all' : ''
+        }`}
+        onClick={
+          isInteractive
+            ? (e) => {
+                e.stopPropagation();
+                onSelectSection?.('quote_meta');
+                onSelectBlock?.('quote_meta' as any);
+              }
+            : undefined
+        }
+      >
         {/* Highlighted Amount Received Banner */}
         <div
           className={`p-3.5 border-2 ${radiusClass} flex flex-col gap-1.5`}
@@ -8806,7 +9007,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         ? 'rounded-none'
         : 'rounded-lg';
 
-    const allocations = Array.isArray(pvMeta?.allocations) ? pvMeta!.allocations! : [];
+    const rawAllocs = pvMeta?.allocated_bills || pvMeta?.allocations || [];
+    const allocations = Array.isArray(rawAllocs) ? rawAllocs : [];
     const amtPaid = Number(
       pvMeta?.amount_paid ??
         (allocations.length > 0
@@ -8835,8 +9037,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         : Math.max(0, totalPayable - creditsApplied - prevPaid - amtPaid);
 
     const payMethod = pvMeta?.payment_method || 'Bank Transfer / TT';
-    const txnRef = pvMeta?.bank_txn_ref || pvMeta?.cheque_no || '—';
+    const txnRef = pvMeta?.utr_or_cheque_no || pvMeta?.bank_txn_ref || pvMeta?.cheque_no || '—';
     const narration =
+      pvMeta?.payment_narration ||
       pvMeta?.being_payment_for ||
       quotation.subject ||
       (pvMeta?.vendor_invoice_no
@@ -8844,6 +9047,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         : 'Outbound Supplier Account Settlement');
 
     const disbursingBankLabel =
+      pvMeta?.disbursing_bank_name ||
       pvMeta?.disbursing_bank_label ||
       (resolvedBank
         ? `${resolvedBank.bankName} — ${resolvedBank.iban || resolvedBank.accountNumber || resolvedBank.currency}`
@@ -8851,15 +9055,28 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
     const benBank = pvMeta?.beneficiary_bank_details || poMeta?.beneficiary_bank_details || {};
     const preparedByName =
-      pvMeta?.prepared_by_name || resolvedSalesRep || resolvedSignatories[0]?.name || 'Accounts Officer';
-    const reviewedByName = pvMeta?.reviewed_by_name || 'Finance / Accounts Reviewer';
+      pvMeta?.prepared_by || pvMeta?.prepared_by_name || resolvedSalesRep || resolvedSignatories[0]?.name || 'Accounts Officer';
+    const reviewedByName = pvMeta?.verified_by || pvMeta?.reviewed_by_name || 'Finance / Accounts Reviewer';
     const approvedByName =
-      pvMeta?.approved_by_name || resolvedSignatories[0]?.name || 'Authorized Approver';
+      pvMeta?.approved_by || pvMeta?.approved_by_name || resolvedSignatories[0]?.name || 'Authorized Approver';
     const receiverName =
-      pvMeta?.received_by_vendor_name || pvMeta?.paid_to_vendor_name || clientEntityName;
+      pvMeta?.received_by_payee || pvMeta?.received_by_vendor_name || pvMeta?.payee_name || pvMeta?.paid_to_vendor_name || clientEntityName;
 
     return (
-      <section className="w-full mb-3 print:mb-2 space-y-3 break-inside-avoid page-break-inside-avoid">
+      <section
+        className={`w-full mb-3 print:mb-2 space-y-3 break-inside-avoid page-break-inside-avoid ${
+          isInteractive ? 'cursor-pointer hover:ring-1 hover:ring-blue-400 rounded-lg transition-all' : ''
+        }`}
+        onClick={
+          isInteractive
+            ? (e) => {
+                e.stopPropagation();
+                onSelectSection?.('quote_meta');
+                onSelectBlock?.('quote_meta' as any);
+              }
+            : undefined
+        }
+      >
         {/* Highlighted Amount Paid Banner */}
         <div
           className={`p-3.5 border-2 ${radiusClass} flex flex-col gap-1.5`}
@@ -8906,7 +9123,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
             <span className={`${typoScale.micro} font-mono`}>
               {pvMeta?.settlement_type === 'advance_payment'
                 ? 'VENDOR ADVANCE PAYMENT'
-                : pvMeta?.settlement_type === 'multi_bill'
+                : pvMeta?.settlement_type === 'multi_bill' || allocations.length > 1
                 ? `MULTI-BILL ALLOCATION (${allocations.length})`
                 : 'BILL / PO SETTLEMENT'}
             </span>
@@ -8928,7 +9145,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 allocations.map((row, rIdx) => (
                   <tr key={row.bill_id || rIdx} className="hover:bg-slate-50/50">
                     <td className="py-1.5 px-2.5 font-mono font-semibold text-slate-800">
-                      {row.bill_number || row.po_ref || '—'}
+                      {row.bill_ref || row.bill_number || row.po_ref || '—'}
                     </td>
                     <td className="py-1.5 px-2 font-mono text-slate-700">
                       {row.vendor_invoice_no || '—'}
@@ -9050,7 +9267,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 <div className="flex justify-between gap-2">
                   <span className="font-semibold text-slate-500">Beneficiary Name:</span>
                   <span className="font-bold text-slate-900 text-right">
-                    {benBank.beneficiary_name || pvMeta?.paid_to_vendor_name || clientEntityName}
+                    {benBank.beneficiary_name || pvMeta?.payee_name || pvMeta?.paid_to_vendor_name || clientEntityName}
                   </span>
                 </div>
                 <div className="flex justify-between gap-2">
@@ -9122,13 +9339,26 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         : 'rounded-lg';
 
     const returnedBy =
-      returnMeta?.returned_by_name || resolvedSalesRep || resolvedSignatories[0]?.name || 'Warehouse / QA Officer';
-    const vendorAck = returnMeta?.accepted_by_vendor_name || '';
+      returnMeta?.dispatched_by || returnMeta?.returned_by_name || resolvedSalesRep || resolvedSignatories[0]?.name || 'Warehouse / QA Officer';
+    const vendorAck = returnMeta?.received_by_vendor || returnMeta?.accepted_by_vendor_name || '';
+    const vendorEntity =
+      returnMeta?.supplier_name || returnMeta?.vendor_name || clientEntityName;
 
     return (
       <section
-        className="w-full mb-3 print:mb-2 grid grid-cols-2 gap-3 break-inside-avoid page-break-inside-avoid"
+        className={`w-full mb-3 print:mb-2 grid grid-cols-2 gap-3 break-inside-avoid page-break-inside-avoid ${
+          isInteractive ? 'cursor-pointer hover:ring-1 hover:ring-blue-400 rounded-lg transition-all' : ''
+        }`}
         style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+        onClick={
+          isInteractive
+            ? (e) => {
+                e.stopPropagation();
+                onSelectSection?.('quote_meta');
+                onSelectBlock?.('quote_meta' as any);
+              }
+            : undefined
+        }
       >
         <div className={`p-3 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
           <div>
@@ -9158,7 +9388,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               <div>
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Carrier / Vehicle</span>
                 <span className="font-mono font-semibold text-slate-900">
-                  {returnMeta?.vehicle_or_courier || '__________________'}
+                  {returnMeta?.carrier_or_vehicle || returnMeta?.vehicle_or_courier || '__________________'}
                 </span>
               </div>
             </div>
@@ -9179,7 +9409,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
               style={{ color: themePalette.textAccent }}
             >
-              Vendor Return / Debit Acknowledgment — {returnMeta?.vendor_name || clientEntityName}
+              Vendor Return / Debit Acknowledgment — {vendorEntity}
             </div>
             <p className={`${typoScale.sub} text-slate-700 italic leading-snug mb-2`}>
               {isDn
@@ -9195,7 +9425,9 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
               </div>
               <div>
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vendor Credit Note #</span>
-                <span className="font-mono text-slate-800">______________________</span>
+                <span className="font-mono text-slate-800">
+                  {returnMeta?.vendor_credit_note_no || '______________________'}
+                </span>
               </div>
             </div>
           </div>
