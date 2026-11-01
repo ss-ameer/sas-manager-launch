@@ -23,6 +23,7 @@ import {
 import { isAdmin, isSuperAdmin } from '../utils/permissions';
 import { PageHeader, PageBody, KpiStatCard } from './layout/UiContainer';
 import HoverScrollText from './common/HoverScrollText';
+import { FieldLabel, FieldHelpHint } from './common/FieldHelpHint';
 import { QuotationStudioModal } from './quotations/QuotationStudioModal';
 import {
   ShoppingBag,
@@ -2281,11 +2282,12 @@ export default function ProcurementPayablesHub({
             </div>
 
             <div className="p-5 overflow-y-auto space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Select Vendor from Directory
-                  </label>
+                  <FieldLabel
+                    label="Select Vendor from Directory"
+                    hint="Pick a registered Vendor from your Companies Directory to auto-fill their legal name, TRN, currency, and payment terms, or type a custom supplier name on the right."
+                  />
                   <select
                     value={newPoVendorId}
                     onChange={(e) => {
@@ -2294,7 +2296,7 @@ export default function ProcurementPayablesHub({
                       const v = companies.find((c) => c.id === id);
                       if (v) setNewPoSupplierName(getCompanyName(v));
                     }}
-                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs text-slate-800 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                   >
                     <option value="">-- Select Registered Vendor (or type name) --</option>
                     {vendors.map((v) => {
@@ -2308,21 +2310,25 @@ export default function ProcurementPayablesHub({
                   </select>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Supplier / Vendor Legal Name *
-                  </label>
+                  <FieldLabel
+                    label="Supplier / Vendor Legal Name"
+                    required
+                    hint="Official legal entity name of the supplier that will appear on the Purchase Order and Accounts Payable ledger."
+                    hintAlign="right"
+                  />
                   <input
                     type="text"
                     value={newPoSupplierName}
                     onChange={(e) => setNewPoSupplierName(e.target.value)}
                     placeholder="Supplier Name"
-                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs text-slate-800 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Link to Enquiry (Optional — Leave blank for Stock Replenishment)
-                  </label>
+                  <FieldLabel
+                    label="Link to Enquiry (Optional)"
+                    hint="Leave blank to issue a standalone Warehouse Stock Replenishment PO, or select an active Client Enquiry to automatically import its line items."
+                  />
                   <select
                     value={newPoEnquiryId}
                     onChange={(e) => {
@@ -2345,7 +2351,7 @@ export default function ProcurementPayablesHub({
                         );
                       }
                     }}
-                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs text-slate-800 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                   >
                     <option value="">Warehouse Stock Replenishment (Standalone PO)</option>
                     {enquiries.map((enq) => (
@@ -2356,21 +2362,29 @@ export default function ProcurementPayablesHub({
                   </select>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Expected Delivery Date
-                  </label>
+                  <FieldLabel
+                    label="Expected Delivery Date"
+                    hint="Target delivery or warehouse arrival date for tracking pending GRN stock receipts."
+                    hintAlign="right"
+                  />
                   <input
                     type="date"
                     value={newPoExpectedDate}
                     onChange={(e) => setNewPoExpectedDate(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 p-2 bg-white font-mono"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white font-mono text-xs text-slate-800 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                   />
                 </div>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2 pt-1">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800">PO Line Items *</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-slate-800">PO Line Items</span>
+                    <span className="text-rose-500 font-bold">*</span>
+                    <FieldHelpHint
+                      hint="Pick a catalog item to auto-fill description and unit cost, or type a custom item description directly. At least one named item is required."
+                    />
+                  </div>
                   <button
                     type="button"
                     onClick={() =>
@@ -2379,7 +2393,7 @@ export default function ProcurementPayablesHub({
                         { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
                       ])
                     }
-                    className="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 font-bold text-[11px] cursor-pointer"
+                    className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[11px] cursor-pointer transition"
                   >
                     + Add Line
                   </button>
@@ -2427,7 +2441,7 @@ export default function ProcurementPayablesHub({
                               )
                             );
                           }}
-                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-[11px]"
+                          className="w-full h-8 rounded-lg border border-slate-300 px-2.5 py-1 bg-white text-[11px] text-slate-800 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                         >
                           <option value="">-- Pick Catalog Item or Type --</option>
                           {products.map((p) => (
@@ -2447,7 +2461,7 @@ export default function ProcurementPayablesHub({
                             )
                           }
                           placeholder="Item Description *"
-                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-[11px]"
+                          className="w-full h-8 rounded-lg border border-slate-300 px-2.5 py-1 bg-white text-[11px] text-slate-800 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                         />
                       </div>
                       <div className="col-span-1">
@@ -2463,7 +2477,7 @@ export default function ProcurementPayablesHub({
                             )
                           }
                           placeholder="1"
-                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white font-mono text-[11px] text-right"
+                          className="w-full h-8 rounded-lg border border-slate-300 px-2 py-1 bg-white font-mono text-[11px] text-slate-800 text-right leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                         />
                       </div>
                       <div className="col-span-2">
@@ -2479,7 +2493,7 @@ export default function ProcurementPayablesHub({
                             )
                           }
                           placeholder="0.00"
-                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white font-mono text-[11px] text-right"
+                          className="w-full h-8 rounded-lg border border-slate-300 px-2.5 py-1 bg-white font-mono text-[11px] text-slate-800 text-right leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                         />
                       </div>
                       <div className="col-span-2 flex items-center justify-end gap-1.5">
@@ -2488,8 +2502,15 @@ export default function ProcurementPayablesHub({
                         </span>
                         <button
                           type="button"
-                          onClick={() => setNewPoLines((prev) => prev.filter((_, i) => i !== idx))}
-                          className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer"
+                          onClick={() =>
+                            setNewPoLines((prev) =>
+                              prev.length <= 1
+                                ? [{ product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }]
+                                : prev.filter((_, i) => i !== idx)
+                            )
+                          }
+                          title={newPoLines.length <= 1 ? 'Clear line item' : 'Remove line item'}
+                          className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer transition"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -2498,7 +2519,7 @@ export default function ProcurementPayablesHub({
                   );
                 })}
 
-                <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-indigo-50/70 border border-indigo-200/80 text-xs">
+                <div className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-indigo-50/70 border border-indigo-200/80 text-xs">
                   <span className="font-bold text-indigo-950">
                     PO Total (Excl. VAT / Taxes Extra):
                   </span>
@@ -2516,7 +2537,7 @@ export default function ProcurementPayablesHub({
               <button
                 type="button"
                 onClick={() => setShowCreatePoModal(false)}
-                className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700"
+                className="px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
               >
                 Cancel
               </button>
@@ -2562,45 +2583,55 @@ export default function ProcurementPayablesHub({
             </div>
 
             <div className="p-5 overflow-y-auto space-y-4 text-xs">
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">GRN Number</label>
+                  <FieldLabel
+                    label="GRN Number"
+                    hint="Auto-generated Goods Received Note reference number for warehouse stock ledger tracking."
+                  />
                   <input
                     type="text"
                     value={grnNumber}
                     onChange={(e) => setGrnNumber(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 p-2 font-mono bg-white"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 font-mono bg-white text-xs leading-normal"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Receipt Date</label>
+                  <FieldLabel
+                    label="Receipt Date"
+                    hint="Actual warehouse receiving date for stock-on-hand valuation."
+                  />
                   <input
                     type="date"
                     value={grnReceivedDate}
                     onChange={(e) => setGrnReceivedDate(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 p-2 font-mono bg-white"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 font-mono bg-white text-xs leading-normal"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Freight / Customs / Duty ({grnTargetPo.currency})
-                  </label>
+                  <FieldLabel
+                    label={`Freight / Duty (${grnTargetPo.currency})`}
+                    hint="Total inbound freight, customs duty, and clearing charges to allocate across received items."
+                  />
                   <input
                     type="number"
                     step="0.01"
-                    value={grnFreightCustoms}
-                    onChange={(e) => setGrnFreightCustoms(Math.max(0, Number(e.target.value) || 0))}
-                    className="w-full rounded-xl border border-slate-300 p-2 font-mono bg-white"
+                    value={grnFreightCustoms === 0 ? '' : grnFreightCustoms}
+                    placeholder="0.00"
+                    onChange={(e) => setGrnFreightCustoms(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 font-mono bg-white text-xs leading-normal"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Landed Cost Distribution
-                  </label>
+                  <FieldLabel
+                    label="Landed Cost Mode"
+                    hint="Choose Proportional by Line Value to automatically distribute Freight/Duty across items, or Manual Per-Line Override."
+                    hintAlign="right"
+                  />
                   <select
                     value={grnAllocationMode}
                     onChange={(e) => setGrnAllocationMode(e.target.value as any)}
-                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
                   >
                     <option value="proportional_value">Proportional by Line Value</option>
                     <option value="manual">Manual Per-Line Override</option>
@@ -2773,13 +2804,16 @@ export default function ProcurementPayablesHub({
                 </label>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 items-end">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Link to Supplier PO</label>
+                  <FieldLabel
+                    label="Link to Supplier PO"
+                    hint="Link an issued Supplier PO to automatically load ordered & received GRN quantities for 3-Way Match verification."
+                  />
                   <select
                     value={billPoId}
                     onChange={(e) => handleSelectBillPo(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
                   >
                     <option value="">-- Direct Bill (No Linked PO) --</option>
                     {supplierPOs.map((po) => (
@@ -2790,87 +2824,108 @@ export default function ProcurementPayablesHub({
                   </select>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Vendor / Supplier Name *</label>
-                  <div className="space-y-1.5">
-                    <select
-                      value={billVendorId}
-                      onChange={(e) => {
-                        const id = e.target.value;
-                        setBillVendorId(id);
-                        const v = companies.find((c) => c.id === id);
-                        if (v) {
-                          setBillVendorName(getCompanyName(v));
-                          if (v.tax_registration_no) setBillVendorTrn(v.tax_registration_no);
-                          if (v.default_currency) setBillCurrency(v.default_currency);
-                        }
-                      }}
-                      className="w-full rounded-xl border border-slate-300 p-1.5 bg-slate-50 text-[11px]"
-                    >
-                      <option value="">-- Pick from Vendor Directory --</option>
-                      {vendors.map((v) => {
-                        const vName = getCompanyName(v);
-                        return (
-                          <option key={v.id} value={v.id}>
-                            {vName} {v.relationship_type ? `(${v.relationship_type})` : ''}
-                          </option>
-                        );
-                      })}
-                    </select>
-                    <input
-                      type="text"
-                      value={billVendorName}
-                      onChange={(e) => setBillVendorName(e.target.value)}
-                      placeholder="Supplier Legal Name"
-                      className="w-full rounded-xl border border-slate-300 p-2 bg-white"
-                    />
-                  </div>
+                  <FieldLabel
+                    label="Select Vendor from Directory"
+                    hint="Choose a registered Vendor from your directory to auto-fill their legal name, TRN, and default currency."
+                  />
+                  <select
+                    value={billVendorId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setBillVendorId(id);
+                      const v = companies.find((c) => c.id === id);
+                      if (v) {
+                        setBillVendorName(getCompanyName(v));
+                        if (v.tax_registration_no) setBillVendorTrn(v.tax_registration_no);
+                        if (v.default_currency) setBillCurrency(v.default_currency);
+                      }
+                    }}
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
+                  >
+                    <option value="">-- Pick from Vendor Directory --</option>
+                    {vendors.map((v) => {
+                      const vName = getCompanyName(v);
+                      return (
+                        <option key={v.id} value={v.id}>
+                          {vName} {v.relationship_type ? `(${v.relationship_type})` : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Vendor Invoice # *</label>
+                  <FieldLabel
+                    label="Vendor / Supplier Legal Name"
+                    required
+                    hint="Official Supplier/Vendor legal name printed on the tax invoice."
+                    hintAlign="right"
+                  />
+                  <input
+                    type="text"
+                    value={billVendorName}
+                    onChange={(e) => setBillVendorName(e.target.value)}
+                    placeholder="Supplier Legal Name"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
+                  />
+                </div>
+                <div>
+                  <FieldLabel
+                    label="Vendor Invoice #"
+                    required
+                    hint="Supplier's official Tax Invoice or Commercial Bill reference number (checked automatically for duplicates)."
+                  />
                   <input
                     type="text"
                     value={billVendorInvoiceNo}
                     onChange={(e) => setBillVendorInvoiceNo(e.target.value)}
                     placeholder="e.g. INV-2026-9921"
-                    className="w-full rounded-xl border border-slate-300 p-2 font-mono bg-white"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 font-mono bg-white text-xs leading-normal"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Invoice Date</label>
-                  <input
-                    type="date"
-                    value={billInvoiceDate}
-                    onChange={(e) => setBillInvoiceDate(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 p-2 font-mono bg-white"
+                  <FieldLabel
+                    label="Invoice & Due Dates"
+                    hint="Document date printed on the supplier's tax invoice (left) and target payment maturity date (right)."
                   />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="date"
+                      value={billInvoiceDate}
+                      onChange={(e) => setBillInvoiceDate(e.target.value)}
+                      title="Invoice Date"
+                      className="w-full h-9 rounded-xl border border-slate-300 px-2.5 py-1.5 font-mono bg-white text-[11px] leading-normal"
+                    />
+                    <input
+                      type="date"
+                      value={billDueDate}
+                      onChange={(e) => setBillDueDate(e.target.value)}
+                      title="Payment Due Date"
+                      className="w-full h-9 rounded-xl border border-slate-300 px-2.5 py-1.5 font-mono bg-white text-[11px] leading-normal"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Due Date</label>
-                  <input
-                    type="date"
-                    value={billDueDate}
-                    onChange={(e) => setBillDueDate(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 p-2 font-mono bg-white"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-2 items-end">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Currency</label>
+                    <FieldLabel label="Currency" />
                     <input
                       type="text"
                       value={billCurrency}
                       onChange={(e) => setBillCurrency(e.target.value.toUpperCase())}
-                      className="w-full rounded-xl border border-slate-300 p-2 font-mono bg-white"
+                      className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 font-mono bg-white text-xs leading-normal"
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Exch. Rate</label>
+                    <FieldLabel
+                      label="Exch. Rate"
+                      hint="Exchange rate to workspace base currency."
+                      hintAlign="right"
+                    />
                     <input
                       type="number"
                       step="0.0001"
                       value={billExchangeRate}
                       onChange={(e) => setBillExchangeRate(Number(e.target.value) || 1)}
-                      className="w-full rounded-xl border border-slate-300 p-2 font-mono bg-white"
+                      className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 font-mono bg-white text-xs leading-normal"
                     />
                   </div>
                 </div>
@@ -3148,11 +3203,12 @@ export default function ProcurementPayablesHub({
             </div>
 
             <div className="p-5 overflow-y-auto space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Select Vendor from Directory
-                  </label>
+                  <FieldLabel
+                    label="Select Vendor from Directory"
+                    hint="Select a registered Vendor to auto-fill Payee details and automatically highlight their open unpaid Supplier Bills."
+                  />
                   <select
                     value={pvVendorId}
                     onChange={(e) => {
@@ -3173,7 +3229,7 @@ export default function ProcurementPayablesHub({
                         }
                       }
                     }}
-                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
                   >
                     <option value="">-- Select Registered Vendor (or type Payee name) --</option>
                     {vendors.map((v) => {
@@ -3187,21 +3243,25 @@ export default function ProcurementPayablesHub({
                   </select>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Payee / Vendor Legal Name *
-                  </label>
+                  <FieldLabel
+                    label="Payee / Vendor Legal Name"
+                    required
+                    hint="Beneficiary legal name printed on the Outbound Payment Voucher."
+                    hintAlign="right"
+                  />
                   <input
                     type="text"
                     value={pvPayeeName}
                     onChange={(e) => setPvPayeeName(e.target.value)}
                     placeholder="e.g. Atlas Industrial Supply LLC"
-                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Link to Supplier PO (Optional)
-                  </label>
+                  <FieldLabel
+                    label="Link to Supplier PO (Optional)"
+                    hint="Link an issued Supplier PO when recording an advance payment or direct PO settlement."
+                  />
                   <select
                     value={pvPoId}
                     onChange={(e) => {
@@ -3218,7 +3278,7 @@ export default function ProcurementPayablesHub({
                         }
                       }
                     }}
-                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
                   >
                     <option value="">-- Direct / Bill Settlement (No Specific PO) --</option>
                     {supplierPOs.map((po) => (
@@ -3228,13 +3288,13 @@ export default function ProcurementPayablesHub({
                     ))}
                   </select>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-2 items-end">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Payment Mode</label>
+                    <FieldLabel label="Payment Mode" />
                     <select
                       value={pvPaymentMethod}
                       onChange={(e) => setPvPaymentMethod(e.target.value as any)}
-                      className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                      className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
                     >
                       <option value="Bank Transfer / TT">Bank Transfer / TT</option>
                       <option value="Cheque">Cheque</option>
@@ -3245,13 +3305,17 @@ export default function ProcurementPayablesHub({
                     </select>
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">UTR / Cheque / Ref #</label>
+                    <FieldLabel
+                      label="UTR / Cheque #"
+                      hint="Bank wire transfer UTR, SWIFT reference, or Cheque number."
+                      hintAlign="right"
+                    />
                     <input
                       type="text"
                       value={pvReferenceNo}
                       onChange={(e) => setPvReferenceNo(e.target.value)}
                       placeholder="e.g. UTR-994120"
-                      className="w-full rounded-xl border border-slate-300 p-2 font-mono bg-white"
+                      className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 font-mono bg-white text-xs leading-normal"
                     />
                   </div>
                 </div>
@@ -3465,11 +3529,12 @@ export default function ProcurementPayablesHub({
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Select Vendor from Directory
-                  </label>
+                  <FieldLabel
+                    label="Select Vendor from Directory"
+                    hint="Pick a registered Vendor from your directory to auto-fill their legal name and TRN."
+                  />
                   <select
                     value={retVendorId}
                     onChange={(e) => {
@@ -3478,7 +3543,7 @@ export default function ProcurementPayablesHub({
                       const v = companies.find((c) => c.id === id);
                       if (v) setRetSupplierName(getCompanyName(v));
                     }}
-                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
                   >
                     <option value="">-- Select Registered Vendor --</option>
                     {vendors.map((v) => {
@@ -3492,21 +3557,25 @@ export default function ProcurementPayablesHub({
                   </select>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Supplier / Vendor Legal Name *
-                  </label>
+                  <FieldLabel
+                    label="Supplier / Vendor Legal Name"
+                    required
+                    hint="Official Supplier/Vendor legal name for this return or commercial debit claim."
+                    hintAlign="right"
+                  />
                   <input
                     type="text"
                     value={retSupplierName}
                     onChange={(e) => setRetSupplierName(e.target.value)}
                     placeholder="Supplier Name"
-                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Link to Supplier PO (Optional)
-                  </label>
+                  <FieldLabel
+                    label="Link to Supplier PO (Optional)"
+                    hint="Select an issued Supplier PO to import its line items into this Material Return or Debit Note."
+                  />
                   <select
                     value={retPoId}
                     onChange={(e) => {
@@ -3531,7 +3600,7 @@ export default function ProcurementPayablesHub({
                         }
                       }
                     }}
-                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
                   >
                     <option value="">-- No Linked PO --</option>
                     {supplierPOs.map((po) => (
@@ -3542,9 +3611,11 @@ export default function ProcurementPayablesHub({
                   </select>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Link to Supplier Bill (Reduces Bill Balance on DN)
-                  </label>
+                  <FieldLabel
+                    label="Link to Supplier Bill (Optional)"
+                    hint="When issuing a Vendor Debit Note (DN), linking a Supplier Bill automatically deducts the claim value from that bill's Balance Due."
+                    hintAlign="right"
+                  />
                   <select
                     value={retBillId}
                     onChange={(e) => {
@@ -3567,7 +3638,7 @@ export default function ProcurementPayablesHub({
                         }
                       }
                     }}
-                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
                   >
                     <option value="">-- No Linked Supplier Bill --</option>
                     {supplierBills.map((b) => (
@@ -3578,11 +3649,11 @@ export default function ProcurementPayablesHub({
                   </select>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Return / Claim Reason</label>
+                  <FieldLabel label="Return / Claim Reason" />
                   <select
                     value={retReason}
                     onChange={(e) => setRetReason(e.target.value as any)}
-                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
                   >
                     <option value="Defective / Damaged">Defective / Damaged</option>
                     <option value="Wrong Item Supplied">Wrong Item Supplied</option>
@@ -3593,11 +3664,15 @@ export default function ProcurementPayablesHub({
                   </select>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Resolution Requested</label>
+                  <FieldLabel
+                    label="Resolution Requested"
+                    hint="Specify whether you require a Credit / Bill Deduction, physical Replacement, or Refund."
+                    hintAlign="right"
+                  />
                   <select
                     value={retResolution}
                     onChange={(e) => setRetResolution(e.target.value as any)}
-                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
                   >
                     <option value="Credit / Bill Deduction">Credit / Bill Deduction</option>
                     <option value="Replacement Required">Replacement Required</option>

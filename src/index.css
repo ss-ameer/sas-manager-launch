@@ -1,9 +1,10 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Enforce crisp light mode on native form controls and scrollbars */
+/* Enforce crisp light mode and vertical text alignment on native form controls */
 input, select, textarea {
   color-scheme: light;
+  line-height: 1.25;
 }
 
 .dark input:not([type="checkbox"]):not([type="radio"]),

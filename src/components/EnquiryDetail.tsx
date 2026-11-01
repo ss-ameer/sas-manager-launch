@@ -8,6 +8,7 @@ import TemperatureBadge from './TemperatureBadge';
 import { IndustryBadge } from '../utils/taxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import HoverScrollText from './common/HoverScrollText';
+import { FieldLabel } from './common/FieldHelpHint';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { useEntityEdit } from '../context/EntityEditContext';
 import { getWhatsAppUrl } from '../utils/defaults';
@@ -7258,10 +7259,11 @@ export default function EnquiryDetail({
               </div>
 
               {/* Quick Select Supplier from Companies Directory */}
-              <div className="space-y-2">
-                <label className="block font-semibold text-slate-700">
-                  Select from Companies Directory (Optional)
-                </label>
+              <div>
+                <FieldLabel
+                  label="Select from Companies Directory (Optional)"
+                  hint="Pick a registered Vendor or Company from your directory to auto-fill their legal name, primary contact, address, and TRN."
+                />
                 <select
                   value={poModalState.supplierCompanyId}
                   onChange={(e) => {
@@ -7285,7 +7287,7 @@ export default function EnquiryDetail({
                       setPoModalState((prev) => ({ ...prev, supplierCompanyId: '' }));
                     }
                   }}
-                  className="w-full rounded-lg border border-slate-300 p-2 bg-white text-slate-800"
+                  className="w-full h-9 rounded-lg border border-slate-300 px-3 py-1.5 bg-white text-slate-800 text-xs leading-normal"
                 >
                   <option value="">-- Enter Custom Supplier or Pick Company --</option>
                   {companies
@@ -7298,11 +7300,13 @@ export default function EnquiryDetail({
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end">
                 <div>
-                  <label className="block text-slate-500 font-medium mb-1">
-                    Supplier / Vendor Name
-                  </label>
+                  <FieldLabel
+                    label="Supplier / Vendor Name"
+                    required
+                    hint="Official legal entity name of the Supplier or Client for this commercial document."
+                  />
                   <input
                     type="text"
                     value={poModalState.supplierName}
@@ -7310,13 +7314,15 @@ export default function EnquiryDetail({
                       setPoModalState((prev) => ({ ...prev, supplierName: e.target.value }))
                     }
                     placeholder="Vendor Legal Name"
-                    className="w-full rounded-lg border border-slate-300 p-2 text-slate-800"
+                    className="w-full h-9 rounded-lg border border-slate-300 px-3 py-1.5 text-slate-800 text-xs leading-normal"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-500 font-medium mb-1">
-                    Contact Person
-                  </label>
+                  <FieldLabel
+                    label="Contact Person"
+                    hint="Attention to / account representative at the Supplier or Client organization."
+                    hintAlign="right"
+                  />
                   <input
                     type="text"
                     value={poModalState.supplierContact}
@@ -7324,13 +7330,14 @@ export default function EnquiryDetail({
                       setPoModalState((prev) => ({ ...prev, supplierContact: e.target.value }))
                     }
                     placeholder="Account Representative"
-                    className="w-full rounded-lg border border-slate-300 p-2 text-slate-800"
+                    className="w-full h-9 rounded-lg border border-slate-300 px-3 py-1.5 text-slate-800 text-xs leading-normal"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-500 font-medium mb-1">
-                    Shipping Destination
-                  </label>
+                  <FieldLabel
+                    label="Shipping Destination"
+                    hint="Select whether goods should be delivered to Our Warehouse, Direct to Client Site, or a Custom Address."
+                  />
                   <select
                     value={poModalState.shippingDestination}
                     onChange={(e) =>
@@ -7339,7 +7346,7 @@ export default function EnquiryDetail({
                         shippingDestination: e.target.value as any
                       }))
                     }
-                    className="w-full rounded-lg border border-slate-300 p-2 bg-white text-slate-800"
+                    className="w-full h-9 rounded-lg border border-slate-300 px-3 py-1.5 bg-white text-slate-800 text-xs leading-normal"
                   >
                     <option value="Warehouse">Our Warehouse / Facility</option>
                     <option value="Direct to Client Site">Direct to Client Site</option>
@@ -7347,9 +7354,11 @@ export default function EnquiryDetail({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-slate-500 font-medium mb-1">
-                    Incoterms
-                  </label>
+                  <FieldLabel
+                    label="Incoterms"
+                    hint="Commercial shipping and delivery terms (Ex-Works, FOB, CIF, DDP, DAP)."
+                    hintAlign="right"
+                  />
                   <select
                     value={poModalState.incoterms}
                     onChange={(e) =>
@@ -7358,7 +7367,7 @@ export default function EnquiryDetail({
                         incoterms: e.target.value as any
                       }))
                     }
-                    className="w-full rounded-lg border border-slate-300 p-2 bg-white text-slate-800"
+                    className="w-full h-9 rounded-lg border border-slate-300 px-3 py-1.5 bg-white text-slate-800 text-xs leading-normal"
                   >
                     <option value="Ex-Works">Ex-Works</option>
                     <option value="FOB">FOB</option>
