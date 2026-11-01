@@ -2958,7 +2958,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
     const sourceQuotation = activeSourceQuotation || editingQuotation;
     let baseItems: QuotationLineItem[];
-    if (customStudioLineItems && customStudioLineItems.length > 0) {
+    if (customStudioLineItems !== null) {
       baseItems = customStudioLineItems;
     } else if (sourceQuotation?.line_items && sourceQuotation.line_items.length > 0) {
       baseItems = sourceQuotation.line_items.map((item) => {
@@ -5572,78 +5572,76 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           </div>
 
           <div className="flex items-center space-x-2">
-            {!isLeftDrawerOpen && (
-              isEffectiveSandbox ? (
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => handleSaveToActiveProfileAndPreset(false)}
-                    disabled={isSavingPreset}
-                    className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Save className="w-3.5 h-3.5 text-emerald-600" />
-                    <span className="hidden sm:inline">Update Preset</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSaveToActiveProfileAndPreset(true)}
-                    disabled={isSavingPreset}
-                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Update &amp; Close</span>
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => handleSaveQuotation(quotationStatus || 'Draft')}
-                    disabled={isSaving}
-                    className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Save className="w-3.5 h-3.5 text-slate-500" />
-                    <span className="hidden sm:inline">
-                      {documentType === 'delivery_note'
-                        ? 'Save Delivery Note'
-                        : documentType === 'purchase_order'
-                        ? 'Save Purchase Order'
-                        : documentType === 'receipt'
-                        ? 'Save Receipt'
-                        : documentType === 'payment_voucher'
-                        ? 'Save Payment Voucher'
-                        : documentType === 'material_return_note'
-                        ? 'Save Material Return'
-                        : documentType === 'debit_note'
-                        ? 'Save Debit Note'
-                        : 'Save Quotation'}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSaveQuotation('Sent')}
-                    disabled={isSaving}
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">
-                      {documentType === 'delivery_note'
-                        ? 'Issue Delivery Note'
-                        : documentType === 'purchase_order'
-                        ? 'Issue Purchase Order'
-                        : documentType === 'receipt'
-                        ? 'Issue Receipt'
-                        : documentType === 'payment_voucher'
-                        ? 'Issue Payment Voucher'
-                        : documentType === 'material_return_note'
-                        ? 'Issue Material Return'
-                        : documentType === 'debit_note'
-                        ? 'Issue Debit Note'
-                        : 'Issue Quotation'}
-                    </span>
-                  </button>
-                </div>
-              )
+            {isEffectiveSandbox ? (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleSaveToActiveProfileAndPreset(false)}
+                  disabled={isSavingPreset}
+                  className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Save className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="hidden sm:inline">Update Preset</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveToActiveProfileAndPreset(true)}
+                  disabled={isSavingPreset}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Update &amp; Close</span>
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleSaveQuotation(quotationStatus || 'Draft')}
+                  disabled={isSaving}
+                  className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Save className="w-3.5 h-3.5 text-slate-500" />
+                  <span className="hidden sm:inline">
+                    {documentType === 'delivery_note'
+                      ? 'Save Delivery Note'
+                      : documentType === 'purchase_order'
+                      ? 'Save Purchase Order'
+                      : documentType === 'receipt'
+                      ? 'Save Receipt'
+                      : documentType === 'payment_voucher'
+                      ? 'Save Payment Voucher'
+                      : documentType === 'material_return_note'
+                      ? 'Save Material Return'
+                      : documentType === 'debit_note'
+                      ? 'Save Debit Note'
+                      : 'Save Quotation'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveQuotation('Sent')}
+                  disabled={isSaving}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">
+                    {documentType === 'delivery_note'
+                      ? 'Issue Delivery Note'
+                      : documentType === 'purchase_order'
+                      ? 'Issue Purchase Order'
+                      : documentType === 'receipt'
+                      ? 'Issue Receipt'
+                      : documentType === 'payment_voucher'
+                      ? 'Issue Payment Voucher'
+                      : documentType === 'material_return_note'
+                      ? 'Issue Material Return'
+                      : documentType === 'debit_note'
+                      ? 'Issue Debit Note'
+                      : 'Issue Quotation'}
+                  </span>
+                </button>
+              </div>
             )}
             <button
               type="button"
@@ -8710,6 +8708,204 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     </div>
                   )}
                   </div>
+
+                  {/* Direct Document Line Items Editor for PO, MRN, DN, DO & Quotation */}
+                  {documentType !== 'receipt' && documentType !== 'payment_voucher' && (
+                    <div
+                      id="studio-line-items-editor"
+                      className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                          <Package className="w-3.5 h-3.5 text-indigo-600" />
+                          Document Line Items ({quotationLineItems.length})
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const currentList = customStudioLineItems ?? quotationLineItems;
+                            const nextItem: QuotationLineItem = {
+                              id: `st_li_${Date.now()}_${currentList.length + 1}`,
+                              item_name: '',
+                              description: '',
+                              quantity: 1,
+                              qty_ordered: 1,
+                              unit: 'Nos',
+                              unit_price: 0,
+                              total_price: 0
+                            };
+                            setCustomStudioLineItems([...currentList, nextItem]);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] cursor-pointer"
+                        >
+                          + Add Line Item
+                        </button>
+                      </div>
+
+                      {quotationLineItems.length === 0 ? (
+                        <div className="p-3 rounded-lg border border-dashed border-slate-300 bg-white text-center text-[11px] text-slate-500">
+                          No line items on this document yet. Click <strong>+ Add Line Item</strong> above to add items.
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                          {quotationLineItems.map((li, idx) => (
+                            <div
+                              key={li.id || idx}
+                              className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-2 text-[11px]"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-mono font-bold text-slate-500">#{idx + 1}</span>
+                                <select
+                                  value={li.product_id || ''}
+                                  onChange={(e) => {
+                                    const pid = e.target.value;
+                                    const prod = workspaceProducts.find((p) => p.id === pid);
+                                    const currentList = customStudioLineItems ?? quotationLineItems;
+                                    const rate = Number(
+                                      prod?.cost_price ||
+                                        prod?.last_landed_cost ||
+                                        (prod as any)?.selling_price ||
+                                        (prod as any)?.unit_price ||
+                                        li.unit_price ||
+                                        0
+                                    );
+                                    const qty = Number(li.quantity) || 1;
+                                    setCustomStudioLineItems(
+                                      currentList.map((row, rIdx) =>
+                                        rIdx === idx
+                                          ? {
+                                              ...row,
+                                              product_id: pid || undefined,
+                                              item_name: prod?.name || row.item_name,
+                                              description: prod?.description || row.description,
+                                              model_part_no: prod?.model_part_no || prod?.sku || row.model_part_no,
+                                              brand_make: prod?.brand_make || row.brand_make,
+                                              unit: prod?.unit || row.unit || 'Nos',
+                                              unit_price: rate,
+                                              total_price: QuotationRepository.roundCurrency(qty * rate)
+                                            }
+                                          : row
+                                      )
+                                    );
+                                  }}
+                                  className="flex-1 rounded border border-slate-300 px-2 py-1 bg-slate-50 text-[11px] min-w-0"
+                                >
+                                  <option value="">-- Pick Catalog Item or Type Below --</option>
+                                  {workspaceProducts.map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                      {p.name} {p.sku ? `(${p.sku})` : ''}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const currentList = customStudioLineItems ?? quotationLineItems;
+                                    setCustomStudioLineItems(currentList.filter((_, rIdx) => rIdx !== idx));
+                                  }}
+                                  className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer"
+                                  title="Remove Line Item"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+
+                              <input
+                                type="text"
+                                value={li.item_name || ''}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  const currentList = customStudioLineItems ?? quotationLineItems;
+                                  setCustomStudioLineItems(
+                                    currentList.map((row, rIdx) =>
+                                      rIdx === idx ? { ...row, item_name: val } : row
+                                    )
+                                  );
+                                }}
+                                placeholder="Item Name / Description *"
+                                className="w-full rounded border border-slate-300 px-2 py-1 bg-white text-slate-900 font-semibold"
+                              />
+
+                              <div className="grid grid-cols-3 gap-2">
+                                <div>
+                                  <label className="block text-[10px] text-slate-400">Qty</label>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    value={li.quantity === 0 ? '' : li.quantity}
+                                    onChange={(e) => {
+                                      const q = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
+                                      const currentList = customStudioLineItems ?? quotationLineItems;
+                                      setCustomStudioLineItems(
+                                        currentList.map((row, rIdx) =>
+                                          rIdx === idx
+                                            ? {
+                                                ...row,
+                                                quantity: q,
+                                                qty_ordered: q,
+                                                total_price: QuotationRepository.roundCurrency(
+                                                  q * (Number(row.unit_price) || 0)
+                                                )
+                                              }
+                                            : row
+                                        )
+                                      );
+                                    }}
+                                    className="w-full rounded border border-slate-300 px-2 py-1 font-mono text-right"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] text-slate-400">UOM</label>
+                                  <input
+                                    type="text"
+                                    value={li.unit || 'Nos'}
+                                    onChange={(e) => {
+                                      const u = e.target.value;
+                                      const currentList = customStudioLineItems ?? quotationLineItems;
+                                      setCustomStudioLineItems(
+                                        currentList.map((row, rIdx) =>
+                                          rIdx === idx ? { ...row, unit: u } : row
+                                        )
+                                      );
+                                    }}
+                                    className="w-full rounded border border-slate-300 px-2 py-1 font-mono"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] text-slate-400">Unit Rate</label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={li.unit_price === 0 ? '' : li.unit_price}
+                                    placeholder="0.00"
+                                    onChange={(e) => {
+                                      const r = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
+                                      const currentList = customStudioLineItems ?? quotationLineItems;
+                                      setCustomStudioLineItems(
+                                        currentList.map((row, rIdx) =>
+                                          rIdx === idx
+                                            ? {
+                                                ...row,
+                                                unit_price: r,
+                                                cost_price: r,
+                                                total_price: QuotationRepository.roundCurrency(
+                                                  (Number(row.quantity) || 0) * r
+                                                )
+                                              }
+                                            : row
+                                        )
+                                      );
+                                    }}
+                                    className="w-full rounded border border-slate-300 px-2 py-1 font-mono text-right"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Card 1: Tax & Financial Adjustments */}
                   <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-3.5">

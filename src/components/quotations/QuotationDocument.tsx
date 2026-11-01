@@ -3733,9 +3733,11 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                                       {formatCurrency(displayTaxAmount)}
                                     </span>
                                   </div>
-                                  <p className="text-[calc(var(--block-base)*0.85)] text-amber-700 not-italic">
-                                    * Taxes EXTRA to client account as applicable
-                                  </p>
+                                  {!isPurchaseOrder && !isDebitNote && !isMaterialReturnNote && !isPaymentVoucher && (
+                                    <p className="text-[calc(var(--block-base)*0.85)] text-amber-700 not-italic">
+                                      * Taxes EXTRA to client account as applicable
+                                    </p>
+                                  )}
                                 </div>
                               );
                             }
@@ -5321,6 +5323,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       const bType = b.type || b.id;
       if (isDeliveryNote || isMaterialReturnNote) {
         if (
+          bType === 'terms' ||
+          b.id === 'terms' ||
           bType === 'totals' ||
           b.id === 'totals' ||
           bType === 'remittance' ||
@@ -5337,6 +5341,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       }
       if (isDebitNote) {
         if (
+          bType === 'terms' ||
+          b.id === 'terms' ||
           bType === 'remittance' ||
           b.id === 'remittance' ||
           bType === 'acceptance' ||
@@ -5351,6 +5357,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
       }
       if (isReceiptVoucher || isPaymentVoucher) {
         if (
+          bType === 'terms' ||
+          b.id === 'terms' ||
           bType === 'totals' ||
           b.id === 'totals' ||
           bType === 'acceptance' ||
@@ -8446,12 +8454,23 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                         );
                       })
                     ) : showEmptyPlaceholder ? (
-                      <tr>
+                      <tr
+                        onClick={
+                          onSelectSection
+                            ? () => onSelectSection('items_table')
+                            : onSelectBlock
+                            ? () => onSelectBlock('items_table')
+                            : undefined
+                        }
+                        className={onSelectSection || onSelectBlock ? 'cursor-pointer hover:bg-blue-50/40' : ''}
+                      >
                         <td
                           colSpan={tableColLayout.activeColumnCount}
                           className="py-8 text-center text-slate-400 italic"
                         >
-                          No line items specified for this offer.
+                          {isPurchaseOrder || isMaterialReturnNote || isDebitNote
+                            ? 'No line items added yet — click here or open Deal Data & Content to add items.'
+                            : 'No line items specified for this offer.'}
                         </td>
                       </tr>
                     ) : null}

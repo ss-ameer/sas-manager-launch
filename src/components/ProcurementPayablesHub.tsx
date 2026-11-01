@@ -148,6 +148,7 @@ export default function ProcurementPayablesHub({
   const [isUploadingBillFile, setIsUploadingBillFile] = useState(false);
   const [isSavingBill, setIsSavingBill] = useState(false);
   const [viewingBillSummary, setViewingBillSummary] = useState<SupplierBill | null>(null);
+  const [viewingPoSummary, setViewingPoSummary] = useState<QuotationDocumentRecord | null>(null);
 
   // Issue Payment Voucher Pre-Launch Modal State
   const [showCreatePvModal, setShowCreatePvModal] = useState(false);
@@ -224,13 +225,43 @@ export default function ProcurementPayablesHub({
 
   const paymentVouchersAndReturns = useMemo(
     () =>
-      quotations.filter(
-        (q) =>
+      quotations.filter((q) => {
+        const isVoucherOrReturn =
           q.document_type === 'payment_voucher' ||
           q.document_type === 'material_return_note' ||
           (q.document_type as string) === 'material_return' ||
-          q.document_type === 'debit_note'
-      ),
+          q.document_type === 'debit_note';
+        if (!isVoucherOrReturn) return false;
+        const isMrn =
+          q.document_type === 'material_return_note' ||
+          (q.document_type as string) === 'material_return';
+        if (isMrn) return true;
+        const amt =
+          q.document_type === 'payment_voucher'
+            ? Number(
+                q.payment_voucher_metadata?.amount_paid ??
+                  q.financial_totals?.grand_total ??
+                  q.grand_total ??
+                  0
+              )
+            : Number(q.financial_totals?.grand_total ?? q.grand_total ?? 0);
+        const vName = (
+          q.payment_voucher_metadata?.payee_name ||
+          q.payment_voucher_metadata?.paid_to_vendor_name ||
+          q.vendor_return_metadata?.supplier_name ||
+          q.vendor_return_metadata?.vendor_name ||
+          q.client_snapshot?.entity_name ||
+          ''
+        ).trim();
+        // Auto-hide legacy zero-value dummy test records
+        if (
+          amt === 0 &&
+          (!vName || vName === 'Vendor / Supplier' || vName === 'Vendor')
+        ) {
+          return false;
+        }
+        return true;
+      }),
     [quotations]
   );
 
@@ -917,7 +948,9 @@ export default function ProcurementPayablesHub({
 
   // Open Pre-Launch Modal for Outbound Payment Voucher (PV)
   const handleIssuePaymentVoucher = (bill?: SupplierBill, po?: QuotationDocumentRecord) => {
-    const vendorId = bill?.vendor_company_id || po?.purchase_order_metadata?.vendor_company_id || '';
+    setViewingBillSummary(null);
+    setViewingPoSummary(null);
+    const vendorId = bill?.vendor_company_id || bill?.vendor_id || po?.purchase_order_metadata?.vendor_company_id || '';
     const vendor = companies.find((c) => c.id === vendorId);
     const payeeName =
       bill?.vendor_name ||
@@ -937,7 +970,7 @@ export default function ProcurementPayablesHub({
       setPvSettlementType('single_bill');
       setPvSelectedBills({ [bill.id]: bal });
       setPvAmountPaid(bal);
-      setPvNarration(`Payment against Supplier Bill ${bill.bill_number} (Inv # ${bill.vendor_invoice_no})`);
+      setPvNarration(`Settlement of Supplier Bill ${bill.bill_number} (Inv # ${bill.vendor_invoice_no})`);
     } else if (po) {
       const poTotal = Number(po.financial_totals?.grand_total ?? po.grand_total ?? 0);
       setPvSettlementType('vendor_advance');
@@ -951,6 +984,22 @@ export default function ProcurementPayablesHub({
       setPvNarration('');
     }
     setShowCreatePvModal(true);
+  };
+
+  const openCreatePvModal = (
+    billOrOpts?: SupplierBill | { bill?: SupplierBill; po?: QuotationDocumentRecord },
+    poArg?: QuotationDocumentRecord
+  ) => {
+    if (
+      billOrOpts &&
+      typeof billOrOpts === 'object' &&
+      ('bill' in billOrOpts || 'po' in billOrOpts) &&
+      !('bill_number' in billOrOpts)
+    ) {
+      handleIssuePaymentVoucher(billOrOpts.bill, billOrOpts.po);
+    } else {
+      handleIssuePaymentVoucher(billOrOpts as SupplierBill | undefined, poArg);
+    }
   };
 
   // Confirm & Create Outbound Payment Voucher (PV)
@@ -1171,15 +1220,7 @@ export default function ProcurementPayablesHub({
     };
 
     await QuotationRepository.save(pvRecord);
-    const updatedQuotations = await QuotationRepository.listByWorkspace(activeWorkspace.id);
-    const currentBills = await ProcurementRepository.listByWorkspace(activeWorkspace.id);
-    for (const alloc of selectedBillEntries || []) {
-      const targetBill = currentBills.find((b) => b.id === alloc.bill_id);
-      if (targetBill) {
-        const recalc = ProcurementRepository.recalculateBillSettlement(targetBill, updatedQuotations);
-        await ProcurementRepository.save(recalc);
-      }
-    }
+    await ProcurementRepository.recalculateWorkspaceSupplierBillBalances(activeWorkspace.id);
 
     setShowCreatePvModal(false);
     triggerToast?.(`Payment Voucher ${pvRef} saved and Supplier Bill balances updated.`, 'success');
@@ -1425,9 +1466,7 @@ export default function ProcurementPayablesHub({
 
     await QuotationRepository.save(returnDoc);
     if (retMode === 'debit_note' && linkedBill) {
-      const updatedQuotations = await QuotationRepository.listByWorkspace(activeWorkspace.id);
-      const recalc = ProcurementRepository.recalculateBillSettlement(linkedBill, updatedQuotations);
-      await ProcurementRepository.save(recalc);
+      await ProcurementRepository.recalculateWorkspaceSupplierBillBalances(activeWorkspace.id);
     }
 
     setShowCreateReturnModal(false);
@@ -1617,7 +1656,11 @@ export default function ProcurementPayablesHub({
                     const recStatus = meta?.receiving_status || 'Pending Receipt';
                     const linkedEnq = enquiries.find((e) => e.id === po.enquiry_id);
                     return (
-                      <tr key={po.id} className="hover:bg-slate-50/80 transition">
+                      <tr
+                        key={po.id}
+                        onClick={() => setViewingPoSummary(po)}
+                        className="cursor-pointer hover:bg-slate-50/90 transition-colors"
+                      >
                         <td className="py-3 px-4 font-mono font-bold text-indigo-700 whitespace-nowrap">
                           {meta?.po_ref || po.formatted_quote_ref}
                         </td>
@@ -1635,7 +1678,7 @@ export default function ProcurementPayablesHub({
                             </div>
                           )}
                         </td>
-                        <td className="py-3 px-3 max-w-[240px]">
+                        <td className="py-3 px-3 max-w-[240px]" onClick={(e) => e.stopPropagation()}>
                           {linkedEnq ? (
                             <button
                               type="button"
@@ -1673,7 +1716,10 @@ export default function ProcurementPayablesHub({
                             {recStatus}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-right whitespace-nowrap">
+                        <td
+                          className="py-3 px-4 text-right whitespace-nowrap"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <div className="inline-flex items-center gap-1.5">
                             {recStatus !== 'Fully Received' && (
                               <button
@@ -1693,7 +1739,7 @@ export default function ProcurementPayablesHub({
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleIssuePaymentVoucher(undefined, po)}
+                              onClick={() => openCreatePvModal(undefined, po)}
                               className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10.5px] font-semibold transition cursor-pointer"
                               title="Issue Outbound Payment Voucher"
                             >
@@ -1784,7 +1830,11 @@ export default function ProcurementPayablesHub({
                         const received = Number(li.qty_received) || 0;
                         const pending = Math.max(0, ordered - received);
                         return (
-                          <tr key={`${po.id}_${li.id}`} className="hover:bg-slate-50/80">
+                          <tr
+                            key={`${po.id}_${li.id}`}
+                            onClick={() => handleOpenGrnModal(po)}
+                            className="cursor-pointer hover:bg-slate-50/90 transition-colors"
+                          >
                             <td className="py-2.5 px-4 font-mono font-bold text-indigo-700">
                               {po.purchase_order_metadata?.po_ref || po.formatted_quote_ref}
                             </td>
@@ -1801,7 +1851,10 @@ export default function ProcurementPayablesHub({
                             <td className="py-2.5 px-3 text-right font-mono text-slate-700">
                               {po.currency} {Number(li.landed_unit_cost ?? li.unit_price ?? 0).toFixed(2)}
                             </td>
-                            <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                            <td
+                              className="py-2.5 px-4 text-right whitespace-nowrap"
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               <div className="inline-flex items-center gap-1.5">
                                 <button
                                   type="button"
@@ -1872,7 +1925,11 @@ export default function ProcurementPayablesHub({
                       bill.three_way_match_status === 'qty_variance' ||
                       bill.three_way_match_status === 'both_variance';
                     return (
-                      <tr key={bill.id} className="hover:bg-slate-50/80">
+                      <tr
+                        key={bill.id}
+                        onClick={() => setViewingBillSummary(bill)}
+                        className="cursor-pointer hover:bg-slate-50/90 transition-colors"
+                      >
                         <td className="py-3 px-4">
                           <div className="font-mono font-bold text-slate-900">{bill.bill_number}</div>
                           <div className="text-[10.5px] font-mono text-slate-500">
@@ -1883,6 +1940,7 @@ export default function ProcurementPayablesHub({
                               href={bill.attachment.url}
                               target="_blank"
                               rel="noreferrer"
+                              onClick={(e) => e.stopPropagation()}
                               className="inline-flex items-center gap-1 text-[10px] text-blue-600 hover:underline mt-0.5"
                             >
                               <span>View Scan</span>
@@ -1944,14 +2002,17 @@ export default function ProcurementPayablesHub({
                             )}
                           </div>
                         </td>
-                        <td className="py-3 px-3 text-right font-mono font-semibold text-slate-800">
+                        <td className="py-3 px-3 text-right font-mono font-semibold text-slate-800 whitespace-nowrap">
                           {bill.currency} {Number(bill.grand_total || 0).toFixed(2)}
                         </td>
-                        <td className="py-3 px-3 text-right font-mono font-bold text-rose-700">
+                        <td className="py-3 px-3 text-right font-mono font-bold text-rose-700 whitespace-nowrap">
                           {bill.currency} {Number(bill.balance_due || 0).toFixed(2)}
                         </td>
-                        <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <div className="inline-flex items-center gap-1.5">
+                        <td
+                          className="py-3 px-4 text-right whitespace-nowrap"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="inline-flex items-center gap-1">
                             {bill.approval_status !== 'approved' && (!hasVariance || userIsAdmin) && (
                               <button
                                 type="button"
@@ -1966,17 +2027,17 @@ export default function ProcurementPayablesHub({
                                   });
                                   triggerToast?.(`Approved Supplier Bill ${bill.bill_number}.`, 'success');
                                 }}
-                                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold cursor-pointer"
+                                className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold cursor-pointer"
                                 title="Approve Supplier Bill for Settlement"
                               >
-                                Approve Bill
+                                Approve
                               </button>
                             )}
                             {!bill.is_on_hold && bill.balance_due > 0 && (
                               <button
                                 type="button"
-                                onClick={() => handleIssuePaymentVoucher(bill)}
-                                className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold cursor-pointer"
+                                onClick={() => openCreatePvModal(bill)}
+                                className="px-2 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold cursor-pointer"
                               >
                                 Pay Bill (PV)
                               </button>
@@ -1984,11 +2045,11 @@ export default function ProcurementPayablesHub({
                             <button
                               type="button"
                               onClick={() => setViewingBillSummary(bill)}
-                              className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[10px] font-bold cursor-pointer inline-flex items-center gap-1"
+                              className="px-2 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[10px] font-bold cursor-pointer inline-flex items-center gap-1"
                               title="View / Print 3-Way Match Bill Summary"
                             >
                               <Eye className="w-3 h-3" />
-                              <span>View / Print Summary</span>
+                              <span>Summary</span>
                             </button>
                             <button
                               type="button"
@@ -2013,7 +2074,7 @@ export default function ProcurementPayablesHub({
                                   : 'bg-rose-50 text-rose-700 border-rose-200'
                               }`}
                             >
-                              {bill.is_on_hold ? 'Release Hold' : 'Hold'}
+                              {bill.is_on_hold ? 'Un-Hold' : 'Hold'}
                             </button>
                             <button
                               type="button"
@@ -2110,7 +2171,11 @@ export default function ProcurementPayablesHub({
                       )
                     : Number(doc.financial_totals?.grand_total ?? doc.grand_total ?? 0);
                   return (
-                    <tr key={doc.id} className="hover:bg-slate-50/80">
+                    <tr
+                      key={doc.id}
+                      onClick={() => handleOpenInStudio(doc)}
+                      className="cursor-pointer hover:bg-slate-50/90 transition-colors"
+                    >
                       <td className="py-3 px-4 font-mono font-bold text-slate-900">
                         {doc.formatted_quote_ref}
                       </td>
@@ -2145,7 +2210,10 @@ export default function ProcurementPayablesHub({
                       <td className="py-3 px-3 text-right font-mono font-bold text-slate-900">
                         {isMrn ? 'Unpriced' : `${doc.currency} ${amt.toFixed(2)}`}
                       </td>
-                      <td className="py-3 px-4 text-right whitespace-nowrap">
+                      <td
+                        className="py-3 px-4 text-right whitespace-nowrap"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <div className="inline-flex items-center gap-1.5">
                           <button
                             type="button"
@@ -2161,6 +2229,7 @@ export default function ProcurementPayablesHub({
                                 id: user.uid || user.id || 'user',
                                 name: user.full_name || user.email || 'User'
                               });
+                              await ProcurementRepository.recalculateWorkspaceSupplierBillBalances(activeWorkspace.id);
                               triggerToast?.(
                                 `${doc.formatted_quote_ref} moved to Recycle Bin and Bill balances updated.`,
                                 'info'
@@ -2301,7 +2370,7 @@ export default function ProcurementPayablesHub({
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800">PO Line Items</span>
+                  <span className="font-bold text-slate-800">PO Line Items *</span>
                   <button
                     type="button"
                     onClick={() =>
@@ -2316,93 +2385,130 @@ export default function ProcurementPayablesHub({
                   </button>
                 </div>
 
-                {newPoLines.map((line, idx) => (
-                  <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-slate-50 p-2 rounded-xl border border-slate-200">
-                    <div className="col-span-4">
-                      <select
-                        value={line.product_id}
-                        onChange={(e) => {
-                          const pid = e.target.value;
-                          const prod = products.find((p) => p.id === pid);
-                          setNewPoLines((prev) =>
-                            prev.map((l, i) =>
-                              i === idx
-                                ? {
-                                    ...l,
-                                    product_id: pid,
-                                    item_name: prod?.name || l.item_name,
-                                    part_no: prod?.part_no || l.part_no,
-                                    unit: prod?.unit || l.unit,
-                                    unit_cost: Number(prod?.cost_price ?? prod?.last_landed_cost ?? 0)
-                                  }
-                                : l
+                <div className="grid grid-cols-12 gap-2 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  <div className="col-span-4">Catalog Item</div>
+                  <div className="col-span-3">Item Description *</div>
+                  <div className="col-span-1 text-right">Qty</div>
+                  <div className="col-span-2 text-right">Unit Cost ({defaultCurrency})</div>
+                  <div className="col-span-2 text-right">Line Total</div>
+                </div>
+
+                {newPoLines.map((line, idx) => {
+                  const lineTotal = QuotationRepository.roundCurrency(
+                    (Number(line.qty) || 0) * (Number(line.unit_cost) || 0)
+                  );
+                  return (
+                    <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-slate-50 p-2 rounded-xl border border-slate-200">
+                      <div className="col-span-4">
+                        <select
+                          value={line.product_id}
+                          onChange={(e) => {
+                            const pid = e.target.value;
+                            const prod = products.find((p) => p.id === pid);
+                            setNewPoLines((prev) =>
+                              prev.map((l, i) =>
+                                i === idx
+                                  ? {
+                                      ...l,
+                                      product_id: pid,
+                                      item_name: prod?.name || prod?.description || l.item_name,
+                                      part_no: prod?.part_no || prod?.sku || l.part_no,
+                                      unit: prod?.unit || l.unit || 'Nos',
+                                      unit_cost: Number(
+                                        prod?.cost_price ||
+                                          prod?.last_landed_cost ||
+                                          (prod as any)?.selling_price ||
+                                          (prod as any)?.unit_price ||
+                                          l.unit_cost ||
+                                          0
+                                      )
+                                    }
+                                  : l
+                              )
+                            );
+                          }}
+                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-[11px]"
+                        >
+                          <option value="">-- Pick Catalog Item or Type --</option>
+                          {products.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} {p.part_no ? `(${p.part_no})` : ''} — Stock: {p.stock_on_hand ?? p.stock_quantity ?? 0}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="col-span-3">
+                        <input
+                          type="text"
+                          value={line.item_name}
+                          onChange={(e) =>
+                            setNewPoLines((prev) =>
+                              prev.map((l, i) => (i === idx ? { ...l, item_name: e.target.value } : l))
                             )
-                          );
-                        }}
-                        className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-[11px]"
-                      >
-                        <option value="">-- Pick Catalog Item or Type --</option>
-                        {products.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} {p.part_no ? `(${p.part_no})` : ''} — Stock: {p.stock_on_hand ?? p.stock_quantity ?? 0}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="col-span-3">
-                      <input
-                        type="text"
-                        value={line.item_name}
-                        onChange={(e) =>
-                          setNewPoLines((prev) =>
-                            prev.map((l, i) => (i === idx ? { ...l, item_name: e.target.value } : l))
-                          )
-                        }
-                        placeholder="Item Description"
-                        className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-[11px]"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <input
-                        type="number"
-                        min="1"
-                        value={line.qty}
-                        onChange={(e) =>
-                          setNewPoLines((prev) =>
-                            prev.map((l, i) => (i === idx ? { ...l, qty: Number(e.target.value) || 1 } : l))
-                          )
-                        }
-                        placeholder="Qty"
-                        className="w-full rounded-lg border border-slate-300 p-1.5 bg-white font-mono text-[11px]"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={line.unit_cost}
-                        onChange={(e) =>
-                          setNewPoLines((prev) =>
-                            prev.map((l, i) =>
-                              i === idx ? { ...l, unit_cost: Number(e.target.value) || 0 } : l
+                          }
+                          placeholder="Item Description *"
+                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-[11px]"
+                        />
+                      </div>
+                      <div className="col-span-1">
+                        <input
+                          type="number"
+                          min="1"
+                          value={line.qty === 0 ? '' : line.qty}
+                          onChange={(e) =>
+                            setNewPoLines((prev) =>
+                              prev.map((l, i) =>
+                                i === idx ? { ...l, qty: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) } : l
+                              )
                             )
-                          )
-                        }
-                        placeholder="Cost Rate"
-                        className="w-full rounded-lg border border-slate-300 p-1.5 bg-white font-mono text-[11px]"
-                      />
+                          }
+                          placeholder="1"
+                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white font-mono text-[11px] text-right"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={line.unit_cost === 0 ? '' : line.unit_cost}
+                          onChange={(e) =>
+                            setNewPoLines((prev) =>
+                              prev.map((l, i) =>
+                                i === idx ? { ...l, unit_cost: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) } : l
+                              )
+                            )
+                          }
+                          placeholder="0.00"
+                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white font-mono text-[11px] text-right"
+                        />
+                      </div>
+                      <div className="col-span-2 flex items-center justify-end gap-1.5">
+                        <span className="font-mono font-bold text-slate-900 text-[11px]">
+                          {lineTotal.toFixed(2)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setNewPoLines((prev) => prev.filter((_, i) => i !== idx))}
+                          className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="col-span-1 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setNewPoLines((prev) => prev.filter((_, i) => i !== idx))}
-                        className="p-1 text-rose-500 hover:bg-rose-50 rounded"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
+
+                <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-indigo-50/70 border border-indigo-200/80 text-xs">
+                  <span className="font-bold text-indigo-950">
+                    PO Total (Excl. VAT / Taxes Extra):
+                  </span>
+                  <span className="font-mono font-black text-sm text-indigo-900">
+                    {defaultCurrency}{' '}
+                    {newPoLines
+                      .reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unit_cost) || 0), 0)
+                      .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -2834,9 +2940,10 @@ export default function ProcurementPayablesHub({
                           <input
                             type="number"
                             step="0.01"
-                            value={l.billed_qty}
+                            value={l.billed_qty === 0 ? '' : l.billed_qty}
+                            placeholder="0"
                             onChange={(e) => {
-                              const q = Number(e.target.value) || 0;
+                              const q = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
                               setBillLines((prev) =>
                                 prev.map((row, i) =>
                                   i === idx
@@ -2859,9 +2966,10 @@ export default function ProcurementPayablesHub({
                           <input
                             type="number"
                             step="0.01"
-                            value={l.billed_unit_cost}
+                            value={l.billed_unit_cost === 0 ? '' : l.billed_unit_cost}
+                            placeholder="0.00"
                             onChange={(e) => {
-                              const r = Number(e.target.value) || 0;
+                              const r = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
                               setBillLines((prev) =>
                                 prev.map((row, i) =>
                                   i === idx
@@ -2953,8 +3061,9 @@ export default function ProcurementPayablesHub({
                     <input
                       type="number"
                       step="0.01"
-                      value={billTaxAmount}
-                      onChange={(e) => setBillTaxAmount(Number(e.target.value) || 0)}
+                      value={billTaxAmount === 0 ? '' : billTaxAmount}
+                      placeholder="0.00"
+                      onChange={(e) => setBillTaxAmount(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
                       className="w-full rounded-lg border border-slate-300 p-1.5 font-mono bg-white"
                     />
                   </div>
@@ -2963,13 +3072,36 @@ export default function ProcurementPayablesHub({
                     <input
                       type="number"
                       step="0.01"
-                      value={billFreightCustoms}
-                      onChange={(e) => setBillFreightCustoms(Number(e.target.value) || 0)}
+                      value={billFreightCustoms === 0 ? '' : billFreightCustoms}
+                      placeholder="0.00"
+                      onChange={(e) => setBillFreightCustoms(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
                       className="w-full rounded-lg border border-slate-300 p-1.5 font-mono bg-white"
                     />
                   </div>
                 </div>
               </div>
+
+              {/* Live Bill Financial Summary Bar */}
+              {(() => {
+                const itemsSub = QuotationRepository.roundCurrency(
+                  billLines.reduce((s, r) => s + (Number(r.line_total) || 0), 0)
+                );
+                const taxVal = QuotationRepository.roundCurrency(Number(billTaxAmount) || 0);
+                const freightVal = QuotationRepository.roundCurrency(Number(billFreightCustoms) || 0);
+                const grandVal = QuotationRepository.roundCurrency(itemsSub + taxVal + freightVal);
+                return (
+                  <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-amber-50/80 border border-amber-200 text-xs">
+                    <div className="flex items-center gap-4 text-slate-700 font-mono">
+                      <span>Items: <strong>{defaultCurrency} {itemsSub.toFixed(2)}</strong></span>
+                      <span>+ VAT: <strong>{defaultCurrency} {taxVal.toFixed(2)}</strong></span>
+                      <span>+ Freight/Duty: <strong>{defaultCurrency} {freightVal.toFixed(2)}</strong></span>
+                    </div>
+                    <div className="font-mono font-black text-sm text-amber-950">
+                      Grand Total Payable: {defaultCurrency} {grandVal.toFixed(2)}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
@@ -3235,8 +3367,9 @@ export default function ProcurementPayablesHub({
                   <input
                     type="number"
                     step="0.01"
-                    value={pvAmountPaid}
-                    onChange={(e) => setPvAmountPaid(Math.max(0, Number(e.target.value) || 0))}
+                    value={pvAmountPaid === 0 ? '' : pvAmountPaid}
+                    placeholder="0.00"
+                    onChange={(e) => setPvAmountPaid(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
                     className="w-full rounded-xl border border-amber-400 p-2 font-mono font-bold bg-amber-50/30 text-slate-900"
                   />
                 </div>
@@ -3489,93 +3622,133 @@ export default function ProcurementPayablesHub({
                     + Add Line
                   </button>
                 </div>
-                {retLines.map((line, idx) => (
-                  <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-slate-50 p-2 rounded-xl border border-slate-200">
-                    <div className="col-span-4">
-                      <select
-                        value={line.product_id || ''}
-                        onChange={(e) => {
-                          const pid = e.target.value;
-                          const prod = products.find((p) => p.id === pid);
-                          setRetLines((prev) =>
-                            prev.map((l, i) =>
-                              i === idx
-                                ? {
-                                    ...l,
-                                    product_id: pid,
-                                    item_name: prod?.name || l.item_name,
-                                    part_no: prod?.part_no || l.part_no,
-                                    unit: prod?.unit || l.unit,
-                                    unit_cost: Number(prod?.cost_price ?? prod?.last_landed_cost ?? 0)
-                                  }
-                                : l
+
+                <div className="grid grid-cols-12 gap-2 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  <div className="col-span-4">Catalog / Item</div>
+                  <div className="col-span-3">Description</div>
+                  <div className="col-span-1 text-right">Return Qty</div>
+                  <div className="col-span-2 text-right">Unit Rate ({defaultCurrency})</div>
+                  <div className="col-span-2 text-right">Line Total</div>
+                </div>
+
+                {retLines.map((line, idx) => {
+                  const lineTotal = QuotationRepository.roundCurrency(
+                    (Number(line.qty) || 0) * (Number(line.unit_cost) || 0)
+                  );
+                  return (
+                    <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-slate-50 p-2 rounded-xl border border-slate-200">
+                      <div className="col-span-4">
+                        <select
+                          value={line.product_id || ''}
+                          onChange={(e) => {
+                            const pid = e.target.value;
+                            const prod = products.find((p) => p.id === pid);
+                            setRetLines((prev) =>
+                              prev.map((l, i) =>
+                                i === idx
+                                  ? {
+                                      ...l,
+                                      product_id: pid,
+                                      item_name: prod?.name || prod?.description || l.item_name,
+                                      part_no: prod?.part_no || prod?.sku || l.part_no,
+                                      unit: prod?.unit || l.unit || 'Nos',
+                                      unit_cost: Number(
+                                        prod?.cost_price ||
+                                          prod?.last_landed_cost ||
+                                          (prod as any)?.selling_price ||
+                                          (prod as any)?.unit_price ||
+                                          l.unit_cost ||
+                                          0
+                                      )
+                                    }
+                                  : l
+                              )
+                            );
+                          }}
+                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-[11px]"
+                        >
+                          <option value="">-- Pick Catalog Item or Type --</option>
+                          {products.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} {p.part_no ? `(${p.part_no})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="col-span-3">
+                        <input
+                          type="text"
+                          value={line.item_name}
+                          onChange={(e) =>
+                            setRetLines((prev) =>
+                              prev.map((l, i) => (i === idx ? { ...l, item_name: e.target.value } : l))
                             )
-                          );
-                        }}
-                        className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-[11px]"
-                      >
-                        <option value="">-- Pick Catalog Item or Type --</option>
-                        {products.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} {p.part_no ? `(${p.part_no})` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="col-span-3">
-                      <input
-                        type="text"
-                        value={line.item_name}
-                        onChange={(e) =>
-                          setRetLines((prev) =>
-                            prev.map((l, i) => (i === idx ? { ...l, item_name: e.target.value } : l))
-                          )
-                        }
-                        placeholder="Item Description"
-                        className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-[11px]"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <input
-                        type="number"
-                        min="1"
-                        value={line.qty}
-                        onChange={(e) =>
-                          setRetLines((prev) =>
-                            prev.map((l, i) => (i === idx ? { ...l, qty: Number(e.target.value) || 1 } : l))
-                          )
-                        }
-                        placeholder="Qty"
-                        className="w-full rounded-lg border border-slate-300 p-1.5 bg-white font-mono text-[11px]"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={line.unit_cost}
-                        onChange={(e) =>
-                          setRetLines((prev) =>
-                            prev.map((l, i) =>
-                              i === idx ? { ...l, unit_cost: Number(e.target.value) || 0 } : l
+                          }
+                          placeholder="Item Description"
+                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-[11px]"
+                        />
+                      </div>
+                      <div className="col-span-1">
+                        <input
+                          type="number"
+                          min="1"
+                          value={line.qty === 0 ? '' : line.qty}
+                          onChange={(e) =>
+                            setRetLines((prev) =>
+                              prev.map((l, i) =>
+                                i === idx ? { ...l, qty: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) } : l
+                              )
                             )
-                          )
-                        }
-                        placeholder="Claim Rate"
-                        className="w-full rounded-lg border border-slate-300 p-1.5 bg-white font-mono text-[11px]"
-                      />
+                          }
+                          placeholder="1"
+                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white font-mono text-[11px] text-right"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={line.unit_cost === 0 ? '' : line.unit_cost}
+                          onChange={(e) =>
+                            setRetLines((prev) =>
+                              prev.map((l, i) =>
+                                i === idx ? { ...l, unit_cost: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) } : l
+                              )
+                            )
+                          }
+                          placeholder="0.00"
+                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white font-mono text-[11px] text-right"
+                        />
+                      </div>
+                      <div className="col-span-2 flex items-center justify-end gap-1.5">
+                        <span className="font-mono font-bold text-slate-900 text-[11px]">
+                          {lineTotal.toFixed(2)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setRetLines((prev) => prev.filter((_, i) => i !== idx))}
+                          className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="col-span-1 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setRetLines((prev) => prev.filter((_, i) => i !== idx))}
-                        className="p-1 text-rose-500 hover:bg-rose-50 rounded"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
+
+                <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-rose-50/70 border border-rose-200/80 text-xs">
+                  <span className="font-bold text-rose-950">
+                    {retMode === 'material_return_note'
+                      ? 'Total Return Value (Reference):'
+                      : 'Total Debit Note Claim Amount (Excl. VAT):'}
+                  </span>
+                  <span className="font-mono font-black text-sm text-rose-900">
+                    {defaultCurrency}{' '}
+                    {retLines
+                      .reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unit_cost) || 0), 0)
+                      .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -3661,7 +3834,7 @@ export default function ProcurementPayablesHub({
               {/* 3-Way Match Verification Banner */}
               <div
                 className={`p-3.5 rounded-xl border flex items-center justify-between ${
-                  viewingBillSummary.match_status === 'matched'
+                  viewingBillSummary.three_way_match_status === 'matched' || viewingBillSummary.match_status === 'matched'
                     ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
                     : viewingBillSummary.match_status === 'discrepancy'
                     ? 'bg-rose-50 border-rose-200 text-rose-900'
@@ -3669,23 +3842,36 @@ export default function ProcurementPayablesHub({
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  {viewingBillSummary.match_status === 'matched' ? (
+                  {viewingBillSummary.three_way_match_status === 'matched' || viewingBillSummary.match_status === 'matched' ? (
                     <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                   ) : (
                     <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
                   )}
                   <div>
                     <div className="font-black text-xs uppercase tracking-wider">
-                      3-Way Match Status: {viewingBillSummary.match_status.toUpperCase()}
+                      3-Way Match Status:{' '}
+                      {(
+                        viewingBillSummary.three_way_match_status ||
+                        viewingBillSummary.match_status ||
+                        'pending'
+                      )
+                        .replace(/_/g, ' ')
+                        .toUpperCase()}
                     </div>
                     <div className="text-[11px] opacity-85">
-                      {viewingBillSummary.discrepancy_notes ||
+                      {viewingBillSummary.variance_summary ||
+                        viewingBillSummary.discrepancy_notes ||
                         'All billed quantities and unit rates verified against Purchase Order and Warehouse GRN records.'}
                     </div>
                   </div>
                 </div>
                 <span className="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-white/80 border border-current/20">
-                  Status: {viewingBillSummary.status}
+                  Status:{' '}
+                  {viewingBillSummary.is_on_hold
+                    ? 'ON HOLD'
+                    : viewingBillSummary.approval_status === 'approved'
+                    ? 'APPROVED'
+                    : 'UNDER REVIEW'}
                 </span>
               </div>
 
@@ -3733,10 +3919,13 @@ export default function ProcurementPayablesHub({
                     {(viewingBillSummary.line_items || []).map((li, idx) => {
                       const qtyDiff = li.po_qty > 0 && li.billed_qty > (li.grn_qty || li.po_qty);
                       const rateDiff = li.po_unit_cost > 0 && Math.abs(li.billed_unit_cost - li.po_unit_cost) > 0.01;
+                      const displayDesc =
+                        (li.item_name && li.item_name.trim()) ||
+                        'General Bill / Freight & Tax Settlement';
                       return (
                         <tr key={idx} className="hover:bg-slate-50">
                           <td className="py-2.5 px-3 font-semibold text-slate-900">
-                            {li.item_name}
+                            {displayDesc}
                             {li.part_no && (
                               <span className="ml-1.5 font-mono text-[10.5px] text-slate-500">
                                 ({li.part_no})
@@ -3864,6 +4053,185 @@ export default function ProcurementPayablesHub({
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 7: SUPPLIER PO SUMMARY & GRN STATUS MODAL */}
+      {viewingPoSummary && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-900 text-white">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-[10px] font-black uppercase tracking-wider">
+                    Outbound Supplier Purchase Order
+                  </span>
+                  <span className="font-mono text-xs text-slate-300">
+                    {viewingPoSummary.purchase_order_metadata?.po_ref || viewingPoSummary.formatted_quote_ref}
+                  </span>
+                </div>
+                <h3 className="text-base font-black mt-0.5">
+                  {viewingPoSummary.purchase_order_metadata?.supplier_name ||
+                    viewingPoSummary.client_snapshot?.entity_name ||
+                    'Supplier PO Summary'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingPoSummary(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-5 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div>
+                  <div className="text-[10px] font-bold uppercase text-slate-400">PO Reference #</div>
+                  <div className="font-mono font-bold text-indigo-700 mt-0.5">
+                    {viewingPoSummary.purchase_order_metadata?.po_ref || viewingPoSummary.formatted_quote_ref}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase text-slate-400">PO Date</div>
+                  <div className="font-mono font-semibold text-slate-800 mt-0.5">
+                    {(viewingPoSummary.purchase_order_metadata?.po_date || viewingPoSummary.quotation_date || '').slice(0, 10)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase text-slate-400">Receiving Status</div>
+                  <div className="font-bold text-slate-900 mt-0.5">
+                    {viewingPoSummary.purchase_order_metadata?.receiving_status || 'Pending Receipt'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase text-slate-400">PO Grand Total</div>
+                  <div className="font-mono font-black text-slate-900 mt-0.5">
+                    {viewingPoSummary.currency}{' '}
+                    {Number(
+                      viewingPoSummary.financial_totals?.grand_total ?? viewingPoSummary.grand_total ?? 0
+                    ).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100 text-[10px] font-black uppercase text-slate-600 border-b border-slate-200">
+                      <th className="py-2.5 px-3">#</th>
+                      <th className="py-2.5 px-3">Item Description</th>
+                      <th className="py-2.5 px-3 text-right">Ordered</th>
+                      <th className="py-2.5 px-3 text-right">Received</th>
+                      <th className="py-2.5 px-3 text-right">Pending</th>
+                      <th className="py-2.5 px-3 text-right">Unit Cost</th>
+                      <th className="py-2.5 px-3 text-right">Line Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 text-xs">
+                    {(viewingPoSummary.line_items || []).map((li: any, idx: number) => {
+                      const ordered = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
+                      const received = Number(li.qty_received) || 0;
+                      const pending = Math.max(0, ordered - received);
+                      const rate = Number(li.unit_price ?? li.cost_price ?? 0);
+                      const total = Number(li.total_price ?? li.line_total ?? ordered * rate);
+                      return (
+                        <tr key={li.id || idx} className="hover:bg-slate-50">
+                          <td className="py-2.5 px-3 font-mono text-slate-500">{idx + 1}</td>
+                          <td className="py-2.5 px-3 font-semibold text-slate-900">
+                            {li.item_name || li.description || 'Standard Line Item'}
+                            {li.part_no && (
+                              <span className="ml-1.5 font-mono text-[10.5px] text-slate-500">
+                                ({li.part_no})
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono">{ordered} {li.unit || 'Nos'}</td>
+                          <td className="py-2.5 px-3 text-right font-mono text-emerald-700">{received}</td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-700">{pending}</td>
+                          <td className="py-2.5 px-3 text-right font-mono">{rate.toFixed(2)}</td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold">{total.toFixed(2)}</td>
+                        </tr>
+                      );
+                    })}
+                    {(viewingPoSummary.line_items || []).length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="py-6 text-center text-slate-400 italic">
+                          No line items recorded on this Purchase Order yet. Open in A4 Studio to add items.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {(viewingPoSummary.purchase_order_metadata?.receiving_status || 'Pending Receipt') !==
+                  'Fully Received' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = viewingPoSummary;
+                      setViewingPoSummary(null);
+                      handleOpenGrnModal(target);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer"
+                  >
+                    Receive Stock (GRN)
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = viewingPoSummary;
+                    setViewingPoSummary(null);
+                    handleOpenBillModal(target);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-bold cursor-pointer"
+                >
+                  Record Supplier Bill
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = viewingPoSummary;
+                    setViewingPoSummary(null);
+                    openCreatePvModal(undefined, target);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer"
+                >
+                  + Issue PV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = viewingPoSummary;
+                    setViewingPoSummary(null);
+                    handleIssueVendorReturn('material_return_note', target);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer"
+                >
+                  Return / Debit Note
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = viewingPoSummary;
+                    setViewingPoSummary(null);
+                    handleOpenInStudio(target);
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer"
+                >
+                  Open in A4 Studio
+                </button>
+              </div>
             </div>
           </div>
         </div>

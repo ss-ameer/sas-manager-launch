@@ -1,76 +1,93 @@
-# Executive Presentation-Readiness & End-to-End Workflow Polish Plan
+# Procurement, Payables & A4 Studio Reliability and UX Upgrade
 
-## 1. Seamless End-to-End Procurement Pipeline (`PO -> GRN -> BILL -> PV`)
-**Target Files:** `src/components/ProcurementPayablesHub.tsx`, `src/services/inventoryService.ts`
+Eliminate runtime console errors (`openCreatePvModal` and `QuotationRepository.listByWorkspace`), enable universal row click-to-open across all four Procurement tables, keep Save/Issue controls permanently visible in the A4 Studio header, add a live inline Line Items Editor inside the Studio's Deal Data & Content drawer, and refine creation modals for Supplier POs, Supplier Bills, Payment Vouchers, and Vendor Returns.
 
-- **Fix `Pending Stock Receipts (0)` & `PENDING GRN LINES` Empty State Trap:**
-  - Normalize ordered quantity resolution across all PO line items (`Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0`) so POs created in the quick modal or edited and saved inside `QuotationStudioModal` always report accurate ordered and remaining unreceived quantities.
-  - Include all active, non-cancelled Supplier POs (`draft`, `sent`, `approved`, `issued`, `partially_received`) that have remaining unreceived line quantities (`ordered > received`) inside both the `PENDING GRN LINES` KPI counter and the `Pending Stock Receipts` tab.
-  - Support receiving GRN quantities for **all** PO line items (both catalog-linked items with `product_id` and custom/manual PO items). Catalog-linked items will update warehouse stock and landed cost in `inventoryService.processPoBatchGrn`, while custom items will update `qty_received` on the PO line items and create a traceable receipt record.
-  - When confirming `Receive Stock (GRN)` on a `Draft` PO, automatically promote its commercial status to `Approved` / `Issued` along with updating `receiving_status` to `Partially Received` or `Fully Received`.
-- **Both `Save PO` & `Save & Open in Studio` Actions:**
-  - In the `Create Outbound Supplier Purchase Order (PO)` modal, provide both **`Save PO`** (persists immediately to `QuotationRepository` and updates the hub tables) and **`Save & Open in Studio`** (persists immediately to `QuotationRepository` and launches `QuotationStudioModal` with the saved PO).
-- **1-Click Progressive Workflow Actions on Every Table Row:**
-  - **Supplier POs Tab (`ACTION` column):**
-    - `[ Receive GRN ]` (visible whenever unreceived quantity > 0; opens the GRN modal pre-loaded with that PO).
-    - `[ Record Bill ]` (opens the Record Supplier Bill & 3-Way Match modal pre-linked to that PO and Vendor with all PO/GRN lines populated).
-    - `[ Open in Studio ]` (opens the PO in `QuotationStudioModal`).
-  - **Supplier Bills & 3-Way Match Tab (`ACTION` column):**
-    - `[ Approve Bill ]` (one-click status promotion when bill is `draft` or `under_review`).
-    - `[ Pay Bill (PV) ]` (opens the Guided Payment Voucher modal pre-populated with that Bill's Vendor, linked Bill allocation, and remaining unpaid balance).
-    - `[ View / Print Bill Summary ]` (opens a printable **3-Way Match Bill Summary & Voucher Sheet** modal displaying Vendor metadata, Linked PO & GRN status, line-by-line PO vs. GRN vs. Billed comparison table, Tax/Freight/Landed Cost breakdown, Payment/Debit Note deductions, embedded Vendor Invoice PDF preview/download link, and a `Print Summary` button).
+## User Review & Critical Decisions
+
+> [!IMPORTANT]
+> The following architectural and UX decisions have been confirmed and incorporated into this plan:
+
+- **Confirmed Decision 1 — Supplier PO Row Click Behavior**: Clicking a row in the **Supplier POs** table opens a dedicated **Supplier PO Summary & GRN Status Viewer Modal** with quick actions (`Receive GRN`, `Record Bill`, `+ Payment Voucher`, `Return / DN`, and `Open in A4 Studio`), while row action buttons use `e.stopPropagation()`.
+- **Confirmed Decision 2 — Mandatory Named Line Item on PO Creation**: Saving a new Outbound Supplier PO requires at least one named line item (`item_name` non-empty and `qty >= 1`), ensuring every created PO immediately populates **Pending Stock Receipts** and increments **PENDING GRN LINES**.
+- **Confirmed Decision 3 — Legacy Zero-Value Test Vouchers**: Zero-value dummy test records (`AED 0.00` with generic `Vendor / Supplier` names) are automatically filtered out of the active **Payment Vouchers & Returns** table while providing a 1-click delete action on all rows.
 
 ---
 
-## 2. Single-Drawer Exclusivity in A4 Studio (Prevent Canvas Squeeze)
-**Target File:** `src/components/quotations/QuotationStudioModal.tsx`
+## 1. Overview & Core Concept
 
-- **Enforce Single Open Drawer Across All Sections:**
-  - Coordinate `isLeftDrawerOpen` (Left Controls Drawer) and `selectedSection` (Right Block Inspector Drawer) so only one drawer is ever open at a time, preserving generous horizontal breathing room for the centered A4 live preview across all screen sizes.
-  - When a user clicks any metadata card on the A4 preview (`Vendor/Client`, `PO/PV/MRN/DN/DO/REC Metadata`, `Settlement Schedule`, `Bank Details`, `Sign-off Block`), open the Left Controls Drawer (`isLeftDrawerOpen = true`), switch `leftTab` to `'content'` (`Deal Data & Content`), clear `selectedSection` (`null`), and scroll smoothly to the corresponding form card with a visual focus ring.
-  - When a user opens a Right Block Inspector (`selectedSection !== null`), automatically collapse the Left Controls Drawer (`isLeftDrawerOpen = false`). Conversely, clicking `Show Controls` in the top bar automatically closes `selectedSection`.
+- **What It Does**: Provides a crash-free, responsive end-to-end procurement and commercial document workflow (`PO -> GRN -> 3-Way Match Bill -> PV / MRN / DN`) with interactive table rows, live modal financial calculators, and full inline line-item editing inside the A4 Document Studio.
+- **Target Audience / Persona**: Procurement officers, warehouse storekeepers, finance controllers, and commercial executives conducting live operational reviews.
+- **Key Value**: Eliminates runtime exceptions on bill payment and return creation, removes friction when inspecting or editing documents, and ensures every financial total and line item stays synchronized across modals, tables, and A4 printouts.
 
 ---
 
-## 3. Automatic Self-Healing Sanitizer for Saved Drafts
-**Target File:** `src/services/repositories/QuotationRepository.ts`
+## 2. User Experience & Visual Design
 
-- **Self-Heal Legacy Records on Load (`docToQuotation` / `saveQuotation`):**
-  - **Strip Dummy Fallback Line Items on Payment Vouchers:** When `document_type === 'payment_voucher'`, automatically filter out any legacy default `'Commercial Grade Equipment Unit'` (`MOD-100-PRO`) fallback line item if settlement allocations or `amount_paid` exist.
-  - **Normalize Chained Reference Prefixes:** Automatically sanitize any double/chained document number prefixes (e.g., `PO-PV-...`, `REC-PV-...`, `MRN-PV-...`, `DN-PO-...`) so the reference cleanly matches the document's active prefix (`PO-`, `PV-`, `MRN-`, `DN-`, `DO-`, `REC-`, `QT-`).
-  - **Synchronize Document Totals:** Ensure `grand_total`, `financial_totals.grand_total`, and `payment_voucher_metadata.amount_paid` stay deterministically synchronized on read and write so no table row ever displays `AED 0.00` for a funded voucher or PO.
+- **Key User Flows**:
+  1. **Universal Table Row Click-to-Open**:
+     - **Supplier POs Tab**: Clicking any PO row opens the **Supplier PO Summary & Receiving Status Modal** displaying vendor details, linked enquiry, line-by-line ordered vs. received vs. pending quantities, and 1-click lifecycle actions.
+     - **Pending Stock Receipts Tab**: Clicking any pending line row opens the **Receive Stock (GRN) & Landed Cost Modal** for that PO.
+     - **Supplier Bills & 3-Way Match Tab**: Clicking any bill row opens the printable **3-Way Match Bill Summary & Voucher Sheet Modal** with embedded PDF/image scan preview and a streamlined action bar (`Approve`, `Pay Bill`, `Hold`, `Edit`, `Delete`).
+     - **Payment Vouchers & Returns Tab**: Clicking any `PV`, `MRN`, or `DN` row launches that document directly in the **A4 Studio**.
+  2. **A4 Studio Header & Inline Line Items Editor**:
+     - Top header bar permanently displays `[ Save <Document> ]` and `[ Issue <Document> ]` regardless of whether the Left Controls Drawer or Right Inspector is open.
+     - Opening **Deal Data & Content** shows the **Document Metadata Editor** and a new **Document Line Items Editor** (with Catalog Item selector, Description, Qty, UOM, Unit Rate, and Delete) at the top of the drawer, while the `Document Data & @ Fields` reference accordion starts collapsed by default.
+     - Vendor documents (`debit_note`, `material_return_note`, `payment_voucher`) suppress client-only quotation blocks (`Commercial Terms & Conditions` and `* Taxes EXTRA to client account`) and display an interactive empty-table prompt (`"No line items added yet — click here to add items."`) that focuses the Line Items Editor.
+  3. **Guided Modal Auto-Fill & Live Totals**:
+     - **Create Outbound Supplier PO Modal**: Selecting a catalog item auto-fills description, part number, UOM, and unit cost (`cost_price` or `selling_price` fallback), shows column headers and per-line totals, displays a live **PO Total (AED)** bar, and validates that at least one named item is present before saving.
+     - **Record Supplier Bill & 3-Way Match Modal**: Combines Vendor selection and legal name into a clean unified selector + editable input without redundant fields, fixes leading-zero numeric input behavior by parsing clean numbers and allowing empty transient strings while typing, populates PO/GRN quantities when linking a PO, and adds a live **Bill Financial Summary Bar** (`Items Subtotal + Tax / VAT + Freight / Duty = Grand Total Payable`).
+     - **Issue Outbound Payment Voucher (PV) Modal**: Checking open bills automatically populates the vendor, sums checked `balance_due` into `Amount Paid (AED)`, and builds the payment narration (`Settlement against BILL-XXXX (Inv #...)`). Saving writes `amount_paid` to both `payment_voucher_metadata.amount_paid` and `grand_total`.
+     - **Issue Vendor Debit Note (DN) & Material Return (MRN) Modal**: Selecting a linked PO or Supplier Bill populates `Return / Claim Line Items` with descriptions, quantities, and rates, adds column headers and a live **Total Claim / Debit Note Amount (AED)** summary bar, and persists all line items and calculated totals onto the `QuotationDocumentRecord`.
 
----
-
-## 4. Upgraded Procurement Flows & Margin Summary in Enquiries & Projects
-**Target Files:** `src/components/EnquiryDetail.tsx`, `src/components/ProjectRegistry.tsx`
-
-- **Enquiry -> Supplier PO Creation (`EnquiryDetail.tsx`):**
-  - In the `+ Supplier PO` modal inside an Enquiry, ensure unit rates initialize strictly from item `cost_price` (falling back to catalog `cost_price`, never client selling price).
-  - Provide both **`Save PO`** and **`Save & Open in Studio`** buttons, persisting the new Supplier PO via `QuotationRepository.saveQuotation` immediately so it appears in `Procurement & Payables` -> `Supplier POs` and `Pending Stock Receipts` right away.
-- **Procurement & Margin Summary Bar (`EnquiryDetail.tsx` & `ProjectRegistry.tsx`):**
-  - Display a clean **Procurement & Margin Summary** strip showing:
-    - **Client Quoted / Order Value**
-    - **Committed Supplier PO / Landed Bill Cost**
-    - **Estimated Net Margin (AED & %)**
-  - Ensure launching any commercial document from `EnquiryDetail.tsx` or `ProjectRegistry.tsx` passes the exact `editingQuotation` and `initialDocumentType` into `QuotationStudioModal`.
-
----
-
-## 5. Vendor / Supplier 360° Payables & Bank Details in Companies Directory
-**Target Files:** `src/components/CompanyModal.tsx`, `src/components/CreateCompanyModal.tsx`, `src/components/CompanyDetailView.tsx`
-
-- **Editable Vendor Commercial & Beneficiary Bank Fields:**
-  - Add dedicated fields in `CompanyModal.tsx` and `CreateCompanyModal.tsx` for:
-    - **TRN / Tax Registration Number (`tax_registration_no`)**
-    - **Default Payment Terms (`default_payment_terms`)**
-    - **Beneficiary Bank Details (`vendor_bank_details`)**: `Bank Name`, `Account Holder Name`, `IBAN / Account No`, `SWIFT / BIC`, and `Currency`.
-  - When a Vendor is selected in the **Payment Voucher** setup modal or **Supplier PO** modal, automatically pre-fill their saved TRN, Payment Terms, and Beneficiary Bank Details onto the document.
+- **Visual Identity & Theme**:
+  - *Aesthetic Direction*: High-density enterprise SaaS ledger and A4 document studio following the 60-30-10 neutral slate canvas (`bg-slate-50`/`bg-white`), crisp `1px` structural borders (`border-slate-200`), and semantic status accents (Indigo for POs, Emerald for GRN/Matched, Amber for Bills/PVs, Rose for Returns/Holds).
+  - *Typography & Hierarchy*: `Plus Jakarta Sans` UI headers and controls paired with `JetBrains Mono` (`font-mono tabular-nums`) for all document references, quantities, rates, and currency totals.
+  - *Single-Row Header Actions*: `PageHeader` action buttons use `flex-nowrap whitespace-nowrap shrink-0` so `Record Supplier Bill`, `Issue Payment Voucher`, and `+ New Supplier PO` remain on a single horizontal line.
 
 ---
 
-## 6. Final Visual & Runtime Smoke Verification
-**Target Files:** Global layout & views
+## 3. Key Product Decisions & Trade-Offs
 
-- Verify `<PageHeader>` spacing and top margin alignment above KPI cards across all modules (`ProcurementPayablesHub`, `EnquiryList`, `ProjectRegistry`, `CompanyDirectory`, `ProductCatalog`).
-- Run `compile_applet` to confirm zero TypeScript or bundler errors.
+- **Decision 1: Aliasing `listByWorkspace` on `QuotationRepository` & `ProcurementRepository`**
+  - *Chosen Approach*: Expose `QuotationRepository.listByWorkspace(workspaceId)` (delegating to `getQuotationsForWorkspace`) and `ProcurementRepository.listByWorkspace(workspaceId)` (delegating to `getWorkspaceSupplierBills`), and define `openCreatePvModal` in `ProcurementPayablesHub`.
+  - *Why*: Guarantees backward and forward compatibility across all modal save handlers and row action triggers without runtime `TypeError` or `ReferenceError` crashes.
+- **Decision 2: Live Inline Line Items State in Studio (`customStudioLineItems`)**
+  - *Chosen Approach*: Seed editable studio line items from the active document's `line_items` (or empty array for new standalone vendor docs rather than injecting dummy `MOD-100-PRO` sample items on vendor documents) and recalculate `subtotal`, `tax_amount`, and `grand_total` on every item addition, edit, or deletion.
+  - *Why*: Allows users to add or adjust items directly inside Studio for `PO`, `DN`, `MRN`, `DO`, and `QT` with instant A4 preview updates.
+
+---
+
+## 4. Technical Architecture & Data Strategy *(Technical Reference)*
+
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│                        Procurement & Payables Hub                          │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────────┐  │
+│  │PageHeader (1-Row)│  │ 4 Interactive    │  │ Guided Modals (PO, GRN,  │  │
+│  │nowrap CTA buttons│  │ Tables (RowClick)│  │ Bill, PV, MRN/DN, Viewer)│  │
+│  └────────┬─────────┘  └────────┬─────────┘  └────────────┬─────────────┘  │
+└───────────┼─────────────────────┼─────────────────────────┼────────────────┘
+            │                     ▼                         ▼
+┌───────────┴────────────────────────────────────────────────────────────────┐
+│                    A4 Document Studio (QuotationStudioModal)               │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │ Always-Visible Top Header: [Save <Doc>] [Issue <Doc>] [Hide Controls]│  │
+│  ├──────────────────────────────────┬───────────────────────────────────┤  │
+│  │ Deal Data & Content Drawer       │ Live A4 Canvas (QuotationDocument)│  │
+│  │ • Document Metadata Editor       │ • Hides Client Terms on DN/MRN/PV │  │
+│  │ • Inline Line Items Editor (NEW) │ • Interactive Empty Table Prompt  │  │
+│  │ • Collapsed @Fields Accordion    │ • Synchronized Financial Totals   │  │
+│  └──────────────────────────────────┴───────────────────────────────────┘  │
+└─────────────────────────────────────┬──────────────────────────────────────┘
+                                      ▼
+┌────────────────────────────────────────────────────────────────────────────┐
+│              Repository Layer (Firestore + Local Cache Sync)               │
+│  • QuotationRepository.listByWorkspace() <-> getQuotationsForWorkspace()   │
+│  • ProcurementRepository.recalculateBillSettlement()                       │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Interactive Component & State Mapping**:
+  - `openCreatePvModal(bill?, po?)`: Closes `viewingBillSummary` if open, invokes `handleIssuePaymentVoucher(bill, po)` to pre-select vendor, allocate the bill's `balance_due`, populate `pvAmountPaid`, and open `showCreatePvModal`.
+  - Numeric inputs in Bill, PO, PV, and Return modals use `value={val === 0 ? '' : val}` (or `String(val || '')` with `placeholder="0"`) so typing `50` never produces `050`.
+  - Console cleanup: Removes `console.log('[Visibility Check]', ...)` from `App.tsx` and uses static imports for `aiExtractionClient` in `SettingsHub.tsx`.

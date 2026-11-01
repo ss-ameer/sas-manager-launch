@@ -41,6 +41,7 @@ import UserManagementHub from './UserManagementHub';
 import GeminiKeyModal from './GeminiKeyModal';
 import IndustryTaxonomyManager from './IndustryTaxonomyManager';
 import { WorkspaceDocumentProfileSettings } from './settings/WorkspaceDocumentProfileSettings';
+import { DEFAULT_MODEL_CASCADE, discoverLiveGeminiModels } from '../utils/aiExtractionClient';
 import { signOut, deleteUser } from 'firebase/auth';
 import { writeBatch, collection, query, where, getDocs, doc, arrayRemove, setDoc } from 'firebase/firestore';
 import { auth, db, safeDeleteDoc, safeGetDocs, safeUpdateDoc } from '../firebase';
@@ -788,7 +789,6 @@ export default function SettingsHub({
       }
 
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
-      const { DEFAULT_MODEL_CASCADE, discoverLiveGeminiModels } = await import('../utils/aiExtractionClient');
       const genAI = new GoogleGenerativeAI(userApiKey);
       const testPool = Array.from(
         new Set([

@@ -141,7 +141,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
 
         {/* Right Action Bar Column */}
         {(primaryAction || (secondaryActions && secondaryActions.length > 0) || children) && (
-          <div className="flex items-center gap-2 flex-wrap justify-end">
+          <div className="flex items-center gap-2 flex-nowrap justify-end shrink-0">
             {secondaryActions?.map((act, index) => {
               const SecIcon = act.icon;
               const isGhost = act.variant === 'ghost';
@@ -152,14 +152,14 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
                   onClick={act.onClick}
                   className={
                     isGhost
-                      ? 'px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-xl transition cursor-pointer flex items-center gap-1.5'
-                      : 'px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 shadow-2xs rounded-xl transition cursor-pointer flex items-center gap-1.5'
+                      ? 'px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0'
+                      : 'px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 shadow-2xs rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0'
                   }
                 >
                   {SecIcon && (
                     React.isValidElement(SecIcon)
                       ? SecIcon
-                      : React.createElement(SecIcon as React.ComponentType<{ className?: string }>, { className: 'w-4 h-4 text-slate-500' })
+                      : React.createElement(SecIcon as React.ComponentType<{ className?: string }>, { className: 'w-4 h-4 text-slate-500 shrink-0' })
                   )}
                   <span>{act.label}</span>
                 </button>
@@ -170,12 +170,12 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
               <button
                 type="button"
                 onClick={primaryAction.onClick}
-                className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition cursor-pointer flex items-center gap-2 border border-blue-500/20 active:scale-[0.98]"
+                className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition cursor-pointer flex items-center gap-2 border border-blue-500/20 active:scale-[0.98] whitespace-nowrap shrink-0"
               >
                 {primaryAction.icon && (
                   React.isValidElement(primaryAction.icon)
                     ? primaryAction.icon
-                    : React.createElement(primaryAction.icon as React.ComponentType<{ className?: string }>, { className: 'w-4 h-4' })
+                    : React.createElement(primaryAction.icon as React.ComponentType<{ className?: string }>, { className: 'w-4 h-4 shrink-0' })
                 )}
                 <span>{primaryAction.label}</span>
               </button>

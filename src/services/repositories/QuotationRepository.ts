@@ -1877,6 +1877,13 @@ export class QuotationRepository {
   }
 
   /**
+   * Convenience alias for getQuotationsForWorkspace (used by Procurement & Payables Hub)
+   */
+  public static async listByWorkspace(workspaceId: string): Promise<Quotation[]> {
+    return this.getQuotationsForWorkspace(workspaceId);
+  }
+
+  /**
    * Convenience alias for saveQuotation
    */
   public static async save(quotation: Quotation): Promise<Quotation> {

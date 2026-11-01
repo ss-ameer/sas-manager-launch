@@ -941,6 +941,18 @@ export class ProcurementRepository {
       }) || null
     );
   }
+
+  static async listByWorkspace(workspaceId: string): Promise<SupplierBill[]> {
+    return this.getWorkspaceSupplierBills(workspaceId);
+  }
+
+  static async recalculateBillSettlement(
+    billIdOrWorkspaceId: string,
+    workspaceId?: string
+  ): Promise<SupplierBill[]> {
+    const resolvedWsId = workspaceId || billIdOrWorkspaceId || 'ws_default';
+    return this.recalculateWorkspaceSupplierBillBalances(resolvedWsId);
+  }
 }
 
 // Register lifecycle hook so deleting or restoring a PV/DN in QuotationRepository automatically recalculates Supplier Bill balances
