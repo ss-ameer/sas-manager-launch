@@ -188,14 +188,17 @@ export default function ProcurementPayablesHub({
     [quotations]
   );
 
+  const getCompanyName = (c?: Company | null): string =>
+    (c?.display_name || c?.canonical_name || c?.name || '').trim();
+
   const vendors = useMemo(
     () =>
       companies
-        .filter((c) => !c.is_deleted)
+        .filter((c) => !c.is_deleted && getCompanyName(c) !== '')
         .sort((a, b) => {
           const aV = a.relationship_type === 'Vendor / Supplier' ? 0 : 1;
           const bV = b.relationship_type === 'Vendor / Supplier' ? 0 : 1;
-          return aV - bV || (a.name || '').localeCompare(b.name || '');
+          return aV - bV || getCompanyName(a).localeCompare(getCompanyName(b));
         }),
     [companies]
   );
@@ -429,7 +432,7 @@ export default function ProcurementPayablesHub({
   // Create Standalone or Enquiry-Linked Supplier PO
   const handleCreateSupplierPo = async () => {
     const selectedVendor = companies.find((c) => c.id === newPoVendorId);
-    const supplierName = (selectedVendor?.name || newPoSupplierName || '').trim();
+    const supplierName = (getCompanyName(selectedVendor) || newPoSupplierName || '').trim();
     if (!supplierName) {
       triggerToast?.('Please select or enter a Supplier / Vendor name.', 'error');
       return;
@@ -837,7 +840,7 @@ export default function ProcurementPayablesHub({
     const payeeName =
       bill?.vendor_name ||
       po?.purchase_order_metadata?.supplier_name ||
-      vendor?.name ||
+      getCompanyName(vendor) ||
       'Vendor / Supplier';
 
     const payableTotal = bill
@@ -1228,11 +1231,14 @@ export default function ProcurementPayablesHub({
             className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs bg-slate-50 text-slate-800"
           >
             <option value="ALL">All Vendors / Suppliers</option>
-            {vendors.map((v) => (
-              <option key={v.id} value={v.name}>
-                {v.name}
-              </option>
-            ))}
+            {vendors.map((v) => {
+              const vName = getCompanyName(v);
+              return (
+                <option key={v.id} value={vName}>
+                  {vName}
+                </option>
+              );
+            })}
           </select>
           <div className="relative w-56">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
@@ -1290,9 +1296,10 @@ export default function ProcurementPayablesHub({
                           {(meta?.po_date || po.quotation_date || '').slice(0, 10)}
                         </td>
                         <td className="py-3 px-3 max-w-[220px]">
-                          <div className="font-bold text-slate-900 truncate">
-                            {meta?.supplier_name || po.client_snapshot?.entity_name || 'Vendor'}
-                          </div>
+                          <HoverScrollText
+                            text={meta?.supplier_name || po.client_snapshot?.entity_name || 'Vendor'}
+                            className="font-bold text-slate-900"
+                          />
                           {meta?.supplier_trn && (
                             <div className="text-[10px] font-mono text-slate-400">
                               TRN: {meta.supplier_trn}
@@ -1304,9 +1311,12 @@ export default function ProcurementPayablesHub({
                             <button
                               type="button"
                               onClick={() => onSelectEnquiry?.(linkedEnq.id)}
-                              className="text-left text-blue-600 hover:underline font-semibold flex items-center gap-1 truncate cursor-pointer"
+                              className="text-left text-blue-600 hover:underline font-semibold flex items-center gap-1 max-w-full cursor-pointer"
                             >
-                              <span>ENQ #{linkedEnq.sn} — {linkedEnq.company_name}</span>
+                              <HoverScrollText
+                                text={`ENQ #${linkedEnq.sn} — ${linkedEnq.company_name}`}
+                                className="max-w-[200px]"
+                              />
                               <ArrowUpRight className="w-3 h-3 shrink-0" />
                             </button>
                           ) : (
@@ -1374,6 +1384,23 @@ export default function ProcurementPayablesHub({
                               className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[10.5px] font-bold transition cursor-pointer"
                             >
                               Studio
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                await QuotationRepository.softDeleteQuotation(po.id, {
+                                  id: user.uid || user.id || 'user',
+                                  name: user.full_name || user.email || 'User'
+                                });
+                                triggerToast?.(
+                                  `${meta?.po_ref || po.formatted_quote_ref} moved to Recycle Bin.`,
+                                  'info'
+                                );
+                              }}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                              title="Move Supplier PO to Recycle Bin"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </td>
@@ -1643,6 +1670,17 @@ export default function ProcurementPayablesHub({
                             >
                               Edit
                             </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                await ProcurementRepository.delete(bill.id, activeWorkspace.id);
+                                triggerToast?.(`${bill.bill_number} moved to Recycle Bin.`, 'info');
+                              }}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                              title="Move Supplier Bill to Recycle Bin"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -1733,20 +1771,39 @@ export default function ProcurementPayablesHub({
                           doc.vendor_return_metadata?.supplier_name ||
                           doc.client_snapshot?.entity_name}
                       </td>
-                      <td className="py-3 px-3 text-slate-600 max-w-xs truncate">
-                        {doc.quotation_subject}
+                      <td className="py-3 px-3 text-slate-600 max-w-xs">
+                        <HoverScrollText text={doc.quotation_subject || ''} />
                       </td>
                       <td className="py-3 px-3 text-right font-mono font-bold text-slate-900">
                         {isMrn ? 'Unpriced' : `${doc.currency} ${amt.toFixed(2)}`}
                       </td>
-                      <td className="py-3 px-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenInStudio(doc)}
-                          className="px-3 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[10.5px] font-bold cursor-pointer"
-                        >
-                          Open in A4 Studio
-                        </button>
+                      <td className="py-3 px-4 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenInStudio(doc)}
+                            className="px-3 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[10.5px] font-bold cursor-pointer"
+                          >
+                            Open in A4 Studio
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await QuotationRepository.softDeleteQuotation(doc.id, {
+                                id: user.uid || user.id || 'user',
+                                name: user.full_name || user.email || 'User'
+                              });
+                              triggerToast?.(
+                                `${doc.formatted_quote_ref} moved to Recycle Bin and Bill balances updated.`,
+                                'info'
+                              );
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                            title="Move Document to Recycle Bin"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1798,16 +1855,19 @@ export default function ProcurementPayablesHub({
                       const id = e.target.value;
                       setNewPoVendorId(id);
                       const v = companies.find((c) => c.id === id);
-                      if (v) setNewPoSupplierName(v.name);
+                      if (v) setNewPoSupplierName(getCompanyName(v));
                     }}
                     className="w-full rounded-xl border border-slate-300 p-2 bg-white"
                   >
                     <option value="">-- Select Registered Vendor (or type name) --</option>
-                    {vendors.map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.name} {v.relationship_type ? `(${v.relationship_type})` : ''}
-                      </option>
-                    ))}
+                    {vendors.map((v) => {
+                      const vName = getCompanyName(v);
+                      return (
+                        <option key={v.id} value={v.id}>
+                          {vName} {v.relationship_type ? `(${v.relationship_type})` : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
                 <div>
@@ -2250,13 +2310,39 @@ export default function ProcurementPayablesHub({
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Vendor / Supplier Name *</label>
-                  <input
-                    type="text"
-                    value={billVendorName}
-                    onChange={(e) => setBillVendorName(e.target.value)}
-                    placeholder="Supplier Legal Name"
-                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
-                  />
+                  <div className="space-y-1.5">
+                    <select
+                      value={billVendorId}
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        setBillVendorId(id);
+                        const v = companies.find((c) => c.id === id);
+                        if (v) {
+                          setBillVendorName(getCompanyName(v));
+                          if (v.tax_registration_no) setBillVendorTrn(v.tax_registration_no);
+                          if (v.default_currency) setBillCurrency(v.default_currency);
+                        }
+                      }}
+                      className="w-full rounded-xl border border-slate-300 p-1.5 bg-slate-50 text-[11px]"
+                    >
+                      <option value="">-- Pick from Vendor Directory --</option>
+                      {vendors.map((v) => {
+                        const vName = getCompanyName(v);
+                        return (
+                          <option key={v.id} value={v.id}>
+                            {vName} {v.relationship_type ? `(${v.relationship_type})` : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <input
+                      type="text"
+                      value={billVendorName}
+                      onChange={(e) => setBillVendorName(e.target.value)}
+                      placeholder="Supplier Legal Name"
+                      className="w-full rounded-xl border border-slate-300 p-2 bg-white"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Vendor Invoice # *</label>

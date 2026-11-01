@@ -486,14 +486,16 @@ export default function SettingsHub({
         (prod.attachments || []).forEach((att) => addUrl(att.url));
       });
 
-      // 3. Collect from Quotations / Commercial Documents & Document Profile
-      const [allQuotes, docProfile, allSupplierBills] = await Promise.all([
+      // 3. Collect from Quotations / Commercial Documents (active + Recycle Bin) & Document Profile & Supplier Bills (active + Recycle Bin)
+      const [allQuotes, deletedQuotes, docProfile, allSupplierBills, deletedSupplierBills] = await Promise.all([
         QuotationRepository.getAllByWorkspace(activeWorkspace.id).catch(() => []),
+        QuotationRepository.getDeletedQuotations(activeWorkspace.id).catch(() => []),
         QuotationRepository.getWorkspaceDocumentProfile(activeWorkspace.id).catch(() => null),
-        ProcurementRepository.getAllByWorkspace(activeWorkspace.id).catch(() => [])
+        ProcurementRepository.getAllByWorkspace(activeWorkspace.id).catch(() => []),
+        ProcurementRepository.getDeletedSupplierBills(activeWorkspace.id).catch(() => [])
       ]);
 
-      allQuotes.forEach((qt) => {
+      [...allQuotes, ...deletedQuotes].forEach((qt) => {
         addUrl(qt.pdf_url);
         addUrl(qt.company_logo_url);
         addUrl(qt.company_seal_url);
@@ -502,7 +504,9 @@ export default function SettingsHub({
         (qt.flyer_attachments || []).forEach((att) => addUrl(att.url));
         (qt.line_items || []).forEach((li) => {
           addUrl(li.image_url);
+          addUrl(li.secondary_image_url);
           addUrl(li.datasheet_url);
+          addUrl(li.datasheet_attachment?.url);
         });
       });
 
@@ -514,8 +518,8 @@ export default function SettingsHub({
         addUrl(docProfile.header_config?.logoUrl);
       }
 
-      // 4. Collect from Supplier Bills
-      allSupplierBills.forEach((bill) => {
+      // 4. Collect from Supplier Bills (active + Recycle Bin)
+      [...allSupplierBills, ...deletedSupplierBills].forEach((bill) => {
         addUrl(bill.attachment?.url);
         addUrl(bill.attachment_url);
       });

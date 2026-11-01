@@ -7,7 +7,7 @@ import {
   PaymentVoucherAllocationRow
 } from '../../types';
 import { db, safeSetDoc, safeUpdateDoc, safeDeleteDoc } from '../../firebase';
-import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { QuotationRepository } from './QuotationRepository';
 import { deleteFromStorageBucket, WorkspaceStorageSettings } from '../attachmentStorage';
 
@@ -43,6 +43,27 @@ function upsertLocalBill(bill: SupplierBill) {
 }
 
 export class ProcurementRepository {
+  private static workspaceListeners = new Map<string, Set<() => void>>();
+
+  public static notifyWorkspaceSubscribers(workspaceId?: string): void {
+    const wsId = workspaceId || 'ws_default';
+    const listeners = this.workspaceListeners.get(wsId);
+    if (listeners) {
+      listeners.forEach((fn) => {
+        try {
+          fn();
+        } catch (_) {}
+      });
+    }
+    const wildcard = this.workspaceListeners.get('*');
+    if (wildcard) {
+      wildcard.forEach((fn) => {
+        try {
+          fn();
+        } catch (_) {}
+      });
+    }
+  }
   /**
    * Computes 3-Way Match status and line-level variances comparing a Supplier Bill against its linked PO and GRN quantities.
    */
@@ -312,11 +333,100 @@ export class ProcurementRepository {
 
     upsertLocalBill(fullBill);
     await safeSetDoc(SUPPLIER_BILLS_COLLECTION, id, fullBill);
+    this.notifyWorkspaceSubscribers(fullBill.workspace_id);
     return fullBill;
   }
 
   /**
-   * Soft-deletes a Supplier Bill and optionally deletes its cloud attachment if purged.
+   * Fetches all soft-deleted Supplier Bills for a workspace (for Recycle Bin & Orphan Scanner).
+   */
+  static async getDeletedSupplierBills(workspaceId?: string): Promise<SupplierBill[]> {
+    const wsId = workspaceId || 'ws_default';
+    const mergedMap = new Map<string, SupplierBill>();
+
+    readLocalBills()
+      .filter(
+        (b) =>
+          Boolean(b.is_deleted) &&
+          (!workspaceId || b.workspace_id === wsId || (!b.workspace_id && wsId === 'ws_default'))
+      )
+      .forEach((b) => {
+        if (b.id) mergedMap.set(b.id, b);
+      });
+
+    try {
+      const q = workspaceId
+        ? query(collection(db, SUPPLIER_BILLS_COLLECTION), where('workspace_id', '==', wsId))
+        : query(collection(db, SUPPLIER_BILLS_COLLECTION));
+      const snap = await getDocs(q);
+      snap.docs.forEach((d) => {
+        const data = { id: d.id, ...d.data() } as SupplierBill;
+        if (data.is_deleted && (!workspaceId || data.workspace_id === wsId)) {
+          mergedMap.set(d.id, {
+            ...data,
+            vendor_company_id: data.vendor_company_id || data.supplier_id,
+            vendor_name: data.vendor_name || data.supplier_name || 'Vendor',
+            vendor_trn: data.vendor_trn || data.supplier_trn,
+            three_way_match_status: data.three_way_match_status || data.match_status || 'no_po'
+          });
+        } else if (!data.is_deleted) {
+          mergedMap.delete(d.id);
+        }
+      });
+    } catch (_) {}
+
+    return Array.from(mergedMap.values()).sort((a, b) =>
+      (b.deleted_at || b.updated_at || '').localeCompare(a.deleted_at || a.updated_at || '')
+    );
+  }
+
+  /**
+   * Restores a soft-deleted Supplier Bill from the Recycle Bin and recalculates its paid/credit balances.
+   */
+  static async restoreSupplierBill(billId: string): Promise<SupplierBill | null> {
+    if (!billId) return null;
+    const nowIso = new Date().toISOString();
+    const localList = readLocalBills();
+    let target = localList.find((b) => b.id === billId) || null;
+
+    if (!target) {
+      try {
+        const snap = await getDoc(doc(db, SUPPLIER_BILLS_COLLECTION, billId));
+        if (snap.exists()) {
+          target = { id: snap.id, ...snap.data() } as SupplierBill;
+        }
+      } catch (_) {}
+    }
+
+    if (target) {
+      const restored: SupplierBill = {
+        ...target,
+        is_deleted: false,
+        deleted_at: undefined,
+        updated_at: nowIso
+      };
+      upsertLocalBill(restored);
+      await safeUpdateDoc(SUPPLIER_BILLS_COLLECTION, billId, {
+        is_deleted: false,
+        deleted_at: null,
+        updated_at: nowIso
+      });
+      await this.recalculateWorkspaceSupplierBillBalances(restored.workspace_id || 'ws_default');
+      this.notifyWorkspaceSubscribers(restored.workspace_id || 'ws_default');
+      return restored;
+    }
+
+    await safeUpdateDoc(SUPPLIER_BILLS_COLLECTION, billId, {
+      is_deleted: false,
+      deleted_at: null,
+      updated_at: nowIso
+    });
+    this.notifyWorkspaceSubscribers('*');
+    return null;
+  }
+
+  /**
+   * Soft-deletes a Supplier Bill and optionally deletes its cloud attachment if permanently purged.
    */
   static async deleteSupplierBill(
     billId: string,
@@ -324,11 +434,22 @@ export class ProcurementRepository {
     permanent: boolean = false
   ): Promise<void> {
     const localList = readLocalBills();
-    const target = localList.find((b) => b.id === billId);
+    let target = localList.find((b) => b.id === billId);
+    if (!target && permanent) {
+      try {
+        const snap = await getDoc(doc(db, SUPPLIER_BILLS_COLLECTION, billId));
+        if (snap.exists()) {
+          target = { id: snap.id, ...snap.data() } as SupplierBill;
+        }
+      } catch (_) {}
+    }
+
+    const wsId = target?.workspace_id || 'ws_default';
 
     if (permanent) {
-      if (target?.attachment?.url) {
-        await deleteFromStorageBucket(target.attachment.url, workspaceSettings, target.attachment.storageKey);
+      const attUrl = target?.attachment?.url || target?.attachment_url;
+      if (attUrl) {
+        await deleteFromStorageBucket(attUrl, workspaceSettings, target?.attachment?.storageKey);
       }
       writeLocalBills(localList.filter((b) => b.id !== billId));
       await safeDeleteDoc(SUPPLIER_BILLS_COLLECTION, billId);
@@ -343,64 +464,159 @@ export class ProcurementRepository {
         updated_at: nowIso
       });
     }
+    this.notifyWorkspaceSubscribers(wsId);
+  }
+
+  /**
+   * Deterministically recalculates `amount_paid`, `credit_applied_amount`, `balance_due`, and `payment_status`
+   * for all active Supplier Bills in a workspace from all active (non-deleted) Payment Vouchers (`PV`)
+   * and Vendor Debit Notes (`DN`). Prevents double-counting when saving a PV/DN multiple times and
+   * automatically reverses balances when a PV/DN is edited or moved to the Recycle Bin.
+   */
+  static async recalculateWorkspaceSupplierBillBalances(workspaceId: string): Promise<SupplierBill[]> {
+    const wsId = workspaceId || 'ws_default';
+    const [bills, procurementDocs] = await Promise.all([
+      this.getWorkspaceSupplierBills(wsId),
+      this.getWorkspaceProcurementDocuments(wsId)
+    ]);
+
+    if (bills.length === 0) return [];
+
+    const activePvs = procurementDocs.filter(
+      (d) => !d.is_deleted && d.document_type === 'payment_voucher'
+    );
+    const activeDns = procurementDocs.filter(
+      (d) =>
+        !d.is_deleted &&
+        (d.document_type === 'debit_note' ||
+          d.vendor_return_metadata?.return_mode === 'debit_note')
+    );
+
+    const updatedBills: SupplierBill[] = [];
+
+    for (const bill of bills) {
+      const billId = bill.id;
+      const billRefLower = (bill.bill_number || '').trim().toLowerCase();
+      const invNoLower = (bill.vendor_invoice_no || '').trim().toLowerCase();
+      const vendorIdLower = (bill.vendor_company_id || bill.supplier_id || '').trim().toLowerCase();
+      const vendorNameLower = (bill.vendor_name || bill.supplier_name || '').trim().toLowerCase();
+
+      // 1. Sum payments across all active PVs
+      let computedPaid = 0;
+      for (const pv of activePvs) {
+        const meta = pv.payment_voucher_metadata;
+        if (!meta) continue;
+        const allocations = meta.allocated_bills || meta.allocations || [];
+        if (Array.isArray(allocations) && allocations.length > 0) {
+          for (const row of allocations) {
+            const matchesId = row.bill_id && row.bill_id === billId;
+            const matchesRef =
+              !row.bill_id &&
+              billRefLower &&
+              (row.bill_ref || row.bill_number || '').trim().toLowerCase() === billRefLower;
+            if (matchesId || matchesRef) {
+              computedPaid += Math.max(0, Number(row.paid_this_voucher) || 0);
+            }
+          }
+        } else {
+          // Single-bill PV without allocation array
+          const matchesDirectBill =
+            invNoLower &&
+            (meta.vendor_invoice_no || '').trim().toLowerCase() === invNoLower &&
+            ((vendorIdLower && (meta.vendor_company_id || meta.vendor_id || '').trim().toLowerCase() === vendorIdLower) ||
+              !vendorNameLower ||
+              (meta.payee_name || meta.paid_to_vendor_name || '').trim().toLowerCase() === vendorNameLower);
+          if (matchesDirectBill) {
+            computedPaid += Math.max(0, Number(meta.amount_paid ?? pv.grand_total) || 0);
+          }
+        }
+      }
+
+      // 2. Sum credits across all active Debit Notes (DN)
+      let computedCredit = 0;
+      for (const dn of activeDns) {
+        const rMeta = dn.vendor_return_metadata;
+        if (!rMeta) continue;
+        const targetBillId = rMeta.linked_bill_id;
+        const matchesBillId = Boolean(targetBillId && targetBillId === billId);
+        const matchesInvNo =
+          !targetBillId &&
+          Boolean(
+            invNoLower &&
+              (rMeta.vendor_invoice_no || '').trim().toLowerCase() === invNoLower
+          );
+        if (matchesBillId || matchesInvNo) {
+          const claimVal =
+            Number(rMeta.total_claim_amount) ||
+            Number(rMeta.credit_claim_amount) ||
+            Number(dn.grand_total) ||
+            0;
+          computedCredit += Math.max(0, claimVal);
+        }
+      }
+
+      const grandTotal = QuotationRepository.roundCurrency(Number(bill.grand_total) || 0);
+      const nextCredit = QuotationRepository.roundCurrency(Math.min(grandTotal, computedCredit));
+      const nextPaid = QuotationRepository.roundCurrency(
+        Math.min(Math.max(0, grandTotal - nextCredit), computedPaid)
+      );
+      const nextBalance = Math.max(
+        0,
+        QuotationRepository.roundCurrency(grandTotal - nextCredit - nextPaid)
+      );
+      const nextStatus: SupplierBill['payment_status'] =
+        nextBalance <= 0.009 && grandTotal > 0
+          ? 'paid'
+          : nextPaid > 0 || nextCredit > 0
+          ? 'partially_paid'
+          : 'unpaid';
+
+      const hasChanged =
+        Math.abs((Number(bill.amount_paid) || 0) - nextPaid) > 0.005 ||
+        Math.abs((Number(bill.credit_applied_amount) || 0) - nextCredit) > 0.005 ||
+        Math.abs((Number(bill.balance_due) || 0) - nextBalance) > 0.005 ||
+        bill.payment_status !== nextStatus;
+
+      if (hasChanged) {
+        const saved = await this.saveSupplierBill({
+          ...bill,
+          credit_applied_amount: nextCredit,
+          amount_paid: nextPaid,
+          balance_due: nextBalance,
+          payment_status: nextStatus
+        });
+        updatedBills.push(saved);
+      } else {
+        updatedBills.push(bill);
+      }
+    }
+
+    this.notifyWorkspaceSubscribers(wsId);
+    return updatedBills;
   }
 
   /**
    * Synchronizes Supplier Bill paid amounts when an Outbound Payment Voucher (`PV`) is saved/issued.
+   * Uses deterministic recalculation from all active PVs so saving a PV multiple times never double-counts.
    */
   static async applyPaymentVoucherAllocationsToBills(
     workspaceId: string,
-    allocations: PaymentVoucherAllocationRow[]
+    _allocations?: PaymentVoucherAllocationRow[]
   ): Promise<void> {
-    if (!Array.isArray(allocations) || allocations.length === 0) return;
-
-    const bills = await this.getWorkspaceSupplierBills(workspaceId);
-    const billsById = new Map<string, SupplierBill>();
-    bills.forEach((b) => {
-      if (b.id) billsById.set(b.id, b);
-    });
-
-    for (const row of allocations) {
-      if (!row.bill_id) continue;
-      const bill = billsById.get(row.bill_id);
-      if (!bill) continue;
-
-      const paidThisVoucher = Math.max(0, Number(row.paid_this_voucher) || 0);
-      if (paidThisVoucher <= 0) continue;
-
-      const nextAmountPaid = QuotationRepository.roundCurrency(
-        Math.min(
-          bill.grand_total - (bill.credit_applied_amount || 0),
-          (Number(row.previously_paid) || 0) + paidThisVoucher
-        )
-      );
-      await this.saveSupplierBill({
-        ...bill,
-        amount_paid: nextAmountPaid
-      });
-    }
+    await this.recalculateWorkspaceSupplierBillBalances(workspaceId);
   }
 
   /**
    * Synchronizes a Vendor Debit Note (`DN`) credit claim against a linked Supplier Bill.
+   * Uses deterministic recalculation from all active DNs so saving a DN multiple times never double-counts.
    */
   static async applyDebitNoteCreditToBill(
     workspaceId: string,
     billId: string,
-    creditClaimAmount: number
+    _creditClaimAmount?: number
   ): Promise<SupplierBill | null> {
-    if (!billId || creditClaimAmount <= 0) return null;
-    const bills = await this.getWorkspaceSupplierBills(workspaceId);
-    const bill = bills.find((b) => b.id === billId);
-    if (!bill) return null;
-
-    const nextCredit = QuotationRepository.roundCurrency(
-      Math.min(bill.grand_total, (Number(bill.credit_applied_amount) || 0) + creditClaimAmount)
-    );
-    return this.saveSupplierBill({
-      ...bill,
-      credit_applied_amount: nextCredit
-    });
+    const updated = await this.recalculateWorkspaceSupplierBillBalances(workspaceId);
+    return updated.find((b) => b.id === billId) || null;
   }
 
   /**
@@ -596,26 +812,60 @@ export class ProcurementRepository {
   }
 
   /**
-   * Subscribes to workspace Supplier Bills with immediate hydration
+   * Subscribes to workspace Supplier Bills using event-driven pub/sub + optional Firestore onSnapshot
+   * (zero 4-second polling).
    */
   static subscribe(
     workspaceId: string,
     callback: (bills: SupplierBill[]) => void
   ): () => void {
+    const wsId = workspaceId || 'ws_default';
     let active = true;
+
     const load = () => {
-      this.getAllByWorkspace(workspaceId)
+      if (!active) return;
+      this.getAllByWorkspace(wsId)
         .then((list) => {
           if (active) callback(list);
         })
         .catch(() => {});
     };
+
+    if (!this.workspaceListeners.has(wsId)) {
+      this.workspaceListeners.set(wsId, new Set());
+    }
+    this.workspaceListeners.get(wsId)!.add(load);
+
     load();
-    const timer = typeof window !== 'undefined' ? window.setInterval(load, 4000) : null;
+
+    let unsubSnapshot: (() => void) | null = null;
+    const isQuotaSaver =
+      typeof window !== 'undefined' &&
+      window.localStorage?.getItem('sas_quota_saver_mode') === 'true';
+
+    if (!isQuotaSaver && db) {
+      try {
+        const q = query(
+          collection(db, SUPPLIER_BILLS_COLLECTION),
+          where('workspace_id', '==', wsId)
+        );
+        unsubSnapshot = onSnapshot(
+          q,
+          () => {
+            if (active) load();
+          },
+          () => {}
+        );
+      } catch (_) {}
+    }
+
     return () => {
       active = false;
-      if (timer !== null && typeof window !== 'undefined') {
-        window.clearInterval(timer);
+      this.workspaceListeners.get(wsId)?.delete(load);
+      if (unsubSnapshot) {
+        try {
+          unsubSnapshot();
+        } catch (_) {}
       }
     };
   }
@@ -692,4 +942,10 @@ export class ProcurementRepository {
     );
   }
 }
+
+// Register lifecycle hook so deleting or restoring a PV/DN in QuotationRepository automatically recalculates Supplier Bill balances
+QuotationRepository.onProcurementDocLifecycleChange = async (workspaceId: string) => {
+  await ProcurementRepository.recalculateWorkspaceSupplierBillBalances(workspaceId);
+};
+
 

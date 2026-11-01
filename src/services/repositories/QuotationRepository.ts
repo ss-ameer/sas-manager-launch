@@ -11,7 +11,7 @@ import {
 } from '../../types';
 import { safeGetDocs, safeGetDoc, safeSetDoc, safeAddDoc, safeUpdateDoc, safeDeleteDoc, db } from '../../firebase';
 import { getFromLocalStore, saveToLocalStore } from '../db';
-import { where, orderBy, doc } from 'firebase/firestore';
+import { where, orderBy, doc, collection, query, onSnapshot } from 'firebase/firestore';
 
 export const DEFAULT_QUOTATION_BLOCKS: QuotationBlockConfig[] = [
   { id: 'terms', type: 'terms', title: 'Commercial Terms & Conditions', is_visible: true, enabled: true, placement: 'left', width: '50', style: 'framed', fontScale: 'standard', padding: 'standard', order: 1 },
@@ -33,6 +33,28 @@ export class QuotationRepository {
   private static QUOTATIONS_STORE = 'quotations';
   private static PRESETS_STORE = 'quotation_presets';
   private static PROFILES_STORE = 'workspace_document_profiles';
+  private static workspaceListeners = new Map<string, Set<() => void>>();
+  public static onProcurementDocLifecycleChange?: (workspaceId: string) => Promise<void>;
+
+  public static notifyWorkspaceSubscribers(workspaceId?: string): void {
+    const wsId = workspaceId || 'ws_default';
+    const listeners = this.workspaceListeners.get(wsId);
+    if (listeners) {
+      listeners.forEach((fn) => {
+        try {
+          fn();
+        } catch (_) {}
+      });
+    }
+    const wildcard = this.workspaceListeners.get('*');
+    if (wildcard) {
+      wildcard.forEach((fn) => {
+        try {
+          fn();
+        } catch (_) {}
+      });
+    }
+  }
 
   /**
    * Pure calculation helper for tax and totals based on QuotationTaxMode:
@@ -1250,6 +1272,8 @@ export class QuotationRepository {
       await saveToLocalStore(this.QUOTATIONS_STORE, refreshed);
     } catch (_) {}
 
+    const wsId = updatedQuote.workspace_id || updatedQuote.workspaceId || 'ws_default';
+    this.notifyWorkspaceSubscribers(wsId);
     return updatedQuote;
   }
 
@@ -1372,6 +1396,18 @@ export class QuotationRepository {
       }
     }
 
+    if (
+      (existing.document_type === 'payment_voucher' ||
+        existing.document_type === 'debit_note' ||
+        existing.document_type === 'material_return_note') &&
+      this.onProcurementDocLifecycleChange
+    ) {
+      try {
+        await this.onProcurementDocLifecycleChange(existing.workspace_id || 'ws_default');
+      } catch (_) {}
+    }
+
+    this.notifyWorkspaceSubscribers(existing.workspace_id || 'ws_default');
     return updated;
   }
 
@@ -1421,6 +1457,18 @@ export class QuotationRepository {
       }
     }
 
+    if (
+      (existing.document_type === 'payment_voucher' ||
+        existing.document_type === 'debit_note' ||
+        existing.document_type === 'material_return_note') &&
+      this.onProcurementDocLifecycleChange
+    ) {
+      try {
+        await this.onProcurementDocLifecycleChange(existing.workspace_id || 'ws_default');
+      } catch (_) {}
+    }
+
+    this.notifyWorkspaceSubscribers(existing.workspace_id || 'ws_default');
     return updated;
   }
 
@@ -1429,17 +1477,31 @@ export class QuotationRepository {
    */
   public static async purgeQuotationPermanently(quotationId: string): Promise<boolean> {
     if (!quotationId) return false;
+    const existing = await this.getQuotationById(quotationId).catch(() => null);
 
     try {
       await safeDeleteDoc('quotations', quotationId);
     } catch (_) {}
 
     try {
-      const existing = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
-      const updated = existing.filter((q) => q.id !== quotationId);
+      const all = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
+      const updated = all.filter((q) => q.id !== quotationId);
       await saveToLocalStore(this.QUOTATIONS_STORE, updated);
     } catch (_) {}
 
+    if (
+      existing &&
+      (existing.document_type === 'payment_voucher' ||
+        existing.document_type === 'debit_note' ||
+        existing.document_type === 'material_return_note') &&
+      this.onProcurementDocLifecycleChange
+    ) {
+      try {
+        await this.onProcurementDocLifecycleChange(existing.workspace_id || 'ws_default');
+      } catch (_) {}
+    }
+
+    this.notifyWorkspaceSubscribers(existing?.workspace_id || '*');
     return true;
   }
 
@@ -1509,6 +1571,7 @@ export class QuotationRepository {
       await saveToLocalStore(this.QUOTATIONS_STORE, updated);
     } catch (_) {}
 
+    this.notifyWorkspaceSubscribers(wsId);
     return toSave;
   }
 
@@ -1634,26 +1697,57 @@ export class QuotationRepository {
   }
 
   /**
-   * Subscribes to workspace quotations with immediate hydration
+   * Subscribes to workspace quotations using event-driven pub/sub + optional Firestore onSnapshot
+   * (zero 4-second polling).
    */
   public static subscribe(
     workspaceId: string,
     callback: (quotations: Quotation[]) => void
   ): () => void {
+    const wsId = workspaceId || 'ws_default';
     let active = true;
+
     const load = () => {
-      this.getQuotationsForWorkspace(workspaceId)
+      if (!active) return;
+      this.getQuotationsForWorkspace(wsId)
         .then((list) => {
           if (active) callback(list);
         })
         .catch(() => {});
     };
+
+    if (!this.workspaceListeners.has(wsId)) {
+      this.workspaceListeners.set(wsId, new Set());
+    }
+    this.workspaceListeners.get(wsId)!.add(load);
+
     load();
-    const timer = typeof window !== 'undefined' ? window.setInterval(load, 4000) : null;
+
+    let unsubSnapshot: (() => void) | null = null;
+    const isQuotaSaver =
+      typeof window !== 'undefined' &&
+      window.localStorage?.getItem('sas_quota_saver_mode') === 'true';
+
+    if (!isQuotaSaver && db) {
+      try {
+        const q = query(collection(db, 'quotations'), where('workspace_id', '==', wsId));
+        unsubSnapshot = onSnapshot(
+          q,
+          () => {
+            if (active) load();
+          },
+          () => {}
+        );
+      } catch (_) {}
+    }
+
     return () => {
       active = false;
-      if (timer !== null && typeof window !== 'undefined') {
-        window.clearInterval(timer);
+      this.workspaceListeners.get(wsId)?.delete(load);
+      if (unsubSnapshot) {
+        try {
+          unsubSnapshot();
+        } catch (_) {}
       }
     };
   }

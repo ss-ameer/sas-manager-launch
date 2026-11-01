@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Trash2, RefreshCw, AlertTriangle, Search, Filter, ShieldAlert, CheckCircle2, RotateCcw } from 'lucide-react';
-import { Enquiry, Company, Contact, Product, CallLogEntry, UserProfile, Workspace, Attachment, Quotation, Project } from '../types';
+import { Enquiry, Company, Contact, Product, CallLogEntry, UserProfile, Workspace, Attachment, Quotation, Project, SupplierBill } from '../types';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import { CallLogRepository } from '../services/repositories/CallLogRepository';
 import { MetadataRepository } from '../services/repositories/MetadataRepository';
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
+import { ProcurementRepository } from '../services/repositories/ProcurementRepository';
 import { getDeletedWorkspaceProjects, restoreProject, purgeProjectPermanently } from '../services/projectService';
 import { purgeEnquiryAttachments, purgeEntityStorageAssets } from '../services/attachmentStorage';
 
@@ -39,13 +40,13 @@ export function getEntityWorkspaceId(item: WorkspaceScopedItem): string | undefi
   return item.workspace_id ?? item.workspaceId;
 }
 
-type CategoryTab = 'all' | 'enquiries' | 'companies' | 'contacts' | 'products' | 'call_logs' | 'quotations' | 'projects';
+type CategoryTab = 'all' | 'enquiries' | 'companies' | 'contacts' | 'products' | 'call_logs' | 'quotations' | 'supplier_bills' | 'projects';
 
-type DeletedItemEntity = Enquiry | Company | Contact | Product | CallLogEntry | Quotation | Project;
+type DeletedItemEntity = Enquiry | Company | Contact | Product | CallLogEntry | Quotation | Project | SupplierBill;
 
 interface UnifiedDeletedItem {
   id: string;
-  type: 'enquiry' | 'company' | 'contact' | 'product' | 'call_log' | 'quotation' | 'project';
+  type: 'enquiry' | 'company' | 'contact' | 'product' | 'call_log' | 'quotation' | 'supplier_bill' | 'project';
   typeLabel: string;
   title: string;
   subTitle?: string;
@@ -81,6 +82,7 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
   const [deletedQuotations, setDeletedQuotations] = useState<Quotation[]>(
     quotations?.filter((q) => q.is_deleted) || []
   );
+  const [deletedSupplierBills, setDeletedSupplierBills] = useState<SupplierBill[]>([]);
   const [deletedProjectsState, setDeletedProjectsState] = useState<Project[]>(
     projects?.filter((p) => p.is_deleted) || []
   );
@@ -89,6 +91,13 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
     try {
       const qs = await QuotationRepository.getDeletedQuotations(activeWorkspaceId);
       setDeletedQuotations(qs);
+    } catch (_) {}
+  };
+
+  const refreshDeletedSupplierBills = async () => {
+    try {
+      const bills = await ProcurementRepository.getDeletedSupplierBills(activeWorkspaceId);
+      setDeletedSupplierBills(bills);
     } catch (_) {}
   };
 
@@ -103,6 +112,7 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       refreshDeletedQuotations();
+      refreshDeletedSupplierBills();
       refreshDeletedProjects();
     }
   }, [isOpen, activeWorkspaceId]);
@@ -144,6 +154,7 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
     deletedProducts.length +
     deletedCallLogs.length +
     deletedQuotations.length +
+    deletedSupplierBills.length +
     deletedProjects.length;
 
   const items: UnifiedDeletedItem[] = [];
@@ -231,15 +242,44 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
 
   if (activeTab === 'all' || activeTab === 'quotations') {
     deletedQuotations.forEach((q) => {
+      const docTypeLabel =
+        q.document_type === 'purchase_order'
+          ? 'Supplier PO'
+          : q.document_type === 'payment_voucher'
+          ? 'Payment Voucher'
+          : q.document_type === 'debit_note'
+          ? 'Debit Note'
+          : q.document_type === 'material_return_note'
+          ? 'Material Return'
+          : q.document_type === 'delivery_note'
+          ? 'Delivery Note'
+          : q.document_type === 'receipt'
+          ? 'Receipt'
+          : 'Quotation';
       items.push({
         id: q.id || '',
         type: 'quotation',
-        typeLabel: 'Quotation',
+        typeLabel: docTypeLabel,
         title: `${q.formatted_quote_ref || q.quote_number} • ${q.currency || 'AED'} ${(q.grand_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-        subTitle: `Quote #${q.quote_number} (Rev ${q.revision_number ?? 0}) • Status: ${q.status || 'Draft'}`,
+        subTitle: `${docTypeLabel} #${q.formatted_quote_ref || q.quote_number} (Rev ${q.revision_number ?? 0}) • Status: ${q.status || 'Draft'}`,
         deletedAt: q.deleted_at,
         deletedByName: q.deleted_by_name || 'Unknown',
         rawItem: q
+      });
+    });
+  }
+
+  if (activeTab === 'all' || activeTab === 'supplier_bills') {
+    deletedSupplierBills.forEach((b) => {
+      items.push({
+        id: b.id || '',
+        type: 'supplier_bill',
+        typeLabel: 'Supplier Bill',
+        title: `${b.bill_number} • ${b.vendor_name || b.supplier_name || 'Vendor'} • ${b.currency || 'AED'} ${Number(b.grand_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+        subTitle: `Vendor Invoice: ${b.vendor_invoice_no || 'N/A'} ${b.po_ref ? `• PO: ${b.po_ref}` : ''}`,
+        deletedAt: b.deleted_at,
+        deletedByName: b.created_by || 'User',
+        rawItem: b
       });
     });
   }
@@ -288,7 +328,13 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
         await QuotationRepository.restoreQuotation(item.id);
         await refreshDeletedQuotations();
         if (triggerToast) {
-          triggerToast(`Quotation ${item.title.split('•')[0].trim()} restored successfully.`, 'success');
+          triggerToast(`${item.typeLabel} ${item.title.split('•')[0].trim()} restored successfully.`, 'success');
+        }
+      } else if (item.type === 'supplier_bill') {
+        await ProcurementRepository.restoreSupplierBill(item.id);
+        await refreshDeletedSupplierBills();
+        if (triggerToast) {
+          triggerToast(`Supplier Bill ${item.title.split('•')[0].trim()} restored successfully.`, 'success');
         }
       } else if (item.type === 'project') {
         const proj = item.rawItem as Project;
@@ -354,7 +400,13 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
         await QuotationRepository.purgeQuotationPermanently(item.id);
         await refreshDeletedQuotations();
         if (triggerToast) {
-          triggerToast(`Quotation ${item.title.split('•')[0].trim()} and linked cloud assets permanently purged.`, 'info');
+          triggerToast(`${item.typeLabel} ${item.title.split('•')[0].trim()} and linked cloud assets permanently purged.`, 'info');
+        }
+      } else if (item.type === 'supplier_bill') {
+        await ProcurementRepository.deleteSupplierBill(item.id, activeWorkspace?.settings?.storage, true);
+        await refreshDeletedSupplierBills();
+        if (triggerToast) {
+          triggerToast(`Supplier Bill ${item.title.split('•')[0].trim()} and invoice scan permanently purged.`, 'info');
         }
       } else if (item.type === 'project') {
         await purgeEntityStorageAssets('project', item.rawItem, activeWorkspace);
@@ -409,12 +461,15 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
         } else if (item.type === 'quotation') {
           await purgeEntityStorageAssets('quotation', item.rawItem, activeWorkspace);
           await QuotationRepository.purgeQuotationPermanently(item.id);
+        } else if (item.type === 'supplier_bill') {
+          await ProcurementRepository.deleteSupplierBill(item.id, activeWorkspace?.settings?.storage, true);
         } else if (item.type === 'project') {
           await purgeEntityStorageAssets('project', item.rawItem, activeWorkspace);
           await purgeProjectPermanently(item.id);
         }
       }
       await refreshDeletedQuotations();
+      await refreshDeletedSupplierBills();
       await refreshDeletedProjects();
       setShowEmptyTrashConfirm(false);
       if (triggerToast) {
@@ -480,7 +535,8 @@ export const TrashBinModal: React.FC<TrashBinModalProps> = ({
             {[
               { id: 'all', label: 'All', count: totalDeletedCount },
               { id: 'enquiries', label: 'Enquiries', count: deletedEnquiries.length },
-              { id: 'quotations', label: 'Quotations', count: deletedQuotations.length },
+              { id: 'quotations', label: 'Quotes & Docs', count: deletedQuotations.length },
+              { id: 'supplier_bills', label: 'Supplier Bills', count: deletedSupplierBills.length },
               { id: 'projects', label: 'Projects', count: deletedProjects.length },
               { id: 'companies', label: 'Companies', count: deletedCompanies.length },
               { id: 'contacts', label: 'Contacts', count: deletedContacts.length },

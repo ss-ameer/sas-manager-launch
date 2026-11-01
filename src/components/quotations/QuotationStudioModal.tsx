@@ -900,7 +900,19 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   const [isDeductingStock, setIsDeductingStock] = useState<boolean>(false);
   const [stockDeductedForDoc, setStockDeductedForDoc] = useState<boolean>(false);
   const [workspaceCompanies, setWorkspaceCompanies] = useState<Company[]>([]);
+  const [workspaceContacts, setWorkspaceContacts] = useState<any[]>([]);
   const [workspaceSupplierBills, setWorkspaceSupplierBills] = useState<SupplierBill[]>([]);
+
+  const resolveVendorName = (comp?: Company | null): string =>
+    (comp?.display_name || comp?.canonical_name || comp?.name || '').trim();
+
+  const resolveVendorPrimaryContact = (comp?: Company | null) => {
+    if (!comp) return null;
+    const inlineContacts = Array.isArray(comp.contacts) ? comp.contacts : [];
+    const linkedContacts = workspaceContacts.filter((ct) => ct.company_id === comp.id && !ct.is_deleted);
+    const combined = [...inlineContacts, ...linkedContacts];
+    return combined.find((ct: any) => ct.is_primary) || combined[0] || null;
+  };
 
   // Column visibility & technical attributes toggles
   const [visibleColumns, setVisibleColumns] = useState<QuotationPresetColumns>(() => ({
@@ -1776,6 +1788,18 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           if (!data.is_deleted) list.push({ ...data, id: docSnap.id });
         });
         setWorkspaceCompanies(list);
+      })
+      .catch(() => {});
+
+    getDocs(query(collection(db, 'contacts'), where('workspace_id', '==', activeWorkspaceId)))
+      .then((snap) => {
+        if (!isMounted) return;
+        const list: any[] = [];
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (!data.is_deleted) list.push({ ...data, id: docSnap.id });
+        });
+        setWorkspaceContacts(list);
       })
       .catch(() => {});
 
@@ -4559,10 +4583,22 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         enquiry_id: enquiry.id || '',
         document_type: liveQuotation.document_type || 'quotation',
         delivery_metadata: liveQuotation.delivery_metadata,
-        purchase_order_metadata: liveQuotation.purchase_order_metadata,
+        purchase_order_metadata: liveQuotation.purchase_order_metadata
+          ? {
+              ...(editingQuotation?.purchase_order_metadata || {}),
+              ...liveQuotation.purchase_order_metadata
+            }
+          : editingQuotation?.purchase_order_metadata,
         receipt_metadata: liveQuotation.receipt_metadata,
         payment_voucher_metadata: liveQuotation.payment_voucher_metadata,
-        vendor_return_metadata: liveQuotation.vendor_return_metadata,
+        vendor_return_metadata:
+          liveQuotation.document_type === 'debit_note' &&
+          liveQuotation.vendor_return_metadata?.linked_bill_id
+            ? {
+                ...liveQuotation.vendor_return_metadata,
+                credit_applied_to_bill: true
+              }
+            : liveQuotation.vendor_return_metadata,
         quote_number: liveQuotation.quote_number,
         revision_number: liveQuotation.revision_number,
         formatted_quote_ref: liveQuotation.formatted_quote_ref,
@@ -4655,43 +4691,21 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
       const saved = await QuotationRepository.saveQuotation(payload);
 
-      // Apply Outbound Payment Voucher allocations or Debit Note credit to linked Supplier Bills
-      if (payload.document_type === 'payment_voucher') {
-        try {
-          const pvAllocations =
-            saved.payment_voucher_metadata?.allocated_bills ||
-            saved.payment_voucher_metadata?.allocations ||
-            [];
-          await ProcurementRepository.applyPaymentVoucherAllocationsToBills(
-            activeWorkspaceId,
-            pvAllocations
-          );
-          const refreshedBills = await ProcurementRepository.getWorkspaceSupplierBills(activeWorkspaceId);
-          setWorkspaceSupplierBills(refreshedBills);
-        } catch (pvErr) {
-          console.warn('[QuotationStudioModal] PV allocation sync warning:', pvErr);
-        }
-      } else if (
-        payload.document_type === 'debit_note' &&
-        payload.vendor_return_metadata?.linked_bill_id &&
-        !payload.vendor_return_metadata?.credit_applied_to_bill
+      // Deterministically recalculate Supplier Bill paid & credit balances when saving a PV, DN, or MRN
+      if (
+        payload.document_type === 'payment_voucher' ||
+        payload.document_type === 'debit_note' ||
+        payload.document_type === 'material_return_note'
       ) {
         try {
-          const claimAmt =
-            Number(payload.vendor_return_metadata.total_claim_amount) ||
-            Number(payload.vendor_return_metadata.credit_claim_amount) ||
-            Number(payload.grand_total) ||
-            0;
-          await ProcurementRepository.applyDebitNoteCreditToBill(
-            activeWorkspaceId,
-            payload.vendor_return_metadata.linked_bill_id,
-            claimAmt
-          );
-          setVendorReturnMetadata((prev) => ({ ...prev, credit_applied_to_bill: true }));
+          if (payload.document_type === 'debit_note' && payload.vendor_return_metadata?.linked_bill_id) {
+            setVendorReturnMetadata((prev) => ({ ...prev, credit_applied_to_bill: true }));
+          }
+          await ProcurementRepository.recalculateWorkspaceSupplierBillBalances(activeWorkspaceId);
           const refreshedBills = await ProcurementRepository.getWorkspaceSupplierBills(activeWorkspaceId);
           setWorkspaceSupplierBills(refreshedBills);
-        } catch (dnErr) {
-          console.warn('[QuotationStudioModal] Debit note credit sync warning:', dnErr);
+        } catch (syncErr) {
+          console.warn('[QuotationStudioModal] Procurement bill balance sync warning:', syncErr);
         }
       }
 
@@ -7218,15 +7232,26 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 }));
                                 return;
                               }
-                              const primaryContact = (vendor.contacts || []).find((ct) => ct.is_primary) || (vendor.contacts || [])[0];
+                              const vendorName = resolveVendorName(vendor);
+                              const primaryContact: any = resolveVendorPrimaryContact(vendor);
                               setPurchaseOrderMetadata((prev) => ({
                                 ...prev,
                                 vendor_company_id: vendor.id,
-                                supplier_name: vendor.name,
-                                supplier_contact: primaryContact?.name || prev.supplier_contact || '',
-                                supplier_email: primaryContact?.email || vendor.email || prev.supplier_email || '',
-                                supplier_phone: primaryContact?.phone || vendor.phone || prev.supplier_phone || '',
-                                supplier_address: [vendor.address, vendor.city, vendor.country].filter(Boolean).join(', ') || prev.supplier_address || '',
+                                supplier_name: vendorName,
+                                supplier_contact:
+                                  primaryContact?.full_name || primaryContact?.name || prev.supplier_contact || '',
+                                supplier_email:
+                                  primaryContact?.email || vendor.email || prev.supplier_email || '',
+                                supplier_phone:
+                                  primaryContact?.mobile ||
+                                  primaryContact?.phone ||
+                                  vendor.phone ||
+                                  prev.supplier_phone ||
+                                  '',
+                                supplier_address:
+                                  [vendor.address, vendor.city, vendor.country].filter(Boolean).join(', ') ||
+                                  prev.supplier_address ||
+                                  '',
                                 supplier_trn: vendor.tax_registration_no || prev.supplier_trn || '',
                                 incoterms: vendor.default_incoterms || prev.incoterms || 'Ex-Works',
                                 beneficiary_bank_details: vendor.vendor_bank_details
@@ -7245,11 +7270,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               .sort((a, b) => {
                                 const aVendor = a.relationship_type === 'Vendor / Supplier' ? 0 : 1;
                                 const bVendor = b.relationship_type === 'Vendor / Supplier' ? 0 : 1;
-                                return aVendor - bVendor || (a.name || '').localeCompare(b.name || '');
+                                return aVendor - bVendor || resolveVendorName(a).localeCompare(resolveVendorName(b));
                               })
                               .map((comp) => (
                                 <option key={comp.id} value={comp.id}>
-                                  {comp.name} {comp.relationship_type ? `(${comp.relationship_type})` : ''}
+                                  {resolveVendorName(comp)}{' '}
+                                  {comp.relationship_type ? `(${comp.relationship_type})` : ''}
                                 </option>
                               ))}
                           </select>
@@ -7810,13 +7836,18 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               }));
                               return;
                             }
-                            const primaryContact = (vendor.contacts || []).find((ct) => ct.is_primary) || (vendor.contacts || [])[0];
+                            const vendorName = resolveVendorName(vendor);
+                            const primaryContact: any = resolveVendorPrimaryContact(vendor);
                             setPaymentVoucherMetadata((prev) => ({
                               ...prev,
                               vendor_company_id: vendor.id,
-                              payee_name: vendor.name,
-                              payee_contact: primaryContact?.name || prev.payee_contact || '',
-                              payee_address: [vendor.address, vendor.city, vendor.country].filter(Boolean).join(', ') || prev.payee_address || '',
+                              payee_name: vendorName,
+                              payee_contact:
+                                primaryContact?.full_name || primaryContact?.name || prev.payee_contact || '',
+                              payee_address:
+                                [vendor.address, vendor.city, vendor.country].filter(Boolean).join(', ') ||
+                                prev.payee_address ||
+                                '',
                               payee_trn: vendor.tax_registration_no || prev.payee_trn || '',
                               beneficiary_bank_details: vendor.vendor_bank_details
                                 ? { ...vendor.vendor_bank_details }
@@ -7829,9 +7860,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           <option value="">-- Select Registered Vendor / Payee --</option>
                           {workspaceCompanies
                             .filter((c) => !c.is_deleted)
+                            .sort((a, b) => {
+                              const aVendor = a.relationship_type === 'Vendor / Supplier' ? 0 : 1;
+                              const bVendor = b.relationship_type === 'Vendor / Supplier' ? 0 : 1;
+                              return aVendor - bVendor || resolveVendorName(a).localeCompare(resolveVendorName(b));
+                            })
                             .map((comp) => (
                               <option key={comp.id} value={comp.id}>
-                                {comp.name} {comp.relationship_type ? `(${comp.relationship_type})` : ''}
+                                {resolveVendorName(comp)}{' '}
+                                {comp.relationship_type ? `(${comp.relationship_type})` : ''}
                               </option>
                             ))}
                         </select>
@@ -8271,6 +8308,63 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             }
                             className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
                           />
+                        </div>
+                        <div className="min-w-0 col-span-2">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                            Vendor Directory Picker (or type Supplier Name below)
+                          </label>
+                          <select
+                            value={vendorReturnMetadata.vendor_company_id || ''}
+                            onChange={(e) => {
+                              const compId = e.target.value;
+                              const vendor = workspaceCompanies.find((c) => c.id === compId);
+                              if (!vendor) {
+                                setVendorReturnMetadata((prev) => ({
+                                  ...prev,
+                                  vendor_company_id: undefined
+                                }));
+                                return;
+                              }
+                              const vendorName = resolveVendorName(vendor);
+                              const primaryContact: any = resolveVendorPrimaryContact(vendor);
+                              setVendorReturnMetadata((prev) => ({
+                                ...prev,
+                                vendor_company_id: vendor.id,
+                                supplier_name: vendorName,
+                                supplier_contact:
+                                  primaryContact?.full_name || primaryContact?.name || prev.supplier_contact || '',
+                                supplier_email:
+                                  primaryContact?.email || vendor.email || prev.supplier_email || '',
+                                supplier_phone:
+                                  primaryContact?.mobile ||
+                                  primaryContact?.phone ||
+                                  vendor.phone ||
+                                  prev.supplier_phone ||
+                                  '',
+                                supplier_address:
+                                  [vendor.address, vendor.city, vendor.country].filter(Boolean).join(', ') ||
+                                  prev.supplier_address ||
+                                  '',
+                                supplier_trn: vendor.tax_registration_no || prev.supplier_trn || ''
+                              }));
+                            }}
+                            className="w-full rounded-lg border border-rose-200 p-1.5 bg-white text-xs text-slate-800 mb-2"
+                          >
+                            <option value="">-- Select Registered Vendor / Supplier --</option>
+                            {workspaceCompanies
+                              .filter((c) => !c.is_deleted)
+                              .sort((a, b) => {
+                                const aVendor = a.relationship_type === 'Vendor / Supplier' ? 0 : 1;
+                                const bVendor = b.relationship_type === 'Vendor / Supplier' ? 0 : 1;
+                                return aVendor - bVendor || resolveVendorName(a).localeCompare(resolveVendorName(b));
+                              })
+                              .map((comp) => (
+                                <option key={comp.id} value={comp.id}>
+                                  {resolveVendorName(comp)}{' '}
+                                  {comp.relationship_type ? `(${comp.relationship_type})` : ''}
+                                </option>
+                              ))}
+                          </select>
                         </div>
                         <div className="min-w-0">
                           <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
