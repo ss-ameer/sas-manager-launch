@@ -147,6 +147,7 @@ export default function ProcurementPayablesHub({
   const [pdfPreset, setPdfPreset] = useState<PdfCompressionPreset>('standard');
   const [isUploadingBillFile, setIsUploadingBillFile] = useState(false);
   const [isSavingBill, setIsSavingBill] = useState(false);
+  const [viewingBillSummary, setViewingBillSummary] = useState<SupplierBill | null>(null);
 
   // Issue Payment Voucher Pre-Launch Modal State
   const [showCreatePvModal, setShowCreatePvModal] = useState(false);
@@ -227,6 +228,7 @@ export default function ProcurementPayablesHub({
         (q) =>
           q.document_type === 'payment_voucher' ||
           q.document_type === 'material_return_note' ||
+          (q.document_type as string) === 'material_return' ||
           q.document_type === 'debit_note'
       ),
     [quotations]
@@ -247,14 +249,29 @@ export default function ProcurementPayablesHub({
     [companies]
   );
 
-  // KPI Metrics
+  // KPI Metrics (including all active non-cancelled POs with unreceived quantities)
   const kpiStats = useMemo(() => {
-    const openPos = supplierPOs.filter(
-      (po) => (po.purchase_order_metadata?.receiving_status || 'Pending Receipt') !== 'Fully Received'
-    );
-    const pendingGrnCount = openPos.reduce((acc, po) => {
-      const pendingLines = (po.line_items || []).filter((li) => {
-        const ordered = Number(li.qty_ordered ?? li.qty) || 0;
+    const activePos = supplierPOs.filter((po) => {
+      const st = String(po.status || '').toLowerCase();
+      return st !== 'cancelled' && st !== 'rejected';
+    });
+    const openPos = activePos.filter((po) => {
+      if ((po.purchase_order_metadata?.receiving_status || 'Pending Receipt') === 'Fully Received') {
+        return false;
+      }
+      const hasUnreceived = (po.line_items || []).some((li: any) => {
+        const ordered = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
+        const received = Number(li.qty_received) || 0;
+        return ordered > received;
+      });
+      return hasUnreceived || (po.line_items || []).length === 0;
+    });
+    const pendingGrnCount = activePos.reduce((acc, po) => {
+      if ((po.purchase_order_metadata?.receiving_status || 'Pending Receipt') === 'Fully Received') {
+        return acc;
+      }
+      const pendingLines = (po.line_items || []).filter((li: any) => {
+        const ordered = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
         const received = Number(li.qty_received) || 0;
         return ordered > received;
       });
@@ -318,21 +335,24 @@ export default function ProcurementPayablesHub({
       line_items:
         docRecord.document_type === 'payment_voucher'
           ? []
-          : (docRecord.line_items || []).map((li) => ({
-              id: li.id,
-              product_id: li.product_id,
-              product_type: 'Standard',
-              item_name: li.item_name || li.description,
-              part_no: li.part_no || '',
-              brand_make: li.brand || li.brand_make || '',
-              description: li.description,
-              quantity: Number(li.quantity ?? li.qty) || 1,
-              qty: Number(li.quantity ?? li.qty) || 1,
-              unit: li.unit || 'pcs',
-              unit_price: Number(li.unit_price) || 0,
-              cost_price: li.cost_price ?? li.unit_price,
-              total_price: Number(li.total_price ?? li.line_total) || 0
-            }))
+          : (docRecord.line_items || []).map((li: any) => {
+              const resolvedQty = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 1;
+              return {
+                id: li.id,
+                product_id: li.product_id,
+                product_type: 'Standard',
+                item_name: li.item_name || li.description,
+                part_no: li.part_no || '',
+                brand_make: li.brand || li.brand_make || '',
+                description: li.description,
+                quantity: resolvedQty,
+                qty: resolvedQty,
+                unit: li.unit || 'pcs',
+                unit_price: Number(li.unit_price) || 0,
+                cost_price: li.cost_price ?? li.unit_price,
+                total_price: Number(li.total_price ?? li.line_total) || 0
+              };
+            })
     };
   };
 
@@ -345,7 +365,10 @@ export default function ProcurementPayablesHub({
   // Open GRN Modal for a PO
   const handleOpenGrnModal = (po: QuotationDocumentRecord) => {
     const baseRef = po.purchase_order_metadata?.po_ref || po.formatted_quote_ref;
-    const existingGrns = po.purchase_order_metadata?.linked_grn_numbers || [];
+    const existingGrns =
+      (po.purchase_order_metadata as any)?.linked_grn_refs ||
+      po.purchase_order_metadata?.linked_grn_numbers ||
+      [];
     const nextGrnSeq = String(existingGrns.length + 1).padStart(2, '0');
     setGrnTargetPo(po);
     setGrnNumber(`GRN-${baseRef.replace(/^PO-/i, '')}-${nextGrnSeq}`);
@@ -355,8 +378,8 @@ export default function ProcurementPayablesHub({
     setGrnUpdateCatalogCost(false);
     setGrnNotes('');
     setGrnLines(
-      (po.line_items || []).map((li) => {
-        const ordered = Math.max(0, Number(li.qty_ordered ?? li.qty) || 0);
+      (po.line_items || []).map((li: any) => {
+        const ordered = Math.max(0, Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0);
         const received = Math.max(0, Number(li.qty_received) || 0);
         const pending = Math.max(0, ordered - received);
         return {
@@ -438,7 +461,7 @@ export default function ProcurementPayablesHub({
             landed_unit_cost: l.landedUnitCost
           }))
         },
-        grnTargetPo,
+        grnTargetPo as any,
         user
       );
 
@@ -477,7 +500,7 @@ export default function ProcurementPayablesHub({
   };
 
   // Create Standalone or Enquiry-Linked Supplier PO
-  const handleCreateSupplierPo = async () => {
+  const handleCreateSupplierPo = async (openInStudio = true) => {
     const selectedVendor = companies.find((c) => c.id === newPoVendorId);
     const supplierName = (getCompanyName(selectedVendor) || newPoSupplierName || '').trim();
     if (!supplierName) {
@@ -502,6 +525,7 @@ export default function ProcurementPayablesHub({
         const prod = products.find((p) => p.id === l.product_id);
         const qty = Math.max(1, Number(l.qty) || 1);
         const rate = Math.max(0, Number(l.unit_cost) || 0);
+        const lineSub = QuotationRepository.roundCurrency(qty * rate);
         return {
           id: `poli_${Date.now()}_${idx}`,
           sr_no: idx + 1,
@@ -510,6 +534,7 @@ export default function ProcurementPayablesHub({
           item_name: l.item_name || prod?.name || 'Item',
           brand: prod?.brand || '',
           description: prod?.description || l.item_name,
+          quantity: qty,
           qty,
           qty_ordered: qty,
           qty_received: 0,
@@ -520,10 +545,16 @@ export default function ProcurementPayablesHub({
           discount_Type: 'none',
           discount_value: 0,
           tax_rate: 5,
-          line_subtotal: QuotationRepository.roundCurrency(qty * rate),
-          line_total: QuotationRepository.roundCurrency(qty * rate)
-        };
+          total_price: lineSub,
+          line_subtotal: lineSub,
+          line_total: lineSub
+        } as any;
       });
+
+    if (lineItems.length === 0) {
+      triggerToast?.('Please add at least one PO line item.', 'error');
+      return;
+    }
 
     const totals = QuotationRepository.calculateFinancialTotals(lineItems, 'taxes_extra', 0);
     const nowIso = new Date().toISOString();
@@ -535,9 +566,10 @@ export default function ProcurementPayablesHub({
       enquiry_id: linkedEnq?.id || `standalone_${recordId}`,
       enquiry_sn: linkedEnq?.sn || 0,
       document_type: 'purchase_order',
+      quote_number: poRef,
       formatted_quote_ref: poRef,
       revision_no: 0,
-      status: 'draft',
+      status: 'issued',
       quotation_date: nowIso.slice(0, 10),
       valid_until_date: newPoExpectedDate || nowIso.slice(0, 10),
       client_reference: linkedEnq ? `ENQ #${linkedEnq.sn}` : 'Stock Replenishment',
@@ -628,7 +660,10 @@ export default function ProcurementPayablesHub({
 
     await QuotationRepository.save(newPoRecord);
     setShowCreatePoModal(false);
-    handleOpenInStudio(newPoRecord);
+    triggerToast?.(`Supplier PO ${poRef} saved. Pending GRN lines ready for receipt.`, 'success');
+    if (openInStudio) {
+      handleOpenInStudio(newPoRecord);
+    }
   };
 
   // Open Record / Edit Supplier Bill Modal
@@ -668,8 +703,8 @@ export default function ProcurementPayablesHub({
     setBillExchangeRate(1);
     setBillFreightCustoms(0);
 
-    const mappedLines: SupplierBillLineItem[] = (po?.line_items || []).map((li) => {
-      const poQty = Number(li.qty_ordered ?? li.qty) || 0;
+    const mappedLines: SupplierBillLineItem[] = (po?.line_items || []).map((li: any) => {
+      const poQty = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
       const grnQty = Number(li.qty_received ?? poQty) || 0;
       const billedQty = grnQty > 0 ? grnQty : poQty;
       const unitCost = Number(li.unit_price) || 0;
@@ -711,8 +746,8 @@ export default function ProcurementPayablesHub({
     if (poMeta?.supplier_trn) setBillVendorTrn(poMeta.supplier_trn);
     if (po.currency) setBillCurrency(po.currency);
 
-    const mappedLines: SupplierBillLineItem[] = (po.line_items || []).map((li) => {
-      const poQty = Number(li.qty_ordered ?? li.qty) || 0;
+    const mappedLines: SupplierBillLineItem[] = (po.line_items || []).map((li: any) => {
+      const poQty = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
       const grnQty = Number(li.qty_received ?? poQty) || 0;
       const billedQty = grnQty > 0 ? grnQty : poQty;
       const unitCost = Number(li.unit_price) || 0;
@@ -838,7 +873,10 @@ export default function ProcurementPayablesHub({
           linkedPo?.enquiry_id && !linkedPo.enquiry_id.startsWith('standalone_')
             ? linkedPo.enquiry_id
             : undefined,
-        grn_refs: linkedPo?.purchase_order_metadata?.linked_grn_numbers || [],
+        grn_refs:
+          (linkedPo?.purchase_order_metadata as any)?.linked_grn_refs ||
+          linkedPo?.purchase_order_metadata?.linked_grn_numbers ||
+          [],
         invoice_date: billInvoiceDate,
         due_date: billDueDate || undefined,
         currency: billCurrency,
@@ -915,8 +953,8 @@ export default function ProcurementPayablesHub({
     setShowCreatePvModal(true);
   };
 
-  // Confirm & Create Outbound Payment Voucher (PV) and Open in Studio
-  const handleConfirmCreatePv = async () => {
+  // Confirm & Create Outbound Payment Voucher (PV)
+  const handleConfirmCreatePv = async (openInStudio = true) => {
     const selectedVendor = companies.find((c) => c.id === pvVendorId);
     const payeeName = (pvPayeeName || getCompanyName(selectedVendor) || '').trim();
     if (!payeeName) {
@@ -1144,7 +1182,10 @@ export default function ProcurementPayablesHub({
     }
 
     setShowCreatePvModal(false);
-    handleOpenInStudio(pvRecord);
+    triggerToast?.(`Payment Voucher ${pvRef} saved and Supplier Bill balances updated.`, 'success');
+    if (openInStudio) {
+      handleOpenInStudio(pvRecord);
+    }
   };
 
   // Open Pre-Launch Modal for Material Return Note (MRN) or Vendor Debit Note (DN)
@@ -1173,11 +1214,11 @@ export default function ProcurementPayablesHub({
 
     if (po && po.line_items && po.line_items.length > 0) {
       setRetLines(
-        po.line_items.map((li) => ({
+        po.line_items.map((li: any) => ({
           product_id: li.product_id,
           item_name: li.item_name || li.description || '',
           part_no: li.part_no || '',
-          qty: Number(li.qty_received || li.qty_ordered || li.qty) || 1,
+          qty: Number(li.qty_received || li.qty_ordered || li.quantity || li.qty) || 1,
           unit: li.unit || 'Nos',
           unit_cost: Number(li.unit_price ?? li.cost_price ?? 0)
         }))
@@ -1202,8 +1243,8 @@ export default function ProcurementPayablesHub({
     setShowCreateReturnModal(true);
   };
 
-  // Confirm & Create Material Return Note (MRN) or Vendor Debit Note (DN) and Open in Studio
-  const handleConfirmCreateReturn = async () => {
+  // Confirm & Create Material Return Note (MRN) or Vendor Debit Note (DN)
+  const handleConfirmCreateReturn = async (openInStudio = true) => {
     const selectedVendor = companies.find((c) => c.id === retVendorId);
     const supplierName = (retSupplierName || getCompanyName(selectedVendor) || '').trim();
     if (!supplierName) {
@@ -1215,7 +1256,10 @@ export default function ProcurementPayablesHub({
     const prefix = retMode === 'material_return_note' ? 'MRN' : 'DN';
     const seq = String(
       quotations.filter(
-        (q) => q.document_type === 'material_return_note' || q.document_type === 'debit_note'
+        (q) =>
+          q.document_type === 'material_return_note' ||
+          (q.document_type as string) === 'material_return' ||
+          q.document_type === 'debit_note'
       ).length + 1
     ).padStart(4, '0');
     const refNo = `${prefix}-${seq}`;
@@ -1238,6 +1282,7 @@ export default function ProcurementPayablesHub({
           description: l.item_name,
           quantity: qty,
           qty,
+          qty_ordered: qty,
           return_qty: qty,
           return_reason: retReason,
           unit: l.unit || 'Nos',
@@ -1249,7 +1294,7 @@ export default function ProcurementPayablesHub({
           tax_rate: 5,
           line_subtotal: QuotationRepository.roundCurrency(qty * rate),
           line_total: QuotationRepository.roundCurrency(qty * rate)
-        };
+        } as any;
       });
 
     const totals = QuotationRepository.calculateFinancialTotals(sourceLines, 'taxes_extra', 0);
@@ -1263,7 +1308,7 @@ export default function ProcurementPayablesHub({
       quote_number: refNo,
       formatted_quote_ref: refNo,
       revision_no: 0,
-      status: 'draft',
+      status: 'issued',
       quotation_date: nowIso.slice(0, 10),
       valid_until_date: nowIso.slice(0, 10),
       client_reference: linkedPo?.formatted_quote_ref || linkedBill?.vendor_invoice_no || '',
@@ -1386,7 +1431,10 @@ export default function ProcurementPayablesHub({
     }
 
     setShowCreateReturnModal(false);
-    handleOpenInStudio(returnDoc);
+    triggerToast?.(`${refNo} saved.`, 'success');
+    if (openInStudio) {
+      handleOpenInStudio(returnDoc);
+    }
   };
 
   return (
@@ -1633,7 +1681,7 @@ export default function ProcurementPayablesHub({
                                 onClick={() => handleOpenGrnModal(po)}
                                 className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10.5px] font-bold transition cursor-pointer"
                               >
-                                Receive Stock (GRN)
+                                Receive GRN
                               </button>
                             )}
                             <button
@@ -1641,7 +1689,7 @@ export default function ProcurementPayablesHub({
                               onClick={() => handleOpenBillModal(po)}
                               className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[10.5px] font-bold transition cursor-pointer"
                             >
-                              + Bill
+                              Record Bill
                             </button>
                             <button
                               type="button"
@@ -1664,7 +1712,7 @@ export default function ProcurementPayablesHub({
                               onClick={() => handleOpenInStudio(po)}
                               className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[10.5px] font-bold transition cursor-pointer"
                             >
-                              Studio
+                              Open in Studio
                             </button>
                             <button
                               type="button"
@@ -1719,47 +1767,68 @@ export default function ProcurementPayablesHub({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {supplierPOs.flatMap((po) =>
-                  (po.line_items || [])
-                    .filter((li) => {
-                      const ordered = Number(li.qty_ordered ?? li.qty) || 0;
-                      const received = Number(li.qty_received) || 0;
-                      return ordered > received;
-                    })
-                    .map((li) => {
-                      const ordered = Number(li.qty_ordered ?? li.qty) || 0;
-                      const received = Number(li.qty_received) || 0;
-                      const pending = Math.max(0, ordered - received);
-                      return (
-                        <tr key={`${po.id}_${li.id}`} className="hover:bg-slate-50/80">
-                          <td className="py-2.5 px-4 font-mono font-bold text-indigo-700">
-                            {po.purchase_order_metadata?.po_ref || po.formatted_quote_ref}
-                          </td>
-                          <td className="py-2.5 px-3 font-semibold text-slate-800">
-                            {po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name}
-                          </td>
-                          <td className="py-2.5 px-3">
-                            <div className="font-semibold text-slate-900">{li.item_name || li.description}</div>
-                            {li.part_no && <div className="text-[10px] font-mono text-slate-500">PN: {li.part_no}</div>}
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-mono">{ordered} {li.unit}</td>
-                          <td className="py-2.5 px-3 text-right font-mono text-emerald-700">{received} {li.unit}</td>
-                          <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-700">{pending} {li.unit}</td>
-                          <td className="py-2.5 px-3 text-right font-mono text-slate-700">
-                            {po.currency} {Number(li.landed_unit_cost ?? li.unit_price ?? 0).toFixed(2)}
-                          </td>
-                          <td className="py-2.5 px-4 text-right">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenGrnModal(po)}
-                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10.5px] font-bold cursor-pointer"
-                            >
-                              Receive Stock (GRN)
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
+                {supplierPOs
+                  .filter((po) => {
+                    const st = String(po.status || '').toLowerCase();
+                    return st !== 'cancelled' && st !== 'rejected';
+                  })
+                  .flatMap((po) =>
+                    (po.line_items || [])
+                      .filter((li: any) => {
+                        const ordered = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
+                        const received = Number(li.qty_received) || 0;
+                        return ordered > received;
+                      })
+                      .map((li: any) => {
+                        const ordered = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
+                        const received = Number(li.qty_received) || 0;
+                        const pending = Math.max(0, ordered - received);
+                        return (
+                          <tr key={`${po.id}_${li.id}`} className="hover:bg-slate-50/80">
+                            <td className="py-2.5 px-4 font-mono font-bold text-indigo-700">
+                              {po.purchase_order_metadata?.po_ref || po.formatted_quote_ref}
+                            </td>
+                            <td className="py-2.5 px-3 font-semibold text-slate-800">
+                              {po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div className="font-semibold text-slate-900">{li.item_name || li.description}</div>
+                              {li.part_no && <div className="text-[10px] font-mono text-slate-500">PN: {li.part_no}</div>}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono">{ordered} {li.unit}</td>
+                            <td className="py-2.5 px-3 text-right font-mono text-emerald-700">{received} {li.unit}</td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-700">{pending} {li.unit}</td>
+                            <td className="py-2.5 px-3 text-right font-mono text-slate-700">
+                              {po.currency} {Number(li.landed_unit_cost ?? li.unit_price ?? 0).toFixed(2)}
+                            </td>
+                            <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenGrnModal(po)}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10.5px] font-bold cursor-pointer"
+                                >
+                                  Receive Stock (GRN)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenBillModal(po)}
+                                  className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[10.5px] font-bold cursor-pointer"
+                                >
+                                  Record Bill
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                  )}
+                {kpiStats.pendingGrnCount === 0 && (
+                  <tr>
+                    <td colSpan={8} className="py-10 text-center text-slate-400 text-xs">
+                      All active Supplier PO line items have been received into Warehouse Stock, or no open POs exist.
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
@@ -1883,7 +1952,7 @@ export default function ProcurementPayablesHub({
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">
                           <div className="inline-flex items-center gap-1.5">
-                            {hasVariance && bill.approval_status !== 'approved' && userIsAdmin && (
+                            {bill.approval_status !== 'approved' && (!hasVariance || userIsAdmin) && (
                               <button
                                 type="button"
                                 onClick={async () => {
@@ -1895,14 +1964,32 @@ export default function ProcurementPayablesHub({
                                     variance_approved_at: new Date().toISOString(),
                                     updated_at: new Date().toISOString()
                                   });
-                                  triggerToast?.(`Admin override approved ${bill.bill_number}.`, 'success');
+                                  triggerToast?.(`Approved Supplier Bill ${bill.bill_number}.`, 'success');
                                 }}
-                                className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold cursor-pointer"
-                                title="Admin Override Approve Variance"
+                                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold cursor-pointer"
+                                title="Approve Supplier Bill for Settlement"
                               >
-                                Admin Approve
+                                Approve Bill
                               </button>
                             )}
+                            {!bill.is_on_hold && bill.balance_due > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => handleIssuePaymentVoucher(bill)}
+                                className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold cursor-pointer"
+                              >
+                                Pay Bill (PV)
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setViewingBillSummary(bill)}
+                              className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[10px] font-bold cursor-pointer inline-flex items-center gap-1"
+                              title="View / Print 3-Way Match Bill Summary"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>View / Print Summary</span>
+                            </button>
                             <button
                               type="button"
                               onClick={async () => {
@@ -1928,15 +2015,6 @@ export default function ProcurementPayablesHub({
                             >
                               {bill.is_on_hold ? 'Release Hold' : 'Hold'}
                             </button>
-                            {!bill.is_on_hold && bill.balance_due > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => handleIssuePaymentVoucher(bill)}
-                                className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold cursor-pointer"
-                              >
-                                Pay (PV)
-                              </button>
-                            )}
                             <button
                               type="button"
                               onClick={() => handleIssueVendorReturn('debit_note', undefined, bill)}
@@ -2020,7 +2098,9 @@ export default function ProcurementPayablesHub({
               <tbody className="divide-y divide-slate-100">
                 {paymentVouchersAndReturns.map((doc) => {
                   const isPv = doc.document_type === 'payment_voucher';
-                  const isMrn = doc.document_type === 'material_return_note';
+                  const isMrn =
+                    doc.document_type === 'material_return_note' ||
+                    (doc.document_type as string) === 'material_return';
                   const amt = isPv
                     ? Number(
                         doc.payment_voucher_metadata?.amount_paid ??
@@ -2188,7 +2268,7 @@ export default function ProcurementPayablesHub({
                               product_id: li.product_id || '',
                               item_name: li.item_name || li.description || '',
                               part_no: li.part_no || prod?.part_no || '',
-                              qty: Number(li.qty) || 1,
+                              qty: Number(li.quantity ?? li.qty) || 1,
                               unit: li.unit || prod?.unit || 'Nos',
                               unit_cost: Number(li.cost_price ?? prod?.cost_price ?? 0) || 0
                             };
@@ -2264,7 +2344,7 @@ export default function ProcurementPayablesHub({
                         <option value="">-- Pick Catalog Item or Type --</option>
                         {products.map((p) => (
                           <option key={p.id} value={p.id}>
-                            {p.name} {p.part_no ? `(${p.part_no})` : ''} — Stock: {p.stock_quantity ?? 0}
+                            {p.name} {p.part_no ? `(${p.part_no})` : ''} — Stock: {p.stock_on_hand ?? p.stock_quantity ?? 0}
                           </option>
                         ))}
                       </select>
@@ -2336,10 +2416,17 @@ export default function ProcurementPayablesHub({
               </button>
               <button
                 type="button"
-                onClick={handleCreateSupplierPo}
+                onClick={() => handleCreateSupplierPo(false)}
+                className="px-4 py-2 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-bold cursor-pointer"
+              >
+                Save PO
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCreateSupplierPo(true)}
                 className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer"
               >
-                Create PO &amp; Open in Studio
+                Save &amp; Open in Studio
               </button>
             </div>
           </div>
@@ -2916,7 +3003,7 @@ export default function ProcurementPayablesHub({
                   Issue Outbound Payment Voucher (PV)
                 </h3>
                 <p className="text-[11px] text-slate-600">
-                  Select Payee / Vendor, allocate against open Supplier Bills or POs, and open in A4 Studio
+                  Select Payee / Vendor, allocate against open Supplier Bills or POs, and save or open in A4 Studio
                 </p>
               </div>
               <button
@@ -2946,19 +3033,9 @@ export default function ProcurementPayablesHub({
                         const matchingBills = supplierBills.filter(
                           (b) => (b.vendor_id === id || b.vendor_name === vName) && b.balance_due > 0 && !b.is_on_hold
                         );
-                        if (matchingBills.length > 0 && pvAllocatedBills.length === 0) {
+                        if (matchingBills.length > 0 && Object.keys(pvSelectedBills).length === 0) {
                           const first = matchingBills[0];
-                          setPvAllocatedBills([
-                            {
-                              bill_id: first.id,
-                              bill_number: first.bill_number,
-                              vendor_invoice_no: first.vendor_invoice_no,
-                              invoice_date: first.invoice_date,
-                              bill_total: first.grand_total,
-                              previously_paid: first.amount_paid,
-                              allocated_amount: first.balance_due
-                            }
-                          ]);
+                          setPvSelectedBills({ [first.id]: first.balance_due });
                           setPvAmountPaid(first.balance_due);
                           setPvNarration(`Settlement of Supplier Invoice #${first.vendor_invoice_no} (${first.bill_number})`);
                         }
@@ -3023,15 +3100,16 @@ export default function ProcurementPayablesHub({
                   <div>
                     <label className="block font-bold text-slate-700 mb-1">Payment Mode</label>
                     <select
-                      value={pvPaymentMode}
-                      onChange={(e) => setPvPaymentMode(e.target.value as any)}
+                      value={pvPaymentMethod}
+                      onChange={(e) => setPvPaymentMethod(e.target.value as any)}
                       className="w-full rounded-xl border border-slate-300 p-2 bg-white"
                     >
-                      <option value="Bank Transfer">Bank Transfer</option>
+                      <option value="Bank Transfer / TT">Bank Transfer / TT</option>
                       <option value="Cheque">Cheque</option>
                       <option value="Cash">Cash</option>
                       <option value="Corporate Card">Corporate Card</option>
-                      <option value="LC / Trade Finance">LC / Trade Finance</option>
+                      <option value="Letter of Credit (LC)">Letter of Credit (LC)</option>
+                      <option value="Online">Online</option>
                     </select>
                   </div>
                   <div>
@@ -3064,12 +3142,12 @@ export default function ProcurementPayablesHub({
                       if (!pvPayeeName.trim()) return true;
                       return (
                         b.vendor_name.toLowerCase().includes(pvPayeeName.toLowerCase()) ||
-                        (pvVendorId && b.vendor_id === pvVendorId)
+                        Boolean(pvVendorId && b.vendor_id === pvVendorId)
                       );
                     })
                     .map((bill) => {
-                      const alloc = pvAllocatedBills.find((a) => a.bill_id === bill.id);
-                      const isChecked = Boolean(alloc);
+                      const allocAmount = pvSelectedBills[bill.id];
+                      const isChecked = allocAmount !== undefined && allocAmount > 0;
                       return (
                         <div key={bill.id} className="px-3 py-2 flex items-center justify-between gap-3 hover:bg-slate-50">
                           <label className="flex items-center gap-2 cursor-pointer flex-1">
@@ -3079,31 +3157,24 @@ export default function ProcurementPayablesHub({
                               disabled={bill.is_on_hold}
                               onChange={(e) => {
                                 if (e.target.checked) {
-                                  const next = [
-                                    ...pvAllocatedBills,
-                                    {
-                                      bill_id: bill.id,
-                                      bill_number: bill.bill_number,
-                                      vendor_invoice_no: bill.vendor_invoice_no,
-                                      invoice_date: bill.invoice_date,
-                                      bill_total: bill.grand_total,
-                                      previously_paid: bill.amount_paid,
-                                      allocated_amount: bill.balance_due
-                                    }
-                                  ];
-                                  setPvAllocatedBills(next);
+                                  const next = {
+                                    ...pvSelectedBills,
+                                    [bill.id]: bill.balance_due
+                                  };
+                                  setPvSelectedBills(next);
                                   setPvAmountPaid(
                                     QuotationRepository.roundCurrency(
-                                      next.reduce((s, a) => s + Number(a.allocated_amount || 0), 0)
+                                      Object.values(next).reduce((s, v) => s + Number(v || 0), 0)
                                     )
                                   );
                                   if (!pvPayeeName) setPvPayeeName(bill.vendor_name);
                                 } else {
-                                  const next = pvAllocatedBills.filter((a) => a.bill_id !== bill.id);
-                                  setPvAllocatedBills(next);
+                                  const next = { ...pvSelectedBills };
+                                  delete next[bill.id];
+                                  setPvSelectedBills(next);
                                   setPvAmountPaid(
                                     QuotationRepository.roundCurrency(
-                                      next.reduce((s, a) => s + Number(a.allocated_amount || 0), 0)
+                                      Object.values(next).reduce((s, v) => s + Number(v || 0), 0)
                                     )
                                   );
                                 }
@@ -3121,22 +3192,23 @@ export default function ProcurementPayablesHub({
                               </div>
                             </div>
                           </label>
-                          {isChecked && alloc && (
+                          {isChecked && (
                             <div className="flex items-center gap-1.5">
                               <span className="text-[10.5px] text-slate-500">Allocate:</span>
                               <input
                                 type="number"
                                 step="0.01"
-                                value={alloc.allocated_amount}
+                                value={allocAmount}
                                 onChange={(e) => {
                                   const val = Math.max(0, Number(e.target.value) || 0);
-                                  const next = pvAllocatedBills.map((a) =>
-                                    a.bill_id === bill.id ? { ...a, allocated_amount: val } : a
-                                  );
-                                  setPvAllocatedBills(next);
+                                  const next = {
+                                    ...pvSelectedBills,
+                                    [bill.id]: val
+                                  };
+                                  setPvSelectedBills(next);
                                   setPvAmountPaid(
                                     QuotationRepository.roundCurrency(
-                                      next.reduce((s, a) => s + Number(a.allocated_amount || 0), 0)
+                                      Object.values(next).reduce((s, v) => s + Number(v || 0), 0)
                                     )
                                   );
                                 }}
@@ -3187,16 +3259,23 @@ export default function ProcurementPayablesHub({
               <button
                 type="button"
                 onClick={() => setShowCreatePvModal(false)}
-                className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700"
+                className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={handleConfirmCreatePv}
+                onClick={() => handleConfirmCreatePv(false)}
+                className="px-4 py-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-bold cursor-pointer"
+              >
+                Save PV
+              </button>
+              <button
+                type="button"
+                onClick={() => handleConfirmCreatePv(true)}
                 className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold cursor-pointer"
               >
-                Create PV &amp; Open in Studio
+                Save &amp; Open in Studio
               </button>
             </div>
           </div>
@@ -3210,7 +3289,7 @@ export default function ProcurementPayablesHub({
             <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-rose-50/70">
               <div>
                 <h3 className="text-sm font-black text-slate-900">
-                  {returnDocType === 'material_return_note'
+                  {retMode === 'material_return_note'
                     ? 'Issue Material Return Note (MRN — Unpriced Gate-Pass)'
                     : 'Issue Vendor Debit Note (DN — Commercial Claim)'}
                 </h3>
@@ -3231,9 +3310,9 @@ export default function ProcurementPayablesHub({
               <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl w-fit">
                 <button
                   type="button"
-                  onClick={() => setReturnDocType('material_return_note')}
+                  onClick={() => setRetMode('material_return_note')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                    returnDocType === 'material_return_note'
+                    retMode === 'material_return_note'
                       ? 'bg-white text-slate-900 shadow-2xs'
                       : 'text-slate-600'
                   }`}
@@ -3242,9 +3321,9 @@ export default function ProcurementPayablesHub({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setReturnDocType('debit_note')}
+                  onClick={() => setRetMode('debit_note')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                    returnDocType === 'debit_note'
+                    retMode === 'debit_note'
                       ? 'bg-rose-600 text-white shadow-2xs'
                       : 'text-slate-600'
                   }`}
@@ -3259,12 +3338,12 @@ export default function ProcurementPayablesHub({
                     Select Vendor from Directory
                   </label>
                   <select
-                    value={returnVendorId}
+                    value={retVendorId}
                     onChange={(e) => {
                       const id = e.target.value;
-                      setReturnVendorId(id);
+                      setRetVendorId(id);
                       const v = companies.find((c) => c.id === id);
-                      if (v) setReturnVendorName(getCompanyName(v));
+                      if (v) setRetSupplierName(getCompanyName(v));
                     }}
                     className="w-full rounded-xl border border-slate-300 p-2 bg-white"
                   >
@@ -3285,8 +3364,8 @@ export default function ProcurementPayablesHub({
                   </label>
                   <input
                     type="text"
-                    value={returnVendorName}
-                    onChange={(e) => setReturnVendorName(e.target.value)}
+                    value={retSupplierName}
+                    onChange={(e) => setRetSupplierName(e.target.value)}
                     placeholder="Supplier Name"
                     className="w-full rounded-xl border border-slate-300 p-2 bg-white"
                   />
@@ -3296,22 +3375,22 @@ export default function ProcurementPayablesHub({
                     Link to Supplier PO (Optional)
                   </label>
                   <select
-                    value={returnPoId}
+                    value={retPoId}
                     onChange={(e) => {
                       const id = e.target.value;
-                      setReturnPoId(id);
+                      setRetPoId(id);
                       const po = supplierPOs.find((p) => p.id === id);
                       if (po) {
-                        setReturnVendorName(
-                          po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name || returnVendorName
+                        setRetSupplierName(
+                          po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name || retSupplierName
                         );
                         if (po.line_items && po.line_items.length > 0) {
-                          setReturnLines(
+                          setRetLines(
                             po.line_items.map((li) => ({
                               product_id: li.product_id || '',
                               item_name: li.item_name || li.description || '',
                               part_no: li.part_no || '',
-                              qty: Number(li.qty) || 1,
+                              qty: Number(li.qty_ordered ?? li.quantity ?? li.qty) || 1,
                               unit: li.unit || 'Nos',
                               unit_cost: Number(li.unit_price ?? li.cost_price ?? 0) || 0
                             }))
@@ -3334,15 +3413,15 @@ export default function ProcurementPayablesHub({
                     Link to Supplier Bill (Reduces Bill Balance on DN)
                   </label>
                   <select
-                    value={returnBillId}
+                    value={retBillId}
                     onChange={(e) => {
                       const id = e.target.value;
-                      setReturnBillId(id);
+                      setRetBillId(id);
                       const bill = supplierBills.find((b) => b.id === id);
                       if (bill) {
-                        setReturnVendorName(bill.vendor_name);
+                        setRetSupplierName(bill.vendor_name);
                         if (bill.line_items && bill.line_items.length > 0) {
-                          setReturnLines(
+                          setRetLines(
                             bill.line_items.map((li) => ({
                               product_id: li.product_id || '',
                               item_name: li.item_name || '',
@@ -3367,23 +3446,29 @@ export default function ProcurementPayablesHub({
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Return / Claim Reason</label>
-                  <input
-                    type="text"
-                    value={returnReason}
-                    onChange={(e) => setReturnReason(e.target.value)}
+                  <select
+                    value={retReason}
+                    onChange={(e) => setRetReason(e.target.value as any)}
                     className="w-full rounded-xl border border-slate-300 p-2 bg-white"
-                  />
+                  >
+                    <option value="Defective / Damaged">Defective / Damaged</option>
+                    <option value="Wrong Item Supplied">Wrong Item Supplied</option>
+                    <option value="Excess Quantity">Excess Quantity</option>
+                    <option value="Quality Rejection">Quality Rejection</option>
+                    <option value="Commercial Price Adjustment">Commercial Price Adjustment</option>
+                    <option value="Other">Other</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Resolution Requested</label>
                   <select
-                    value={returnResolution}
-                    onChange={(e) => setReturnResolution(e.target.value as any)}
+                    value={retResolution}
+                    onChange={(e) => setRetResolution(e.target.value as any)}
                     className="w-full rounded-xl border border-slate-300 p-2 bg-white"
                   >
-                    <option value="Credit / Account Adjustment">Credit / Account Adjustment</option>
+                    <option value="Credit / Bill Deduction">Credit / Bill Deduction</option>
                     <option value="Replacement Required">Replacement Required</option>
-                    <option value="Refund">Refund</option>
+                    <option value="Refund Requested">Refund Requested</option>
                   </select>
                 </div>
               </div>
@@ -3394,7 +3479,7 @@ export default function ProcurementPayablesHub({
                   <button
                     type="button"
                     onClick={() =>
-                      setReturnLines((prev) => [
+                      setRetLines((prev) => [
                         ...prev,
                         { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
                       ])
@@ -3404,15 +3489,15 @@ export default function ProcurementPayablesHub({
                     + Add Line
                   </button>
                 </div>
-                {returnLines.map((line, idx) => (
+                {retLines.map((line, idx) => (
                   <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-slate-50 p-2 rounded-xl border border-slate-200">
                     <div className="col-span-4">
                       <select
-                        value={line.product_id}
+                        value={line.product_id || ''}
                         onChange={(e) => {
                           const pid = e.target.value;
                           const prod = products.find((p) => p.id === pid);
-                          setReturnLines((prev) =>
+                          setRetLines((prev) =>
                             prev.map((l, i) =>
                               i === idx
                                 ? {
@@ -3442,7 +3527,7 @@ export default function ProcurementPayablesHub({
                         type="text"
                         value={line.item_name}
                         onChange={(e) =>
-                          setReturnLines((prev) =>
+                          setRetLines((prev) =>
                             prev.map((l, i) => (i === idx ? { ...l, item_name: e.target.value } : l))
                           )
                         }
@@ -3456,7 +3541,7 @@ export default function ProcurementPayablesHub({
                         min="1"
                         value={line.qty}
                         onChange={(e) =>
-                          setReturnLines((prev) =>
+                          setRetLines((prev) =>
                             prev.map((l, i) => (i === idx ? { ...l, qty: Number(e.target.value) || 1 } : l))
                           )
                         }
@@ -3470,7 +3555,7 @@ export default function ProcurementPayablesHub({
                         step="0.01"
                         value={line.unit_cost}
                         onChange={(e) =>
-                          setReturnLines((prev) =>
+                          setRetLines((prev) =>
                             prev.map((l, i) =>
                               i === idx ? { ...l, unit_cost: Number(e.target.value) || 0 } : l
                             )
@@ -3483,7 +3568,7 @@ export default function ProcurementPayablesHub({
                     <div className="col-span-1 text-right">
                       <button
                         type="button"
-                        onClick={() => setReturnLines((prev) => prev.filter((_, i) => i !== idx))}
+                        onClick={() => setRetLines((prev) => prev.filter((_, i) => i !== idx))}
                         className="p-1 text-rose-500 hover:bg-rose-50 rounded"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -3498,23 +3583,292 @@ export default function ProcurementPayablesHub({
               <button
                 type="button"
                 onClick={() => setShowCreateReturnModal(false)}
-                className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700"
+                className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={handleConfirmCreateReturn}
+                onClick={() => handleConfirmCreateReturn(false)}
+                className="px-4 py-2 rounded-xl border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-900 text-xs font-bold cursor-pointer"
+              >
+                {retMode === 'material_return_note' ? 'Save MRN' : 'Save Debit Note'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleConfirmCreateReturn(true)}
                 className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer"
               >
-                {returnDocType === 'material_return_note'
-                  ? 'Create MRN & Open in Studio'
-                  : 'Create Debit Note & Open in Studio'}
+                {retMode === 'material_return_note'
+                  ? 'Save & Open MRN in Studio'
+                  : 'Save & Open DN in Studio'}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* MODAL 6: PRINTABLE 3-WAY MATCH BILL SUMMARY & VOUCHER SHEET */}
+      {viewingBillSummary && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 print:p-0 print:bg-white">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full overflow-hidden flex flex-col max-h-[92vh] print:max-h-none print:shadow-none print:border-0">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-900 text-white print:bg-white print:text-slate-900">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 print:text-emerald-700 text-[10px] font-black uppercase tracking-wider">
+                    3-Way Match Voucher Sheet
+                  </span>
+                  <span className="font-mono text-xs text-slate-300 print:text-slate-600">
+                    {viewingBillSummary.bill_number}
+                  </span>
+                </div>
+                <h3 className="text-base font-black mt-0.5">
+                  Supplier Bill Summary — {viewingBillSummary.vendor_name}
+                </h3>
+              </div>
+              <div className="flex items-center gap-2 print:hidden">
+                {viewingBillSummary.balance_due > 0 && !viewingBillSummary.is_on_hold && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = viewingBillSummary;
+                      setViewingBillSummary(null);
+                      openCreatePvModal({ bill: target });
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold cursor-pointer"
+                  >
+                    + Pay Bill (PV)
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold cursor-pointer"
+                >
+                  Print Summary
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewingBillSummary(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-5 text-xs">
+              {/* 3-Way Match Verification Banner */}
+              <div
+                className={`p-3.5 rounded-xl border flex items-center justify-between ${
+                  viewingBillSummary.match_status === 'matched'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                    : viewingBillSummary.match_status === 'discrepancy'
+                    ? 'bg-rose-50 border-rose-200 text-rose-900'
+                    : 'bg-amber-50 border-amber-200 text-amber-900'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  {viewingBillSummary.match_status === 'matched' ? (
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                  )}
+                  <div>
+                    <div className="font-black text-xs uppercase tracking-wider">
+                      3-Way Match Status: {viewingBillSummary.match_status.toUpperCase()}
+                    </div>
+                    <div className="text-[11px] opacity-85">
+                      {viewingBillSummary.discrepancy_notes ||
+                        'All billed quantities and unit rates verified against Purchase Order and Warehouse GRN records.'}
+                    </div>
+                  </div>
+                </div>
+                <span className="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-white/80 border border-current/20">
+                  Status: {viewingBillSummary.status}
+                </span>
+              </div>
+
+              {/* Metadata Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div>
+                  <div className="text-[10px] font-bold uppercase text-slate-400">Vendor / Supplier</div>
+                  <div className="font-bold text-slate-900 mt-0.5">{viewingBillSummary.vendor_name}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase text-slate-400">Vendor Invoice #</div>
+                  <div className="font-mono font-bold text-slate-900 mt-0.5">
+                    {viewingBillSummary.vendor_invoice_no}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase text-slate-400">Linked PO Ref</div>
+                  <div className="font-mono font-bold text-indigo-700 mt-0.5">
+                    {viewingBillSummary.po_ref || 'Direct / Standalone Bill'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase text-slate-400">Invoice / Due Date</div>
+                  <div className="font-semibold text-slate-800 mt-0.5">
+                    {viewingBillSummary.invoice_date} {viewingBillSummary.due_date ? `→ ${viewingBillSummary.due_date}` : ''}
+                  </div>
+                </div>
+              </div>
+
+              {/* Line-by-Line 3-Way Match Table */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100 text-[10px] font-black uppercase text-slate-600 border-b border-slate-200">
+                      <th className="py-2.5 px-3">Item Description</th>
+                      <th className="py-2.5 px-3 text-right">PO Qty</th>
+                      <th className="py-2.5 px-3 text-right">GRN Qty</th>
+                      <th className="py-2.5 px-3 text-right">Billed Qty</th>
+                      <th className="py-2.5 px-3 text-right">PO Rate</th>
+                      <th className="py-2.5 px-3 text-right">Billed Rate</th>
+                      <th className="py-2.5 px-3 text-right">Line Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 text-xs">
+                    {(viewingBillSummary.line_items || []).map((li, idx) => {
+                      const qtyDiff = li.po_qty > 0 && li.billed_qty > (li.grn_qty || li.po_qty);
+                      const rateDiff = li.po_unit_cost > 0 && Math.abs(li.billed_unit_cost - li.po_unit_cost) > 0.01;
+                      return (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="py-2.5 px-3 font-semibold text-slate-900">
+                            {li.item_name}
+                            {li.part_no && (
+                              <span className="ml-1.5 font-mono text-[10.5px] text-slate-500">
+                                ({li.part_no})
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-slate-600">{li.po_qty}</td>
+                          <td className="py-2.5 px-3 text-right font-mono text-slate-600">{li.grn_qty}</td>
+                          <td
+                            className={`py-2.5 px-3 text-right font-mono font-bold ${
+                              qtyDiff ? 'text-rose-600' : 'text-slate-900'
+                            }`}
+                          >
+                            {li.billed_qty}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-slate-600">
+                            {Number(li.po_unit_cost || 0).toFixed(2)}
+                          </td>
+                          <td
+                            className={`py-2.5 px-3 text-right font-mono font-bold ${
+                              rateDiff ? 'text-rose-600' : 'text-slate-900'
+                            }`}
+                          >
+                            {Number(li.billed_unit_cost || 0).toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
+                            {Number(li.line_total || 0).toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Financial Breakdown */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-1.5">
+                  <div className="text-[10px] font-black uppercase text-slate-400">
+                    Audit &amp; Verification Notes
+                  </div>
+                  <div className="text-xs text-slate-700">
+                    {viewingBillSummary.notes || 'Recorded in Workspace Payables Ledger.'}
+                  </div>
+                  {viewingBillSummary.approved_by_name && (
+                    <div className="text-[11px] text-emerald-700 font-semibold pt-1">
+                      Approved by {viewingBillSummary.approved_by_name}
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-1.5 font-mono text-xs">
+                  <div className="flex justify-between">
+                    <span className="font-sans text-slate-600">Items Subtotal:</span>
+                    <span className="font-bold">
+                      {viewingBillSummary.currency} {Number(viewingBillSummary.subtotal || 0).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-sans text-slate-600">Freight / Customs:</span>
+                    <span>
+                      {viewingBillSummary.currency}{' '}
+                      {Number(viewingBillSummary.freight_customs_amount || 0).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-sans text-slate-600">Tax / VAT:</span>
+                    <span>
+                      {viewingBillSummary.currency} {Number(viewingBillSummary.tax_amount || 0).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t border-slate-200 pt-1.5 text-slate-900 font-black">
+                    <span className="font-sans">Grand Total:</span>
+                    <span>
+                      {viewingBillSummary.currency} {Number(viewingBillSummary.grand_total || 0).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-emerald-700">
+                    <span className="font-sans">Amount Paid (PVs) + Debit Notes:</span>
+                    <span>
+                      - {viewingBillSummary.currency}{' '}
+                      {(
+                        Number(viewingBillSummary.amount_paid || 0) +
+                        Number(viewingBillSummary.credit_applied || 0)
+                      ).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t border-slate-300 pt-1.5 text-sm font-black text-rose-700">
+                    <span className="font-sans">Balance Due:</span>
+                    <span>
+                      {viewingBillSummary.currency} {Number(viewingBillSummary.balance_due || 0).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Embedded Vendor Invoice Scan / PDF Preview */}
+              {viewingBillSummary.attachment?.url && (
+                <div className="space-y-2 print:hidden">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700">
+                      Attached Vendor Invoice Scan ({viewingBillSummary.attachment.name})
+                    </span>
+                    <a
+                      href={viewingBillSummary.attachment.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs font-bold text-indigo-600 hover:underline"
+                    >
+                      Open Full Attachment ↗
+                    </a>
+                  </div>
+                  {viewingBillSummary.attachment.mimeType?.includes('pdf') ? (
+                    <iframe
+                      src={viewingBillSummary.attachment.url}
+                      title="Vendor Invoice PDF"
+                      className="w-full h-80 rounded-xl border border-slate-200 bg-slate-100"
+                    />
+                  ) : (
+                    <img
+                      src={viewingBillSummary.attachment.url}
+                      alt={viewingBillSummary.attachment.name}
+                      className="max-h-96 rounded-xl border border-slate-200 object-contain mx-auto"
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {/* A4 QUOTATION / COMMERCIAL DOCUMENT STUDIO MODAL */}
       {studioOpen && studioEnquiry && (

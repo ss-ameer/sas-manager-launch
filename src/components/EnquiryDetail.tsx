@@ -953,8 +953,8 @@ export default function EnquiryDetail({
     });
   };
 
-  // Confirm Supplier PO Modal & Launch Studio with Supplier Costs
-  const handleConfirmLaunchSupplierPo = () => {
+  // Confirm Supplier PO Modal & Persist Immediately (with optional Open in Studio)
+  const handleConfirmLaunchSupplierPo = async (openInStudio: boolean = true) => {
     const sourceQuote = poModalState.sourceQuote ?? getPrimarySourceQuotation();
     const allItems = buildBaseLineItemsFromSource(sourceQuote);
     const chosenIndices =
@@ -985,6 +985,8 @@ export default function EnquiryDetail({
           : Number(item.unit_price) || 0;
         return {
           ...item,
+          quantity: qty,
+          qty: qty,
           qty_ordered: qty,
           qty_received: 0,
           qty_pending: qty,
@@ -1025,7 +1027,7 @@ export default function EnquiryDetail({
       quote_number: baseQuoteRef.replace(/-R\d+$/i, ''),
       revision_number: 1,
       formatted_quote_ref: linkedPoRef,
-      status: 'Draft',
+      status: 'Approved',
       subject:
         sourceQuote?.subject ||
         currentEnquiry.subject ||
@@ -1051,7 +1053,7 @@ export default function EnquiryDetail({
           poModalState.supplierName ||
           (poModalState.poVariant === 'order_acknowledgment'
             ? currentEnquiry.company_name || currentEnquiry.client_company || ''
-            : ''),
+            : 'Supplier'),
         supplier_contact: poModalState.supplierContact || '',
         supplier_email: poModalState.supplierEmail || '',
         supplier_phone: poModalState.supplierPhone || '',
@@ -1092,9 +1094,25 @@ export default function EnquiryDetail({
         selectedVendor?.default_currency || sourceQuote?.currency || currentEnquiry.currency || 'AED'
     };
 
-    setPoModalState((prev) => ({ ...prev, isOpen: false }));
-    setEditingQuotation(draftPo);
-    setIsQuotationStudioOpen(true);
+    try {
+      const savedPo = await QuotationRepository.saveQuotation(draftPo);
+      setQuotations((prev) => [savedPo, ...prev.filter((q) => q.id !== savedPo.id)]);
+      setPoModalState((prev) => ({ ...prev, isOpen: false }));
+      if (openInStudio) {
+        setEditingQuotation(savedPo);
+        setIsQuotationStudioOpen(true);
+      } else {
+        triggerToast?.(
+          `Supplier PO ${savedPo.formatted_quote_ref} saved and ready in Pending Stock Receipts.`,
+          'success'
+        );
+      }
+    } catch (err) {
+      console.warn('[EnquiryDetail] Failed saving PO before Studio launch, falling back to draft:', err);
+      setPoModalState((prev) => ({ ...prev, isOpen: false }));
+      setEditingQuotation(draftPo);
+      setIsQuotationStudioOpen(true);
+    }
   };
 
   // 1-Click Conversion: Issue Payment Receipt (REC) with cumulative balance tracking
@@ -3596,6 +3614,68 @@ export default function EnquiryDetail({
                     })}
                   </div>
                 )}
+
+                {/* Linked Procurement & Net Margin Summary Strip */}
+                {!isMaskedForBasic &&
+                  quotations.some(
+                    (q) =>
+                      !q.is_deleted &&
+                      q.document_type === 'purchase_order' &&
+                      q.purchase_order_metadata?.po_variant !== 'order_acknowledgment'
+                  ) && (() => {
+                    const activePos = quotations.filter(
+                      (q) =>
+                        !q.is_deleted &&
+                        q.document_type === 'purchase_order' &&
+                        q.purchase_order_metadata?.po_variant !== 'order_acknowledgment'
+                    );
+                    const totalCommittedPoCost = activePos.reduce(
+                      (sum, po) => sum + Number(po.grand_total || 0),
+                      0
+                    );
+                    const primaryQt = getPrimarySourceQuotation();
+                    const clientContractVal =
+                      Number(primaryQt?.grand_total) || Number(currentEnquiry.value_aed) || 0;
+                    const netMarginVal = clientContractVal - totalCommittedPoCost;
+                    const netMarginPct =
+                      clientContractVal > 0 ? (netMarginVal / clientContractVal) * 100 : null;
+                    const curr = currentEnquiry.currency || 'AED';
+
+                    return (
+                      <div className="p-3 rounded-xl bg-indigo-50/70 border border-indigo-200/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded bg-indigo-600 text-white font-mono text-[10px] font-bold uppercase">
+                            Procurement Linked ({activePos.length} PO{activePos.length === 1 ? '' : 's'})
+                          </span>
+                          <span className="text-slate-700 font-medium">
+                            Committed Supplier PO Total:{' '}
+                            <strong className="font-mono text-slate-900">
+                              {curr} {totalCommittedPoCost.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                            </strong>
+                          </span>
+                        </div>
+                        {clientContractVal > 0 && (
+                          <div className="flex items-center gap-2 font-mono">
+                            <span className="text-slate-600">
+                              Client Offer: <strong>{curr} {clientContractVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded font-bold text-[11px] border ${
+                                (netMarginPct ?? 0) >= 15
+                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                  : (netMarginPct ?? 0) >= 0
+                                  ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                  : 'bg-rose-100 text-rose-800 border-rose-300'
+                              }`}
+                            >
+                              Net Margin: {curr} {netMarginVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}{' '}
+                              {netMarginPct !== null ? `(${netMarginPct.toFixed(1)}%)` : ''}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                 {filteredHubDocuments.length > 0 ? (
                   <div className="space-y-2 pt-1">
@@ -7396,11 +7476,18 @@ export default function EnquiryDetail({
               </button>
               <button
                 type="button"
-                onClick={handleConfirmLaunchSupplierPo}
+                onClick={() => handleConfirmLaunchSupplierPo(false)}
+                className="px-4 py-2 rounded-xl border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-bold cursor-pointer"
+              >
+                Save PO
+              </button>
+              <button
+                type="button"
+                onClick={() => handleConfirmLaunchSupplierPo(true)}
                 className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
               >
                 <FileText className="w-3.5 h-3.5" />
-                <span>Launch PO in Studio</span>
+                <span>Save &amp; Open in Studio</span>
               </button>
             </div>
           </div>

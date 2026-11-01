@@ -126,9 +126,63 @@ export class QuotationRepository {
     if (!data) return { id } as Quotation;
     const wsId = data.workspace_id || data.workspaceId || 'ws_default';
     const parentId = data.parent_quotation_id || data.parent_quote_id;
-    const docType = data.document_type || 'quotation';
+    const docType: CommercialDocumentType = data.document_type || 'quotation';
 
-    const rawSubtotal = Number(data.subtotal ?? data.financial_totals?.subtotal ?? 0) || 0;
+    const prefixMap: Record<CommercialDocumentType, string> = {
+      quotation: 'QT',
+      delivery_note: 'DO',
+      purchase_order: 'PO',
+      receipt: 'REC',
+      payment_voucher: 'PV',
+      material_return: 'MRN',
+      debit_note: 'DN'
+    };
+    const expectedPrefix = prefixMap[docType] || 'QT';
+
+    // Self-heal chained prefixes (e.g., PO-PV-0001 -> PV-0001 or PO-0001 depending on active docType)
+    const sanitizeDocRef = (rawRef: string | undefined | null): string => {
+      if (!rawRef) return '';
+      const trimmed = String(rawRef).trim();
+      if (/^(QT|DO|PO|REC|PV|MRN|DN)-(QT|DO|PO|REC|PV|MRN|DN)-/i.test(trimmed)) {
+        const stripped = trimmed.replace(/^(QT|DO|PO|REC|PV|MRN|DN)-+/gi, '');
+        return `${expectedPrefix}-${stripped}`;
+      }
+      return trimmed;
+    };
+
+    // Self-heal line items: strip legacy 'Commercial Grade Equipment Unit' fallback item from Payment Vouchers
+    const rawLineItems: any[] = Array.isArray(data.line_items) ? data.line_items : [];
+    const sanitizedLineItems =
+      docType === 'payment_voucher'
+        ? rawLineItems.filter(
+            (li) =>
+              !(
+                (li?.item_name === 'Commercial Grade Equipment Unit' ||
+                  li?.description === 'Commercial Grade Equipment Unit') &&
+                (li?.model_no === 'MOD-100-PRO' || Number(li?.unit_price) === 450)
+              )
+          )
+        : rawLineItems.map((li) => {
+            // Normalize ordered quantity field so qty_ordered, quantity, and qty are always in sync
+            const resolvedQty =
+              Number(li?.qty_ordered ?? li?.quantity ?? li?.qty) || 0;
+            return {
+              ...li,
+              quantity: Number(li?.quantity ?? resolvedQty) || resolvedQty,
+              qty_ordered: Number(li?.qty_ordered ?? resolvedQty) || resolvedQty
+            };
+          });
+
+    const computedLinesSum = sanitizedLineItems.reduce((sum, li) => {
+      const q = Number(li?.qty_ordered ?? li?.quantity ?? li?.qty) || 0;
+      const r = Number(li?.unit_price ?? li?.rate) || 0;
+      const t = Number(li?.total_price ?? li?.line_total ?? li?.total) || q * r;
+      return sum + t;
+    }, 0);
+
+    const rawSubtotal =
+      Number(data.subtotal ?? data.financial_totals?.subtotal ?? 0) ||
+      (docType !== 'payment_voucher' ? computedLinesSum : 0);
     const rawFreight = Number(data.freight_amount ?? data.financial_totals?.freight_amount ?? 0) || 0;
     const rawTaxRate = Number(data.tax_rate_percent ?? data.financial_totals?.tax_rate ?? 0) || 0;
     const rawTaxAmount = Number(data.tax_amount ?? data.financial_totals?.tax_amount ?? 0) || 0;
@@ -142,27 +196,54 @@ export class QuotationRepository {
       : 0;
     const pvPaid = Number(data.payment_voucher_metadata?.amount_paid ?? pvAllocSum ?? 0) || 0;
 
-    const rawGrandTotal =
-      Number(
-        data.grand_total ??
-          data.financial_totals?.grand_total ??
-          (docType === 'payment_voucher' ? pvPaid : 0)
-      ) ||
-      (docType === 'payment_voucher' ? pvPaid : 0);
+    // If a legacy PV had the 4,725 dummy fallback total, prefer pvPaid/pvAllocSum
+    const rawStoredGrand = Number(data.grand_total ?? data.financial_totals?.grand_total ?? 0) || 0;
+    const isDummyPvTotal =
+      docType === 'payment_voucher' &&
+      rawLineItems.length !== sanitizedLineItems.length &&
+      (rawStoredGrand === 4500 || rawStoredGrand === 4725);
 
-    const formattedRef =
+    const rawGrandTotal =
+      docType === 'payment_voucher'
+        ? pvPaid > 0
+          ? pvPaid
+          : isDummyPvTotal
+          ? 0
+          : rawStoredGrand
+        : rawStoredGrand > 0
+        ? rawStoredGrand
+        : rawSubtotal + rawFreight + rawTaxAmount;
+
+    const rawFormattedRef =
       data.formatted_quote_ref || data.quote_ref_no || data.quote_number || '';
+    const formattedRef = sanitizeDocRef(rawFormattedRef);
+    const resolvedQuoteNumber = sanitizeDocRef(data.quote_number || formattedRef);
     const resolvedSubject = data.subject || data.quotation_subject || '';
 
     const normalizedPvMeta = data.payment_voucher_metadata
       ? {
           ...data.payment_voucher_metadata,
+          voucher_ref: sanitizeDocRef(data.payment_voucher_metadata.voucher_ref || formattedRef),
           amount_paid:
             Number(data.payment_voucher_metadata.amount_paid) > 0
               ? Number(data.payment_voucher_metadata.amount_paid)
               : pvAllocSum > 0
               ? pvAllocSum
               : rawGrandTotal
+        }
+      : undefined;
+
+    const normalizedPoMeta = data.purchase_order_metadata
+      ? {
+          ...data.purchase_order_metadata,
+          po_ref: sanitizeDocRef(data.purchase_order_metadata.po_ref || formattedRef)
+        }
+      : undefined;
+
+    const normalizedReturnMeta = data.vendor_return_metadata
+      ? {
+          ...data.vendor_return_metadata,
+          mrn_ref: sanitizeDocRef(data.vendor_return_metadata.mrn_ref || formattedRef)
         }
       : undefined;
 
@@ -173,14 +254,14 @@ export class QuotationRepository {
       workspaceId: wsId,
       document_type: docType,
       formatted_quote_ref: formattedRef,
-      quote_number: data.quote_number || formattedRef,
+      quote_number: resolvedQuoteNumber,
       subject: resolvedSubject,
       quotation_subject: data.quotation_subject || resolvedSubject,
       delivery_metadata: data.delivery_metadata ? { ...data.delivery_metadata } : undefined,
-      purchase_order_metadata: data.purchase_order_metadata ? { ...data.purchase_order_metadata } : undefined,
+      purchase_order_metadata: normalizedPoMeta,
       receipt_metadata: data.receipt_metadata ? { ...data.receipt_metadata } : undefined,
       payment_voucher_metadata: normalizedPvMeta,
-      vendor_return_metadata: data.vendor_return_metadata ? { ...data.vendor_return_metadata } : undefined,
+      vendor_return_metadata: normalizedReturnMeta,
       revision_number:
         typeof data.revision_number === 'number'
           ? data.revision_number
@@ -191,7 +272,7 @@ export class QuotationRepository {
       parent_quotation_id: parentId,
       parent_quote_id: parentId,
       superseded_by_id: data.superseded_by_id,
-      line_items: Array.isArray(data.line_items) ? data.line_items : [],
+      line_items: sanitizedLineItems,
       tax_mode: data.tax_mode || 'taxes_extra',
       subtotal: rawSubtotal,
       freight_amount: rawFreight,

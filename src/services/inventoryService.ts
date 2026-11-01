@@ -880,6 +880,39 @@ export async function processPoBatchGrn(
 
         await safeAddDoc('stock_movements', movement);
         movementsCreated++;
+      } else {
+        // Custom / non-catalog PO line item: record traceable STOCK_IN receipt log without altering catalog product doc
+        const movement: StockMovement = {
+          workspace_id: wsId,
+          product_id: 'custom_po_item',
+          product_name: line.item_name || 'Custom PO Item',
+          movement_type: 'STOCK_IN',
+          quantity: qtyReceivedNow,
+          previous_on_hand: 0,
+          new_on_hand: qtyReceivedNow,
+          reference_type: 'PO',
+          reference_id: input.po_id,
+          reference_number: input.grn_number,
+          po_id: input.po_id,
+          po_ref: input.po_ref,
+          grn_number: input.grn_number,
+          received_date: input.received_date,
+          supplier_id: input.supplier_id,
+          supplier_name: input.supplier_name,
+          delivery_note_ref: input.delivery_note_ref,
+          unit_cost: poUnitCost,
+          allocated_freight_cost: allocatedFreight,
+          landed_unit_cost: computedLandedUnit,
+          total_cost: QuotationRepository.roundCurrency(computedLandedUnit * qtyReceivedNow),
+          reason_notes: `PO GRN Receipt (${input.grn_number}) against ${input.po_ref} (Custom Line)${
+            allocatedFreight > 0 ? ` • Landed Unit Cost: ${computedLandedUnit.toFixed(2)}` : ''
+          }${input.notes ? ` • ${input.notes}` : ''}`,
+          created_at: nowIso,
+          created_by_uid: userUid,
+          created_by_name: userName
+        };
+        await safeAddDoc('stock_movements', movement);
+        movementsCreated++;
       }
     }
 
@@ -891,7 +924,7 @@ export async function processPoBatchGrn(
     let totalReceivedAll = 0;
 
     const updatedPoLineItems = (poDoc.line_items || []).map((item, idx) => {
-      const ordered = Math.max(0, Number(item.qty_ordered ?? item.quantity) || 0);
+      const ordered = Math.max(0, Number(item.qty_ordered ?? item.quantity ?? (item as any).qty) || 0);
       const prevReceived = Math.max(0, Number(item.qty_received) || 0);
       const matchedInput = receiptByLineIdx.get(idx);
       const addReceived = matchedInput ? Math.max(0, Number(matchedInput.qty_receiving_now) || 0) : 0;
@@ -904,6 +937,7 @@ export async function processPoBatchGrn(
       if (!matchedInput) {
         return {
           ...item,
+          quantity: ordered,
           qty_ordered: ordered,
           qty_received: prevReceived,
           qty_pending: nextPending
@@ -922,6 +956,7 @@ export async function processPoBatchGrn(
 
       return {
         ...item,
+        quantity: ordered,
         qty_ordered: ordered,
         qty_received: nextReceived,
         qty_pending: nextPending,
@@ -952,8 +987,14 @@ export async function processPoBatchGrn(
       last_grn_date: input.received_date
     };
 
+    // Promote Draft PO status to Approved when stock receipt is confirmed
+    const currentStatusLower = String(poDoc.status || '').toLowerCase();
+    const nextPoStatus =
+      currentStatusLower === 'draft' || !poDoc.status ? 'Approved' : poDoc.status;
+
     const updatedPo: Quotation = {
       ...poDoc,
+      status: nextPoStatus,
       line_items: updatedPoLineItems,
       purchase_order_metadata: updatedPoMeta,
       updated_at: nowIso,

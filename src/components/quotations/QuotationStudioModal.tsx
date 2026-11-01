@@ -1608,8 +1608,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     handleToggleBlockEnabled('signatory', enabled);
   };
 
-  // Retractable Right-Side Contextual Block & Section Inspector selection
-  const [selectedSection, setSelectedSection] = useState<StudioSelectedSection>(null);
+  // Retractable Right-Side Contextual Block & Section Inspector selection (Mutually exclusive with Left Drawer)
+  const [selectedSection, setSelectedSectionState] = useState<StudioSelectedSection>(null);
+  const setSelectedSection = useCallback((next: React.SetStateAction<StudioSelectedSection>) => {
+    setSelectedSectionState((prev) => {
+      const resolved = typeof next === 'function' ? (next as any)(prev) : next;
+      if (resolved !== null) {
+        setIsLeftDrawerOpen(false);
+      }
+      return resolved;
+    });
+  }, []);
   const [inspectorSubTarget, setInspectorSubTarget] = useState<string | null>(null);
   const [highlightedInspectorTarget, setHighlightedInspectorTarget] = useState<string | null>(null);
 
@@ -1644,12 +1653,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       (section === 'recipient_info' ||
         section === 'quote_meta' ||
         section === 'recipient_meta' ||
+        section === 'remittance' ||
+        section === 'signatories' ||
+        section === 'signatory' ||
+        section === 'acceptance' ||
         (section === 'items_table' &&
           (documentType === 'payment_voucher' || documentType === 'receipt')))
     ) {
+      setSelectedSectionState(null);
       setIsLeftDrawerOpen(true);
       setActiveLeftTab('content');
-      setSelectedSection(null);
       setHighlightDocMetaCard(true);
       window.setTimeout(() => {
         const metaEl = document.getElementById('studio-doc-meta-editor');
@@ -5346,7 +5359,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => setIsLeftDrawerOpen((prev) => !prev)}
+                  onClick={() => {
+                    setIsLeftDrawerOpen((prev) => {
+                      const next = !prev;
+                      if (next) setSelectedSectionState(null);
+                      return next;
+                    });
+                  }}
                   className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition cursor-pointer flex items-center gap-1.5 ${
                     isLeftDrawerOpen
                       ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'

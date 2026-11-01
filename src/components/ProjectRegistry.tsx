@@ -1271,6 +1271,35 @@ export default function ProjectRegistry({
                         </span>
                       </div>
                     </div>
+                    {(rollup.linkedPos.length > 0 || rollup.linkedBills.length > 0) && (
+                      <div className="mt-3 pt-2.5 border-t border-indigo-200/60 flex flex-wrap items-center gap-2 text-[11px]">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-800 mr-1">
+                          Linked Docs:
+                        </span>
+                        {rollup.linkedPos.map((po: any) => (
+                          <span
+                            key={po.id}
+                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white border border-indigo-200 text-indigo-900 font-mono font-semibold"
+                          >
+                            <span>{po.quotation_ref || 'PO'}</span>
+                            <span className="text-[9px] uppercase px-1 py-0.2 rounded bg-indigo-50 text-indigo-700 font-sans">
+                              {po.po_metadata?.receiving_status || po.status || 'issued'}
+                            </span>
+                          </span>
+                        ))}
+                        {rollup.linkedBills.map((bill: any) => (
+                          <span
+                            key={bill.id}
+                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white border border-amber-200 text-amber-900 font-mono font-semibold"
+                          >
+                            <span>Bill #{bill.supplier_invoice_no || 'INV'}</span>
+                            <span className="text-[9px] uppercase px-1 py-0.2 rounded bg-amber-50 text-amber-700 font-sans">
+                              {bill.status || 'unpaid'}
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })()}
