@@ -2503,17 +2503,53 @@ export default function CompanyModal({
                 )}
               </>
             ) : (
-                <div className="py-12 text-center bg-white border border-slate-200/80 rounded-2xl shadow-xs text-slate-400 font-sans text-sm">
-                  <p className="italic">No matching companies found in your database.</p>
-                  {(searchQuery || industryFilter !== 'ALL' || relationshipFilter !== 'ALL' || temperatureFilter !== 'ALL' || outreachCadenceFilter !== 'ALL') && (
-                    <button
-                      type="button"
-                      onClick={handleClearCompanyFilters}
-                      className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 transition cursor-pointer"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      <span>Reset all filters and search</span>
-                    </button>
+                <div className="py-12 px-4 text-center bg-white border border-slate-200/80 rounded-2xl shadow-xs font-sans">
+                  {(searchQuery || industryFilter !== 'ALL' || relationshipFilter !== 'ALL' || temperatureFilter !== 'ALL' || outreachCadenceFilter !== 'ALL') ? (
+                    <div className="max-w-md mx-auto space-y-2.5">
+                      <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
+                        <Search className="w-5 h-5" />
+                      </div>
+                      <p className="text-sm font-bold text-slate-800">
+                        No companies match your active search or filters
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Try broadening your search keywords or resetting the directory filters.
+                      </p>
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={handleClearCompanyFilters}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200/80 transition cursor-pointer"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>Clear Search / Reset Filters</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="max-w-md mx-auto space-y-2.5">
+                      <div className="w-11 h-11 rounded-2xl bg-blue-50 text-blue-600 border border-blue-200/60 flex items-center justify-center mx-auto">
+                        <Building2 className="w-5 h-5" />
+                      </div>
+                      <p className="text-sm font-bold text-slate-800">
+                        No companies registered in this workspace yet
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Add your first client, prospect, or supplier company to start tracking contacts, enquiries, and purchase orders.
+                      </p>
+                      {isEditable && (
+                        <div className="pt-1">
+                          <button
+                            type="button"
+                            onClick={handleOpenAddCompany}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow-2xs transition cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Add First Company</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
@@ -2713,7 +2749,7 @@ export default function CompanyModal({
                     )}
                   </div>
 
-                  <div className="pt-2 flex items-center justify-end space-x-2">
+                  <div className="pt-2 flex items-center justify-end space-x-2" onClick={(e) => e.stopPropagation()}>
                     {isEditable && (
                       <>
                         <button
@@ -2722,13 +2758,13 @@ export default function CompanyModal({
                             setSelectedCompanyForContact(ct.company_id);
                             setContactModalOpen(true);
                           }}
-                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium rounded-lg transition"
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium rounded-lg transition cursor-pointer"
                         >
                           Edit
                         </button>
                         <button
                           onClick={() => handleDeleteContact(ct.id!)}
-                          className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 text-xs font-medium rounded-lg border border-rose-200 dark:border-rose-800 transition flex items-center space-x-1"
+                          className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 text-xs font-medium rounded-lg border border-rose-200 dark:border-rose-800 transition flex items-center space-x-1 cursor-pointer"
                           title="Delete Contact"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -2739,6 +2775,61 @@ export default function CompanyModal({
                   </div>
                 </div>
               ))}
+              {filteredContacts.length === 0 && (
+                <div className="col-span-full py-12 px-4 text-center bg-white border border-slate-200/80 rounded-2xl shadow-xs">
+                  {searchQuery.trim() ? (
+                    <div className="max-w-md mx-auto space-y-2.5">
+                      <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
+                        <Search className="w-5 h-5" />
+                      </div>
+                      <p className="text-sm font-bold text-slate-800">
+                        No contacts match "{searchQuery.trim()}"
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Try searching by another name, role, company, or phone number.
+                      </p>
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setSearchQuery('')}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200/80 transition cursor-pointer"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>Clear Search / Reset Filters</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="max-w-md mx-auto space-y-2.5">
+                      <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-200/60 flex items-center justify-center mx-auto">
+                        <Users2 className="w-5 h-5" />
+                      </div>
+                      <p className="text-sm font-bold text-slate-800">
+                        No contacts registered in this workspace yet
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Add key decision makers, engineers, and procurement contacts linked to your corporate accounts.
+                      </p>
+                      {isEditable && (
+                        <div className="pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setContactToEdit(null);
+                              setSelectedCompanyForContact(selectedCompanyId || '');
+                              setContactModalOpen(true);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow-2xs transition cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Add First Contact</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             <div className="w-full overflow-x-auto bg-white border border-slate-200/80 rounded-2xl shadow-xs">
@@ -2913,8 +3004,58 @@ export default function CompanyModal({
 
                 {filteredContacts.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-slate-400 italic text-sm">
-                      No contacts found matching your search.
+                    <td colSpan={7} className="py-12 px-4 text-center">
+                      {searchQuery.trim() ? (
+                        <div className="max-w-md mx-auto space-y-2.5">
+                          <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
+                            <Search className="w-5 h-5" />
+                          </div>
+                          <p className="text-sm font-bold text-slate-800">
+                            No contacts match "{searchQuery.trim()}"
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            Try searching by another name, role, company, or phone number.
+                          </p>
+                          <div className="pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setSearchQuery('')}
+                              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200/80 transition cursor-pointer"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Clear Search / Reset Filters</span>
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="max-w-md mx-auto space-y-2.5">
+                          <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-200/60 flex items-center justify-center mx-auto">
+                            <Users2 className="w-5 h-5" />
+                          </div>
+                          <p className="text-sm font-bold text-slate-800">
+                            No contacts registered in this workspace yet
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            Add key decision makers, engineers, and procurement contacts linked to your corporate accounts.
+                          </p>
+                          {isEditable && (
+                            <div className="pt-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setContactToEdit(null);
+                                  setSelectedCompanyForContact(selectedCompanyId || '');
+                                  setContactModalOpen(true);
+                                }}
+                                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow-2xs transition cursor-pointer"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>Add First Contact</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 )}
@@ -2983,7 +3124,13 @@ export default function CompanyModal({
                   return (
                     <tr
                       key={p.id}
-                      className="border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 transition-colors group"
+                      onClick={() => {
+                        if (p.companyId) {
+                          setSelectedCompanyId(p.companyId);
+                          setViewMode('companies');
+                        }
+                      }}
+                      className="border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 transition-colors group cursor-pointer"
                     >
                       <td className="py-3 px-4 font-mono text-xs font-semibold text-slate-900">
                         <div className="flex items-center space-x-1.5">
@@ -3021,11 +3168,12 @@ export default function CompanyModal({
                       <td className="py-3 px-4 font-semibold text-slate-900">{p.entityName}</td>
                       <td className="py-3 px-4 text-slate-600">{p.subText || <span className="italic text-slate-400">—</span>}</td>
                       <td className="py-3 px-4 text-slate-500">{p.location || <span className="italic text-slate-400">—</span>}</td>
-                      <td className="py-3 px-4 text-right">
+                      <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                         {!isRestricted ? (
                           <button
                             type="button"
                             onClick={(e) => {
+                              e.stopPropagation();
                               handleInitiate({
                                 companyId: p.companyId,
                                 companyName: p.subText,
@@ -3053,8 +3201,42 @@ export default function CompanyModal({
 
                 {filteredPhones.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-400 italic text-sm">
-                      No phone numbers found matching your query.
+                    <td colSpan={6} className="py-12 px-4 text-center">
+                      {searchQuery.trim() ? (
+                        <div className="max-w-md mx-auto space-y-2.5">
+                          <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
+                            <Search className="w-5 h-5" />
+                          </div>
+                          <p className="text-sm font-bold text-slate-800">
+                            No phone numbers match "{searchQuery.trim()}"
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            Try searching by another digits sequence, person name, or company.
+                          </p>
+                          <div className="pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setSearchQuery('')}
+                              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200/80 transition cursor-pointer"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Clear Search / Reset Filters</span>
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="max-w-md mx-auto space-y-2.5">
+                          <div className="w-11 h-11 rounded-2xl bg-purple-50 text-purple-600 border border-purple-200/60 flex items-center justify-center mx-auto">
+                            <Phone className="w-5 h-5" />
+                          </div>
+                          <p className="text-sm font-bold text-slate-800">
+                            No phone numbers indexed yet
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            Add phone numbers to your companies or contacts to populate the quick-dial directory.
+                          </p>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 )}

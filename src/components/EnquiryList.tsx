@@ -2541,17 +2541,56 @@ export default function EnquiryList({
           )}
           </>
         ) : (
-          <div className="py-24 text-center text-slate-400 font-sans">
-            <p>No enquiries matched your filter conditions in this log.</p>
-            {(searchInput || statusFilter !== 'All' || salesPersonFilter !== 'All' || urgencyFilter !== 'All' || sourceFilter !== 'All' || quoteLifecycleFilter !== 'all') && (
-              <button
-                type="button"
-                onClick={handleClearEnquiryFilters}
-                className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/50 dark:text-blue-300 transition cursor-pointer"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Reset all filters and search</span>
-              </button>
+          <div className="py-16 px-4 text-center font-sans">
+            {searchInput || statusFilter !== 'All' || salesPersonFilter !== 'All' || urgencyFilter !== 'All' || sourceFilter !== 'All' || quoteLifecycleFilter !== 'all' ? (
+              <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                <div className="w-11 h-11 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
+                  <Search className="w-5 h-5" />
+                </div>
+                <h4 className="text-sm font-bold text-slate-900">
+                  No Enquiries Match Your Filter
+                </h4>
+                <p className="text-xs text-slate-500">
+                  {searchInput.trim() ? (
+                    <>
+                      No enquiries match <span className="font-semibold text-slate-800">&ldquo;{searchInput.trim()}&rdquo;</span>.
+                    </>
+                  ) : (
+                    <>No enquiries match the active status, urgency, source, or salesperson filters.</>
+                  )}{' '}
+                  Reset your filters to restore the full enquiries log.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleClearEnquiryFilters}
+                  className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Clear Search / Reset Filters</span>
+                </button>
+              </div>
+            ) : (
+              <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
+                  <FileSpreadsheet className="w-6 h-6" />
+                </div>
+                <h4 className="text-sm font-bold text-slate-900">
+                  No Enquiries Logged in This Workspace Yet
+                </h4>
+                <p className="text-xs text-slate-500">
+                  Create your first commercial enquiry or RFQ to track quotations, technical submittals, supplier POs, and project fulfillment.
+                </p>
+                {isEditable && (
+                  <button
+                    type="button"
+                    onClick={onAddEnquiry}
+                    className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Create First Enquiry</span>
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}

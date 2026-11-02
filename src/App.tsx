@@ -304,7 +304,14 @@ export default function App() {
     setShowEnquiryForm(false);
     setSelected360CompanyId(null);
     setIsActivityDrawerOpen(false);
+    setActivityDrawerContext({});
     setIsMobileMenuOpen(false);
+    setCompanyEditContext(null);
+    setGlobalEditCompanyModal({ isOpen: false });
+    setGlobalEditContactModal({ isOpen: false });
+    setActiveProjectId(null);
+    setProcurementLaunchContext(null);
+    setShowTrashBinModal(false);
   }, [activeWorkspaceId]);
 
   // Quick Activity Drawer State
@@ -1701,7 +1708,6 @@ export default function App() {
     }
     const cleanId = id.trim();
     const enqToDelete = enquiries.find((e) => e.id === cleanId);
-    console.log(`[handleDeleteEnquiry] Deleting enquiry ID ${cleanId} (#${enqToDelete?.sn || 'unknown'})`);
 
     // Active project guard: block deletion if linked to an active non-deleted project
     if (enqToDelete?.project_id) {
@@ -1798,8 +1804,6 @@ export default function App() {
     const validIds = ids.filter((i) => i && typeof i === 'string' && i.trim() !== '').map((i) => i.trim());
     if (validIds.length === 0) return;
 
-    console.log(`[handleBulkDeleteEnquiries] Bulk deleting ${validIds.length} enquiries`);
-
     try {
       // 1. Immediately update local state & local cache
       setEnquiries((prev) => {
@@ -1829,7 +1833,6 @@ export default function App() {
           }
         });
         await batch.commit();
-        console.log(`[handleBulkDeleteEnquiries] Successfully committed batch soft delete for ${validIds.length} enquiries`);
       } catch (batchErr) {
         console.warn('[handleBulkDeleteEnquiries] Batch soft-delete failed, falling back to safeUpdateDoc loop:', batchErr);
         for (const id of validIds) {
@@ -1978,6 +1981,7 @@ export default function App() {
         <div className="flex-1 overflow-y-auto flex flex-col">
           {currentTab === 'call_log' && (
             <CallLogManager
+              key={activeWorkspace.id}
               activeWorkspace={activeWorkspace}
               callLogs={visibleCallLogs}
               companies={workspaceCompanies}
@@ -1999,7 +2003,7 @@ export default function App() {
               setEnquiries={setEnquiries}
               companyRelationships={companyRelationships}
               industryTypes={industryTypes}
-            companyTemperatures={companyTemperatures}
+              companyTemperatures={companyTemperatures}
               onEditCompany={handleEditCompanyFrom360}
               onOpenCompany360={(companyId) => setSelected360CompanyId(companyId)}
               onOpenActivityDrawer={(ctx) => {
@@ -2013,6 +2017,7 @@ export default function App() {
 
           {currentTab === 'dashboard' && (
           <Dashboard
+            key={activeWorkspace.id}
             enquiries={visibleEnquiries}
             companies={workspaceCompanies}
             contacts={workspaceContacts || contacts}
@@ -2046,6 +2051,7 @@ export default function App() {
 
         {currentTab === 'enquiries' && (
           <EnquiryList
+            key={activeWorkspace.id}
             enquiries={visibleEnquiries}
             occupiedWorkspaceSns={occupiedWorkspaceSns}
             setEnquiries={setEnquiries}
@@ -2082,6 +2088,7 @@ export default function App() {
 
         {currentTab === 'projects' && (
           <ProjectRegistry
+            key={activeWorkspace.id}
             projects={workspaceProjects}
             setProjects={setProjects}
             enquiries={workspaceEnquiries}
@@ -2103,6 +2110,7 @@ export default function App() {
 
         {currentTab === 'companies' && (
           <CompanyModal
+            key={activeWorkspace.id}
             companies={workspaceCompanies}
             contacts={workspaceContacts}
             enquiries={visibleEnquiries}
@@ -2137,6 +2145,7 @@ export default function App() {
 
         {currentTab === 'salespersons' && (
           <SalespersonProfiles
+            key={activeWorkspace.id}
             salespersons={workspaceSalespersons}
             enquiries={visibleEnquiries}
             companies={workspaceCompanies}
@@ -2154,6 +2163,7 @@ export default function App() {
 
         {currentTab === 'procurement' && (
           <ProcurementPayablesHub
+            key={activeWorkspace.id}
             activeWorkspace={activeWorkspace}
             user={user}
             companies={workspaceCompanies}
@@ -2172,6 +2182,7 @@ export default function App() {
 
         {currentTab === 'products' && (
           <ProductManager 
+            key={activeWorkspace.id}
             products={workspaceProducts} 
             productCategories={workspaceProductCategories.map(c => c.name)}
             units={units.map(u => u.name)}
@@ -2189,6 +2200,7 @@ export default function App() {
 
         {(currentTab === 'settings' || currentTab === 'invites' || currentTab === 'docs-hub') && (
           <SettingsHub
+            key={activeWorkspace.id}
             user={user}
             activeWorkspace={activeWorkspace}
             enquirySources={enquirySources}

@@ -37,6 +37,11 @@ input, select, textarea {
 }
 
 @media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
   /* 1. Unclip ancestors so layout flows naturally into the print engine */
   html,
   body,
@@ -48,8 +53,47 @@ input, select, textarea {
   .overflow-y-auto,
   .overflow-auto {
     height: auto !important;
-    min-height: 100% !important;
+    min-height: 0 !important;
     overflow: visible !important;
     max-height: none !important;
+    background: #ffffff !important;
+  }
+
+  /* 2. Prevent mid-row and mid-signature page splits across all printable documents & tables */
+  tr,
+  thead,
+  tfoot,
+  .break-inside-avoid {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  /* 3. Clean full-width A4 layout when printing a standalone modal sheet (e.g. 3-Way Match Bill Summary) */
+  body:has(.printable-modal-root) #root > div > aside,
+  body:has(.printable-modal-root) #root > div > main > header,
+  body:has(.printable-modal-root) #root > div > main > div > *:not(.printable-modal-root) {
+    display: none !important;
+  }
+
+  .printable-modal-root {
+    position: static !important;
+    inset: auto !important;
+    padding: 0 !important;
+    background: transparent !important;
+    display: block !important;
+    width: 100% !important;
+  }
+
+  .printable-modal-sheet {
+    max-width: 100% !important;
+    width: 100% !important;
+    max-height: none !important;
+    box-shadow: none !important;
+    border: none !important;
   }
 }
+

@@ -1732,11 +1732,25 @@ export default function ProcurementPayablesHub({
           })}
         </div>
 
-        <div className="flex items-center gap-2 flex-1 sm:flex-initial justify-end">
+        <div className="flex items-center gap-2 flex-1 sm:flex-initial justify-end flex-wrap">
+          {(vendorFilter !== 'ALL' || searchQuery.trim() !== '') && (
+            <button
+              type="button"
+              onClick={() => {
+                setVendorFilter('ALL');
+                setSearchQuery('');
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition cursor-pointer"
+              title="Reset vendor filter and search query"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset</span>
+            </button>
+          )}
           <select
             value={vendorFilter}
             onChange={(e) => setVendorFilter(e.target.value)}
-            className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs bg-slate-50 text-slate-800"
+            className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs bg-slate-50 text-slate-800 cursor-pointer"
           >
             <option value="ALL">All Vendors / Suppliers</option>
             {vendors.map((v) => {
@@ -1749,49 +1763,62 @@ export default function ProcurementPayablesHub({
             })}
           </select>
           <div className="relative w-56">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search PO, Bill, Inv #, Vendor..."
-              className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              className="w-full pl-8 pr-7 py-1.5 rounded-xl border border-slate-200 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
       </div>
 
       {/* TAB 1: SUPPLIER PURCHASE ORDERS */}
-      {activeTab === 'pos' && (
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
-                  <th className="py-3 px-4">PO Ref #</th>
-                  <th className="py-3 px-3">Date</th>
-                  <th className="py-3 px-3">Vendor / Supplier</th>
-                  <th className="py-3 px-3">Linked Enquiry / Scope</th>
-                  <th className="py-3 px-3 text-right">PO Total</th>
-                  <th className="py-3 px-3 text-center">GRN Status</th>
-                  <th className="py-3 px-4 text-right">Procurement Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {supplierPOs
-                  .filter((po) => {
-                    const vName =
-                      po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name || '';
-                    if (vendorFilter !== 'ALL' && vName !== vendorFilter) return false;
-                    if (!searchQuery.trim()) return true;
-                    const q = searchQuery.toLowerCase();
-                    return (
-                      (po.formatted_quote_ref || '').toLowerCase().includes(q) ||
-                      vName.toLowerCase().includes(q) ||
-                      (po.quotation_subject || '').toLowerCase().includes(q)
-                    );
-                  })
-                  .map((po) => {
+      {activeTab === 'pos' && (() => {
+        const filteredPos = supplierPOs.filter((po) => {
+          const vName =
+            po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name || '';
+          if (vendorFilter !== 'ALL' && vName !== vendorFilter) return false;
+          if (!searchQuery.trim()) return true;
+          const q = searchQuery.toLowerCase();
+          return (
+            (po.formatted_quote_ref || '').toLowerCase().includes(q) ||
+            (po.purchase_order_metadata?.po_ref || '').toLowerCase().includes(q) ||
+            vName.toLowerCase().includes(q) ||
+            (po.quotation_subject || '').toLowerCase().includes(q)
+          );
+        });
+        const hasActiveFilter = vendorFilter !== 'ALL' || searchQuery.trim() !== '';
+
+        return (
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
+                    <th className="py-3 px-4">PO Ref #</th>
+                    <th className="py-3 px-3">Date</th>
+                    <th className="py-3 px-3">Vendor / Supplier</th>
+                    <th className="py-3 px-3">Linked Enquiry / Scope</th>
+                    <th className="py-3 px-3 text-right">PO Total</th>
+                    <th className="py-3 px-3 text-center">GRN Status</th>
+                    <th className="py-3 px-4 text-right">Procurement Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredPos.map((po) => {
                     const meta = po.purchase_order_metadata;
                     const recStatus = meta?.receiving_status || 'Pending Receipt';
                     const linkedEnq = enquiries.find((e) => e.id === po.enquiry_id);
@@ -1940,168 +1967,303 @@ export default function ProcurementPayablesHub({
                       </tr>
                     );
                   })}
-                {supplierPOs.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="py-10 text-center text-slate-400 text-xs">
-                      No Outbound Supplier Purchase Orders found. Click &ldquo;New Supplier PO&rdquo; above or create one inside an Enquiry.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                  {filteredPos.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-12 px-4 text-center">
+                        {hasActiveFilter ? (
+                          <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                            <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+                              <Search className="w-5 h-5" />
+                            </div>
+                            <div className="text-sm font-bold text-slate-800">
+                              No Supplier POs Match Your Filter
+                            </div>
+                            <p className="text-xs text-slate-500">
+                              No purchase orders matched{' '}
+                              {searchQuery.trim() ? (
+                                <span className="font-semibold text-slate-700">&ldquo;{searchQuery}&rdquo;</span>
+                              ) : (
+                                <span className="font-semibold text-slate-700">{vendorFilter}</span>
+                              )}
+                              . Clear the active filter to view all {supplierPOs.length} Supplier POs.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSearchQuery('');
+                                setVendorFilter('ALL');
+                              }}
+                              className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition cursor-pointer"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Clear Search / Reset Filters</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                            <div className="w-11 h-11 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+                              <ShoppingBag className="w-5 h-5" />
+                            </div>
+                            <div className="text-sm font-bold text-slate-900">
+                              No Outbound Supplier Purchase Orders Yet
+                            </div>
+                            <p className="text-xs text-slate-500">
+                              Issue a formal Supplier PO for client enquiry fulfillment or warehouse stock replenishment to track GRN receipts and 3-Way Match bills.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewPoVendorId('');
+                                setNewPoSupplierName('');
+                                setNewPoEnquiryId('');
+                                setNewPoExpectedDate('');
+                                setNewPoLines([
+                                  { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
+                                ]);
+                                setShowCreatePoModal(true);
+                              }}
+                              className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Create First Supplier PO</span>
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* TAB 2: PENDING STOCK RECEIPTS (GRN) */}
-      {activeTab === 'grn' && (
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
-                  <th className="py-3 px-4">PO Ref #</th>
-                  <th className="py-3 px-3">Vendor</th>
-                  <th className="py-3 px-3">Item / Part No</th>
-                  <th className="py-3 px-3 text-right">Ordered</th>
-                  <th className="py-3 px-3 text-right">Received</th>
-                  <th className="py-3 px-3 text-right">Pending</th>
-                  <th className="py-3 px-3 text-right">Last Landed Cost</th>
-                  <th className="py-3 px-4 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {supplierPOs
-                  .filter((po) => {
-                    const st = String(po.status || '').toLowerCase();
-                    return st !== 'cancelled' && st !== 'rejected';
-                  })
-                  .flatMap((po) =>
-                    (po.line_items || [])
-                      .filter((li: any) => {
-                        const ordered = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
-                        const received = Number(li.qty_received) || 0;
-                        return ordered > received;
-                      })
-                      .map((li: any) => {
-                        const ordered = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
-                        const received = Number(li.qty_received) || 0;
-                        const pending = Math.max(0, ordered - received);
-                        return (
-                          <tr
-                            key={`${po.id}_${li.id}`}
-                            onClick={() => handleOpenGrnModal(po)}
-                            className="cursor-pointer hover:bg-slate-50/90 transition-colors"
-                          >
-                            <td className="py-2.5 px-4 font-mono font-bold text-indigo-700">
-                              {po.purchase_order_metadata?.po_ref || po.formatted_quote_ref}
-                            </td>
-                            <td className="py-2.5 px-3 font-semibold text-slate-800">
-                              {(() => {
-                                const vName =
-                                  po.purchase_order_metadata?.supplier_name ||
-                                  po.client_snapshot?.entity_name ||
-                                  'Vendor';
-                                const vCompId = resolveVendorCompanyId(
-                                  po.purchase_order_metadata?.vendor_company_id,
-                                  vName
-                                );
-                                return vCompId && onOpenCompany360 ? (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onOpenCompany360(vCompId);
-                                    }}
-                                    className="text-left hover:text-indigo-600 hover:underline inline-flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <span>{vName}</span>
-                                    <ArrowUpRight className="w-3 h-3 text-slate-400 shrink-0" />
-                                  </button>
-                                ) : (
-                                  vName
-                                );
-                              })()}
-                            </td>
-                            <td className="py-2.5 px-3">
-                              <div className="font-semibold text-slate-900">{li.item_name || li.description}</div>
-                              {li.part_no && <div className="text-[10px] font-mono text-slate-500">PN: {li.part_no}</div>}
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-mono">{ordered} {li.unit}</td>
-                            <td className="py-2.5 px-3 text-right font-mono text-emerald-700">{received} {li.unit}</td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-700">{pending} {li.unit}</td>
-                            <td className="py-2.5 px-3 text-right font-mono text-slate-700">
-                              {po.currency} {Number(li.landed_unit_cost ?? li.unit_price ?? 0).toFixed(2)}
-                            </td>
-                            <td
-                              className="py-2.5 px-4 text-right whitespace-nowrap"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <div className="inline-flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenGrnModal(po)}
-                                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10.5px] font-bold cursor-pointer"
-                                >
-                                  Receive Stock (GRN)
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenBillModal(po)}
-                                  className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[10.5px] font-bold cursor-pointer"
-                                >
-                                  Record Bill
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })
-                  )}
-                {kpiStats.pendingGrnCount === 0 && (
-                  <tr>
-                    <td colSpan={8} className="py-10 text-center text-slate-400 text-xs">
-                      All active Supplier PO line items have been received into Warehouse Stock, or no open POs exist.
-                    </td>
+      {activeTab === 'grn' && (() => {
+        const allPendingGrnRows = supplierPOs
+          .filter((po) => {
+            const st = String(po.status || '').toLowerCase();
+            return st !== 'cancelled' && st !== 'rejected';
+          })
+          .flatMap((po) =>
+            (po.line_items || [])
+              .filter((li: any) => {
+                const ordered = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
+                const received = Number(li.qty_received) || 0;
+                return ordered > received;
+              })
+              .map((li: any) => ({ po, li }))
+          );
+
+        const filteredGrnRows = allPendingGrnRows.filter(({ po, li }) => {
+          const vName =
+            po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name || '';
+          if (vendorFilter !== 'ALL' && vName !== vendorFilter) return false;
+          if (!searchQuery.trim()) return true;
+          const q = searchQuery.toLowerCase();
+          const poRef = po.purchase_order_metadata?.po_ref || po.formatted_quote_ref || '';
+          const itemName = li.item_name || li.description || '';
+          const partNo = li.part_no || '';
+          return (
+            poRef.toLowerCase().includes(q) ||
+            vName.toLowerCase().includes(q) ||
+            itemName.toLowerCase().includes(q) ||
+            partNo.toLowerCase().includes(q)
+          );
+        });
+        const hasActiveFilter = vendorFilter !== 'ALL' || searchQuery.trim() !== '';
+
+        return (
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
+                    <th className="py-3 px-4">PO Ref #</th>
+                    <th className="py-3 px-3">Vendor</th>
+                    <th className="py-3 px-3">Item / Part No</th>
+                    <th className="py-3 px-3 text-right">Ordered</th>
+                    <th className="py-3 px-3 text-right">Received</th>
+                    <th className="py-3 px-3 text-right">Pending</th>
+                    <th className="py-3 px-3 text-right">Last Landed Cost</th>
+                    <th className="py-3 px-4 text-right">Action</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredGrnRows.map(({ po, li }) => {
+                    const ordered = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
+                    const received = Number(li.qty_received) || 0;
+                    const pending = Math.max(0, ordered - received);
+                    return (
+                      <tr
+                        key={`${po.id}_${li.id}`}
+                        onClick={() => handleOpenGrnModal(po)}
+                        className="cursor-pointer hover:bg-slate-50/90 transition-colors"
+                      >
+                        <td className="py-2.5 px-4 font-mono font-bold text-indigo-700">
+                          {po.purchase_order_metadata?.po_ref || po.formatted_quote_ref}
+                        </td>
+                        <td className="py-2.5 px-3 font-semibold text-slate-800">
+                          {(() => {
+                            const vName =
+                              po.purchase_order_metadata?.supplier_name ||
+                              po.client_snapshot?.entity_name ||
+                              'Vendor';
+                            const vCompId = resolveVendorCompanyId(
+                              po.purchase_order_metadata?.vendor_company_id,
+                              vName
+                            );
+                            return vCompId && onOpenCompany360 ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onOpenCompany360(vCompId);
+                                }}
+                                className="text-left hover:text-indigo-600 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <span>{vName}</span>
+                                <ArrowUpRight className="w-3 h-3 text-slate-400 shrink-0" />
+                              </button>
+                            ) : (
+                              vName
+                            );
+                          })()}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-semibold text-slate-900">{li.item_name || li.description}</div>
+                          {li.part_no && <div className="text-[10px] font-mono text-slate-500">PN: {li.part_no}</div>}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono">{ordered} {li.unit}</td>
+                        <td className="py-2.5 px-3 text-right font-mono text-emerald-700">{received} {li.unit}</td>
+                        <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-700">{pending} {li.unit}</td>
+                        <td className="py-2.5 px-3 text-right font-mono text-slate-700">
+                          {po.currency} {Number(li.landed_unit_cost ?? li.unit_price ?? 0).toFixed(2)}
+                        </td>
+                        <td
+                          className="py-2.5 px-4 text-right whitespace-nowrap"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenGrnModal(po)}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10.5px] font-bold cursor-pointer"
+                            >
+                              Receive Stock (GRN)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenBillModal(po)}
+                              className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[10.5px] font-bold cursor-pointer"
+                            >
+                              Record Bill
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filteredGrnRows.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="py-12 px-4 text-center">
+                        {hasActiveFilter && allPendingGrnRows.length > 0 ? (
+                          <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                            <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+                              <Search className="w-5 h-5" />
+                            </div>
+                            <div className="text-sm font-bold text-slate-800">
+                              No Pending GRN Lines Match Your Filter
+                            </div>
+                            <p className="text-xs text-slate-500">
+                              Clear the active search or vendor filter to view all {allPendingGrnRows.length} pending stock receipt lines.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSearchQuery('');
+                                setVendorFilter('ALL');
+                              }}
+                              className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition cursor-pointer"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Clear Search / Reset Filters</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                            <div className="w-11 h-11 rounded-2xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center">
+                              <PackageCheck className="w-5 h-5" />
+                            </div>
+                            <div className="text-sm font-bold text-slate-900">
+                              All Active Supplier POs Received into Stock
+                            </div>
+                            <p className="text-xs text-slate-500">
+                              There are no pending Goods Receipt Note (GRN) deliveries awaiting warehouse intake. Issue a new Supplier PO to schedule incoming stock.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewPoVendorId('');
+                                setNewPoSupplierName('');
+                                setNewPoEnquiryId('');
+                                setNewPoExpectedDate('');
+                                setNewPoLines([
+                                  { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
+                                ]);
+                                setShowCreatePoModal(true);
+                              }}
+                              className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Create Supplier PO</span>
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* TAB 3: SUPPLIER BILLS & 3-WAY MATCH */}
-      {activeTab === 'bills' && (
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
-                  <th className="py-3 px-4">Bill # / Inv #</th>
-                  <th className="py-3 px-3">Vendor</th>
-                  <th className="py-3 px-3">PO Ref</th>
-                  <th className="py-3 px-3">3-Way Match</th>
-                  <th className="py-3 px-3">Approval / Hold</th>
-                  <th className="py-3 px-3 text-right">Bill Total</th>
-                  <th className="py-3 px-3 text-right">Balance Due</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {supplierBills
-                  .filter((b) => {
-                    if (vendorFilter !== 'ALL' && b.vendor_name !== vendorFilter) return false;
-                    if (!searchQuery.trim()) return true;
-                    const q = searchQuery.toLowerCase();
-                    return (
-                      b.bill_number.toLowerCase().includes(q) ||
-                      b.vendor_invoice_no.toLowerCase().includes(q) ||
-                      b.vendor_name.toLowerCase().includes(q) ||
-                      (b.po_ref || '').toLowerCase().includes(q)
-                    );
-                  })
-                  .map((bill) => {
+      {activeTab === 'bills' && (() => {
+        const filteredBills = supplierBills.filter((b) => {
+          if (vendorFilter !== 'ALL' && b.vendor_name !== vendorFilter) return false;
+          if (!searchQuery.trim()) return true;
+          const q = searchQuery.toLowerCase();
+          return (
+            b.bill_number.toLowerCase().includes(q) ||
+            b.vendor_invoice_no.toLowerCase().includes(q) ||
+            b.vendor_name.toLowerCase().includes(q) ||
+            (b.po_ref || '').toLowerCase().includes(q)
+          );
+        });
+        const hasActiveFilter = vendorFilter !== 'ALL' || searchQuery.trim() !== '';
+
+        return (
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
+                    <th className="py-3 px-4">Bill # / Inv #</th>
+                    <th className="py-3 px-3">Vendor</th>
+                    <th className="py-3 px-3">PO Ref</th>
+                    <th className="py-3 px-3">3-Way Match</th>
+                    <th className="py-3 px-3">Approval / Hold</th>
+                    <th className="py-3 px-3 text-right">Bill Total</th>
+                    <th className="py-3 px-3 text-right">Balance Due</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredBills.map((bill) => {
                     const hasVariance =
                       bill.three_way_match_status === 'price_variance' ||
                       bill.three_way_match_status === 'qty_variance' ||
@@ -2307,181 +2469,304 @@ export default function ProcurementPayablesHub({
                       </tr>
                     );
                   })}
-                {supplierBills.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="py-10 text-center text-slate-400 text-xs">
-                      No Supplier Bills recorded yet. Click &ldquo;Record Supplier Bill&rdquo; to log a vendor invoice and run 3-Way Match.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 4: PAYMENT VOUCHERS & VENDOR RETURNS */}
-      {activeTab === 'vouchers' && (
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-          <div className="p-3 border-b border-slate-100 flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-800">
-              Outbound Payment Vouchers (PV), Material Return Notes (MRN) &amp; Vendor Debit Notes (DN)
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => handleIssueVendorReturn('material_return_note')}
-                className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer"
-              >
-                + Material Return (MRN)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleIssueVendorReturn('debit_note')}
-                className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer"
-              >
-                + Vendor Debit Note (DN)
-              </button>
-            </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
-                  <th className="py-3 px-4">Ref #</th>
-                  <th className="py-3 px-3">Type</th>
-                  <th className="py-3 px-3">Date</th>
-                  <th className="py-3 px-3">Vendor / Payee</th>
-                  <th className="py-3 px-3">Subject / Narration</th>
-                  <th className="py-3 px-3 text-right">Amount</th>
-                  <th className="py-3 px-4 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {paymentVouchersAndReturns.map((doc) => {
-                  const isPv = doc.document_type === 'payment_voucher';
-                  const isMrn =
-                    doc.document_type === 'material_return_note' ||
-                    (doc.document_type as string) === 'material_return';
-                  const amt = isPv
-                    ? Number(
-                        doc.payment_voucher_metadata?.amount_paid ??
-                          doc.financial_totals?.grand_total ??
-                          doc.grand_total ??
-                          0
-                      )
-                    : Number(doc.financial_totals?.grand_total ?? doc.grand_total ?? 0);
-                  return (
-                    <tr
-                      key={doc.id}
-                      onClick={() => handleOpenInStudio(doc)}
-                      className="cursor-pointer hover:bg-slate-50/90 transition-colors"
-                    >
-                      <td className="py-3 px-4 font-mono font-bold text-slate-900">
-                        {doc.formatted_quote_ref}
-                      </td>
-                      <td className="py-3 px-3">
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                            isPv
-                              ? 'bg-amber-50 text-amber-800 border-amber-200'
-                              : isMrn
-                              ? 'bg-blue-50 text-blue-700 border-blue-200'
-                              : 'bg-rose-50 text-rose-700 border-rose-200'
-                          }`}
-                        >
-                          {isPv
-                            ? 'PAYMENT VOUCHER (PV)'
-                            : isMrn
-                            ? 'MATERIAL RETURN (MRN)'
-                            : 'DEBIT NOTE (DN)'}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3 font-mono text-slate-600">{doc.quotation_date}</td>
-                      <td className="py-3 px-3 font-semibold text-slate-800">
-                        {(() => {
-                          const vName =
-                            doc.payment_voucher_metadata?.payee_name ||
-                            doc.payment_voucher_metadata?.paid_to_vendor_name ||
-                            doc.vendor_return_metadata?.supplier_name ||
-                            doc.vendor_return_metadata?.vendor_name ||
-                            doc.client_snapshot?.entity_name ||
-                            'Vendor';
-                          const vCompId = resolveVendorCompanyId(
-                            doc.payment_voucher_metadata?.vendor_company_id ||
-                              doc.vendor_return_metadata?.vendor_company_id,
-                            vName
-                          );
-                          return vCompId && onOpenCompany360 ? (
+                  {filteredBills.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="py-12 px-4 text-center">
+                        {hasActiveFilter ? (
+                          <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                            <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+                              <Search className="w-5 h-5" />
+                            </div>
+                            <div className="text-sm font-bold text-slate-800">
+                              No Supplier Bills Match Your Filter
+                            </div>
+                            <p className="text-xs text-slate-500">
+                              No bills matched{' '}
+                              {searchQuery.trim() ? (
+                                <span className="font-semibold text-slate-700">&ldquo;{searchQuery}&rdquo;</span>
+                              ) : (
+                                <span className="font-semibold text-slate-700">{vendorFilter}</span>
+                              )}
+                              . Clear the active filter to view all {supplierBills.length} Supplier Bills.
+                            </p>
                             <button
                               type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onOpenCompany360(vCompId);
+                              onClick={() => {
+                                setSearchQuery('');
+                                setVendorFilter('ALL');
                               }}
-                              className="text-left hover:text-indigo-600 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                              className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition cursor-pointer"
                             >
-                              <span>{vName}</span>
-                              <ArrowUpRight className="w-3 h-3 text-slate-400 shrink-0" />
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Clear Search / Reset Filters</span>
                             </button>
-                          ) : (
-                            vName
-                          );
-                        })()}
-                      </td>
-                      <td className="py-3 px-3 text-slate-600 max-w-xs">
-                        <HoverScrollText text={doc.quotation_subject || ''} />
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono font-bold text-slate-900">
-                        {isMrn ? 'Unpriced' : `${doc.currency} ${amt.toFixed(2)}`}
-                      </td>
-                      <td
-                        className="py-3 px-4 text-right whitespace-nowrap"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div className="inline-flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenInStudio(doc)}
-                            className="px-3 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[10.5px] font-bold cursor-pointer"
-                          >
-                            Open in A4 Studio
-                          </button>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              await QuotationRepository.softDeleteQuotation(doc.id, {
-                                id: user.uid || user.id || 'user',
-                                name: user.full_name || user.email || 'User'
-                              });
-                              await ProcurementRepository.recalculateWorkspaceSupplierBillBalances(activeWorkspace.id);
-                              triggerToast?.(
-                                `${doc.formatted_quote_ref} moved to Recycle Bin and Bill balances updated.`,
-                                'info'
-                              );
-                            }}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
-                            title="Move Document to Recycle Bin"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                          </div>
+                        ) : (
+                          <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                            <div className="w-11 h-11 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center">
+                              <FileText className="w-5 h-5" />
+                            </div>
+                            <div className="text-sm font-bold text-slate-900">
+                              No Supplier Bills Recorded Yet
+                            </div>
+                            <p className="text-xs text-slate-500">
+                              Record incoming supplier tax invoices to run automated 3-Way Match verification against Purchase Orders and GRN receipts.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenBillModal()}
+                              className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Record First Supplier Bill</span>
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
-                  );
-                })}
-                {paymentVouchersAndReturns.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="py-10 text-center text-slate-400 text-xs">
-                      No Outbound Payment Vouchers or Vendor Returns issued yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
+
+      {/* TAB 4: PAYMENT VOUCHERS & VENDOR RETURNS */}
+      {activeTab === 'vouchers' && (() => {
+        const filteredVouchers = paymentVouchersAndReturns.filter((doc) => {
+          const vName =
+            doc.payment_voucher_metadata?.payee_name ||
+            doc.payment_voucher_metadata?.paid_to_vendor_name ||
+            doc.vendor_return_metadata?.supplier_name ||
+            doc.vendor_return_metadata?.vendor_name ||
+            doc.client_snapshot?.entity_name ||
+            '';
+          if (vendorFilter !== 'ALL' && vName !== vendorFilter) return false;
+          if (!searchQuery.trim()) return true;
+          const q = searchQuery.toLowerCase();
+          return (
+            (doc.formatted_quote_ref || '').toLowerCase().includes(q) ||
+            vName.toLowerCase().includes(q) ||
+            (doc.quotation_subject || '').toLowerCase().includes(q)
+          );
+        });
+        const hasActiveFilter = vendorFilter !== 'ALL' || searchQuery.trim() !== '';
+
+        return (
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+            <div className="p-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-bold text-slate-800">
+                Outbound Payment Vouchers (PV), Material Return Notes (MRN) &amp; Vendor Debit Notes (DN)
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleIssueVendorReturn('material_return_note')}
+                  className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer"
+                >
+                  + Material Return (MRN)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleIssueVendorReturn('debit_note')}
+                  className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer"
+                >
+                  + Vendor Debit Note (DN)
+                </button>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
+                    <th className="py-3 px-4">Ref #</th>
+                    <th className="py-3 px-3">Type</th>
+                    <th className="py-3 px-3">Date</th>
+                    <th className="py-3 px-3">Vendor / Payee</th>
+                    <th className="py-3 px-3">Subject / Narration</th>
+                    <th className="py-3 px-3 text-right">Amount</th>
+                    <th className="py-3 px-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredVouchers.map((doc) => {
+                    const isPv = doc.document_type === 'payment_voucher';
+                    const isMrn =
+                      doc.document_type === 'material_return_note' ||
+                      (doc.document_type as string) === 'material_return';
+                    const amt = isPv
+                      ? Number(
+                          doc.payment_voucher_metadata?.amount_paid ??
+                            doc.financial_totals?.grand_total ??
+                            doc.grand_total ??
+                            0
+                        )
+                      : Number(doc.financial_totals?.grand_total ?? doc.grand_total ?? 0);
+                    return (
+                      <tr
+                        key={doc.id}
+                        onClick={() => handleOpenInStudio(doc)}
+                        className="cursor-pointer hover:bg-slate-50/90 transition-colors"
+                      >
+                        <td className="py-3 px-4 font-mono font-bold text-slate-900">
+                          {doc.formatted_quote_ref}
+                        </td>
+                        <td className="py-3 px-3">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                              isPv
+                                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                : isMrn
+                                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                : 'bg-rose-50 text-rose-700 border-rose-200'
+                            }`}
+                          >
+                            {isPv
+                              ? 'PAYMENT VOUCHER (PV)'
+                              : isMrn
+                              ? 'MATERIAL RETURN (MRN)'
+                              : 'DEBIT NOTE (DN)'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 font-mono text-slate-600">{doc.quotation_date}</td>
+                        <td className="py-3 px-3 font-semibold text-slate-800">
+                          {(() => {
+                            const vName =
+                              doc.payment_voucher_metadata?.payee_name ||
+                              doc.payment_voucher_metadata?.paid_to_vendor_name ||
+                              doc.vendor_return_metadata?.supplier_name ||
+                              doc.vendor_return_metadata?.vendor_name ||
+                              doc.client_snapshot?.entity_name ||
+                              'Vendor';
+                            const vCompId = resolveVendorCompanyId(
+                              doc.payment_voucher_metadata?.vendor_company_id ||
+                                doc.vendor_return_metadata?.vendor_company_id,
+                              vName
+                            );
+                            return vCompId && onOpenCompany360 ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onOpenCompany360(vCompId);
+                                }}
+                                className="text-left hover:text-indigo-600 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <span>{vName}</span>
+                                <ArrowUpRight className="w-3 h-3 text-slate-400 shrink-0" />
+                              </button>
+                            ) : (
+                              vName
+                            );
+                          })()}
+                        </td>
+                        <td className="py-3 px-3 text-slate-600 max-w-xs">
+                          <HoverScrollText text={doc.quotation_subject || ''} />
+                        </td>
+                        <td className="py-3 px-3 text-right font-mono font-bold text-slate-900">
+                          {isMrn ? 'Unpriced' : `${doc.currency} ${amt.toFixed(2)}`}
+                        </td>
+                        <td
+                          className="py-3 px-4 text-right whitespace-nowrap"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenInStudio(doc)}
+                              className="px-3 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[10.5px] font-bold cursor-pointer"
+                            >
+                              Open in A4 Studio
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                await QuotationRepository.softDeleteQuotation(doc.id, {
+                                  id: user.uid || user.id || 'user',
+                                  name: user.full_name || user.email || 'User'
+                                });
+                                await ProcurementRepository.recalculateWorkspaceSupplierBillBalances(activeWorkspace.id);
+                                triggerToast?.(
+                                  `${doc.formatted_quote_ref} moved to Recycle Bin and Bill balances updated.`,
+                                  'info'
+                                );
+                              }}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                              title="Move Document to Recycle Bin"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filteredVouchers.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-12 px-4 text-center">
+                        {hasActiveFilter ? (
+                          <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                            <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+                              <Search className="w-5 h-5" />
+                            </div>
+                            <div className="text-sm font-bold text-slate-800">
+                              No Payment Vouchers or Returns Match Your Filter
+                            </div>
+                            <p className="text-xs text-slate-500">
+                              Clear the active search or vendor filter to view all {paymentVouchersAndReturns.length} vouchers and returns.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSearchQuery('');
+                                setVendorFilter('ALL');
+                              }}
+                              className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition cursor-pointer"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Clear Search / Reset Filters</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                            <div className="w-11 h-11 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center">
+                              <DollarSign className="w-5 h-5" />
+                            </div>
+                            <div className="text-sm font-bold text-slate-900">
+                              No Payment Vouchers or Vendor Returns Issued Yet
+                            </div>
+                            <p className="text-xs text-slate-500">
+                              Settle approved supplier bills with an Outbound Payment Voucher (PV), or issue a Material Return Note (MRN) / Debit Note (DN).
+                            </p>
+                            <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleIssuePaymentVoucher()}
+                                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>Issue First Payment Voucher</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleIssueVendorReturn('material_return_note')}
+                                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition cursor-pointer"
+                              >
+                                <span>Issue Material Return (MRN)</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* MODAL 1: CREATE NEW SUPPLIER PO */}
       {showCreatePoModal && (
@@ -4018,16 +4303,19 @@ export default function ProcurementPayablesHub({
 
       {/* MODAL 6: PRINTABLE 3-WAY MATCH BILL SUMMARY & VOUCHER SHEET */}
       {viewingBillSummary && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 print:p-0 print:bg-white">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full overflow-hidden flex flex-col max-h-[92vh] print:max-h-none print:shadow-none print:border-0">
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-900 text-white print:bg-white print:text-slate-900">
+        <div className="printable-modal-root fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 print:static print:p-0 print:bg-white">
+          <div className="printable-modal-sheet bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full overflow-hidden flex flex-col max-h-[92vh] print:max-h-none print:max-w-none print:shadow-none print:border-0 print:rounded-none">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-900 text-white print:bg-white print:text-slate-900 print:px-0">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 print:text-emerald-700 text-[10px] font-black uppercase tracking-wider">
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 print:bg-emerald-50 print:text-emerald-800 print:border print:border-emerald-200 text-[10px] font-black uppercase tracking-wider">
                     3-Way Match Voucher Sheet
                   </span>
-                  <span className="font-mono text-xs text-slate-300 print:text-slate-600">
+                  <span className="font-mono text-xs text-slate-300 print:text-slate-700 font-bold">
                     {viewingBillSummary.bill_number}
+                  </span>
+                  <span className="hidden print:inline text-[11px] text-slate-500 font-medium">
+                    • {activeWorkspace.name}
                   </span>
                 </div>
                 <h3 className="text-base font-black mt-0.5">
@@ -4065,10 +4353,10 @@ export default function ProcurementPayablesHub({
               </div>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-5 text-xs">
+            <div className="p-6 overflow-y-auto print:overflow-visible print:px-0 space-y-5 text-xs">
               {/* 3-Way Match Verification Banner */}
               <div
-                className={`p-3.5 rounded-xl border flex items-center justify-between ${
+                className={`p-3.5 rounded-xl border flex items-center justify-between break-inside-avoid ${
                   viewingBillSummary.three_way_match_status === 'matched' || viewingBillSummary.match_status === 'matched'
                     ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
                     : viewingBillSummary.match_status === 'discrepancy'
@@ -4111,7 +4399,7 @@ export default function ProcurementPayablesHub({
               </div>
 
               {/* Metadata Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 break-inside-avoid">
                 <div>
                   <div className="text-[10px] font-bold uppercase text-slate-400">Vendor / Supplier</div>
                   <div className="font-bold text-slate-900 mt-0.5">{viewingBillSummary.vendor_name}</div>
@@ -4158,7 +4446,7 @@ export default function ProcurementPayablesHub({
                         (li.item_name && li.item_name.trim()) ||
                         'General Bill / Freight & Tax Settlement';
                       return (
-                        <tr key={idx} className="hover:bg-slate-50">
+                        <tr key={idx} className="hover:bg-slate-50 break-inside-avoid">
                           <td className="py-2.5 px-3 font-semibold text-slate-900">
                             {displayDesc}
                             {li.part_no && (
@@ -4197,7 +4485,7 @@ export default function ProcurementPayablesHub({
               </div>
 
               {/* Financial Breakdown */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start break-inside-avoid">
                 <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-1.5">
                   <div className="text-[10px] font-black uppercase text-slate-400">
                     Audit &amp; Verification Notes
@@ -4253,6 +4541,28 @@ export default function ProcurementPayablesHub({
                     <span>
                       {viewingBillSummary.currency} {Number(viewingBillSummary.balance_due || 0).toFixed(2)}
                     </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Formal Print Signatory Block (visible on A4 print) */}
+              <div className="hidden print:grid grid-cols-3 gap-6 pt-8 mt-6 border-t border-slate-300 text-xs break-inside-avoid">
+                <div>
+                  <div className="text-[10px] font-bold uppercase text-slate-500">Prepared &amp; Verified By</div>
+                  <div className="font-bold text-slate-900 mt-6 pt-2 border-t border-slate-300">
+                    {viewingBillSummary.created_by || user.full_name || 'Procurement Officer'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase text-slate-500">3-Way Match Audit</div>
+                  <div className="font-bold text-slate-900 mt-6 pt-2 border-t border-slate-300">
+                    {viewingBillSummary.variance_approved_by || viewingBillSummary.approved_by_name || 'Storekeeper / Finance'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase text-slate-500">Authorized Signatory</div>
+                  <div className="font-bold text-slate-900 mt-6 pt-2 border-t border-slate-300">
+                    Finance &amp; Payables Approval
                   </div>
                 </div>
               </div>

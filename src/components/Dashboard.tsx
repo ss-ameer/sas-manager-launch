@@ -1226,8 +1226,34 @@ export default function Dashboard(props: DashboardProps) {
                   })}
                 </div>
               ) : (
-                <div className="py-8 text-center text-xs text-slate-400 bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
-                  No enquiries matching this filter.
+                <div className="py-8 px-4 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200 space-y-2">
+                  {validEnquiries.length === 0 ? (
+                    <>
+                      <p className="text-xs font-bold text-slate-700">No commercial enquiries in this workspace yet</p>
+                      <p className="text-[11px] text-slate-500">Create your first client enquiry to start tracking pipeline value and quotations.</p>
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={onAddEnquiry}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-2xs transition cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Create First Enquiry</span>
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xs font-semibold text-slate-600">No enquiries match this pipeline filter.</p>
+                      <button
+                        type="button"
+                        onClick={() => setCommercialFeedFilter('recent')}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-[11px] font-bold transition cursor-pointer"
+                      >
+                        <span>Reset Filter</span>
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -1452,13 +1478,62 @@ export default function Dashboard(props: DashboardProps) {
                     </div>
                   ))}
 
-                {procurementStats.openPOsCount === 0 &&
-                  procurementStats.unpaidBillsCount === 0 &&
-                  inventoryStats.lowStockCount === 0 && (
-                    <div className="py-8 text-center text-xs text-slate-400 bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
-                      All supplier POs, vendor bills, and stock levels are healthy.
+                {((opsQueueFilter === 'grn' && procurementStats.openPOsCount === 0) ||
+                  (opsQueueFilter === 'bills' && procurementStats.unpaidBillsCount === 0) ||
+                  (opsQueueFilter === 'stock' && inventoryStats.lowStockCount === 0) ||
+                  (opsQueueFilter === 'all' &&
+                    procurementStats.openPOsCount === 0 &&
+                    procurementStats.unpaidBillsCount === 0 &&
+                    inventoryStats.lowStockCount === 0)) && (
+                  <div className="py-8 px-4 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200 space-y-2">
+                    <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto opacity-85" />
+                    <p className="text-xs font-semibold text-slate-700">
+                      {opsQueueFilter === 'grn'
+                        ? 'No open supplier POs awaiting GRN receipt.'
+                        : opsQueueFilter === 'bills'
+                        ? 'No unpaid supplier bills awaiting settlement.'
+                        : opsQueueFilter === 'stock'
+                        ? 'All catalog items are above minimum stock levels.'
+                        : 'All supplier POs, vendor bills, and stock levels are healthy.'}
+                    </p>
+                    <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                      {opsQueueFilter !== 'all' &&
+                        (procurementStats.openPOsCount > 0 ||
+                          procurementStats.unpaidBillsCount > 0 ||
+                          inventoryStats.lowStockCount > 0) && (
+                          <button
+                            type="button"
+                            onClick={() => setOpsQueueFilter('all')}
+                            className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-[11px] font-bold transition cursor-pointer"
+                          >
+                            Show All Alerts
+                          </button>
+                        )}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onLaunchProcurement
+                            ? onLaunchProcurement({ action: 'create_po' })
+                            : onNavigate?.('procurement')
+                        }
+                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-bold transition cursor-pointer"
+                      >
+                        Issue Supplier PO
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onLaunchProcurement
+                            ? onLaunchProcurement({ action: 'record_bill' })
+                            : onNavigate?.('procurement')
+                        }
+                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-bold transition cursor-pointer"
+                      >
+                        Record Supplier Bill
+                      </button>
                     </div>
-                  )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1713,10 +1788,22 @@ export default function Dashboard(props: DashboardProps) {
             )}
           </div>
         ) : (
-          <div className="py-8 text-center text-slate-400 font-sans text-xs bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
-            <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2 opacity-80" />
+          <div className="py-8 px-4 text-center text-slate-400 font-sans text-xs bg-slate-50/50 rounded-xl border border-dashed border-slate-200 space-y-2">
+            <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-1 opacity-80" />
             <p className="font-semibold text-slate-700">No {activeRadarTab} follow-ups in this queue.</p>
-            <p className="text-slate-400 text-[11px] mt-0.5">All client touchpoints for this view are up to date.</p>
+            <p className="text-slate-400 text-[11px]">All client touchpoints for this view are up to date.</p>
+            {onNavigate && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => onNavigate('call_center')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-bold transition cursor-pointer shadow-2xs"
+                >
+                  <PhoneCall className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Open Call Center & Schedule Follow-Up</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

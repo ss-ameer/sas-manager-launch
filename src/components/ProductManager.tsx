@@ -1885,17 +1885,57 @@ export default function ProductManager({
               </div>
             </>
           ) : (
-            <div className="py-24 text-center text-slate-400 font-sans">
-              <p>No products found matching your catalog search criteria.</p>
-              {(searchInput || categoryFilter !== 'All' || stockFilter !== 'All') && (
-                <button
-                  type="button"
-                  onClick={handleClearProductFilters}
-                  className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 transition cursor-pointer"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Reset all filters and search</span>
-                </button>
+            <div className="py-16 px-4 text-center font-sans">
+              {searchInput || categoryFilter !== 'All' || stockFilter !== 'All' ? (
+                <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                  <div className="w-11 h-11 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
+                    <Search className="w-5 h-5" />
+                  </div>
+                  <h4 className="text-sm font-bold text-slate-900">
+                    No Products Match Your Filter
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    {searchInput.trim() ? (
+                      <>
+                        No products match <span className="font-semibold text-slate-800">&ldquo;{searchInput.trim()}&rdquo;</span>
+                        {categoryFilter !== 'All' ? ` in ${categoryFilter}` : ''}.
+                      </>
+                    ) : (
+                      <>No products match the selected category or stock status filter.</>
+                    )}{' '}
+                    Clear your filters to restore all {activeCatalogProducts.length} catalog products.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleClearProductFilters}
+                    className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Clear Search / Reset Filters</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
+                    <Package className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-bold text-slate-900">
+                    Your Product Catalog is Empty
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    Register equipment, materials, spec variant families, or composite engineering packages to streamline quotations, stock reservations, and GRN intake.
+                  </p>
+                  {isEditable && (
+                    <button
+                      type="button"
+                      onClick={() => openNewModal()}
+                      className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Create New Product</span>
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           )}

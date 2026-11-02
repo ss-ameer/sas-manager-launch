@@ -919,14 +919,51 @@ export default function ProjectRegistry({
           {/* Projects Table */}
           <div className="overflow-x-auto">
             {filteredProjects.length === 0 ? (
-              <div className="py-16 px-4 text-center">
-                <Briefcase className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
-                <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200 font-sans">
-                  No Projects Found
-                </h4>
-                <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
-                  Projects are instantiated when Won enquiries are converted via the "Convert to Project / Fulfillment" button.
-                </p>
+              <div className="py-16 px-4 text-center font-sans">
+                {searchTerm.trim() || statusFilter !== 'All' ? (
+                  <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                    <div className="w-11 h-11 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
+                      <Search className="w-5 h-5" />
+                    </div>
+                    <h4 className="text-sm font-bold text-slate-900">
+                      No Projects Match Your Filter
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      {searchTerm.trim() ? (
+                        <>
+                          No projects match <span className="font-semibold text-slate-800">&ldquo;{searchTerm.trim()}&rdquo;</span>
+                          {statusFilter !== 'All' ? ` (${statusFilter})` : ''}.
+                        </>
+                      ) : (
+                        <>No projects found in the <span className="font-semibold text-slate-800">{statusFilter}</span> stage.</>
+                      )}{' '}
+                      Clear your search or status filter to view all {activeProjects.length} projects.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchTerm('');
+                        setStatusFilter('All');
+                      }}
+                      className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>Clear Search / Reset Filters</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                    <div className="w-12 h-12 rounded-2xl bg-slate-100 border border-slate-200 text-slate-500 flex items-center justify-center">
+                      <Briefcase className="w-6 h-6" />
+                    </div>
+                    <h4 className="text-sm font-bold text-slate-900">
+                      No Active Projects Yet
+                    </h4>
+                    <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                      Projects are instantiated when Won enquiries are converted via the &ldquo;Convert to Project / Fulfillment&rdquo; action in the Enquiries Log.
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               <table className="w-full text-left border-collapse">

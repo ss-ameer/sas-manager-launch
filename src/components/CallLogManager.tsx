@@ -3223,8 +3223,29 @@ export default function CallLogManager({
                   </div>
                   <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Queue is Clear!</h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                    No scheduled calls are due today or overdue for this workspace. Use '+ Log / Schedule Call' to add new follow-ups.
+                    No scheduled calls are due today or overdue for this workspace. Schedule your next outreach touchpoint or log a completed call.
                   </p>
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDrawerMode('create');
+                        setEditingLog(null);
+                        if (onOpenActivityDrawer) {
+                          onOpenActivityDrawer({
+                            channel: 'Call',
+                            drawerMode: 'create'
+                          });
+                        } else {
+                          setIsActivityDrawerOpen(true);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-2xs transition cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Log / Schedule Call</span>
+                    </button>
+                  </div>
                 </div>
               )
             )}
@@ -3637,7 +3658,6 @@ export default function CallLogManager({
                   <button
                     type="button"
                     onClick={() => {
-                      console.log('Batch Reassign clicked for logs:', selectedLogIds);
                       triggerToast(`Batch Reassign queued for ${selectedLogIds.length} logs`, 'info');
                     }}
                     className="px-3 py-1 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer"
@@ -4618,43 +4638,87 @@ export default function CallLogManager({
             )}
             
             {paginatedLogs.length === 0 && (
-              <div className="p-8 text-center text-slate-400 italic bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-800">
-                <p>
-                  {historyActivityType === 'internal'
-                    ? 'No internal ops tasks match the search or filters.'
-                    : 'No outreach call logs match the search or filters.'}
-                </p>
-                {activeFiltersCount > 0 ? (
-                  <button
-                    type="button"
-                    onClick={handleResetFilters}
-                    className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/50 dark:text-blue-300 transition cursor-pointer font-sans not-italic"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Clear search & reset filters</span>
-                  </button>
-                ) : historyActivityType === 'internal' ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDrawerMode('create');
-                      setEditingLog(null);
-                      if (onOpenActivityDrawer) {
-                        onOpenActivityDrawer({
-                          channel: 'Internal Task',
-                          drawerMode: 'create',
-                          initialIsInternalOps: true
-                        });
-                      } else {
-                        setIsActivityDrawerOpen(true);
-                      }
-                    }}
-                    className="mt-3 inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition cursor-pointer font-sans not-italic shadow-xs"
-                  >
-                    <Briefcase className="w-3.5 h-3.5" />
-                    <span>+ Log First Internal Task</span>
-                  </button>
-                ) : null}
+              <div className="py-12 px-4 text-center bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-800">
+                <div className="max-w-md mx-auto space-y-2.5">
+                  <div className="w-11 h-11 rounded-2xl bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 flex items-center justify-center mx-auto">
+                    {activeFiltersCount > 0 ? (
+                      <Search className="w-5 h-5" />
+                    ) : historyActivityType === 'internal' ? (
+                      <Briefcase className="w-5 h-5 text-indigo-600" />
+                    ) : (
+                      <PhoneCall className="w-5 h-5 text-blue-600" />
+                    )}
+                  </div>
+                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                    {activeFiltersCount > 0
+                      ? historyActivityType === 'internal'
+                        ? 'No internal ops tasks match your search or filters'
+                        : 'No outreach call logs match your search or filters'
+                      : historyActivityType === 'internal'
+                      ? 'No internal ops tasks logged yet'
+                      : 'No sales outreach calls logged yet'}
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {activeFiltersCount > 0
+                      ? 'Try broadening your search keywords or resetting the active filters to view all logged activities.'
+                      : historyActivityType === 'internal'
+                      ? 'Record internal coordination tasks, technical handovers, or operational follow-ups.'
+                      : 'Log your first client call, WhatsApp outreach, or follow-up schedule to build your workspace activity history.'}
+                  </p>
+                  <div className="pt-1">
+                    {activeFiltersCount > 0 ? (
+                      <button
+                        type="button"
+                        onClick={handleResetFilters}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200/80 dark:bg-blue-950/50 dark:text-blue-300 transition cursor-pointer"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Clear Search / Reset Filters</span>
+                      </button>
+                    ) : historyActivityType === 'internal' ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDrawerMode('create');
+                          setEditingLog(null);
+                          if (onOpenActivityDrawer) {
+                            onOpenActivityDrawer({
+                              channel: 'Internal Task',
+                              drawerMode: 'create',
+                              initialIsInternalOps: true
+                            });
+                          } else {
+                            setIsActivityDrawerOpen(true);
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition cursor-pointer shadow-xs"
+                      >
+                        <Briefcase className="w-3.5 h-3.5" />
+                        <span>Log First Internal Task</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDrawerMode('create');
+                          setEditingLog(null);
+                          if (onOpenActivityDrawer) {
+                            onOpenActivityDrawer({
+                              channel: 'Call',
+                              drawerMode: 'create'
+                            });
+                          } else {
+                            setIsActivityDrawerOpen(true);
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white transition cursor-pointer shadow-xs"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Log First Call</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
             
