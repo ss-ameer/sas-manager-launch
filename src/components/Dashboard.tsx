@@ -1,6 +1,21 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Enquiry, Company, Salesperson, CallLogEntry, Contact, UserProfile } from '../types';
+import {
+  Enquiry,
+  Company,
+  Salesperson,
+  CallLogEntry,
+  Contact,
+  UserProfile,
+  Workspace,
+  Product,
+  Project,
+  QuotationDocumentRecord,
+  SupplierBill
+} from '../types';
 import { isTaskPending } from '../services/taskService';
+import { QuotationRepository } from '../services/repositories/QuotationRepository';
+import { ProcurementRepository } from '../services/repositories/ProcurementRepository';
+import type { ProcurementLaunchContext } from './ProcurementPayablesHub';
 import LiveExecutionModal from './LiveExecutionModal';
 import {
   BarChart,
@@ -45,7 +60,15 @@ import {
   Filter,
   Gauge,
   ArrowRight,
-  Sparkles
+  Sparkles,
+  Plus,
+  ShoppingCart,
+  PackageCheck,
+  Receipt,
+  Boxes,
+  Layers,
+  Truck,
+  ArrowUpRight
 } from 'lucide-react';
 import { PageHeader, PageBody, CardPanel, KpiStatCard } from './layout/UiContainer';
 import { getWhatsAppUrl } from '../utils/defaults';
@@ -58,8 +81,14 @@ interface DashboardProps {
   callLogs?: CallLogEntry[];
   contacts?: Contact[];
   user?: UserProfile | null;
+  activeWorkspace?: Workspace;
+  products?: Product[];
+  projects?: Project[];
   onOpenMobileMenu?: () => void;
   onNavigate?: (tab: string) => void;
+  onAddEnquiry?: () => void;
+  onOpenCompany360?: (companyId: string) => void;
+  onLaunchProcurement?: (ctx: ProcurementLaunchContext) => void;
   onOpenActivityDrawer?: (context: {
     companyId?: string;
     companyName?: string;
@@ -140,12 +169,34 @@ export default function Dashboard(props: DashboardProps) {
     callLogs = [],
     contacts = [],
     user,
+    activeWorkspace,
+    products = [],
+    projects = [],
     onOpenActivityDrawer,
     onOpenMobileMenu,
-    onNavigate
+    onNavigate,
+    onAddEnquiry,
+    onOpenCompany360,
+    onLaunchProcurement
   } = props;
 
   const [executionModalTask, setExecutionModalTask] = useState<any | null>(null);
+  const [activeDomainTab, setActiveDomainTab] = useState<'all' | 'sales' | 'procurement' | 'inventory' | 'operations'>('all');
+  const [commercialFeedFilter, setCommercialFeedFilter] = useState<'recent' | 'high_value' | 'expiring'>('recent');
+  const [opsQueueFilter, setOpsQueueFilter] = useState<'all' | 'grn' | 'bills' | 'stock'>('all');
+
+  const [quotations, setQuotations] = useState<QuotationDocumentRecord[]>([]);
+  const [supplierBills, setSupplierBills] = useState<SupplierBill[]>([]);
+
+  useEffect(() => {
+    if (!activeWorkspace?.id) return;
+    const unsubQuotes = QuotationRepository.subscribeByWorkspace(activeWorkspace.id, setQuotations);
+    const unsubBills = ProcurementRepository.subscribeByWorkspace(activeWorkspace.id, setSupplierBills);
+    return () => {
+      unsubQuotes();
+      unsubBills();
+    };
+  }, [activeWorkspace?.id]);
   // Filter out deleted items and reserved gaps for general analytics
   const validEnquiries = useMemo(() => {
     return enquiries.filter((e) => !e.is_deleted && e.status !== 'Gap / Reserved');
@@ -585,13 +636,158 @@ export default function Dashboard(props: DashboardProps) {
     };
   }, [validEnquiries]);
 
+  // ---------------------------------------------------------------------------
+  // STAGE 2: 4-DOMAIN EXECUTIVE METRICS (Sales, Procurement, Inventory, Ops)
+  // ---------------------------------------------------------------------------
+  const isAdminOrOwner = useMemo(() => {
+    const r = (user?.role || '').toLowerCase();
+    return r === 'admin' || r === 'super_admin' || r === 'owner';
+  }, [user?.role]);
+
+  const procurementStats = useMemo(() => {
+    const supplierPOs = quotations.filter((q) => !q.deleted && q.document_type === 'purchase_order');
+    const openPOs = supplierPOs.filter((po) => {
+      const st = po.purchase_order_metadata?.receiving_status || 'pending';
+      return st !== 'Completed' && st !== 'received';
+    });
+
+    let pendingGrnLineCount = 0;
+    let committedPoOutflow = 0;
+    openPOs.forEach((po) => {
+      committedPoOutflow += Number(po.financial_totals?.grand_total ?? po.grand_total ?? 0);
+      (po.line_items || []).forEach((li: any) => {
+        const ordered = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
+        const received = Number(li.qty_received) || 0;
+        if (ordered > received) pendingGrnLineCount += 1;
+      });
+    });
+
+    const unpaidBills = supplierBills.filter(
+      (b) => b.status !== 'Paid' && (Number(b.balance_due) || 0) > 0.01
+    );
+    const totalNetPayables = unpaidBills.reduce((acc, b) => acc + (Number(b.balance_due) || 0), 0);
+
+    const nowMs = Date.now();
+    const weekAheadMs = nowMs + 7 * 86400000;
+    const dueThisWeekBills = unpaidBills.filter((b) => {
+      if (!b.due_date) return false;
+      const dueMs = new Date(b.due_date).getTime();
+      return !isNaN(dueMs) && dueMs <= weekAheadMs;
+    });
+    const dueThisWeekAmount = dueThisWeekBills.reduce(
+      (acc, b) => acc + (Number(b.balance_due) || 0),
+      0
+    );
+
+    const varianceOrHoldBills = unpaidBills.filter(
+      (b) =>
+        b.payment_hold ||
+        b.approval_status === 'pending_approval' ||
+        b.three_way_match_status === 'price_variance' ||
+        b.three_way_match_status === 'qty_variance' ||
+        b.three_way_match_status === 'both_variance'
+    );
+
+    return {
+      supplierPOs,
+      openPOs,
+      openPOsCount: openPOs.length,
+      pendingGrnLineCount,
+      committedPoOutflow,
+      unpaidBills,
+      unpaidBillsCount: unpaidBills.length,
+      totalNetPayables,
+      dueThisWeekBillsCount: dueThisWeekBills.length,
+      dueThisWeekAmount,
+      varianceOrHoldBills
+    };
+  }, [quotations, supplierBills]);
+
+  const inventoryStats = useMemo(() => {
+    const activeProducts = products.filter((p) => !p.deleted);
+    let totalStockOnHand = 0;
+    const lowStockProducts: Product[] = [];
+    const familyGroups = new Set<string>();
+
+    activeProducts.forEach((p) => {
+      const stock = Number(p.stock_quantity) || 0;
+      const minLvl = Number(p.min_stock_level) || 0;
+      totalStockOnHand += stock;
+      if (stock <= 0 || (minLvl > 0 && stock <= minLvl)) {
+        lowStockProducts.push(p);
+      }
+      const groupKey = (p.variant_group_id || '').trim();
+      if (groupKey) {
+        familyGroups.add(groupKey.toLowerCase());
+      }
+    });
+
+    return {
+      totalSkus: activeProducts.length,
+      totalStockOnHand,
+      lowStockProducts,
+      lowStockCount: lowStockProducts.length,
+      specVariantFamiliesCount: familyGroups.size
+    };
+  }, [products]);
+
+  const operationsStats = useMemo(() => {
+    const validProjects = projects.filter((p) => !p.deleted);
+    const activeProjects = validProjects.filter(
+      (p) => p.status !== 'Completed' && p.status !== 'Closed' && p.status !== 'Cancelled'
+    );
+    let pendingMilestoneDeliveries = 0;
+    activeProjects.forEach((proj) => {
+      const milestones = proj.milestones || [];
+      milestones.forEach((m: any) => {
+        if (m.status !== 'Completed' && m.status !== 'Delivered') {
+          pendingMilestoneDeliveries += 1;
+        }
+      });
+    });
+
+    const overdueAndTodayCallsCount = overdueList.length + todayList.length;
+
+    return {
+      activeProjectsCount: activeProjects.length,
+      pendingMilestoneDeliveries,
+      overdueAndTodayCallsCount
+    };
+  }, [projects, overdueList.length, todayList.length]);
+
+  // Dual Live Feed Left Panel: Commercial & Pipeline Items
+  const commercialFeedItems = useMemo(() => {
+    const getEnqDateMs = (e: Enquiry) => new Date(e.enquiry_date || e.date || 0).getTime();
+    const getEnqVal = (e: Enquiry) => Number(e.value_aed ?? e.amount_aed ?? 0);
+
+    const sortedRecent = [...validEnquiries].sort((a, b) => getEnqDateMs(b) - getEnqDateMs(a));
+    const highValue = [...validEnquiries]
+      .filter((e) => ACTIVE_STATUSES.has(e.status))
+      .sort((a, b) => getEnqVal(b) - getEnqVal(a));
+
+    const nowMs = Date.now();
+    const expiring = [...validEnquiries]
+      .filter((e) => {
+        if (!ACTIVE_STATUSES.has(e.status)) return false;
+        const dMs = getEnqDateMs(e);
+        if (isNaN(dMs) || dMs <= 0) return e.status === 'Sent / Pending Client';
+        const ageDays = (nowMs - dMs) / 86400000;
+        return ageDays >= 10 || e.status === 'Sent / Pending Client';
+      })
+      .sort((a, b) => getEnqVal(b) - getEnqVal(a));
+
+    if (commercialFeedFilter === 'high_value') return highValue.slice(0, 6);
+    if (commercialFeedFilter === 'expiring') return expiring.slice(0, 6);
+    return sortedRecent.slice(0, 6);
+  }, [validEnquiries, commercialFeedFilter]);
+
   return (
     <>
       <PageHeader
-        title="Dashboard"
-        subtitle="Real-time pipeline analysis, win ratios, and client engagement logs."
+        title="Executive Command Center"
+        subtitle="Unified commercial sales pipeline, procurement & payables, inventory health, and operations."
         icon={BarChart3}
-        badge={{ text: 'Active Workspace', variant: 'blue' }}
+        badge={{ text: isAdminOrOwner ? 'Workspace Command' : 'Rep Command View', variant: 'blue' }}
         currentUser={user}
         onOpenSidebar={onOpenMobileMenu}
       >
@@ -607,6 +803,685 @@ export default function Dashboard(props: DashboardProps) {
       </PageHeader>
 
       <PageBody>
+        {/* TOP QUICK ACTIONS TOOLBAR & DOMAIN FILTER TABS */}
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-3.5 shadow-2xs flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+          {/* Domain Filter Tabs */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 xl:pb-0">
+            {[
+              { id: 'all', label: 'All Domains', icon: Layers },
+              { id: 'sales', label: 'Commercial Sales', icon: Briefcase },
+              { id: 'procurement', label: 'Procurement & Payables', icon: ShoppingCart },
+              { id: 'inventory', label: 'Inventory Health', icon: Boxes },
+              { id: 'operations', label: 'Operations & Execution', icon: Truck }
+            ].map((tab) => {
+              const IconComp = tab.icon;
+              const isActive = activeDomainTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveDomainTab(tab.id as any)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                    isActive
+                      ? 'bg-slate-900 text-white shadow-2xs'
+                      : 'bg-slate-100/80 hover:bg-slate-200/70 text-slate-700'
+                  }`}
+                >
+                  <IconComp className="w-3.5 h-3.5 shrink-0" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* 1-Click Quick Actions Bar (Strictly obeying Guardrail #2: Zero Duplicate Icons) */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mr-1 hidden sm:inline">
+              Quick Launch:
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (onAddEnquiry) onAddEnquiry();
+                else onNavigate?.('enquiries');
+              }}
+              className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>New Enquiry</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (onLaunchProcurement) onLaunchProcurement({ action: 'create_po' });
+                else onNavigate?.('procurement');
+              }}
+              className="px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <ShoppingCart className="w-3.5 h-3.5" />
+              <span>Supplier PO</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (onLaunchProcurement) onLaunchProcurement({ action: 'receive_grn' });
+                else onNavigate?.('procurement');
+              }}
+              className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <PackageCheck className="w-3.5 h-3.5" />
+              <span>Receive GRN</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (onLaunchProcurement) onLaunchProcurement({ action: 'record_bill' });
+                else onNavigate?.('procurement');
+              }}
+              className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <Receipt className="w-3.5 h-3.5" />
+              <span>Record Bill</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (onOpenActivityDrawer) onOpenActivityDrawer({ channel: 'Call' });
+                else onNavigate?.('call_center');
+              }}
+              className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <Phone className="w-3.5 h-3.5" />
+              <span>Log Call / Task</span>
+            </button>
+          </div>
+        </div>
+
+        {/* MODULAR 4-DOMAIN KPI DECK */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          {/* DOMAIN 1: COMMERCIAL SALES */}
+          {(activeDomainTab === 'all' || activeDomainTab === 'sales') && (
+            <div
+              onClick={() => onNavigate?.('enquiries')}
+              className={`bg-white border border-slate-200/90 hover:border-blue-300 rounded-2xl p-4 shadow-2xs transition cursor-pointer flex flex-col justify-between ${
+                activeDomainTab === 'sales' ? 'md:col-span-2 xl:col-span-4' : ''
+              }`}
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-[11px] font-bold uppercase tracking-wider">
+                    <Briefcase className="w-3.5 h-3.5" />
+                    <span>Commercial Sales</span>
+                  </span>
+                  <span className="text-[11px] font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                    {winRate}% Win Ratio
+                  </span>
+                </div>
+                <div className="text-2xl font-extrabold font-mono text-slate-900 tracking-tight">
+                  {formatCurrency(totalPipelineActive)}
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  Active Pipeline ({funnelStats.activeCount} open enquiries)
+                </div>
+              </div>
+              <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-slate-50 rounded-xl p-2 border border-slate-200/60">
+                  <div className="text-[10px] font-bold uppercase text-slate-400">Won Value</div>
+                  <div className="font-mono font-bold text-emerald-700 truncate">
+                    {formatCurrency(totalWon)}
+                  </div>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-2 border border-slate-200/60">
+                  <div className="text-[10px] font-bold uppercase text-slate-400">Converted Orders</div>
+                  <div className="font-mono font-bold text-slate-800">
+                    {funnelStats.wonCount} / {funnelStats.totalCount}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* DOMAIN 2: PROCUREMENT & CASH OUTFLOW */}
+          {(activeDomainTab === 'all' || activeDomainTab === 'procurement') && (
+            <div
+              onClick={() => onNavigate?.('procurement')}
+              className={`bg-white border border-slate-200/90 hover:border-indigo-300 rounded-2xl p-4 shadow-2xs transition cursor-pointer flex flex-col justify-between ${
+                activeDomainTab === 'procurement' ? 'md:col-span-2 xl:col-span-4' : ''
+              }`}
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-bold uppercase tracking-wider">
+                    <ShoppingCart className="w-3.5 h-3.5" />
+                    <span>Procurement & Payables</span>
+                  </span>
+                  {procurementStats.dueThisWeekBillsCount > 0 ? (
+                    <span className="text-[10.5px] font-mono font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                      {procurementStats.dueThisWeekBillsCount} Due This Week
+                    </span>
+                  ) : (
+                    <span className="text-[10.5px] font-mono font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                      {procurementStats.openPOsCount} Open POs
+                    </span>
+                  )}
+                </div>
+                <div className="text-2xl font-extrabold font-mono text-slate-900 tracking-tight">
+                  {formatCurrency(procurementStats.totalNetPayables)}
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  Net Payables Balance ({procurementStats.unpaidBillsCount} unpaid supplier bills)
+                </div>
+              </div>
+              <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-slate-50 rounded-xl p-2 border border-slate-200/60">
+                  <div className="text-[10px] font-bold uppercase text-slate-400">Open Supplier POs</div>
+                  <div className="font-mono font-bold text-indigo-700">
+                    {procurementStats.openPOsCount} POs
+                  </div>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-2 border border-slate-200/60">
+                  <div className="text-[10px] font-bold uppercase text-slate-400">Pending GRN Lines</div>
+                  <div className="font-mono font-bold text-amber-700">
+                    {procurementStats.pendingGrnLineCount} Items
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* DOMAIN 3: INVENTORY HEALTH */}
+          {(activeDomainTab === 'all' || activeDomainTab === 'inventory') && (
+            <div
+              onClick={() => onNavigate?.('products')}
+              className={`bg-white border border-slate-200/90 hover:border-emerald-300 rounded-2xl p-4 shadow-2xs transition cursor-pointer flex flex-col justify-between ${
+                activeDomainTab === 'inventory' ? 'md:col-span-2 xl:col-span-4' : ''
+              }`}
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold uppercase tracking-wider">
+                    <Boxes className="w-3.5 h-3.5" />
+                    <span>Inventory Health</span>
+                  </span>
+                  <span
+                    className={`text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                      inventoryStats.lowStockCount > 0
+                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                        : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    }`}
+                  >
+                    {inventoryStats.lowStockCount} Low Stock
+                  </span>
+                </div>
+                <div className="text-2xl font-extrabold font-mono text-slate-900 tracking-tight">
+                  {inventoryStats.totalStockOnHand.toLocaleString('en-US')} Units
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  Total Stock on Hand across {inventoryStats.totalSkus} catalog SKUs
+                </div>
+              </div>
+              <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-slate-50 rounded-xl p-2 border border-slate-200/60">
+                  <div className="text-[10px] font-bold uppercase text-slate-400">Low Stock Alerts</div>
+                  <div
+                    className={`font-mono font-bold ${
+                      inventoryStats.lowStockCount > 0 ? 'text-rose-600' : 'text-emerald-700'
+                    }`}
+                  >
+                    {inventoryStats.lowStockCount} SKUs
+                  </div>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-2 border border-slate-200/60">
+                  <div className="text-[10px] font-bold uppercase text-slate-400">Variant Families</div>
+                  <div className="font-mono font-bold text-slate-800">
+                    {inventoryStats.specVariantFamiliesCount} Families
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* DOMAIN 4: OPERATIONS & EXECUTION */}
+          {(activeDomainTab === 'all' || activeDomainTab === 'operations') && (
+            <div
+              onClick={() => onNavigate?.('projects')}
+              className={`bg-white border border-slate-200/90 hover:border-amber-300 rounded-2xl p-4 shadow-2xs transition cursor-pointer flex flex-col justify-between ${
+                activeDomainTab === 'operations' ? 'md:col-span-2 xl:col-span-4' : ''
+              }`}
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-bold uppercase tracking-wider">
+                    <Truck className="w-3.5 h-3.5" />
+                    <span>Operations & Execution</span>
+                  </span>
+                  <span
+                    className={`text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                      operationsStats.overdueAndTodayCallsCount > 0
+                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                        : 'bg-slate-100 text-slate-600 border-slate-200'
+                    }`}
+                  >
+                    {operationsStats.overdueAndTodayCallsCount} Call Tasks Due
+                  </span>
+                </div>
+                <div className="text-2xl font-extrabold font-mono text-slate-900 tracking-tight">
+                  {operationsStats.activeProjectsCount} Active Projects
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  Live execution orders & scheduled client touchpoints
+                </div>
+              </div>
+              <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-slate-50 rounded-xl p-2 border border-slate-200/60">
+                  <div className="text-[10px] font-bold uppercase text-slate-400">Pending Deliveries</div>
+                  <div className="font-mono font-bold text-amber-700">
+                    {operationsStats.pendingMilestoneDeliveries} Milestones
+                  </div>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-2 border border-slate-200/60">
+                  <div className="text-[10px] font-bold uppercase text-slate-400">Overdue / Today</div>
+                  <div className="font-mono font-bold text-rose-600">
+                    {overdueList.length} / {todayList.length} Tasks
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* CASH FLOW & COMMERCIAL COMMITMENTS SNAPSHOT BAR */}
+        <div className="bg-slate-900 text-white rounded-2xl p-4 shadow-xs grid grid-cols-2 lg:grid-cols-4 gap-4 items-center">
+          <div className="border-r border-slate-800 pr-3">
+            <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+              Active Quoted Pipeline (Inflow)
+            </div>
+            <div className="text-base sm:text-lg font-extrabold font-mono text-emerald-400 mt-0.5">
+              {formatCurrency(totalPipelineActive)}
+            </div>
+          </div>
+          <div className="lg:border-r border-slate-800 pr-3">
+            <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+              Committed Open POs (Outflow)
+            </div>
+            <div className="text-base sm:text-lg font-extrabold font-mono text-indigo-300 mt-0.5">
+              {formatCurrency(procurementStats.committedPoOutflow)}
+            </div>
+          </div>
+          <div className="border-r border-slate-800 pr-3">
+            <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+              Total Unpaid Supplier Bills
+            </div>
+            <div className="text-base sm:text-lg font-extrabold font-mono text-amber-300 mt-0.5">
+              {formatCurrency(procurementStats.totalNetPayables)}
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+              Payables Due Within 7 Days
+            </div>
+            <div className="text-base sm:text-lg font-extrabold font-mono text-rose-400 mt-0.5">
+              {formatCurrency(procurementStats.dueThisWeekAmount)}{' '}
+              <span className="text-xs font-normal text-slate-400">
+                ({procurementStats.dueThisWeekBillsCount} bills)
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* DUAL LIVE FEED PANELS: LEFT (COMMERCIAL & PIPELINE) + RIGHT (PROCUREMENT, INVENTORY & OPS) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* LEFT PANEL: COMMERCIAL & PIPELINE LIVE FEED */}
+          <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-2xs flex flex-col justify-between space-y-4">
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <Briefcase className="w-4 h-4 text-blue-600" />
+                    <span>Commercial & Pipeline Live Feed</span>
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Click any enquiry row to open its full Commercial & Quotation detail view.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl self-start">
+                  {[
+                    { id: 'recent', label: 'Recent' },
+                    { id: 'high_value', label: 'High-Value' },
+                    { id: 'expiring', label: 'Expiring / Sent' }
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setCommercialFeedFilter(tab.id as any)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                        commercialFeedFilter === tab.id
+                          ? 'bg-white text-slate-900 shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {commercialFeedItems.length > 0 ? (
+                <div className="divide-y divide-slate-100">
+                  {commercialFeedItems.map((enq) => {
+                    const compName =
+                      enq.company_name ||
+                      (enq.company_id ? companyMap.get(enq.company_id) : '') ||
+                      'Client';
+                    const dealVal = Number(enq.value_aed ?? enq.amount_aed ?? 0);
+                    const enqRef = enq.sn || enq.enquiry_number || enq.enquiry_no || 'ENQ';
+                    const enqTitle = enq.title || enq.project_name || enq.subject || 'Commercial Enquiry';
+                    const enqDate = enq.enquiry_date || enq.date || '';
+                    return (
+                      <div
+                        key={enq.id}
+                        onClick={() => onSelectEnquiry(enq.id)}
+                        className="py-2.5 px-2 -mx-2 rounded-xl hover:bg-slate-50 transition flex items-center justify-between gap-3 cursor-pointer group"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs font-bold text-blue-600 group-hover:underline">
+                              #{enqRef}
+                            </span>
+                            {enq.company_id && onOpenCompany360 ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onOpenCompany360(enq.company_id!);
+                                }}
+                                className="text-xs font-bold text-slate-900 hover:text-blue-600 hover:underline truncate cursor-pointer"
+                              >
+                                {compName}
+                              </button>
+                            ) : (
+                              <span className="text-xs font-bold text-slate-900 truncate">
+                                {compName}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-500 truncate mt-0.5">
+                            {enqTitle} {enqDate ? `• ` : ''}
+                            <span className="font-mono">{enqDate}</span>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0 flex items-center gap-2.5">
+                          <div>
+                            <div className="font-mono text-xs font-bold text-slate-900">
+                              {formatCurrency(dealVal)}
+                            </div>
+                            <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                              {enq.status}
+                            </span>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600" />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="py-8 text-center text-xs text-slate-400 bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                  No enquiries matching this filter.
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+              <span className="text-slate-500">
+                Showing {commercialFeedItems.length} of {validEnquiries.length} accessible enquiries
+              </span>
+              <button
+                type="button"
+                onClick={() => onNavigate?.('enquiries')}
+                className="font-bold text-blue-600 hover:text-blue-700 inline-flex items-center gap-1 cursor-pointer"
+              >
+                <span>Open Enquiries Pipeline</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* RIGHT PANEL: PROCUREMENT, INVENTORY & OPERATIONS ACTIONABLE ALERTS */}
+          <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-2xs flex flex-col justify-between space-y-4">
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <ShoppingCart className="w-4 h-4 text-indigo-600" />
+                    <span>Procurement, Inventory & Ops Alerts</span>
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Open POs awaiting GRN, supplier bills awaiting match/settlement, and low stock SKUs.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl self-start">
+                  {[
+                    { id: 'all', label: 'All' },
+                    { id: 'grn', label: `PO / GRN (${procurementStats.openPOsCount})` },
+                    { id: 'bills', label: `Bills (${procurementStats.unpaidBillsCount})` },
+                    { id: 'stock', label: `Low Stock (${inventoryStats.lowStockCount})` }
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setOpsQueueFilter(tab.id as any)}
+                      className={`px-2 py-1 rounded-lg text-[10.5px] font-bold transition cursor-pointer ${
+                        opsQueueFilter === tab.id
+                          ? 'bg-white text-slate-900 shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="divide-y divide-slate-100 max-h-[320px] overflow-y-auto pr-1">
+                {/* 1. Open POs awaiting GRN */}
+                {(opsQueueFilter === 'all' || opsQueueFilter === 'grn') &&
+                  procurementStats.openPOs.slice(0, 3).map((po) => {
+                    const poRef = po.purchase_order_metadata?.po_ref || po.formatted_quote_ref;
+                    const vName =
+                      po.purchase_order_metadata?.supplier_name ||
+                      po.client_snapshot?.entity_name ||
+                      'Vendor';
+                    const vId = po.purchase_order_metadata?.vendor_company_id;
+                    return (
+                      <div
+                        key={`po-${po.id}`}
+                        onClick={() => {
+                          if (onLaunchProcurement) {
+                            onLaunchProcurement({
+                              action: 'receive_grn',
+                              poId: po.id,
+                              vendorCompanyId: vId,
+                              vendorName: vName
+                            });
+                          } else {
+                            onNavigate?.('procurement');
+                          }
+                        }}
+                        className="py-2.5 px-2 -mx-2 rounded-xl hover:bg-slate-50 transition flex items-center justify-between gap-3 cursor-pointer"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono text-[10px] font-bold">
+                              AWAITING GRN
+                            </span>
+                            <span className="font-mono text-xs font-bold text-slate-900">{poRef}</span>
+                            <span className="text-xs font-semibold text-slate-700 truncate">{vName}</span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5 font-mono">
+                            PO Total: {formatCurrency(Number(po.financial_totals?.grand_total ?? po.grand_total ?? 0))}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (onLaunchProcurement) {
+                              onLaunchProcurement({
+                                action: 'receive_grn',
+                                poId: po.id,
+                                vendorCompanyId: vId,
+                                vendorName: vName
+                              });
+                            } else {
+                              onNavigate?.('procurement');
+                            }
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shrink-0 cursor-pointer"
+                        >
+                          Receive GRN
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                {/* 2. Unpaid / Variance Supplier Bills */}
+                {(opsQueueFilter === 'all' || opsQueueFilter === 'bills') &&
+                  procurementStats.unpaidBills.slice(0, 3).map((bill) => {
+                    const hasVariance =
+                      bill.three_way_match_status === 'price_variance' ||
+                      bill.three_way_match_status === 'qty_variance' ||
+                      bill.three_way_match_status === 'both_variance';
+                    return (
+                      <div
+                        key={`bill-${bill.id}`}
+                        onClick={() => {
+                          if (onLaunchProcurement) {
+                            onLaunchProcurement({
+                              action: 'record_payment',
+                              billId: bill.id,
+                              vendorCompanyId: bill.vendor_company_id,
+                              vendorName: bill.vendor_name
+                            });
+                          } else {
+                            onNavigate?.('procurement');
+                          }
+                        }}
+                        className="py-2.5 px-2 -mx-2 rounded-xl hover:bg-slate-50 transition flex items-center justify-between gap-3 cursor-pointer"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold border ${
+                                hasVariance
+                                  ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                  : 'bg-rose-50 text-rose-700 border-rose-200'
+                              }`}
+                            >
+                              {hasVariance ? '3-WAY VARIANCE' : 'UNPAID BILL'}
+                            </span>
+                            <span className="font-mono text-xs font-bold text-slate-900">
+                              {bill.bill_number}
+                            </span>
+                            <span className="text-xs font-semibold text-slate-700 truncate">
+                              {bill.vendor_name}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5 font-mono">
+                            Balance Due: {formatCurrency(Number(bill.balance_due) || 0)} • Due:{' '}
+                            {bill.due_date || 'Upon Receipt'}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (onLaunchProcurement) {
+                              onLaunchProcurement({
+                                action: 'record_payment',
+                                billId: bill.id,
+                                vendorCompanyId: bill.vendor_company_id,
+                                vendorName: bill.vendor_name
+                              });
+                            } else {
+                              onNavigate?.('procurement');
+                            }
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-[11px] font-bold shrink-0 cursor-pointer"
+                        >
+                          Settle Bill
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                {/* 3. Low Stock SKUs */}
+                {(opsQueueFilter === 'all' || opsQueueFilter === 'stock') &&
+                  inventoryStats.lowStockProducts.slice(0, 3).map((prod) => (
+                    <div
+                      key={`sku-${prod.id}`}
+                      onClick={() => onNavigate?.('products')}
+                      className="py-2.5 px-2 -mx-2 rounded-xl hover:bg-slate-50 transition flex items-center justify-between gap-3 cursor-pointer"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 font-mono text-[10px] font-bold">
+                            LOW STOCK
+                          </span>
+                          <span className="text-xs font-bold text-slate-900 truncate">{prod.name}</span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-0.5 font-mono">
+                          Part #: {prod.part_no || 'N/A'} • On Hand: {Number(prod.stock_quantity) || 0}{' '}
+                          {prod.unit || 'Nos'} (Min: {Number(prod.min_stock_level) || 0})
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onLaunchProcurement) {
+                            onLaunchProcurement({ action: 'create_po' });
+                          } else {
+                            onNavigate?.('procurement');
+                          }
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[11px] font-bold shrink-0 cursor-pointer"
+                      >
+                        Restock PO
+                      </button>
+                    </div>
+                  ))}
+
+                {procurementStats.openPOsCount === 0 &&
+                  procurementStats.unpaidBillsCount === 0 &&
+                  inventoryStats.lowStockCount === 0 && (
+                    <div className="py-8 text-center text-xs text-slate-400 bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                      All supplier POs, vendor bills, and stock levels are healthy.
+                    </div>
+                  )}
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+              <button
+                type="button"
+                onClick={() => onNavigate?.('products')}
+                className="font-bold text-emerald-700 hover:text-emerald-800 inline-flex items-center gap-1 cursor-pointer"
+              >
+                <span>Products Catalog</span>
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate?.('procurement')}
+                className="font-bold text-indigo-600 hover:text-indigo-700 inline-flex items-center gap-1 cursor-pointer"
+              >
+                <span>Open Procurement & Payables Hub</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
 
       {/* Follow-Up Radar Command Center Widget */}
       <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs text-slate-900 space-y-5">

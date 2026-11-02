@@ -206,6 +206,7 @@ interface CompanyModalProps {
     logToEdit?: any;
   }) => void;
   onInitiateActivity?: (options: InitiateActivityOptions) => void;
+  onLaunchProcurement?: (ctx: any) => void;
   onOpenMobileMenu?: () => void;
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
@@ -333,6 +334,7 @@ export default function CompanyModal({
   onClearCompanyEditContext,
   onOpenActivityDrawer,
   onInitiateActivity,
+  onLaunchProcurement,
   onOpenMobileMenu,
   triggerToast
 }: CompanyModalProps) {
@@ -3904,6 +3906,7 @@ export default function CompanyModal({
           setShowMerge(true);
         }}
         onDeleteCompany={deleteCompany}
+        onLaunchProcurement={onLaunchProcurement}
         setCompanies={setCompanies}
       />
 

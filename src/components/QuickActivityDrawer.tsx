@@ -55,9 +55,13 @@ import {
   getCompanyPhones,
   getContactEmails,
   getCompanyEmails,
-  isSamePhoneNumber
+  isSamePhoneNumber,
+  QuotationDocumentRecord,
+  SupplierBill
 } from '../types';
 import { CallLogRepository } from '../services/repositories/CallLogRepository';
+import { QuotationRepository } from '../services/repositories/QuotationRepository';
+import { ProcurementRepository } from '../services/repositories/ProcurementRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
 import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { PARENT_INDUSTRIES, getDistinctRawBusinessTypes } from '../utils/taxonomy';
@@ -835,6 +839,63 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   }, [isOpen, existingLog, logToEdit, initialIsInternalOps]);
 
   const [localCompanyLogs, setLocalCompanyLogs] = useState<CallLogEntry[]>([]);
+  const [vendorQuotations, setVendorQuotations] = useState<QuotationDocumentRecord[]>([]);
+  const [vendorBills, setVendorBills] = useState<SupplierBill[]>([]);
+
+  useEffect(() => {
+    if (!isOpen || !activeWorkspaceId || !selectedCompanyId) return;
+    const unsubQ = QuotationRepository.subscribeByWorkspace(activeWorkspaceId, setVendorQuotations);
+    const unsubB = ProcurementRepository.subscribeByWorkspace(activeWorkspaceId, setVendorBills);
+    return () => {
+      unsubQ();
+      unsubB();
+    };
+  }, [isOpen, activeWorkspaceId, selectedCompanyId]);
+
+  const vendorSnapshot = useMemo(() => {
+    if (!selectedCompanyId) return null;
+    const comp = companies.find((c) => c.id === selectedCompanyId);
+    if (!comp) return null;
+    const cName = (comp.display_name || '').trim().toLowerCase();
+    const rel = (comp.relationship || '').toLowerCase();
+    const isVendorEntity =
+      rel.includes('vendor') || rel.includes('supplier') || rel.includes('both') || rel.includes('partner');
+
+    const poList = vendorQuotations.filter((q) => {
+      if (q.deleted || q.document_type !== 'purchase_order') return false;
+      const vId = q.purchase_order_metadata?.vendor_company_id;
+      const vName = (q.purchase_order_metadata?.supplier_name || q.client_snapshot?.entity_name || '')
+        .trim()
+        .toLowerCase();
+      return vId === comp.id || (cName && vName === cName);
+    });
+
+    const openPOs = poList.filter((po) => {
+      const st = po.purchase_order_metadata?.receiving_status || 'pending';
+      return st !== 'Completed' && st !== 'received';
+    });
+
+    const bills = vendorBills.filter((b) => {
+      const vName = (b.vendor_name || '').trim().toLowerCase();
+      return b.vendor_company_id === comp.id || (cName && vName === cName);
+    });
+
+    const unpaidBills = bills.filter(
+      (b) => b.status !== 'Paid' && (Number(b.balance_due) || 0) > 0.01
+    );
+    const netPayable = unpaidBills.reduce((s, b) => s + (Number(b.balance_due) || 0), 0);
+
+    if (!isVendorEntity && poList.length === 0 && bills.length === 0) return null;
+
+    return {
+      isVendorEntity,
+      poList,
+      openPOs,
+      bills,
+      unpaidBills,
+      netPayable
+    };
+  }, [selectedCompanyId, companies, vendorQuotations, vendorBills]);
 
   useEffect(() => {
     if (!selectedCompanyId) {
@@ -5007,6 +5068,64 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               )}
             </div>
 
+            {/* VENDOR PROCUREMENT SNAPSHOT BANNER (When Selected Company is a Vendor / Supplier) */}
+            {!isInternalTask && vendorSnapshot && (
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-3 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="px-2 py-0.5 rounded bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-wider">
+                      Vendor 360° Context
+                    </span>
+                    <span className="text-xs font-bold text-indigo-950">
+                      {vendorSnapshot.openPOs.length} Open POs • {vendorSnapshot.unpaidBills.length} Unpaid Bills
+                    </span>
+                  </div>
+                  <span className="font-mono text-xs font-extrabold text-amber-800 bg-amber-100/80 border border-amber-200 px-2 py-0.5 rounded-lg">
+                    Payable: AED {vendorSnapshot.netPayable.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+
+                {(vendorSnapshot.openPOs.length > 0 || vendorSnapshot.unpaidBills.length > 0) && (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 mr-1">
+                      Tag Reference:
+                    </span>
+                    {vendorSnapshot.openPOs.slice(0, 4).map((po) => {
+                      const poRef = po.purchase_order_metadata?.po_ref || po.formatted_quote_ref;
+                      return (
+                        <button
+                          key={po.id}
+                          type="button"
+                          onClick={() => {
+                            const tag = `[Ref: ${poRef}]`;
+                            setNotes((prev) => (prev.includes(tag) ? prev : prev ? `${tag} ${prev}` : `${tag} `));
+                            setPurpose('PO Delivery Follow-up');
+                          }}
+                          className="px-2 py-0.5 rounded-md bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-mono text-[10.5px] font-bold transition cursor-pointer"
+                        >
+                          {poRef}
+                        </button>
+                      );
+                    })}
+                    {vendorSnapshot.unpaidBills.slice(0, 4).map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => {
+                          const tag = `[Ref: ${b.bill_number} / Inv ${b.vendor_invoice_no}]`;
+                          setNotes((prev) => (prev.includes(tag) ? prev : prev ? `${tag} ${prev}` : `${tag} `));
+                          setPurpose('Payment / SOA Reconciliation');
+                        }}
+                        className="px-2 py-0.5 rounded-md bg-white hover:bg-amber-100 text-amber-800 border border-amber-200 font-mono text-[10.5px] font-bold transition cursor-pointer"
+                      >
+                        {b.bill_number}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Outcome & Purpose Grid */}
             {!isInternalTask && (
               <div className={`grid gap-3 ${showOutcomeSelector ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
@@ -5078,10 +5197,19 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs focus:outline-hidden font-semibold cursor-pointer"
                   >
                     {(() => {
-                      const legacyOption = purpose && !availablePurposes.includes(purpose) ? purpose : null;
+                      const procurementPurposes = [
+                        'PO Delivery Follow-up',
+                        'GRN / Discrepancy Resolution',
+                        'Payment / SOA Reconciliation'
+                      ];
+                      const combinedPurposes = Array.from(
+                        new Set([...availablePurposes, ...procurementPurposes])
+                      );
+                      const legacyOption =
+                        purpose && !combinedPurposes.includes(purpose) ? purpose : null;
                       return (
                         <>
-                          {availablePurposes.map((p) => (
+                          {combinedPurposes.map((p) => (
                             <option key={p} value={p}>
                               {p}
                             </option>

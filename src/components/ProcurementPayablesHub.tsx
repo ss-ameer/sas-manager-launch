@@ -50,6 +50,15 @@ import {
   X
 } from 'lucide-react';
 
+export interface ProcurementLaunchContext {
+  action: 'create_po' | 'receive_grn' | 'record_bill' | 'record_payment' | 'view_tab';
+  targetTab?: 'pos' | 'grn' | 'bills' | 'vouchers';
+  vendorCompanyId?: string;
+  vendorName?: string;
+  poId?: string;
+  billId?: string;
+}
+
 interface ProcurementPayablesHubProps {
   activeWorkspace: Workspace;
   user: UserProfile;
@@ -60,6 +69,9 @@ interface ProcurementPayablesHubProps {
   projects?: Project[];
   onOpenMobileMenu?: () => void;
   onSelectEnquiry?: (enquiryId: string) => void;
+  onOpenCompany360?: (companyId: string) => void;
+  launchContext?: ProcurementLaunchContext | null;
+  onClearLaunchContext?: () => void;
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
@@ -73,6 +85,9 @@ export default function ProcurementPayablesHub({
   projects = [],
   onOpenMobileMenu,
   onSelectEnquiry,
+  onOpenCompany360,
+  launchContext,
+  onClearLaunchContext,
   triggerToast
 }: ProcurementPayablesHubProps) {
   const [activeTab, setActiveTab] = useState<'pos' | 'grn' | 'bills' | 'vouchers'>('pos');
@@ -1004,6 +1019,129 @@ export default function ProcurementPayablesHub({
     }
   };
 
+  const resolveVendorCompanyId = (vendorId?: string, vendorName?: string): string | undefined => {
+    if (vendorId && companies.some((c) => c.id === vendorId)) return vendorId;
+    const norm = (vendorName || '').trim().toLowerCase();
+    if (!norm) return undefined;
+    const matched = companies.find((c) => getCompanyName(c).trim().toLowerCase() === norm);
+    return matched?.id;
+  };
+
+  // Handle incoming deep-link launch context from Dashboard 2.0 or Company 360°
+  useEffect(() => {
+    if (!launchContext) return;
+
+    const matchedCompany = launchContext.vendorCompanyId
+      ? companies.find((c) => c.id === launchContext.vendorCompanyId)
+      : launchContext.vendorName
+      ? companies.find(
+          (c) => getCompanyName(c).trim().toLowerCase() === launchContext.vendorName!.trim().toLowerCase()
+        )
+      : undefined;
+
+    const resolvedVendorId = matchedCompany?.id || launchContext.vendorCompanyId || '';
+    const resolvedVendorName =
+      (matchedCompany ? getCompanyName(matchedCompany) : launchContext.vendorName) || '';
+
+    if (launchContext.action === 'view_tab') {
+      if (launchContext.targetTab) setActiveTab(launchContext.targetTab);
+      if (resolvedVendorName) setVendorFilter(resolvedVendorName);
+      onClearLaunchContext?.();
+      return;
+    }
+
+    if (launchContext.action === 'create_po') {
+      setActiveTab('pos');
+      setNewPoVendorId(resolvedVendorId);
+      setNewPoSupplierName(resolvedVendorName);
+      setNewPoEnquiryId('');
+      setNewPoExpectedDate('');
+      setNewPoLines([
+        { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
+      ]);
+      setShowCreatePoModal(true);
+      onClearLaunchContext?.();
+      return;
+    }
+
+    if (launchContext.action === 'receive_grn') {
+      setActiveTab('grn');
+      if (launchContext.poId && supplierPOs.length === 0) return; // wait for PO subscription
+      const targetPo = launchContext.poId
+        ? supplierPOs.find((p) => p.id === launchContext.poId)
+        : supplierPOs.find((p) => {
+            const pVendorId = p.purchase_order_metadata?.vendor_company_id;
+            const pVendorName = (
+              p.purchase_order_metadata?.supplier_name ||
+              p.client_snapshot?.entity_name ||
+              ''
+            )
+              .trim()
+              .toLowerCase();
+            const matchesVendor =
+              !resolvedVendorId && !resolvedVendorName
+                ? true
+                : (resolvedVendorId && pVendorId === resolvedVendorId) ||
+                  (resolvedVendorName && pVendorName === resolvedVendorName.trim().toLowerCase());
+            const status = p.purchase_order_metadata?.receiving_status || 'pending';
+            return matchesVendor && status !== 'Completed' && status !== 'received';
+          }) || supplierPOs[0];
+
+      if (targetPo) {
+        handleOpenGrnModal(targetPo);
+      } else if (resolvedVendorName) {
+        setVendorFilter(resolvedVendorName);
+      }
+      onClearLaunchContext?.();
+      return;
+    }
+
+    if (launchContext.action === 'record_bill') {
+      setActiveTab('bills');
+      if (launchContext.poId && supplierPOs.length === 0) return;
+      const targetPo = launchContext.poId
+        ? supplierPOs.find((p) => p.id === launchContext.poId)
+        : undefined;
+      if (targetPo) {
+        handleOpenBillModal(targetPo);
+      } else {
+        handleOpenBillModal();
+        if (resolvedVendorId) setBillVendorId(resolvedVendorId);
+        if (resolvedVendorName) setBillVendorName(resolvedVendorName);
+      }
+      onClearLaunchContext?.();
+      return;
+    }
+
+    if (launchContext.action === 'record_payment') {
+      setActiveTab('vouchers');
+      if ((launchContext.billId && supplierBills.length === 0) || (launchContext.poId && supplierPOs.length === 0)) {
+        return;
+      }
+      const targetBill = launchContext.billId
+        ? supplierBills.find((b) => b.id === launchContext.billId)
+        : supplierBills.find((b) => {
+            const matchesVendor =
+              (resolvedVendorId && b.vendor_company_id === resolvedVendorId) ||
+              (resolvedVendorName &&
+                b.vendor_name.trim().toLowerCase() === resolvedVendorName.trim().toLowerCase());
+            return matchesVendor && b.status !== 'Paid' && (Number(b.balance_due) || 0) > 0.01;
+          });
+      const targetPo = launchContext.poId
+        ? supplierPOs.find((p) => p.id === launchContext.poId)
+        : undefined;
+
+      if (targetBill || targetPo) {
+        handleIssuePaymentVoucher(targetBill, targetPo);
+      } else {
+        handleIssuePaymentVoucher();
+        if (resolvedVendorId) setPvVendorId(resolvedVendorId);
+        if (resolvedVendorName) setPvPayeeName(resolvedVendorName);
+      }
+      onClearLaunchContext?.();
+    }
+  }, [launchContext, supplierPOs, supplierBills, companies]);
+
   // Confirm & Create Outbound Payment Voucher (PV)
   const handleConfirmCreatePv = async (openInStudio = true) => {
     const selectedVendor = companies.find((c) => c.id === pvVendorId);
@@ -1670,10 +1808,28 @@ export default function ProcurementPayablesHub({
                           {(meta?.po_date || po.quotation_date || '').slice(0, 10)}
                         </td>
                         <td className="py-3 px-3 max-w-[220px]">
-                          <HoverScrollText
-                            text={meta?.supplier_name || po.client_snapshot?.entity_name || 'Vendor'}
-                            className="font-bold text-slate-900"
-                          />
+                          {(() => {
+                            const vName = meta?.supplier_name || po.client_snapshot?.entity_name || 'Vendor';
+                            const vCompId = resolveVendorCompanyId(meta?.vendor_company_id, vName);
+                            return vCompId && onOpenCompany360 ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onOpenCompany360(vCompId);
+                                }}
+                                className="text-left group inline-flex items-center gap-1 max-w-full cursor-pointer"
+                              >
+                                <HoverScrollText
+                                  text={vName}
+                                  className="font-bold text-slate-900 group-hover:text-indigo-600 group-hover:underline transition-colors"
+                                />
+                                <ArrowUpRight className="w-3 h-3 text-slate-400 group-hover:text-indigo-600 shrink-0" />
+                              </button>
+                            ) : (
+                              <HoverScrollText text={vName} className="font-bold text-slate-900" />
+                            );
+                          })()}
                           {meta?.supplier_trn && (
                             <div className="text-[10px] font-mono text-slate-400">
                               TRN: {meta.supplier_trn}
@@ -1841,7 +1997,31 @@ export default function ProcurementPayablesHub({
                               {po.purchase_order_metadata?.po_ref || po.formatted_quote_ref}
                             </td>
                             <td className="py-2.5 px-3 font-semibold text-slate-800">
-                              {po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name}
+                              {(() => {
+                                const vName =
+                                  po.purchase_order_metadata?.supplier_name ||
+                                  po.client_snapshot?.entity_name ||
+                                  'Vendor';
+                                const vCompId = resolveVendorCompanyId(
+                                  po.purchase_order_metadata?.vendor_company_id,
+                                  vName
+                                );
+                                return vCompId && onOpenCompany360 ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onOpenCompany360(vCompId);
+                                    }}
+                                    className="text-left hover:text-indigo-600 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <span>{vName}</span>
+                                    <ArrowUpRight className="w-3 h-3 text-slate-400 shrink-0" />
+                                  </button>
+                                ) : (
+                                  vName
+                                );
+                              })()}
                             </td>
                             <td className="py-2.5 px-3">
                               <div className="font-semibold text-slate-900">{li.item_name || li.description}</div>
@@ -1956,7 +2136,26 @@ export default function ProcurementPayablesHub({
                             </a>
                           )}
                         </td>
-                        <td className="py-3 px-3 font-semibold text-slate-800">{bill.vendor_name}</td>
+                        <td className="py-3 px-3 font-semibold text-slate-800">
+                          {(() => {
+                            const vCompId = resolveVendorCompanyId(bill.vendor_company_id, bill.vendor_name);
+                            return vCompId && onOpenCompany360 ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onOpenCompany360(vCompId);
+                                }}
+                                className="text-left hover:text-indigo-600 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <span>{bill.vendor_name}</span>
+                                <ArrowUpRight className="w-3 h-3 text-slate-400 shrink-0" />
+                              </button>
+                            ) : (
+                              bill.vendor_name
+                            );
+                          })()}
+                        </td>
                         <td className="py-3 px-3 font-mono text-indigo-700">{bill.po_ref || 'Direct Bill'}</td>
                         <td className="py-3 px-3">
                           <span
@@ -2200,11 +2399,35 @@ export default function ProcurementPayablesHub({
                       </td>
                       <td className="py-3 px-3 font-mono text-slate-600">{doc.quotation_date}</td>
                       <td className="py-3 px-3 font-semibold text-slate-800">
-                        {doc.payment_voucher_metadata?.payee_name ||
-                          doc.payment_voucher_metadata?.paid_to_vendor_name ||
-                          doc.vendor_return_metadata?.supplier_name ||
-                          doc.vendor_return_metadata?.vendor_name ||
-                          doc.client_snapshot?.entity_name}
+                        {(() => {
+                          const vName =
+                            doc.payment_voucher_metadata?.payee_name ||
+                            doc.payment_voucher_metadata?.paid_to_vendor_name ||
+                            doc.vendor_return_metadata?.supplier_name ||
+                            doc.vendor_return_metadata?.vendor_name ||
+                            doc.client_snapshot?.entity_name ||
+                            'Vendor';
+                          const vCompId = resolveVendorCompanyId(
+                            doc.payment_voucher_metadata?.vendor_company_id ||
+                              doc.vendor_return_metadata?.vendor_company_id,
+                            vName
+                          );
+                          return vCompId && onOpenCompany360 ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onOpenCompany360(vCompId);
+                              }}
+                              className="text-left hover:text-indigo-600 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              <span>{vName}</span>
+                              <ArrowUpRight className="w-3 h-3 text-slate-400 shrink-0" />
+                            </button>
+                          ) : (
+                            vName
+                          );
+                        })()}
                       </td>
                       <td className="py-3 px-3 text-slate-600 max-w-xs">
                         <HoverScrollText text={doc.quotation_subject || ''} />

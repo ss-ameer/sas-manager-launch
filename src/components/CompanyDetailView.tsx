@@ -116,6 +116,14 @@ export interface CompanyDetailViewProps {
   onDeleteContact?: (contactId: string) => void;
   onOpenMerge?: (companyId: string) => void;
   onDeleteCompany?: (companyId: string) => void;
+  onLaunchProcurement?: (ctx: {
+    action: 'create_po' | 'receive_grn' | 'record_bill' | 'record_payment' | 'view_tab';
+    targetTab?: 'pos' | 'grn' | 'bills' | 'vouchers';
+    vendorCompanyId?: string;
+    vendorName?: string;
+    poId?: string;
+    billId?: string;
+  }) => void;
   setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
   setContacts?: React.Dispatch<React.SetStateAction<Contact[]>>;
   setCallLogs?: React.Dispatch<React.SetStateAction<CallLogEntry[]>>;
@@ -146,6 +154,7 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
   onDeleteContact,
   onOpenMerge,
   onDeleteCompany,
+  onLaunchProcurement,
   setCompanies,
   setContacts,
   setCallLogs
@@ -772,16 +781,78 @@ export const CompanyDetailView: React.FC<CompanyDetailViewProps> = ({
           {/* Vendor Procurement & Payables Statement */}
           {vendorPayablesSummary && (
             <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h4 className="text-sm font-bold text-indigo-950 dark:text-indigo-200 flex items-center gap-2">
                   <FileText className="w-4 h-4 text-indigo-600" />
                   <span>Vendor Procurement &amp; Payables Statement</span>
                 </h4>
-                {company.tax_registration_no && (
-                  <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200 font-mono text-[10.5px] font-bold">
-                    TRN: {company.tax_registration_no}
-                  </span>
-                )}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {company.tax_registration_no && (
+                    <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200 font-mono text-[10.5px] font-bold">
+                      TRN: {company.tax_registration_no}
+                    </span>
+                  )}
+                  {onLaunchProcurement && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onLaunchProcurement({
+                            action: 'create_po',
+                            vendorCompanyId: company.id,
+                            vendorName: company.display_name
+                          });
+                        }}
+                        className="px-2 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[10.5px] font-bold cursor-pointer"
+                      >
+                        Issue PO
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onLaunchProcurement({
+                            action: 'receive_grn',
+                            vendorCompanyId: company.id,
+                            vendorName: company.display_name
+                          });
+                        }}
+                        className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10.5px] font-bold cursor-pointer"
+                      >
+                        Receive GRN
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onLaunchProcurement({
+                            action: 'record_bill',
+                            vendorCompanyId: company.id,
+                            vendorName: company.display_name
+                          });
+                        }}
+                        className="px-2 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-[10.5px] font-bold cursor-pointer"
+                      >
+                        Record Bill
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onLaunchProcurement({
+                            action: 'record_payment',
+                            vendorCompanyId: company.id,
+                            vendorName: company.display_name
+                          });
+                        }}
+                        className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-[10.5px] font-bold cursor-pointer"
+                      >
+                        Record Payment
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
 
               {/* Payables KPI Strip */}

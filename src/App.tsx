@@ -22,7 +22,7 @@ import EnquiryForm from './components/EnquiryForm';
 import EnquiryDetail from './components/EnquiryDetail';
 import ProductManager from './components/ProductManager';
 import ProjectRegistry from './components/ProjectRegistry';
-import ProcurementPayablesHub from './components/ProcurementPayablesHub';
+import ProcurementPayablesHub, { ProcurementLaunchContext } from './components/ProcurementPayablesHub';
 import SettingsHub from './components/SettingsHub';
 import CloudSyncHub from './components/CloudSyncHub';
 import WorkspaceManagerModal from './components/WorkspaceManagerModal';
@@ -246,6 +246,12 @@ export default function App() {
     const healed = healDropdownOptions(cached, SYSTEM_COMPANY_TEMPERATURES, 'ct', SYSTEM_TEMPERATURE_COLORS);
     return healed.mergedList;
   });
+
+  const [procurementLaunchContext, setProcurementLaunchContext] = useState<ProcurementLaunchContext | null>(null);
+  const handleLaunchProcurement = useCallback((ctx: ProcurementLaunchContext) => {
+    setProcurementLaunchContext(ctx);
+    setCurrentTab('procurement');
+  }, []);
 
   // Sync Mode Control State
   const [realtimeSyncEnabled, setRealtimeSyncEnabled] = useState<boolean>(() => {
@@ -2014,6 +2020,15 @@ export default function App() {
             callLogs={workspaceCallLogs}
             onSelectEnquiry={setSelectedEnquiryId}
             user={user}
+            activeWorkspace={activeWorkspace}
+            products={workspaceProducts}
+            projects={workspaceProjects}
+            onAddEnquiry={() => {
+              setEnquiryToEdit(null);
+              setShowEnquiryForm(true);
+            }}
+            onOpenCompany360={(companyId) => setSelected360CompanyId(companyId)}
+            onLaunchProcurement={handleLaunchProcurement}
             onOpenActivityDrawer={(ctx) => {
               setActivityDrawerContext(ctx || {});
               setIsActivityDrawerOpen(true);
@@ -2114,6 +2129,7 @@ export default function App() {
               setIsActivityDrawerOpen(true);
             }}
             onInitiateActivity={initiateActivity}
+            onLaunchProcurement={handleLaunchProcurement}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
             triggerToast={triggerToast}
           />
@@ -2147,6 +2163,9 @@ export default function App() {
             projects={workspaceProjects}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
             onSelectEnquiry={(enqId) => setSelectedEnquiryId(enqId)}
+            onOpenCompany360={(companyId) => setSelected360CompanyId(companyId)}
+            launchContext={procurementLaunchContext}
+            onClearLaunchContext={() => setProcurementLaunchContext(null)}
             triggerToast={triggerToast}
           />
         )}
@@ -2277,6 +2296,7 @@ export default function App() {
           onInitiateActivity={initiateActivity}
           onOpenEnquiry={(enquiryId) => setSelectedEnquiryId(enquiryId)}
           onEditCompany={handleEditCompanyFrom360}
+          onLaunchProcurement={handleLaunchProcurement}
         />
       )}
 

@@ -2896,7 +2896,19 @@ export default function CallLogManager({
                       )}
                       {renderCompanyTempPill(item)}
                       {item.company_id && (
-                        <IndustryBadge company={companies.find((c) => c.id === item.company_id)} size="sm" />
+                        <>
+                          {(() => {
+                            const compObj = companies.find((c) => c.id === item.company_id);
+                            const rel = (compObj?.relationship || '').toLowerCase();
+                            const isVend = rel.includes('vendor') || rel.includes('supplier') || rel.includes('both');
+                            return isVend ? (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 uppercase tracking-wider">
+                                Vendor
+                              </span>
+                            ) : null;
+                          })()}
+                          <IndustryBadge company={companies.find((c) => c.id === item.company_id)} size="sm" />
+                        </>
                       )}
                       {item.contact_name && (
                         <span className="text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700">
@@ -3971,7 +3983,19 @@ export default function CallLogManager({
                           </span>
                         )}
                         {log.company_id && (
-                          <IndustryBadge company={companies.find((c) => c.id === log.company_id)} size="sm" />
+                          <>
+                            {(() => {
+                              const compObj = companies.find((c) => c.id === log.company_id);
+                              const rel = (compObj?.relationship || '').toLowerCase();
+                              const isVend = rel.includes('vendor') || rel.includes('supplier') || rel.includes('both');
+                              return isVend ? (
+                                <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 uppercase tracking-wider shrink-0">
+                                  Vendor
+                                </span>
+                              ) : null;
+                            })()}
+                            <IndustryBadge company={companies.find((c) => c.id === log.company_id)} size="sm" />
+                          </>
                         )}
                       </div>
 
@@ -4425,6 +4449,15 @@ export default function CallLogManager({
                                   size="xs"
                                 />
                               )}
+                              {(() => {
+                                const rel = (company?.relationship || '').toLowerCase();
+                                const isVend = rel.includes('vendor') || rel.includes('supplier') || rel.includes('both');
+                                return isVend ? (
+                                  <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 uppercase tracking-wider shrink-0">
+                                    Vendor
+                                  </span>
+                                ) : null;
+                              })()}
                               <IndustryBadge company={company} size="sm" />
                             </div>
                           </td>
@@ -5445,6 +5478,9 @@ export default function CallLogManager({
                   <option value="Payment / Invoice Collection">Payment / Invoice Collection</option>
                   <option value="Relationship Maintenance / Courtesy Call">Relationship Maintenance / Courtesy Call</option>
                   <option value="Complaint / Issue Resolution">Complaint / Issue Resolution</option>
+                  <option value="PO Delivery Follow-up">PO Delivery Follow-up</option>
+                  <option value="GRN / Discrepancy Resolution">GRN / Discrepancy Resolution</option>
+                  <option value="Payment / SOA Reconciliation">Payment / SOA Reconciliation</option>
                   <option value="General Inquiry">General Inquiry</option>
                 </select>
               </div>
