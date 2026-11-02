@@ -1181,7 +1181,12 @@ export function resolveModularLayoutBlocks(
     showCustomerAcceptance?: boolean;
   }
 ): QuotationBlockConfig[] {
-  return rawBlocks.map((b) => {
+  const safeBlocks =
+    Array.isArray(rawBlocks) && rawBlocks.length > 0
+      ? rawBlocks.filter((b): b is QuotationBlockConfig => Boolean(b && typeof b === 'object'))
+      : DEFAULT_QUOTATION_BLOCKS;
+
+  return safeBlocks.map((b) => {
     let enabled = b.enabled !== false && b.is_visible !== false;
     const placement: 'left' | 'right' | 'full' = b.placement || 'full';
 
@@ -2085,8 +2090,8 @@ const EditableCanvasText: React.FC<EditableCanvasTextProps> = ({
   );
 };
 
-export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
-  quotation,
+const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
+  quotation: rawQuotation,
   profile,
   visibleColumns: propVisibleColumns = {} as QuotationPresetColumns,
   columnConfig: propColumnConfig,
@@ -2122,6 +2127,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   onInlineFieldEdit,
   showPageBreakGuides = false
 }: QuotationDocumentProps) => {
+  const quotation = (rawQuotation || {}) as Quotation;
   const [logoLoadFailed, setLogoLoadFailed] = React.useState(false);
   const currency = quotation.currency || quotation.applied_bank_account?.currency || 'AED';
 
@@ -2182,7 +2188,7 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     'all_separate_tables';
 
   const rawLineItems: QuotationLineItem[] = React.useMemo(() => {
-    const all = quotation.line_items || [];
+    const all = Array.isArray(quotation?.line_items) ? quotation.line_items.filter(Boolean) : [];
     if (resolvedOptionDisplayMode === 'option_a_only') {
       return all
         .filter((it) => {
@@ -2208,21 +2214,26 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
         .map((it) => ({ ...it, is_optional: false }));
     }
     return all;
-  }, [quotation.line_items, resolvedOptionDisplayMode]);
+  }, [quotation?.line_items, resolvedOptionDisplayMode]);
 
   const hasExplicitLayoutBlocks = Boolean(
-    (layoutBlocks && layoutBlocks.length > 0) ||
-    (quotation.layout_blocks && quotation.layout_blocks.length > 0) ||
-    ((quotation as any).presentation_preset?.layout_blocks &&
+    (Array.isArray(layoutBlocks) && layoutBlocks.length > 0) ||
+    (Array.isArray(quotation?.layout_blocks) && quotation.layout_blocks.length > 0) ||
+    (Array.isArray((quotation as any)?.presentation_preset?.layout_blocks) &&
       (quotation as any).presentation_preset.layout_blocks.length > 0)
   );
 
   // Resolve modular layout blocks using each block's own placement & visibility directly
   const resolvedBlocks: QuotationBlockConfig[] = React.useMemo(() => {
     const raw =
-      layoutBlocks ||
-      quotation.layout_blocks ||
-      (quotation as any).presentation_preset?.layout_blocks ||
+      (Array.isArray(layoutBlocks) && layoutBlocks.length > 0 ? layoutBlocks : undefined) ||
+      (Array.isArray(quotation?.layout_blocks) && quotation.layout_blocks.length > 0
+        ? quotation.layout_blocks
+        : undefined) ||
+      (Array.isArray((quotation as any)?.presentation_preset?.layout_blocks) &&
+      (quotation as any).presentation_preset.layout_blocks.length > 0
+        ? (quotation as any).presentation_preset.layout_blocks
+        : undefined) ||
       DEFAULT_QUOTATION_BLOCKS;
 
     return resolveModularLayoutBlocks(raw, resolvedBlockStyle, {
@@ -2233,8 +2244,8 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
     });
   }, [
     layoutBlocks,
-    quotation.layout_blocks,
-    (quotation as any).presentation_preset?.layout_blocks,
+    quotation?.layout_blocks,
+    (quotation as any)?.presentation_preset?.layout_blocks,
     resolvedBlockStyle,
     hasExplicitLayoutBlocks,
     showBankRemittance,
@@ -2823,17 +2834,18 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
           0
         )
       : 0;
+    const resolvedGrandTotal =
+      quotation?.financial_totals?.grand_total ?? quotation?.grand_total ?? 0;
     const effectiveWordsAmount =
       docType === 'receipt'
-        ? Number(quotation.receipt_metadata?.amount_received ?? quotation.grand_total ?? 0)
+        ? Number(quotation.receipt_metadata?.amount_received ?? resolvedGrandTotal)
         : docType === 'payment_voucher'
         ? Number(
             quotation.payment_voucher_metadata?.amount_paid ||
               pvAllocSum ||
-              quotation.grand_total ||
-              0
+              resolvedGrandTotal
           )
-        : Number(quotation.grand_total || 0);
+        : Number(resolvedGrandTotal);
 
     return {
       quotation,
@@ -3629,16 +3641,24 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                 return { subtotal: cleanSub, vat: vatVal, grandTotal: adjustedGrand, unadjustedGrandTotal: grandVal, customAdj };
               };
 
+              const rawQuoteSubtotal = Number(
+                quotation?.financial_totals?.subtotal ?? quotation?.subtotal ?? 0
+              );
+              const rawQuoteTaxAmount = Number(
+                quotation?.financial_totals?.tax_amount ?? quotation?.tax_amount ?? 0
+              );
+              const rawQuoteGrandTotal = Number(
+                quotation?.financial_totals?.grand_total ?? quotation?.grand_total ?? 0
+              );
               const combinedTotals = computeTotalsForSubtotal(combinedNonAddonSubtotal);
-              const singleOptionCalc = computeTotalsForSubtotal(Number(quotation.subtotal || 0));
-              const rawQuoteGrandTotal = Number(quotation.grand_total || 0);
+              const singleOptionCalc = computeTotalsForSubtotal(rawQuoteSubtotal);
               const singleOptionGrandTotal =
                 singleOptionCalc.customAdj !== 0 &&
                 Math.abs(rawQuoteGrandTotal - singleOptionCalc.unadjustedGrandTotal) < 0.02
                   ? singleOptionCalc.grandTotal
                   : rawQuoteGrandTotal;
-              const displaySubtotal = hasMultiOptions ? combinedTotals.subtotal : Number(quotation.subtotal || 0);
-              const displayTaxAmount = hasMultiOptions ? combinedTotals.vat : Number(quotation.tax_amount || 0);
+              const displaySubtotal = hasMultiOptions ? combinedTotals.subtotal : rawQuoteSubtotal;
+              const displayTaxAmount = hasMultiOptions ? combinedTotals.vat : rawQuoteTaxAmount;
               const displayGrandTotal = hasMultiOptions ? combinedTotals.grandTotal : singleOptionGrandTotal;
 
               return (
@@ -9981,3 +10001,66 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
   );
 };
 
+interface QuotationDocumentErrorBoundaryState {
+  hasError: boolean;
+  errorMessage?: string;
+}
+
+class QuotationDocumentErrorBoundary extends React.Component<
+  { children: React.ReactNode; resetKey?: string },
+  QuotationDocumentErrorBoundaryState
+> {
+  constructor(props: { children: React.ReactNode; resetKey?: string }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error): QuotationDocumentErrorBoundaryState {
+    return {
+      hasError: true,
+      errorMessage: error?.message || 'Unexpected template rendering error'
+    };
+  }
+
+  componentDidUpdate(prevProps: { children: React.ReactNode; resetKey?: string }) {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false, errorMessage: undefined });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="w-[210mm] max-w-full min-h-[180px] rounded-xl border border-amber-200 bg-amber-50/90 p-6 text-center flex flex-col items-center justify-center gap-2 shadow-sm">
+          <div className="text-sm font-bold text-amber-900">
+            Preview unavailable with current mock settings
+          </div>
+          {this.state.errorMessage && (
+            <div className="text-xs text-amber-700 font-mono max-w-md truncate">
+              {this.state.errorMessage}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => this.setState({ hasError: false, errorMessage: undefined })}
+            className="mt-1 px-3 py-1 rounded-lg bg-white border border-amber-300 text-amber-800 text-xs font-semibold hover:bg-amber-100 transition cursor-pointer"
+          >
+            Retry Preview
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export const QuotationDocument: React.FC<QuotationDocumentProps> = (props) => {
+  const resetKey = `${props.quotation?.id || 'doc'}_${props.quotation?.revision_number || 1}_${
+    Array.isArray(props.quotation?.line_items) ? props.quotation.line_items.length : 0
+  }`;
+  return (
+    <QuotationDocumentErrorBoundary resetKey={resetKey}>
+      <QuotationDocumentInner {...props} />
+    </QuotationDocumentErrorBoundary>
+  );
+};

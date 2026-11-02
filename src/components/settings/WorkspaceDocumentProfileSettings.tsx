@@ -1269,11 +1269,28 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
         undefined
     };
 
+    const safeProcessedItems = Array.isArray(processedItems) ? processedItems : [];
+    const safeSubtotal = Number(financials?.subtotal) || 0;
+    const safeFreight = Number(financials?.freight_amount) || 0;
+    const safeTaxRate = Number(financials?.tax_rate_percent ?? 5);
+    const safeTaxAmount = Number(financials?.tax_amount) || 0;
+    const safeGrandTotal = Number(financials?.grand_total) || 0;
+    const safeTotalUnits = safeProcessedItems.reduce(
+      (acc, item) => acc + (Number(item?.quantity) || 0),
+      0
+    );
+    const safeLayoutBlocks =
+      Array.isArray(activeSandboxPreset?.layout_blocks) &&
+      activeSandboxPreset.layout_blocks.length > 0
+        ? activeSandboxPreset.layout_blocks
+        : DEFAULT_QUOTATION_BLOCKS;
+
     return {
       id: 'sandbox_preview_quotation',
       workspace_id: workspaceId,
       workspaceId: workspaceId,
       enquiry_id: 'sandbox_enquiry_01',
+      document_type: 'quotation',
       quote_number: 'QT-2026-SIM01',
       revision_number: 1,
       formatted_quote_ref: 'QT-2026-SIM01-R1',
@@ -1287,24 +1304,24 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
       client_contact_person: 'Eng. Tariq Al Mansoori (Procurement Director)',
       prepared_by: primarySignatoryName || user?.displayName || 'Commercial Engineering Team',
       client_snapshot: {
-        entity_name: 'GULF EMIRATES INDUSTRIAL UTILITIES & WATER CORP.',
+        entity_name: 'Apex Infrastructure Corp.',
         contact_person: 'Eng. Tariq Al Mansoori (Procurement Director)',
         client_contact_person: 'Eng. Tariq Al Mansoori (Procurement Director)',
         address: 'Plot 44B, ICAD II Industrial Zone, Musaffah, Abu Dhabi, UAE',
         trn: '100498120000003',
-        email: 'tenders@gulfutilities.ae',
+        email: 'tenders@apexinfra.ae',
         phone: '+971 2 554 8900'
       },
       sender_snapshot: {
-        entity_name: legalEntityName || 'ADVANCED NIRVANA WATER TREATMENT EQUIPMENT TRADING LLC',
+        entity_name: legalEntityName || 'Commercial Engineering Entity',
         address: [addressLine1, addressLine2, city, country].filter(Boolean).join(', '),
         trn: trn || '100234567800003',
-        email: email || 'sales@nirvanawater.ae',
+        email: email || 'sales@company.example.com',
         phone: phone || '+971 4 338 9100',
         logo_url: resolvedHeaderConfig.logoUrl || logoUrl,
         stamp_seal_url: activeSandboxPreset?.company_seal_url || stampSealUrl
       },
-      line_items: processedItems,
+      line_items: safeProcessedItems,
       visible_columns: activeSandboxPreset?.visible_columns || {
         brand: true,
         model: true,
@@ -1316,11 +1333,19 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
         showItemAttributes: true
       },
       tax_mode: activeTaxMode,
-      subtotal: financials.subtotal,
-      freight_amount: financials.freight_amount,
-      tax_rate_percent: financials.tax_rate_percent,
-      tax_amount: financials.tax_amount,
-      grand_total: financials.grand_total,
+      subtotal: safeSubtotal,
+      freight_amount: safeFreight,
+      tax_rate_percent: safeTaxRate,
+      tax_amount: safeTaxAmount,
+      grand_total: safeGrandTotal,
+      financial_totals: {
+        subtotal: safeSubtotal,
+        total_discount: 0,
+        taxable_amount: safeSubtotal + safeFreight,
+        tax_amount: safeTaxAmount,
+        grand_total: safeGrandTotal,
+        total_units: safeTotalUnits
+      },
       currency: activeDefaultBank?.currency || 'AED',
       price_basis:
         activeSandboxPreset?.default_price_basis || 'DDP Client Site, UAE',
@@ -1383,12 +1408,12 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
         showPageNumbers: true,
         pageMode: 'auto'
       },
-      layout_blocks: activeSandboxPreset?.layout_blocks || DEFAULT_QUOTATION_BLOCKS,
+      layout_blocks: safeLayoutBlocks,
       flyer_attachments: sampleAnnexes,
       show_submittals_index: sampleAnnexes.length > 0,
       custom_notes:
         activeSandboxPreset?.custom_notes ||
-        '1. All supplied membranes and pumps carry 12 months manufacturer warranty against manufacturing defects.\n2. Prices quoted are based on undivided lot order.',
+        '1. All supplied equipment and components carry 12 months manufacturer warranty against manufacturing defects.\n2. Prices quoted are based on undivided lot order.',
       created_at: new Date().toISOString()
     };
   }, [
@@ -2746,7 +2771,13 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
                 <Layers className="w-4 h-4 text-indigo-600" />
                 <span className="text-xs font-extrabold text-slate-800">
                   Sample Line Items ({sandboxItems.length} Items • Grand Total:{' '}
-                  {sandboxQuotation.currency} {sandboxQuotation.grand_total.toLocaleString()})
+                  {sandboxQuotation.currency || 'AED'}{' '}
+                  {(
+                    sandboxQuotation.financial_totals?.grand_total ??
+                    sandboxQuotation.grand_total ??
+                    0
+                  ).toLocaleString()}
+                  )
                 </span>
               </div>
 

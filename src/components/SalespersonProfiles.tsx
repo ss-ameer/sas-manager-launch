@@ -5,6 +5,7 @@ import { writeBatch, doc } from 'firebase/firestore';
 import { recordAuditLog } from '../utils/auditLogger';
 import ReassignOpenRecordsModal, { TargetTeamMember } from './ReassignOpenRecordsModal';
 import {
+  Users,
   Users2,
   TrendingUp,
   DollarSign,

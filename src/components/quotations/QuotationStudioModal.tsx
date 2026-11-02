@@ -151,7 +151,8 @@ import {
   AlignJustify,
   Bold,
   Italic,
-  Underline
+  Underline,
+  Package
 } from 'lucide-react';
 
 export interface QuotationStudioModalProps {

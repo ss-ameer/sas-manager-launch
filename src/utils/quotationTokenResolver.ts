@@ -723,15 +723,16 @@ export function isFieldOmitted(
  *   and `quotation.*` fields first.
  * - Falls back to live `enquiry` / `profile` ONLY when the quotation is in 'Draft' (not frozen).
  */
-export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<string, string> {
-  if (ctx && ctx._cachedTokenMap) {
-    return ctx._cachedTokenMap;
+export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Record<string, string> {
+  const safeCtx = (ctx || {}) as QuotationTokenContext;
+  if (safeCtx._cachedTokenMap) {
+    return safeCtx._cachedTokenMap;
   }
 
-  const q = ctx.quotation || {};
+  const q = safeCtx.quotation || ({} as Partial<Quotation>);
   const frozen = isQuotationSnapshotFrozen(q);
-  const enq = frozen ? ({} as Partial<Enquiry>) : ctx.enquiry || {};
-  const prof = frozen ? ({} as Partial<WorkspaceDocumentProfile>) : ctx.profile || {};
+  const enq = frozen ? ({} as Partial<Enquiry>) : safeCtx.enquiry || {};
+  const prof = frozen ? ({} as Partial<WorkspaceDocumentProfile>) : safeCtx.profile || {};
 
   const clientSnap = q.client_snapshot || ({} as any);
   const senderSnap = q.sender_snapshot || ({} as any);
@@ -927,10 +928,13 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
 
   const currency =
     q.receipt_metadata?.currency || q.currency || (!frozen ? enq.currency : '') || 'AED';
-  const subtotal = `${currency} ${formatAmount(q.subtotal)}`;
+  const rawSubtotal = (q as any).financial_totals?.subtotal ?? q.subtotal ?? 0;
+  const rawTaxAmount = (q as any).financial_totals?.tax_amount ?? q.tax_amount ?? 0;
+  const rawGrandTotal = (q as any).financial_totals?.grand_total ?? q.grand_total ?? 0;
+  const subtotal = `${currency} ${formatAmount(rawSubtotal)}`;
   const freightAmount = `${currency} ${formatAmount(q.freight_amount)}`;
-  const vatAmount = `${currency} ${formatAmount(q.tax_amount)}`;
-  const grandTotal = `${currency} ${formatAmount(q.grand_total)}`;
+  const vatAmount = `${currency} ${formatAmount(rawTaxAmount)}`;
+  const grandTotal = `${currency} ${formatAmount(rawGrandTotal)}`;
   const taxRateStr =
     q.tax_mode === 'tax_exempt'
       ? '0%'
@@ -953,17 +957,17 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
     docType === 'receipt' && recMeta.amount_received !== undefined
       ? Number(recMeta.amount_received) || 0
       : docType === 'payment_voucher'
-      ? Number(pvMeta.amount_paid ?? (pvAllocSum > 0 ? pvAllocSum : q.grand_total)) || 0
-      : Number(q.grand_total) || 0;
+      ? Number(pvMeta.amount_paid ?? (pvAllocSum > 0 ? pvAllocSum : rawGrandTotal)) || 0
+      : Number(rawGrandTotal) || 0;
 
   const amountInWords =
-    ctx.amountInWordsText ||
+    safeCtx.amountInWordsText ||
     amountToWords(effectiveAmountForWords, currency) ||
     '';
 
   // Bank resolution (snapshot-first)
   const bankSnap: any =
-    ctx.activeBank ||
+    safeCtx.activeBank ||
     q.selectedBank ||
     q.selected_bank ||
     q.applied_bank_account ||
@@ -1180,8 +1184,12 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
     original_po_ref: String(originalPoRefVal || '').trim()
   };
 
-  if (ctx) {
-    ctx._cachedTokenMap = builtMap;
+  if (ctx && typeof ctx === 'object') {
+    try {
+      ctx._cachedTokenMap = builtMap;
+    } catch {
+      // Ignore if context object is frozen
+    }
   }
   return builtMap;
 }
@@ -1191,14 +1199,15 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
  */
 export function resolveSingleTagValue(
   rawKey: string,
-  ctx: QuotationTokenContext,
+  ctx?: QuotationTokenContext | null,
   precomputedMap?: Record<string, string>
 ): string {
+  const safeCtx = (ctx || {}) as QuotationTokenContext;
   const canonical = normalizeCanonicalTagKey(rawKey);
-  if (isFieldOmitted(canonical, ctx.omittedFields ?? ctx.quotation?.omitted_fields)) {
+  if (isFieldOmitted(canonical, safeCtx.omittedFields ?? safeCtx.quotation?.omitted_fields)) {
     return '—';
   }
-  const map = precomputedMap || ctx._cachedTokenMap || buildQuotationTokenMap(ctx);
+  const map = precomputedMap || safeCtx._cachedTokenMap || buildQuotationTokenMap(safeCtx);
   const val = map[canonical];
   if (val === undefined || val === null || String(val).trim() === '') {
     return '—';
@@ -1225,14 +1234,15 @@ const MUSTACHE_TOKEN_REGEX = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g;
  */
 export function resolveQuotationTokens(
   text: string | undefined | null,
-  ctx: QuotationTokenContext
+  ctx?: QuotationTokenContext | null
 ): string {
   if (!text) return '';
   const raw = String(text);
   if (!raw.includes('@') && !raw.includes('{{')) return raw;
 
-  const map = ctx._cachedTokenMap || buildQuotationTokenMap(ctx);
-  const omitted = ctx.omittedFields ?? ctx.quotation?.omitted_fields;
+  const safeCtx = (ctx || {}) as QuotationTokenContext;
+  const map = safeCtx._cachedTokenMap || buildQuotationTokenMap(safeCtx);
+  const omitted = safeCtx.omittedFields ?? safeCtx.quotation?.omitted_fields;
 
   // 1. Resolve {{tag_name}} aliases
   let output = raw.replace(MUSTACHE_TOKEN_REGEX, (fullMatch, tokenName: string) => {

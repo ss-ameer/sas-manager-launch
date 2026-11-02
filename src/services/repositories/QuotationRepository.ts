@@ -497,41 +497,45 @@ export class QuotationRepository {
    * Supports flat amounts (e.g. "-500", "AED 250", "(150)") and percentages of subtotal (e.g. "-10%", "5%").
    */
   public static computeCustomRowsAdjustment(
-    customRows: Array<{ label?: string; value?: string; position?: string; isOmitted?: boolean }> | undefined,
-    baseSubtotal: number
+    customRows: Array<{ label?: string; value?: string; position?: string; isOmitted?: boolean }> | undefined | null,
+    baseSubtotal: number = 0
   ): number {
     if (!Array.isArray(customRows) || customRows.length === 0) return 0;
-    let totalAdjustment = 0;
-    for (const row of customRows) {
-      if (!row || row.isOmitted) continue;
-      if ((row.position || 'above_grand_total') !== 'above_grand_total') continue;
-      const rawVal = String(row.value || '').trim();
-      if (!rawVal || rawVal.includes('@')) continue;
+    try {
+      let totalAdjustment = 0;
+      for (const row of customRows) {
+        if (!row || typeof row !== 'object' || row.isOmitted) continue;
+        if ((row.position || 'above_grand_total') !== 'above_grand_total') continue;
+        const rawVal = String(row.value || '').trim();
+        if (!rawVal || rawVal.includes('@')) continue;
 
-      const labelLower = String(row.label || '').toLowerCase();
-      const isDiscountLabel = /\b(discount|rebate|deduction|less|credit|allowance)\b/i.test(labelLower);
-      const isNegativeFormatted = rawVal.startsWith('-') || (rawVal.startsWith('(') && rawVal.endsWith(')'));
+        const labelLower = String(row.label || '').toLowerCase();
+        const isDiscountLabel = /\b(discount|rebate|deduction|less|credit|allowance)\b/i.test(labelLower);
+        const isNegativeFormatted = rawVal.startsWith('-') || (rawVal.startsWith('(') && rawVal.endsWith(')'));
 
-      const pctMatch = rawVal.match(/([+-]?\d+(?:\.\d+)?)\s*%/);
-      if (pctMatch) {
-        const pct = parseFloat(pctMatch[1]);
-        if (!Number.isNaN(pct)) {
-          const absAmt = (Math.abs(pct) / 100) * (Number(baseSubtotal) || 0);
-          const sign = pct < 0 || isNegativeFormatted || isDiscountLabel ? -1 : 1;
+        const pctMatch = rawVal.match(/([+-]?\d+(?:\.\d+)?)\s*%/);
+        if (pctMatch) {
+          const pct = parseFloat(pctMatch[1]);
+          if (!Number.isNaN(pct)) {
+            const absAmt = (Math.abs(pct) / 100) * (Number(baseSubtotal) || 0);
+            const sign = pct < 0 || isNegativeFormatted || isDiscountLabel ? -1 : 1;
+            totalAdjustment += sign * absAmt;
+          }
+          continue;
+        }
+
+        const cleanedNumStr = rawVal.replace(/[^0-9.-]/g, '');
+        const parsedNum = parseFloat(cleanedNumStr);
+        if (!Number.isNaN(parsedNum) && Number.isFinite(parsedNum)) {
+          const absAmt = Math.abs(parsedNum);
+          const sign = parsedNum < 0 || isNegativeFormatted || isDiscountLabel ? -1 : 1;
           totalAdjustment += sign * absAmt;
         }
-        continue;
       }
-
-      const cleanedNumStr = rawVal.replace(/[^0-9.-]/g, '');
-      const parsedNum = parseFloat(cleanedNumStr);
-      if (!Number.isNaN(parsedNum) && Number.isFinite(parsedNum)) {
-        const absAmt = Math.abs(parsedNum);
-        const sign = parsedNum < 0 || isNegativeFormatted || isDiscountLabel ? -1 : 1;
-        totalAdjustment += sign * absAmt;
-      }
+      return Math.round(totalAdjustment * 100) / 100;
+    } catch {
+      return 0;
     }
-    return Math.round(totalAdjustment * 100) / 100;
   }
 
   /**
