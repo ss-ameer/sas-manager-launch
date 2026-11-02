@@ -493,8 +493,53 @@ export class QuotationRepository {
   }
 
   /**
+   * Computes net numeric/percentage adjustment from enabled custom financial rows positioned 'above_grand_total'.
+   * Supports flat amounts (e.g. "-500", "AED 250", "(150)") and percentages of subtotal (e.g. "-10%", "5%").
+   */
+  public static computeCustomRowsAdjustment(
+    customRows: Array<{ label?: string; value?: string; position?: string; isOmitted?: boolean }> | undefined,
+    baseSubtotal: number
+  ): number {
+    if (!Array.isArray(customRows) || customRows.length === 0) return 0;
+    let totalAdjustment = 0;
+    for (const row of customRows) {
+      if (!row || row.isOmitted) continue;
+      if ((row.position || 'above_grand_total') !== 'above_grand_total') continue;
+      const rawVal = String(row.value || '').trim();
+      if (!rawVal || rawVal.includes('@')) continue;
+
+      const labelLower = String(row.label || '').toLowerCase();
+      const isDiscountLabel = /\b(discount|rebate|deduction|less|credit|allowance)\b/i.test(labelLower);
+      const isNegativeFormatted = rawVal.startsWith('-') || (rawVal.startsWith('(') && rawVal.endsWith(')'));
+
+      const pctMatch = rawVal.match(/([+-]?\d+(?:\.\d+)?)\s*%/);
+      if (pctMatch) {
+        const pct = parseFloat(pctMatch[1]);
+        if (!Number.isNaN(pct)) {
+          const absAmt = (Math.abs(pct) / 100) * (Number(baseSubtotal) || 0);
+          const sign = pct < 0 || isNegativeFormatted || isDiscountLabel ? -1 : 1;
+          totalAdjustment += sign * absAmt;
+        }
+        continue;
+      }
+
+      const cleanedNumStr = rawVal.replace(/[^0-9.-]/g, '');
+      const parsedNum = parseFloat(cleanedNumStr);
+      if (!Number.isNaN(parsedNum) && Number.isFinite(parsedNum)) {
+        const absAmt = Math.abs(parsedNum);
+        const sign = parsedNum < 0 || isNegativeFormatted || isDiscountLabel ? -1 : 1;
+        totalAdjustment += sign * absAmt;
+      }
+    }
+    return Math.round(totalAdjustment * 100) / 100;
+  }
+
+  /**
    * Pre-save payload safeguard that guarantees any Quotation, QuotationPreset, or WorkspaceDocumentProfile
    * stays strictly below Firestore's 1,048,576 byte limit (targeting <= 900,000 bytes).
+   * CRITICAL (DEF-10): Never slice a Base64 `data:image/...;base64,...` string mid-stream, as truncating
+   * Base64 data produces invalid/corrupted binary image streams. Instead, keep brand assets intact and
+   * omit oversized inline flyer data URIs only when the total payload exceeds `maxBytes`.
    */
   public static sanitizePayloadForFirestoreLimit<T>(payload: T, maxBytes: number = 900000): T {
     if (!payload || typeof payload !== 'object') return payload;
@@ -503,85 +548,45 @@ export class QuotationRepository {
 
     const clone: any = JSON.parse(JSON.stringify(payload));
 
-    const compactDataUriString = (val: unknown, maxLen: number): string | undefined => {
-      if (typeof val !== 'string') return undefined;
-      if (!val.startsWith('data:') || val.length <= maxLen) return val;
-      const commaIdx = val.indexOf(',');
-      const header = commaIdx >= 0 ? val.slice(0, commaIdx + 1) : 'data:image/webp;base64,';
-      const body = commaIdx >= 0 ? val.slice(commaIdx + 1) : val;
-      return `${header}${body.slice(0, Math.max(256, maxLen - header.length))}`;
-    };
-
-    // Pass 1: Compact flyer attachments data URIs if present
+    // Pass 1: If flyer_attachments contain oversized inline data: URIs pushing payload over maxBytes,
+    // clear the largest inline data: URIs one by one (without slicing mid-stream) until under budget.
     if (Array.isArray(clone.flyer_attachments) && clone.flyer_attachments.length > 0) {
-      const perFlyerBudget = Math.max(
-        40000,
-        Math.floor(420000 / Math.max(1, clone.flyer_attachments.length))
-      );
-      clone.flyer_attachments = clone.flyer_attachments.map((att: any) => {
-        if (att && typeof att.url === 'string' && att.url.length > perFlyerBudget) {
-          return {
-            ...att,
-            url: compactDataUriString(att.url, perFlyerBudget)
-          };
-        }
-        return att;
-      });
+      const indexedFlyers = clone.flyer_attachments
+        .map((att: any, idx: number) => ({
+          idx,
+          len: att && typeof att.url === 'string' && att.url.startsWith('data:') ? att.url.length : 0
+        }))
+        .filter((item: { idx: number; len: number }) => item.len > 0)
+        .sort((a: { idx: number; len: number }, b: { idx: number; len: number }) => b.len - a.len);
+
+      for (const item of indexedFlyers) {
+        if (this.estimatePayloadBytes(clone) <= maxBytes) break;
+        clone.flyer_attachments[item.idx] = {
+          ...clone.flyer_attachments[item.idx],
+          url: ''
+        };
+      }
     }
 
-    // Pass 2: Compact brand assets (logo, seal, signature) if oversized (> 65KB each)
-    const assetMaxChars = 65000;
-    const topLevelImageKeys = [
-      'company_logo_url',
-      'logo_url',
-      'company_seal_url',
-      'stamp_seal_url',
-      'signature_image_url'
-    ];
-    for (const key of topLevelImageKeys) {
-      if (typeof clone[key] === 'string' && clone[key].length > assetMaxChars) {
-        clone[key] = compactDataUriString(clone[key], assetMaxChars);
-      }
-    }
-    if (clone.header_config && typeof clone.header_config.logoUrl === 'string' && clone.header_config.logoUrl.length > assetMaxChars) {
-      clone.header_config.logoUrl = compactDataUriString(clone.header_config.logoUrl, assetMaxChars);
-    }
-    if (clone.footer_config && typeof clone.footer_config.companySealUrl === 'string' && clone.footer_config.companySealUrl.length > assetMaxChars) {
-      clone.footer_config.companySealUrl = compactDataUriString(clone.footer_config.companySealUrl, assetMaxChars);
-    }
-    if (clone.sender_snapshot) {
-      if (typeof clone.sender_snapshot.logo_url === 'string' && clone.sender_snapshot.logo_url.length > assetMaxChars) {
-        clone.sender_snapshot.logo_url = compactDataUriString(clone.sender_snapshot.logo_url, assetMaxChars);
-      }
-      if (typeof clone.sender_snapshot.stamp_seal_url === 'string' && clone.sender_snapshot.stamp_seal_url.length > assetMaxChars) {
-        clone.sender_snapshot.stamp_seal_url = compactDataUriString(clone.sender_snapshot.stamp_seal_url, assetMaxChars);
-      }
-    }
-    if (Array.isArray(clone.signatories)) {
-      clone.signatories = clone.signatories.map((sig: any) => {
-        if (sig && typeof sig.signature_url === 'string' && sig.signature_url.length > assetMaxChars) {
-          return { ...sig, signature_url: compactDataUriString(sig.signature_url, assetMaxChars) };
-        }
-        return sig;
-      });
-    }
-
+    // Pass 2: Deduplicate redundant duplicate top-level vs nested brand asset data URIs if still over maxBytes
     currentBytes = this.estimatePayloadBytes(clone);
-    if (currentBytes > maxBytes && Array.isArray(clone.flyer_attachments)) {
-      // Pass 3: Tighter flyer compaction if still over budget
-      const tightBudget = Math.max(
-        18000,
-        Math.floor(240000 / Math.max(1, clone.flyer_attachments.length))
-      );
-      clone.flyer_attachments = clone.flyer_attachments.map((att: any) => {
-        if (att && typeof att.url === 'string' && att.url.length > tightBudget) {
-          return {
-            ...att,
-            url: compactDataUriString(att.url, tightBudget)
-          };
-        }
-        return att;
-      });
+    if (currentBytes > maxBytes) {
+      if (
+        clone.header_config?.logoUrl &&
+        clone.company_logo_url &&
+        clone.header_config.logoUrl === clone.company_logo_url &&
+        String(clone.company_logo_url).startsWith('data:')
+      ) {
+        delete clone.company_logo_url;
+      }
+      if (
+        clone.footer_config?.companySealUrl &&
+        clone.company_seal_url &&
+        clone.footer_config.companySealUrl === clone.company_seal_url &&
+        String(clone.company_seal_url).startsWith('data:')
+      ) {
+        delete clone.company_seal_url;
+      }
     }
 
     return clone as T;
@@ -868,14 +873,45 @@ export class QuotationRepository {
         ? { purchase_order_metadata: { ...source.purchase_order_metadata } }
         : {}),
       ...(source.receipt_metadata ? { receipt_metadata: { ...source.receipt_metadata } } : {}),
+      ...(source.payment_voucher_metadata
+        ? {
+            payment_voucher_metadata: {
+              ...source.payment_voucher_metadata,
+              ...(Array.isArray(source.payment_voucher_metadata.allocated_bills)
+                ? {
+                    allocated_bills: source.payment_voucher_metadata.allocated_bills.map((b) => ({
+                      ...b
+                    }))
+                  }
+                : {}),
+              ...(Array.isArray(source.payment_voucher_metadata.allocations)
+                ? {
+                    allocations: source.payment_voucher_metadata.allocations.map((a) => ({
+                      ...a
+                    }))
+                  }
+                : {}),
+              ...(source.payment_voucher_metadata.beneficiary_bank_details
+                ? {
+                    beneficiary_bank_details: {
+                      ...source.payment_voucher_metadata.beneficiary_bank_details
+                    }
+                  }
+                : {})
+            }
+          }
+        : {}),
+      ...(source.vendor_return_metadata
+        ? { vendor_return_metadata: { ...source.vendor_return_metadata } }
+        : {}),
       created_at: now,
       updatedAt: now
     };
   }
 
   /**
-   * Marks earlier revisions in the same quotation chain as 'Superseded' with superseded_by_id: activeRevisionId,
-   * leaving explicitly 'Rejected' (or 'Declined') revisions untouched.
+   * Marks earlier revisions in the same commercial quotation chain as 'Superseded' with superseded_by_id: activeRevisionId,
+   * leaving explicitly 'Rejected' (or 'Declined') revisions and non-quotation auxiliary documents untouched.
    */
   public static markPreviousRevisionsSuperseded(
     revisions: Quotation[],
@@ -883,10 +919,18 @@ export class QuotationRepository {
   ): Quotation[] {
     if (!Array.isArray(revisions)) return [];
     const activeQuote = revisions.find((r) => r.id === activeRevisionId);
+    const activeDocType = activeQuote?.document_type || 'quotation';
+    // Auxiliary documents (Delivery Notes, POs, Receipts, Payment Vouchers, Return Notes) never supersede commercial quotations
+    if (activeDocType !== 'quotation') {
+      return revisions.map((rev) => ({ ...rev }));
+    }
     const activeRevNum = activeQuote?.revision_number;
 
     return revisions.map((rev) => {
       if (rev.id === activeRevisionId) {
+        return { ...rev };
+      }
+      if ((rev.document_type || 'quotation') !== 'quotation') {
         return { ...rev };
       }
       // Leave explicitly Rejected or Declined revisions untouched

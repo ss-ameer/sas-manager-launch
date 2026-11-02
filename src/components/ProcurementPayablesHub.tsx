@@ -210,6 +210,27 @@ export default function ProcurementPayablesHub({
       unit_cost: number;
     }>
   >([]);
+  const [isCreatingPo, setIsCreatingPo] = useState(false);
+  const [isCreatingPv, setIsCreatingPv] = useState(false);
+  const [isCreatingReturn, setIsCreatingReturn] = useState(false);
+
+  const formatBillVarianceSummary = (bill?: Partial<SupplierBill> | null): string => {
+    if (!bill) return '';
+    const vs: any = bill.variance_summary;
+    if (typeof vs === 'string' && vs.trim()) return vs.trim();
+    if (vs && typeof vs === 'object') {
+      const curr = bill.currency || 'AED';
+      const totalVar = Number(vs.total_variance_amount || 0);
+      const parts: string[] = [];
+      if (vs.has_price_variance) parts.push('Price Variance');
+      if (vs.has_qty_variance) parts.push('Qty Variance');
+      if (parts.length > 0 || Math.abs(totalVar) > 0.005) {
+        return `${parts.length > 0 ? parts.join(' & ') : 'Variance'}: ${curr} ${totalVar >= 0 ? '+' : ''}${totalVar.toFixed(2)}`;
+      }
+      return '3-Way Match Verified (PO = GRN = Bill)';
+    }
+    return bill.discrepancy_notes || '';
+  };
 
   const userIsAdmin = useMemo(
     () => isAdmin(user, activeWorkspace.id) || isSuperAdmin(user),
@@ -328,7 +349,11 @@ export default function ProcurementPayablesHub({
     const unpaidBills = supplierBills.filter(
       (b) => b.payment_status !== 'paid' && b.approval_status !== 'cancelled'
     );
-    const totalPayables = unpaidBills.reduce((sum, b) => sum + (Number(b.balance_due) || 0), 0);
+    const totalPayables = unpaidBills.reduce((sum, b) => {
+      const bal = Number(b.balance_due) || 0;
+      const exRate = Number(b.exchange_rate) > 0 ? Number(b.exchange_rate) : 1;
+      return sum + bal * exRate;
+    }, 0);
     const varianceBillsCount = supplierBills.filter(
       (b) =>
         b.three_way_match_status === 'price_variance' ||
@@ -458,13 +483,15 @@ export default function ProcurementPayablesHub({
       const unitCost = Math.max(0, l.po_unit_cost);
       const lineVal = qtyNow * unitCost;
       let allocatedFreight = 0;
-      if (qtyNow > 0 && grnFreightCustoms > 0) {
+      if (qtyNow > 0) {
         if (grnAllocationMode === 'manual') {
-          allocatedFreight = Math.max(0, l.manual_landed_cost_addition || 0);
-        } else if (totalBatchValue > 0) {
-          allocatedFreight = grnFreightCustoms * (lineVal / totalBatchValue);
-        } else if (totalBatchQty > 0) {
-          allocatedFreight = grnFreightCustoms * (qtyNow / totalBatchQty);
+          allocatedFreight = Math.max(0, Number(l.manual_landed_cost_addition || 0));
+        } else if (grnFreightCustoms > 0) {
+          if (totalBatchValue > 0) {
+            allocatedFreight = grnFreightCustoms * (lineVal / totalBatchValue);
+          } else if (totalBatchQty > 0) {
+            allocatedFreight = grnFreightCustoms * (qtyNow / totalBatchQty);
+          }
         }
       }
       const perUnitAdd = qtyNow > 0 ? allocatedFreight / qtyNow : 0;
@@ -549,6 +576,7 @@ export default function ProcurementPayablesHub({
 
   // Create Standalone or Enquiry-Linked Supplier PO
   const handleCreateSupplierPo = async (openInStudio = true) => {
+    if (isCreatingPo) return;
     const selectedVendor = companies.find((c) => c.id === newPoVendorId);
     const supplierName = (getCompanyName(selectedVendor) || newPoSupplierName || '').trim();
     if (!supplierName) {
@@ -706,11 +734,16 @@ export default function ProcurementPayablesHub({
       updated_at: nowIso
     };
 
-    await QuotationRepository.save(newPoRecord);
-    setShowCreatePoModal(false);
-    triggerToast?.(`Supplier PO ${poRef} saved. Pending GRN lines ready for receipt.`, 'success');
-    if (openInStudio) {
-      handleOpenInStudio(newPoRecord);
+    setIsCreatingPo(true);
+    try {
+      await QuotationRepository.save(newPoRecord);
+      setShowCreatePoModal(false);
+      triggerToast?.(`Supplier PO ${poRef} saved. Pending GRN lines ready for receipt.`, 'success');
+      if (openInStudio) {
+        handleOpenInStudio(newPoRecord);
+      }
+    } finally {
+      setIsCreatingPo(false);
     }
   };
 
@@ -823,8 +856,12 @@ export default function ProcurementPayablesHub({
   // Live 3-Way Match Evaluation in Bill Modal
   const liveThreeWayMatch = useMemo(() => {
     const linkedPo = supplierPOs.find((p) => p.id === billPoId) || null;
-    return ProcurementRepository.evaluateThreeWayMatch(billLines, linkedPo);
-  }, [billLines, billPoId, supplierPOs]);
+    return ProcurementRepository.evaluateThreeWayMatch(
+      billLines,
+      linkedPo,
+      Number(billExchangeRate) > 0 ? Number(billExchangeRate) : 1
+    );
+  }, [billLines, billPoId, supplierPOs, billExchangeRate]);
 
   // Duplicate Vendor Invoice Check
   const duplicateBillWarning = useMemo(() => {
@@ -967,10 +1004,17 @@ export default function ProcurementPayablesHub({
   const handleIssuePaymentVoucher = (bill?: SupplierBill, po?: QuotationDocumentRecord) => {
     setViewingBillSummary(null);
     setViewingPoSummary(null);
-    const vendorId = bill?.vendor_company_id || bill?.vendor_id || po?.purchase_order_metadata?.vendor_company_id || '';
+    const vendorId =
+      bill?.vendor_company_id ||
+      bill?.supplier_id ||
+      (bill as any)?.vendor_id ||
+      po?.purchase_order_metadata?.vendor_company_id ||
+      po?.purchase_order_metadata?.supplier_id ||
+      '';
     const vendor = companies.find((c) => c.id === vendorId);
     const payeeName =
       bill?.vendor_name ||
+      bill?.supplier_name ||
       po?.purchase_order_metadata?.supplier_name ||
       getCompanyName(vendor) ||
       '';
@@ -1144,6 +1188,7 @@ export default function ProcurementPayablesHub({
 
   // Confirm & Create Outbound Payment Voucher (PV)
   const handleConfirmCreatePv = async (openInStudio = true) => {
+    if (isCreatingPv) return;
     const selectedVendor = companies.find((c) => c.id === pvVendorId);
     const payeeName = (pvPayeeName || getCompanyName(selectedVendor) || '').trim();
     if (!payeeName) {
@@ -1359,13 +1404,18 @@ export default function ProcurementPayablesHub({
       updated_at: nowIso
     };
 
-    await QuotationRepository.save(pvRecord);
-    await ProcurementRepository.recalculateWorkspaceSupplierBillBalances(activeWorkspace.id);
+    setIsCreatingPv(true);
+    try {
+      await QuotationRepository.save(pvRecord);
+      await ProcurementRepository.recalculateWorkspaceSupplierBillBalances(activeWorkspace.id);
 
-    setShowCreatePvModal(false);
-    triggerToast?.(`Payment Voucher ${pvRef} saved and Supplier Bill balances updated.`, 'success');
-    if (openInStudio) {
-      handleOpenInStudio(pvRecord);
+      setShowCreatePvModal(false);
+      triggerToast?.(`Payment Voucher ${pvRef} saved and Supplier Bill balances updated.`, 'success');
+      if (openInStudio) {
+        handleOpenInStudio(pvRecord);
+      }
+    } finally {
+      setIsCreatingPv(false);
     }
   };
 
@@ -1426,6 +1476,7 @@ export default function ProcurementPayablesHub({
 
   // Confirm & Create Material Return Note (MRN) or Vendor Debit Note (DN)
   const handleConfirmCreateReturn = async (openInStudio = true) => {
+    if (isCreatingReturn) return;
     const selectedVendor = companies.find((c) => c.id === retVendorId);
     const supplierName = (retSupplierName || getCompanyName(selectedVendor) || '').trim();
     if (!supplierName) {
@@ -1604,15 +1655,20 @@ export default function ProcurementPayablesHub({
       updated_at: nowIso
     };
 
-    await QuotationRepository.save(returnDoc);
-    if (retMode === 'debit_note' && linkedBill) {
-      await ProcurementRepository.recalculateWorkspaceSupplierBillBalances(activeWorkspace.id);
-    }
+    setIsCreatingReturn(true);
+    try {
+      await QuotationRepository.save(returnDoc);
+      if (retMode === 'debit_note' && linkedBill) {
+        await ProcurementRepository.recalculateWorkspaceSupplierBillBalances(activeWorkspace.id);
+      }
 
-    setShowCreateReturnModal(false);
-    triggerToast?.(`${refNo} saved.`, 'success');
-    if (openInStudio) {
-      handleOpenInStudio(returnDoc);
+      setShowCreateReturnModal(false);
+      triggerToast?.(`${refNo} saved.`, 'success');
+      if (openInStudio) {
+        handleOpenInStudio(returnDoc);
+      }
+    } finally {
+      setIsCreatingReturn(false);
     }
   };
 
@@ -2328,7 +2384,7 @@ export default function ProcurementPayablesHub({
                                 ? 'bg-amber-50 text-amber-800 border-amber-300'
                                 : 'bg-slate-100 text-slate-600 border-slate-200'
                             }`}
-                            title={bill.variance_summary}
+                            title={formatBillVarianceSummary(bill)}
                           >
                             {hasVariance && <AlertTriangle className="w-3 h-3 text-amber-600" />}
                             <span>
@@ -3037,17 +3093,19 @@ export default function ProcurementPayablesHub({
               </button>
               <button
                 type="button"
+                disabled={isCreatingPo}
                 onClick={() => handleCreateSupplierPo(false)}
-                className="px-4 py-2 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-bold cursor-pointer"
+                className="px-4 py-2 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 text-indigo-800 text-xs font-bold cursor-pointer"
               >
-                Save PO
+                {isCreatingPo ? 'Saving...' : 'Save PO'}
               </button>
               <button
                 type="button"
+                disabled={isCreatingPo}
                 onClick={() => handleCreateSupplierPo(true)}
-                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer"
               >
-                Save &amp; Open in Studio
+                {isCreatingPo ? 'Saving...' : 'Save & Open in Studio'}
               </button>
             </div>
           </div>
@@ -3685,7 +3743,14 @@ export default function ProcurementPayablesHub({
                         const vName = getCompanyName(v);
                         setPvPayeeName(vName);
                         const matchingBills = supplierBills.filter(
-                          (b) => (b.vendor_id === id || b.vendor_name === vName) && b.balance_due > 0 && !b.is_on_hold
+                          (b) =>
+                            (b.vendor_company_id === id ||
+                              b.supplier_id === id ||
+                              (b as any).vendor_id === id ||
+                              b.vendor_name === vName ||
+                              b.supplier_name === vName) &&
+                            b.balance_due > 0 &&
+                            !b.is_on_hold
                         );
                         if (matchingBills.length > 0 && Object.keys(pvSelectedBills).length === 0) {
                           const first = matchingBills[0];
@@ -3792,10 +3857,17 @@ export default function ProcurementPayablesHub({
                   {supplierBills
                     .filter((b) => {
                       if (b.balance_due <= 0) return false;
-                      if (!pvPayeeName.trim()) return true;
+                      if (!pvPayeeName.trim() && !pvVendorId) return true;
+                      const bName = (b.vendor_name || b.supplier_name || '').toLowerCase();
                       return (
-                        b.vendor_name.toLowerCase().includes(pvPayeeName.toLowerCase()) ||
-                        Boolean(pvVendorId && b.vendor_id === pvVendorId)
+                        (Boolean(pvPayeeName.trim()) &&
+                          bName.includes(pvPayeeName.trim().toLowerCase())) ||
+                        Boolean(
+                          pvVendorId &&
+                            (b.vendor_company_id === pvVendorId ||
+                              b.supplier_id === pvVendorId ||
+                              (b as any).vendor_id === pvVendorId)
+                        )
                       );
                     })
                     .map((bill) => {
@@ -3919,17 +3991,19 @@ export default function ProcurementPayablesHub({
               </button>
               <button
                 type="button"
+                disabled={isCreatingPv}
                 onClick={() => handleConfirmCreatePv(false)}
-                className="px-4 py-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-bold cursor-pointer"
+                className="px-4 py-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 disabled:opacity-50 text-amber-900 text-xs font-bold cursor-pointer"
               >
-                Save PV
+                {isCreatingPv ? 'Saving...' : 'Save PV'}
               </button>
               <button
                 type="button"
+                disabled={isCreatingPv}
                 onClick={() => handleConfirmCreatePv(true)}
-                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer"
               >
-                Save &amp; Open in Studio
+                {isCreatingPv ? 'Saving...' : 'Save & Open in Studio'}
               </button>
             </div>
           </div>
@@ -4282,17 +4356,25 @@ export default function ProcurementPayablesHub({
               </button>
               <button
                 type="button"
+                disabled={isCreatingReturn}
                 onClick={() => handleConfirmCreateReturn(false)}
-                className="px-4 py-2 rounded-xl border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-900 text-xs font-bold cursor-pointer"
+                className="px-4 py-2 rounded-xl border border-rose-300 bg-rose-50 hover:bg-rose-100 disabled:opacity-50 text-rose-900 text-xs font-bold cursor-pointer"
               >
-                {retMode === 'material_return_note' ? 'Save MRN' : 'Save Debit Note'}
+                {isCreatingReturn
+                  ? 'Saving...'
+                  : retMode === 'material_return_note'
+                  ? 'Save MRN'
+                  : 'Save Debit Note'}
               </button>
               <button
                 type="button"
+                disabled={isCreatingReturn}
                 onClick={() => handleConfirmCreateReturn(true)}
-                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer"
               >
-                {retMode === 'material_return_note'
+                {isCreatingReturn
+                  ? 'Saving...'
+                  : retMode === 'material_return_note'
                   ? 'Save & Open MRN in Studio'
                   : 'Save & Open DN in Studio'}
               </button>
@@ -4382,8 +4464,7 @@ export default function ProcurementPayablesHub({
                         .toUpperCase()}
                     </div>
                     <div className="text-[11px] opacity-85">
-                      {viewingBillSummary.variance_summary ||
-                        viewingBillSummary.discrepancy_notes ||
+                      {formatBillVarianceSummary(viewingBillSummary) ||
                         'All billed quantities and unit rates verified against Purchase Order and Warehouse GRN records.'}
                     </div>
                   </div>
@@ -4532,7 +4613,11 @@ export default function ProcurementPayablesHub({
                       - {viewingBillSummary.currency}{' '}
                       {(
                         Number(viewingBillSummary.amount_paid || 0) +
-                        Number(viewingBillSummary.credit_applied || 0)
+                        Number(
+                          viewingBillSummary.credit_applied_amount ??
+                            (viewingBillSummary as any).credit_applied ??
+                            0
+                        )
                       ).toFixed(2)}
                     </span>
                   </div>

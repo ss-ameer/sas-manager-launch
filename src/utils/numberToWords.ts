@@ -51,26 +51,30 @@ export function integerToWords(num: number): string {
   return words.trim();
 }
 
-const SUBUNIT_MAP: Record<string, string> = {
-  AED: 'Fils',
-  USD: 'Cents',
-  EUR: 'Cents',
-  GBP: 'Pence',
-  SAR: 'Halalas',
-  QAR: 'Dirhams',
-  BHD: 'Fils',
-  OMR: 'Baisa',
-  KWD: 'Fils',
-  INR: 'Paise'
+const SUBUNIT_MAP: Record<
+  string,
+  { plural: string; singular: string; multiplier: 100 | 1000 }
+> = {
+  AED: { plural: 'Fils', singular: 'Fil', multiplier: 100 },
+  USD: { plural: 'Cents', singular: 'Cent', multiplier: 100 },
+  EUR: { plural: 'Cents', singular: 'Cent', multiplier: 100 },
+  GBP: { plural: 'Pence', singular: 'Penny', multiplier: 100 },
+  SAR: { plural: 'Halalas', singular: 'Halala', multiplier: 100 },
+  QAR: { plural: 'Dirhams', singular: 'Dirham', multiplier: 100 },
+  BHD: { plural: 'Fils', singular: 'Fil', multiplier: 1000 },
+  OMR: { plural: 'Baisa', singular: 'Baisa', multiplier: 1000 },
+  KWD: { plural: 'Fils', singular: 'Fil', multiplier: 1000 },
+  INR: { plural: 'Paise', singular: 'Paisa', multiplier: 100 }
 };
 
 /**
  * Converts numerical currency amount into words without "Say" or currency prefixes,
- * spelling out subunits (Fils / Cents) in words:
+ * spelling out subunits (Fils / Cents / Baisa) in words:
  * Examples:
  * - 1,176.24 (AED) -> "One Thousand One Hundred Seventy-Six and Twenty-Four Fils Only"
  * - 1,200.00 (AED) -> "One Thousand Two Hundred Only"
  * - 5,462.50 (USD) -> "Five Thousand Four Hundred Sixty-Two and Fifty Cents Only"
+ * - 125.005 (BHD) -> "One Hundred Twenty-Five and Five Fils Only"
  * - 0 -> "Zero Only"
  */
 export function amountToWords(
@@ -91,24 +95,30 @@ export function amountToWords(
   }
 
   const cleanCurrency = (currency || 'AED').toUpperCase().trim();
-  const subunit = SUBUNIT_MAP[cleanCurrency] || 'Cents';
+  const subunitCfg = SUBUNIT_MAP[cleanCurrency] || {
+    plural: 'Cents',
+    singular: 'Cent',
+    multiplier: 100
+  };
+  const multiplier = subunitCfg.multiplier;
 
   const isNegative = numAmount < 0;
-  // Convert to integer subunits (fils/cents) with epsilon guard to eliminate IEEE-754 float drift
-  const totalSubunits = Math.round(Math.abs(numAmount) * 100 + 1e-6);
+  // Convert to integer subunits (fils/cents/baisa) with epsilon guard to eliminate IEEE-754 float drift
+  const totalSubunits = Math.round(Math.abs(numAmount) * multiplier + 1e-6);
   if (totalSubunits === 0) {
     return 'Zero Only';
   }
 
-  const wholePart = Math.floor(totalSubunits / 100);
-  const decimalPart = totalSubunits % 100;
+  const wholePart = Math.floor(totalSubunits / multiplier);
+  const decimalPart = totalSubunits % multiplier;
 
   const prefix = isNegative ? 'Minus ' : '';
   const wholeWords = integerToWords(wholePart);
 
   if (decimalPart > 0) {
     const decimalWords = integerToWords(decimalPart);
-    return `${prefix}${wholeWords} and ${decimalWords} ${subunit} Only`;
+    const subunitLabel = decimalPart === 1 ? subunitCfg.singular : subunitCfg.plural;
+    return `${prefix}${wholeWords} and ${decimalWords} ${subunitLabel} Only`;
   }
 
   return `${prefix}${wholeWords} Only`;

@@ -562,6 +562,24 @@ export const QUOTATION_AT_TAGS: QuotationAtTagDefinition[] = [
     tag: '@original_po_ref',
     label: 'Original Linked Supplier PO Ref',
     category: 'Delivery, PO & Receipt'
+  },
+  {
+    key: 'tax_rate',
+    tag: '@tax_rate',
+    label: 'Tax / VAT Rate (%)',
+    category: 'Commercial, Bank & Totals'
+  },
+  {
+    key: 'branch',
+    tag: '@branch',
+    label: 'Bank Branch Name / Address',
+    category: 'Commercial, Bank & Totals'
+  },
+  {
+    key: 'project_name',
+    tag: '@project_name',
+    label: 'Project Name / Title',
+    category: 'Client & Project'
   }
 ];
 
@@ -597,6 +615,13 @@ const TOKEN_ALIAS_MAP: Record<string, string> = {
   signatory_title: 'signatory_role',
   tax_amount: 'vat_amount',
   vat: 'vat_amount',
+  vat_rate: 'tax_rate',
+  lead_time: 'delivery_lead_time',
+  freight: 'freight_amount',
+  bank_iban: 'iban',
+  branch_name: 'branch',
+  branch_address: 'branch',
+  project_title: 'project_name',
   total: 'grand_total',
   beneficiary: 'account_name',
   account_number: 'account_no',
@@ -637,6 +662,7 @@ export interface QuotationTokenContext {
   omittedFields?: Record<string, boolean> | null;
   activeBank?: Partial<BankAccountProfile & DocumentProfileBankAccount> | null;
   amountInWordsText?: string;
+  _cachedTokenMap?: Record<string, string>;
 }
 
 function formatReadableDate(isoOrDateStr?: string | null): string {
@@ -698,6 +724,10 @@ export function isFieldOmitted(
  * - Falls back to live `enquiry` / `profile` ONLY when the quotation is in 'Draft' (not frozen).
  */
 export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<string, string> {
+  if (ctx && ctx._cachedTokenMap) {
+    return ctx._cachedTokenMap;
+  }
+
   const q = ctx.quotation || {};
   const frozen = isQuotationSnapshotFrozen(q);
   const enq = frozen ? ({} as Partial<Enquiry>) : ctx.enquiry || {};
@@ -780,6 +810,13 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
   const projectNumber =
     (clientSnap as any)?.project_number ||
     (!frozen ? enq.project_number || '' : '') ||
+    '';
+
+  const projectName =
+    (clientSnap as any)?.project_name ||
+    (!frozen ? (enq as any)?.project_name || (enq as any)?.project_title || '' : '') ||
+    q.subject ||
+    (!frozen ? enq.subject || '' : '') ||
     '';
 
   const customerRef =
@@ -894,6 +931,10 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
   const freightAmount = `${currency} ${formatAmount(q.freight_amount)}`;
   const vatAmount = `${currency} ${formatAmount(q.tax_amount)}`;
   const grandTotal = `${currency} ${formatAmount(q.grand_total)}`;
+  const taxRateStr =
+    q.tax_mode === 'tax_exempt'
+      ? '0%'
+      : `${Number(q.tax_rate_percent ?? (!frozen ? prof.default_tax_rate : 5) ?? 5)}%`;
 
   const docType = q.document_type || 'quotation';
   const delMeta = q.delivery_metadata || {};
@@ -902,11 +943,17 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
   const pvMeta = q.payment_voucher_metadata || {};
   const retMeta = q.vendor_return_metadata || {};
 
+  const pvAllocSum = Array.isArray(pvMeta.allocated_bills)
+    ? pvMeta.allocated_bills.reduce((s, a) => s + (Number(a.paid_this_voucher) || 0), 0)
+    : Array.isArray(pvMeta.allocations)
+    ? pvMeta.allocations.reduce((s, a) => s + (Number(a.paid_this_voucher) || 0), 0)
+    : 0;
+
   const effectiveAmountForWords =
     docType === 'receipt' && recMeta.amount_received !== undefined
       ? Number(recMeta.amount_received) || 0
-      : docType === 'payment_voucher' && pvMeta.amount_paid !== undefined
-      ? Number(pvMeta.amount_paid) || 0
+      : docType === 'payment_voucher'
+      ? Number(pvMeta.amount_paid ?? (pvAllocSum > 0 ? pvAllocSum : q.grand_total)) || 0
       : Number(q.grand_total) || 0;
 
   const amountInWords =
@@ -935,6 +982,7 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
   const accountNo = bankSnap.accountNumber || bankSnap.account_number || '';
   const iban = bankSnap.iban || '';
   const swift = bankSnap.swiftCode || bankSnap.swift_code || bankSnap.swift || '';
+  const branchVal = bankSnap.branchName || bankSnap.branch_address || bankSnap.branch || '';
 
   const itemCount = String(
     lineItems.filter((it) => !(it as any)?.is_section_header).length
@@ -993,7 +1041,7 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
       : recMeta.bank_txn_ref || recMeta.cheque_no) || '';
   const amountPaidRaw =
     docType === 'payment_voucher'
-      ? pvMeta.amount_paid ?? q.grand_total
+      ? pvMeta.amount_paid ?? (pvAllocSum > 0 ? pvAllocSum : q.grand_total)
       : recMeta.amount_received ?? q.grand_total;
   const amountPaidVal = `${currency} ${formatAmount(amountPaidRaw)}`;
   const previouslyPaidRaw =
@@ -1009,7 +1057,7 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
             0,
             (Number(pvMeta.total_payable_amount ?? q.grand_total) || 0) -
               (Number(pvMeta.previously_paid) || 0) -
-              (Number(pvMeta.amount_paid) || 0)
+              (Number(pvMeta.amount_paid ?? pvAllocSum) || 0)
           )
       : recMeta.balance_outstanding !== undefined
       ? Number(recMeta.balance_outstanding)
@@ -1048,7 +1096,7 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
   const returnReasonVal = retMeta.return_reason || '';
   const originalPoRefVal = retMeta.original_po_ref || pvMeta.linked_po_ref || poRef || '';
 
-  return {
+  const builtMap: Record<string, string> = {
     quote_date: String(quoteDateStr || '').trim(),
     valid_until: String(validUntilStr || '').trim(),
     enquiry_date: String(enquiryDateStr || '').trim(),
@@ -1063,6 +1111,7 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
     client_address: String(clientAddress || '').trim(),
     project_location: String(projectLocation || '').trim(),
     project_number: String(projectNumber || '').trim(),
+    project_name: String(projectName || '').trim(),
     customer_ref: String(customerRef || '').trim(),
     enquiry_ref: String(enquiryRef || '').trim(),
 
@@ -1086,6 +1135,7 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
     subtotal: String(subtotal || '').trim(),
     freight_amount: String(freightAmount || '').trim(),
     vat_amount: String(vatAmount || '').trim(),
+    tax_rate: String(taxRateStr || '').trim(),
     grand_total: String(grandTotal || '').trim(),
     amount_in_words: String(amountInWords || '').trim(),
     bank_name: String(bankName || '').trim(),
@@ -1093,6 +1143,7 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
     account_no: String(accountNo || '').trim(),
     iban: String(iban || '').trim(),
     swift: String(swift || '').trim(),
+    branch: String(branchVal || '').trim(),
     item_count: String(itemCount || '').trim(),
     scope_summary: String(scopeSummary || '').trim(),
 
@@ -1128,6 +1179,11 @@ export function buildQuotationTokenMap(ctx: QuotationTokenContext): Record<strin
     return_reason: String(returnReasonVal || '').trim(),
     original_po_ref: String(originalPoRefVal || '').trim()
   };
+
+  if (ctx) {
+    ctx._cachedTokenMap = builtMap;
+  }
+  return builtMap;
 }
 
 /**
@@ -1142,7 +1198,7 @@ export function resolveSingleTagValue(
   if (isFieldOmitted(canonical, ctx.omittedFields ?? ctx.quotation?.omitted_fields)) {
     return '—';
   }
-  const map = precomputedMap || buildQuotationTokenMap(ctx);
+  const map = precomputedMap || ctx._cachedTokenMap || buildQuotationTokenMap(ctx);
   const val = map[canonical];
   if (val === undefined || val === null || String(val).trim() === '') {
     return '—';
@@ -1175,7 +1231,7 @@ export function resolveQuotationTokens(
   const raw = String(text);
   if (!raw.includes('@') && !raw.includes('{{')) return raw;
 
-  const map = buildQuotationTokenMap(ctx);
+  const map = ctx._cachedTokenMap || buildQuotationTokenMap(ctx);
   const omitted = ctx.omittedFields ?? ctx.quotation?.omitted_fields;
 
   // 1. Resolve {{tag_name}} aliases

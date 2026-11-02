@@ -2815,17 +2815,35 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
   const omittedFields = quotation.omitted_fields || {};
 
-  const tokenContext = React.useMemo<QuotationTokenContext>(
-    () => ({
+  const tokenContext = React.useMemo<QuotationTokenContext>(() => {
+    const docType = quotation.document_type || 'quotation';
+    const pvAllocSum = Array.isArray(quotation.payment_voucher_metadata?.allocated_bills)
+      ? quotation.payment_voucher_metadata!.allocated_bills!.reduce(
+          (sum, b) => sum + (Number(b.paid_this_voucher) || 0),
+          0
+        )
+      : 0;
+    const effectiveWordsAmount =
+      docType === 'receipt'
+        ? Number(quotation.receipt_metadata?.amount_received ?? quotation.grand_total ?? 0)
+        : docType === 'payment_voucher'
+        ? Number(
+            quotation.payment_voucher_metadata?.amount_paid ||
+              pvAllocSum ||
+              quotation.grand_total ||
+              0
+          )
+        : Number(quotation.grand_total || 0);
+
+    return {
       quotation,
       enquiry,
       profile,
       omittedFields: quotation.omitted_fields,
       activeBank: resolvedBank || undefined,
-      amountInWordsText: amountToWords(Number(quotation.grand_total || 0), currency)
-    }),
-    [quotation, enquiry, profile, resolvedBank, currency]
-  );
+      amountInWordsText: amountToWords(effectiveWordsAmount, currency)
+    };
+  }, [quotation, enquiry, profile, resolvedBank, currency]);
 
   // Compact corporate running header rendered on Page 2+ (continuation sheets)
   const renderCompactRunningHeader = (pageNumber = 2, total = 2, extraClass = '') => {
@@ -3110,12 +3128,20 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
   // Dynamically measure sheet height vs 297mm A4 boundary so the overflow warning only shows when a sheet actually overflows
   React.useEffect(() => {
+    // Prune stale sheet indices when sheetPartitions.length shrinks
+    Object.keys(sheetElsRef.current).forEach((idxStr) => {
+      const idx = Number(idxStr);
+      if (idx >= sheetPartitions.length || !sheetElsRef.current[idx]) {
+        delete sheetElsRef.current[idx];
+      }
+    });
+
     const checkOverflows = () => {
       const next: Record<number, boolean> = {};
       (Object.entries(sheetElsRef.current) as Array<[string, HTMLElement | null]>).forEach(
         ([idxStr, el]) => {
           const idx = Number(idxStr);
-          if (el) {
+          if (el && idx < sheetPartitions.length) {
             next[idx] = isSheetOverflowingA4(el.scrollHeight, el.clientWidth, 6);
           }
         }
@@ -3582,6 +3608,10 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
 
               const computeTotalsForSubtotal = (subVal: number) => {
                 const cleanSub = Math.round(subVal * 100) / 100;
+                const customAdj = QuotationRepository.computeCustomRowsAdjustment(
+                  blockConfig?.customRows,
+                  cleanSub
+                );
                 const taxableBase = Math.round((cleanSub + cleanFreight) * 100) / 100;
                 let vatVal = 0;
                 let grandVal = taxableBase;
@@ -3595,13 +3625,21 @@ export const QuotationDocument: React.FC<QuotationDocumentProps> = ({
                   vatVal = Math.round(taxableBase * (taxRate / 100) * 100) / 100;
                   grandVal = Math.round((taxableBase + vatVal) * 100) / 100;
                 }
-                return { subtotal: cleanSub, vat: vatVal, grandTotal: grandVal };
+                const adjustedGrand = Math.max(0, Math.round((grandVal + customAdj) * 100) / 100);
+                return { subtotal: cleanSub, vat: vatVal, grandTotal: adjustedGrand, unadjustedGrandTotal: grandVal, customAdj };
               };
 
               const combinedTotals = computeTotalsForSubtotal(combinedNonAddonSubtotal);
+              const singleOptionCalc = computeTotalsForSubtotal(Number(quotation.subtotal || 0));
+              const rawQuoteGrandTotal = Number(quotation.grand_total || 0);
+              const singleOptionGrandTotal =
+                singleOptionCalc.customAdj !== 0 &&
+                Math.abs(rawQuoteGrandTotal - singleOptionCalc.unadjustedGrandTotal) < 0.02
+                  ? singleOptionCalc.grandTotal
+                  : rawQuoteGrandTotal;
               const displaySubtotal = hasMultiOptions ? combinedTotals.subtotal : Number(quotation.subtotal || 0);
               const displayTaxAmount = hasMultiOptions ? combinedTotals.vat : Number(quotation.tax_amount || 0);
-              const displayGrandTotal = hasMultiOptions ? combinedTotals.grandTotal : Number(quotation.grand_total || 0);
+              const displayGrandTotal = hasMultiOptions ? combinedTotals.grandTotal : singleOptionGrandTotal;
 
               return (
                 <>

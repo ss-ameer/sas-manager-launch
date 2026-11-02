@@ -2350,6 +2350,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         setItemVisibleAttributes(initialMap);
         setItemPageBreaks(initialBreaks);
         setItemCompositeOverrides({});
+        setCustomStudioLineItems(
+          Array.isArray(targetQuote.line_items)
+            ? targetQuote.line_items.map((item) => ({ ...item }))
+            : null
+        );
 
         if (targetQuote.selectedBank || targetQuote.applied_bank_account) {
           const b: any = targetQuote.selectedBank || targetQuote.applied_bank_account;
@@ -2405,6 +2410,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         setItemVisibleAttributes({});
         setItemPageBreaks(initialBreaks);
         setItemCompositeOverrides({});
+        setCustomStudioLineItems(null);
         setCustomBankOverride(null);
       }
     },
@@ -3943,6 +3949,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       taxMode,
       taxRatePercent
     );
+    const activeTotalsBlock = layoutBlocks.find(
+      (b) => b.id === 'totals' && b.enabled !== false && b.is_visible !== false
+    );
+    const customAdjustment = QuotationRepository.computeCustomRowsAdjustment(
+      activeTotalsBlock?.customRows,
+      calc.subtotal
+    );
     if (documentType === 'payment_voucher') {
       const allocSum = (paymentVoucherMetadata.allocated_bills || []).reduce(
         (sum, a) => sum + (Number(a.paid_this_voucher) || 0),
@@ -3961,6 +3974,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         grand_total: pvAmt
       };
     }
+    if (customAdjustment !== 0) {
+      return {
+        ...calc,
+        grand_total: Math.max(0, Math.round((calc.grand_total + customAdjustment) * 100) / 100)
+      };
+    }
     return calc;
   }, [
     quotationLineItems,
@@ -3971,7 +3990,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     documentType,
     paymentVoucherMetadata.amount_paid,
     paymentVoucherMetadata.allocated_bills,
-    editingQuotation
+    editingQuotation,
+    layoutBlocks
   ]);
 
   // Dynamic Bank Profile Registry from workspace document profile
@@ -4432,20 +4452,38 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   ]);
 
   // Smart '@' Token Resolution Context & Map
-  const studioTokenContext = useMemo<QuotationTokenContext>(
-    () => ({
+  const studioTokenContext = useMemo<QuotationTokenContext>(() => {
+    const docType = liveQuotation.document_type || 'quotation';
+    const pvAllocSum = Array.isArray(liveQuotation.payment_voucher_metadata?.allocated_bills)
+      ? liveQuotation.payment_voucher_metadata!.allocated_bills!.reduce(
+          (sum, b) => sum + (Number(b.paid_this_voucher) || 0),
+          0
+        )
+      : 0;
+    const effectiveWordsAmount =
+      docType === 'receipt'
+        ? Number(liveQuotation.receipt_metadata?.amount_received ?? liveQuotation.grand_total ?? 0)
+        : docType === 'payment_voucher'
+        ? Number(
+            liveQuotation.payment_voucher_metadata?.amount_paid ||
+              pvAllocSum ||
+              liveQuotation.grand_total ||
+              0
+          )
+        : Number(liveQuotation.grand_total || 0);
+
+    return {
       quotation: liveQuotation,
       enquiry,
       profile: activeProfile,
       omittedFields,
       activeBank: activeBankAccount || undefined,
       amountInWordsText: amountToWords(
-        Number(liveQuotation.grand_total || 0),
+        effectiveWordsAmount,
         liveQuotation.currency || 'AED'
       )
-    }),
-    [liveQuotation, enquiry, activeProfile, omittedFields, activeBankAccount]
-  );
+    };
+  }, [liveQuotation, enquiry, activeProfile, omittedFields, activeBankAccount]);
 
   const studioTokenMap = useMemo(
     () => buildQuotationTokenMap(studioTokenContext),
@@ -4520,7 +4558,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     [omittedFields]
   );
 
+  const [isPrintPortalMounted, setIsPrintPortalMounted] = useState(false);
+
   const triggerPrintAfterImagesDecode = useCallback(async () => {
+    setIsPrintPortalMounted(true);
+    await new Promise<void>((resolve) =>
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))
+    );
     try {
       const portalEl = document.getElementById('quotation-print-portal') || document.getElementById('quotation-printable-document');
       if (portalEl) {
@@ -4542,6 +4586,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     } catch {
       // ignore image decode timeout
     }
+    const handleAfterPrint = () => {
+      setIsPrintPortalMounted(false);
+      window.removeEventListener('afterprint', handleAfterPrint);
+    };
+    window.addEventListener('afterprint', handleAfterPrint, { once: true });
     window.print();
   }, []);
 
@@ -4652,11 +4701,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       const withCurrent = prev.some((q) => q.id === liveQuotation.id)
         ? prev.map((q) => (q.id === liveQuotation.id ? { ...liveQuotation } : q))
         : [...prev, { ...liveQuotation }];
-      const supersededChain = QuotationRepository.markPreviousRevisionsSuperseded(
-        [...withCurrent, cloned],
-        cloned.id!
-      );
-      return supersededChain.sort((a, b) => (a.revision_number || 1) - (b.revision_number || 1));
+      const nextChain =
+        (cloned.document_type || 'quotation') === 'quotation'
+          ? QuotationRepository.markPreviousRevisionsSuperseded(
+              [...withCurrent, cloned],
+              cloned.id!
+            )
+          : [...withCurrent, cloned];
+      return nextChain.sort((a, b) => (a.revision_number || 1) - (b.revision_number || 1));
     });
     hydrateStudioFromQuotation(cloned);
     triggerToast?.(`Cloned as Revision R${cloned.revision_number}`, 'success');
@@ -18603,8 +18655,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         triggerToast={triggerToast}
       />
 
-      {/* Root-Level Print Portal mounted directly to document.body */}
-      {typeof document !== 'undefined' && createPortal(
+      {/* Root-Level Print Portal mounted on-demand to document.body only when printing */}
+      {isPrintPortalMounted && typeof document !== 'undefined' && createPortal(
         <div id="quotation-print-portal" className="hidden print:block">
           <QuotationDocument
             quotation={liveQuotation}

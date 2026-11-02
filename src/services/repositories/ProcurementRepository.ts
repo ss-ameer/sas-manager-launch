@@ -69,7 +69,8 @@ export class ProcurementRepository {
    */
   static computeThreeWayMatch(
     lines: SupplierBillLineItem[],
-    hasLinkedPo: boolean
+    hasLinkedPo: boolean,
+    exchangeRate: number = 1
   ): {
     evaluatedLines: SupplierBillLineItem[];
     matchStatus: SupplierBillMatchStatus;
@@ -93,6 +94,7 @@ export class ProcurementRepository {
       };
     }
 
+    const effectiveExRate = Number(exchangeRate) > 0 ? Number(exchangeRate) : 1;
     let hasPriceVariance = false;
     let hasQtyVariance = false;
     let totalVarianceAmount = 0;
@@ -106,8 +108,19 @@ export class ProcurementRepository {
       const billedRate = QuotationRepository.roundCurrency(Number(line.billed_unit_cost) || 0);
       const lineTotal = QuotationRepository.roundCurrency(billedQty * billedRate);
 
+      // Multi-currency normalization: if exchangeRate !== 1, check whether PO rate is in base currency (billedRate * exchangeRate) or same foreign currency
+      const directDiff = Math.abs(billedRate - poRate);
+      const convertedBilledRate = QuotationRepository.roundCurrency(billedRate * effectiveExRate);
+      const convertedDiff = Math.abs(convertedBilledRate - poRate);
+      const useConvertedComparison =
+        Math.abs(effectiveExRate - 1) > 0.0001 && convertedDiff < directDiff;
+      const effectivePoRateInBillCurrency =
+        useConvertedComparison && effectiveExRate > 0
+          ? QuotationRepository.roundCurrency(poRate / effectiveExRate)
+          : poRate;
+      const priceDiff = Math.min(directDiff, convertedDiff);
+
       // Price variance if billed unit rate differs from PO unit rate by more than 0.01
-      const priceDiff = Math.abs(billedRate - poRate);
       const linePriceVar = poRate > 0 && priceDiff > 0.01;
 
       // Qty variance if billed qty exceeds GRN received qty (when GRN > 0) or exceeds PO ordered qty
@@ -118,8 +131,12 @@ export class ProcurementRepository {
       if (lineQtyVar) hasQtyVariance = true;
 
       if (linePriceVar || lineQtyVar) {
-        const expectedLineVal = QuotationRepository.roundCurrency(Math.min(billedQty, referenceQty || billedQty) * poRate);
-        totalVarianceAmount = QuotationRepository.roundCurrency(totalVarianceAmount + (lineTotal - expectedLineVal));
+        const expectedLineVal = QuotationRepository.roundCurrency(
+          Math.min(billedQty, referenceQty || billedQty) * effectivePoRateInBillCurrency
+        );
+        totalVarianceAmount = QuotationRepository.roundCurrency(
+          totalVarianceAmount + (lineTotal - expectedLineVal)
+        );
         lineVariances.push({
           item_name: line.item_name || 'Item',
           po_rate: poRate,
@@ -230,9 +247,11 @@ export class ProcurementRepository {
     const id = billInput.id || `bill_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const hasLinkedPo = Boolean(billInput.po_id || billInput.po_ref);
 
+    const billExRate = Number(billInput.exchange_rate) > 0 ? Number(billInput.exchange_rate) : 1.0;
     const { evaluatedLines, matchStatus, varianceSummary } = this.computeThreeWayMatch(
       billInput.line_items || [],
-      hasLinkedPo
+      hasLinkedPo,
+      billExRate
     );
 
     const subtotal = QuotationRepository.roundCurrency(
@@ -492,6 +511,77 @@ export class ProcurementRepository {
           d.vendor_return_metadata?.return_mode === 'debit_note')
     );
 
+    // Pre-aggregate PV allocations and DN credits in O(V * A) Map pass instead of nested O(B * V * A) loops
+    const paidByBillId = new Map<string, number>();
+    const paidByBillRef = new Map<string, number>();
+    const directPvByInvNo = new Map<
+      string,
+      Array<{ vendorIdLower: string; vendorNameLower: string; amount: number; exRate: number; currency: string }>
+    >();
+
+    for (const pv of activePvs) {
+      const meta = pv.payment_voucher_metadata;
+      if (!meta) continue;
+      const pvExRate = Number(meta.exchange_rate) > 0 ? Number(meta.exchange_rate) : 1;
+      const pvCurr = (meta.currency || pv.currency || 'AED').toUpperCase();
+      const allocations = meta.allocated_bills || meta.allocations || [];
+      if (Array.isArray(allocations) && allocations.length > 0) {
+        for (const row of allocations) {
+          const amt = Math.max(0, Number(row.paid_this_voucher) || 0);
+          if (amt <= 0) continue;
+          if (row.bill_id) {
+            paidByBillId.set(row.bill_id, (paidByBillId.get(row.bill_id) || 0) + amt);
+          } else {
+            const refKey = (row.bill_ref || row.bill_number || '').trim().toLowerCase();
+            if (refKey) {
+              paidByBillRef.set(refKey, (paidByBillRef.get(refKey) || 0) + amt);
+            }
+          }
+        }
+      } else {
+        const invKey = (meta.vendor_invoice_no || '').trim().toLowerCase();
+        const amt = Math.max(0, Number(meta.amount_paid ?? pv.grand_total) || 0);
+        if (invKey && amt > 0) {
+          const list = directPvByInvNo.get(invKey) || [];
+          list.push({
+            vendorIdLower: (meta.vendor_company_id || meta.vendor_id || '').trim().toLowerCase(),
+            vendorNameLower: (meta.payee_name || meta.paid_to_vendor_name || '').trim().toLowerCase(),
+            amount: amt,
+            exRate: pvExRate,
+            currency: pvCurr
+          });
+          directPvByInvNo.set(invKey, list);
+        }
+      }
+    }
+
+    const creditByBillId = new Map<string, number>();
+    const creditByInvNo = new Map<string, number>();
+
+    for (const dn of activeDns) {
+      const rMeta = dn.vendor_return_metadata;
+      if (!rMeta) continue;
+      const claimVal = Math.max(
+        0,
+        Number(rMeta.total_claim_amount) ||
+          Number(rMeta.credit_claim_amount) ||
+          Number(dn.grand_total) ||
+          0
+      );
+      if (claimVal <= 0) continue;
+      if (rMeta.linked_bill_id) {
+        creditByBillId.set(
+          rMeta.linked_bill_id,
+          (creditByBillId.get(rMeta.linked_bill_id) || 0) + claimVal
+        );
+      } else {
+        const invKey = (rMeta.vendor_invoice_no || '').trim().toLowerCase();
+        if (invKey) {
+          creditByInvNo.set(invKey, (creditByInvNo.get(invKey) || 0) + claimVal);
+        }
+      }
+    }
+
     const updatedBills: SupplierBill[] = [];
 
     for (const bill of bills) {
@@ -500,60 +590,35 @@ export class ProcurementRepository {
       const invNoLower = (bill.vendor_invoice_no || '').trim().toLowerCase();
       const vendorIdLower = (bill.vendor_company_id || bill.supplier_id || '').trim().toLowerCase();
       const vendorNameLower = (bill.vendor_name || bill.supplier_name || '').trim().toLowerCase();
+      const billCurr = (bill.currency || 'AED').toUpperCase();
+      const billExRate = Number(bill.exchange_rate) > 0 ? Number(bill.exchange_rate) : 1;
 
-      // 1. Sum payments across all active PVs
-      let computedPaid = 0;
-      for (const pv of activePvs) {
-        const meta = pv.payment_voucher_metadata;
-        if (!meta) continue;
-        const allocations = meta.allocated_bills || meta.allocations || [];
-        if (Array.isArray(allocations) && allocations.length > 0) {
-          for (const row of allocations) {
-            const matchesId = row.bill_id && row.bill_id === billId;
-            const matchesRef =
-              !row.bill_id &&
-              billRefLower &&
-              (row.bill_ref || row.bill_number || '').trim().toLowerCase() === billRefLower;
-            if (matchesId || matchesRef) {
-              computedPaid += Math.max(0, Number(row.paid_this_voucher) || 0);
-            }
-          }
-        } else {
-          // Single-bill PV without allocation array
-          const matchesDirectBill =
-            invNoLower &&
-            (meta.vendor_invoice_no || '').trim().toLowerCase() === invNoLower &&
-            ((vendorIdLower && (meta.vendor_company_id || meta.vendor_id || '').trim().toLowerCase() === vendorIdLower) ||
-              !vendorNameLower ||
-              (meta.payee_name || meta.paid_to_vendor_name || '').trim().toLowerCase() === vendorNameLower);
-          if (matchesDirectBill) {
-            computedPaid += Math.max(0, Number(meta.amount_paid ?? pv.grand_total) || 0);
+      // 1. Sum payments from O(1) lookup maps
+      let computedPaid =
+        (paidByBillId.get(billId) || 0) +
+        (billRefLower ? paidByBillRef.get(billRefLower) || 0 : 0);
+
+      if (invNoLower && directPvByInvNo.has(invNoLower)) {
+        for (const entry of directPvByInvNo.get(invNoLower)!) {
+          const matchesVendor =
+            (vendorIdLower && entry.vendorIdLower === vendorIdLower) ||
+            !vendorNameLower ||
+            entry.vendorNameLower === vendorNameLower;
+          if (matchesVendor) {
+            // Normalize if PV is in base currency (AED) and Bill is in foreign currency
+            const normalizedAmt =
+              entry.currency !== billCurr && billExRate > 0 && Math.abs(billExRate - 1) > 0.0001
+                ? QuotationRepository.roundCurrency((entry.amount * entry.exRate) / billExRate)
+                : entry.amount;
+            computedPaid += normalizedAmt;
           }
         }
       }
 
-      // 2. Sum credits across all active Debit Notes (DN)
-      let computedCredit = 0;
-      for (const dn of activeDns) {
-        const rMeta = dn.vendor_return_metadata;
-        if (!rMeta) continue;
-        const targetBillId = rMeta.linked_bill_id;
-        const matchesBillId = Boolean(targetBillId && targetBillId === billId);
-        const matchesInvNo =
-          !targetBillId &&
-          Boolean(
-            invNoLower &&
-              (rMeta.vendor_invoice_no || '').trim().toLowerCase() === invNoLower
-          );
-        if (matchesBillId || matchesInvNo) {
-          const claimVal =
-            Number(rMeta.total_claim_amount) ||
-            Number(rMeta.credit_claim_amount) ||
-            Number(dn.grand_total) ||
-            0;
-          computedCredit += Math.max(0, claimVal);
-        }
-      }
+      // 2. Sum credits from O(1) lookup maps
+      const computedCredit =
+        (creditByBillId.get(billId) || 0) +
+        (invNoLower ? creditByInvNo.get(invNoLower) || 0 : 0);
 
       const grandTotal = QuotationRepository.roundCurrency(Number(bill.grand_total) || 0);
       const nextCredit = QuotationRepository.roundCurrency(Math.min(grandTotal, computedCredit));
@@ -882,7 +947,8 @@ export class ProcurementRepository {
    */
   static evaluateThreeWayMatch(
     billLines: SupplierBillLineItem[],
-    linkedPo?: Quotation | null
+    linkedPo?: Quotation | null,
+    exchangeRate: number = 1
   ): {
     status: SupplierBillMatchStatus;
     summary: string;
@@ -890,7 +956,7 @@ export class ProcurementRepository {
     qtyVarianceCount: number;
     evaluatedLines: SupplierBillLineItem[];
   } {
-    const res = this.computeThreeWayMatch(billLines, Boolean(linkedPo));
+    const res = this.computeThreeWayMatch(billLines, Boolean(linkedPo), exchangeRate);
     const qtyVarianceCount = res.evaluatedLines.filter((l) => l.has_qty_variance).length;
     const priceVarCount = res.evaluatedLines.filter((l) => l.has_price_variance).length;
     let summary = '3-Way Match Verified (PO = GRN = Bill)';
