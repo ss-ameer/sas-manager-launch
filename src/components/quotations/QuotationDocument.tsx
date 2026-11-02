@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Component } from 'react';
 import {
   Quotation,
   WorkspaceDocumentProfile,
@@ -50,6 +50,7 @@ import {
   formatCleanDocumentEnquiryRef,
   isSyntheticInternalId
 } from '../../utils/quotationTokenResolver';
+import { QuotationRepository } from '../../services/repositories/QuotationRepository';
 export { amountToWords, amountToWordsAED, amountInWordsAED, formatAmountInWords };
 import {
   FileText,
@@ -10001,17 +10002,27 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   );
 };
 
+interface QuotationDocumentErrorBoundaryProps {
+  children: React.ReactNode;
+  resetKey?: string;
+}
+
 interface QuotationDocumentErrorBoundaryState {
   hasError: boolean;
   errorMessage?: string;
 }
 
-class QuotationDocumentErrorBoundary extends React.Component<
-  { children: React.ReactNode; resetKey?: string },
+class QuotationDocumentErrorBoundary extends Component<
+  QuotationDocumentErrorBoundaryProps,
   QuotationDocumentErrorBoundaryState
 > {
-  constructor(props: { children: React.ReactNode; resetKey?: string }) {
+  declare props: QuotationDocumentErrorBoundaryProps;
+  declare state: QuotationDocumentErrorBoundaryState;
+  declare setState: (updater: any) => void;
+
+  constructor(props: QuotationDocumentErrorBoundaryProps) {
     super(props);
+    this.props = props;
     this.state = { hasError: false };
   }
 

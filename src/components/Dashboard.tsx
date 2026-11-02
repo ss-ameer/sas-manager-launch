@@ -75,6 +75,7 @@ import { PageHeader, PageBody, CardPanel, KpiStatCard } from './layout/UiContain
 import { getWhatsAppUrl } from '../utils/defaults';
 
 interface DashboardProps {
+  key?: any;
   enquiries: Enquiry[];
   companies: Company[];
   salespersons: Salesperson[];

@@ -816,6 +816,7 @@ export const EnquiryRowMemo = EnquiryTableRow;
 export type QuoteLifecycleFilter = 'all' | 'pending' | 'won' | 'lost' | 'unquoted';
 
 interface EnquiryListProps {
+  key?: any;
   enquiries: Enquiry[];
   occupiedWorkspaceSns?: Set<number>;
   setEnquiries?: React.Dispatch<React.SetStateAction<Enquiry[]>>;

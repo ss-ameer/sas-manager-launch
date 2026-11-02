@@ -140,6 +140,7 @@ export type CompanyTemperature = 'Hot' | 'Warm' | 'Cold' | 'DNC' | string;
 
 export interface SoftDeleteFields {
   is_deleted?: boolean;
+  deleted?: boolean;
   deleted_at?: string;
   deleted_by_uid?: string;
   deleted_by_name?: string;
@@ -512,11 +513,15 @@ export interface StockMovement {
   workspace_id: string;
   product_id: string;
   product_name: string;
+  product_code?: string;
   movement_type: StockMovementType;
   quantity: number;
+  quantity_delta?: number;
   previous_on_hand: number;
   new_on_hand: number;
-  reference_type?: 'ENQUIRY' | 'PROJECT' | 'PO' | 'MRN' | 'MANUAL';
+  previous_reserved?: number;
+  new_reserved?: number;
+  reference_type?: 'ENQUIRY' | 'PROJECT' | 'PO' | 'MRN' | 'MANUAL' | 'VENDOR_RETURN' | string;
   reference_id?: string;
   reference_number?: string;
   reason_notes?: string;
@@ -620,7 +625,7 @@ export interface Project extends SoftDeleteFields {
   client_name: string;
   client_contact_id?: string;
   title: string;
-  status: 'Draft' | 'In Progress' | 'Delivered' | 'Completed' | 'Cancelled';
+  status: 'Draft' | 'In Progress' | 'Delivered' | 'Completed' | 'Cancelled' | 'Closed' | string;
   project_type: 'Supply Only' | 'Turnkey / Installation';
   contract_value: number;
   currency?: string;
@@ -810,6 +815,9 @@ export interface Enquiry extends SoftDeleteFields {
   enquiry_source: EnquirySource;
   status: EnquiryStatus;
   quote_ref_no: string;
+  date?: string;
+  amount_aed?: number;
+  project_name?: string;
   subject?: string; // Optional Subject for the proposal
   description?: string;
   customer_reference_code?: string; // Optional Customer Reference Code
@@ -971,6 +979,10 @@ export interface Product extends SoftDeleteFields {
   option_scope_notes?: string;
   variant_parent_id?: string | null;
   product_family?: string | null;
+  min_stock_level?: number;
+  variant_group_id?: string;
+  product_code?: string;
+  updated_at?: string;
 }
 
 export const getInitials = (name?: string | null): string => {
@@ -1268,6 +1280,7 @@ export interface QuotationLineItem {
   include_datasheet_in_quote?: boolean;
   is_optional?: boolean;
   option?: string;
+  item_type?: string;
   option_group?: string;
   option_scope_notes?: string;
   is_composite_set?: boolean;
@@ -1388,6 +1401,7 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   show_commercial_terms?: boolean;
   show_company_seal?: boolean;
   showAmountInWords?: boolean;
+  default_tax_rate?: number;
   show_amount_in_words?: boolean;
   repeatHeaderOnSubsequentPages?: boolean;
   showBankRemittance?: boolean;
@@ -1901,6 +1915,7 @@ export type CommercialDocumentType =
   | 'tax_invoice'
   | 'payment_voucher'
   | 'material_return_note'
+  | 'material_return'
   | 'debit_note';
 
 export type DeliveryDispatchMode =
@@ -2075,6 +2090,10 @@ export interface PaymentVoucherMetadata {
   cheque_bank?: string;
   cheque_bank_name?: string;
   cheque_date?: string;
+  voucher_date?: string;
+  utr_or_cheque_no?: string;
+  payment_narration?: string;
+  received_by_payee?: string;
   amount_paid?: number;
   currency?: string;
   exchange_rate?: number;
@@ -2157,6 +2176,10 @@ export interface VendorReturnMetadata {
   returned_by_name?: string;
   received_by_vendor_name?: string;
   accepted_by_vendor_name?: string;
+  dispatched_by?: string;
+  received_by_vendor?: string;
+  carrier_or_vehicle?: string;
+  vendor_credit_note_no?: string;
   stock_deducted?: boolean;
   stock_deducted_at?: string;
   return_notes?: string;
@@ -2250,6 +2273,7 @@ export interface SupplierBill extends SoftDeleteFields {
   attachment?: Attachment;
   attachment_url?: string;
   attachment_name?: string;
+  discrepancy_notes?: string;
   notes?: string;
   created_at: string;
   created_by?: string;

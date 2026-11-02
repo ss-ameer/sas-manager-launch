@@ -230,6 +230,7 @@ import { DropdownOption } from '../types';
 import { PageHeader, PageBody, KpiStatCard } from './layout/UiContainer';
 
 interface CallLogManagerProps {
+  key?: any;
   activeWorkspace: Workspace;
   callLogs: CallLogEntry[];
   companies: Company[];

@@ -128,12 +128,15 @@ export class QuotationRepository {
     const parentId = data.parent_quotation_id || data.parent_quote_id;
     const docType: CommercialDocumentType = data.document_type || 'quotation';
 
-    const prefixMap: Record<CommercialDocumentType, string> = {
+    const prefixMap: Partial<Record<CommercialDocumentType, string>> = {
       quotation: 'QT',
       delivery_note: 'DO',
       purchase_order: 'PO',
       receipt: 'REC',
+      proforma_invoice: 'PI',
+      tax_invoice: 'INV',
       payment_voucher: 'PV',
+      material_return_note: 'MRN',
       material_return: 'MRN',
       debit_note: 'DN'
     };
@@ -304,7 +307,7 @@ export class QuotationRepository {
     targetType: CommercialDocumentType,
     existingDocs: Quotation[] = []
   ): string {
-    const prefixMap: Record<CommercialDocumentType, string> = {
+    const prefixMap: Partial<Record<CommercialDocumentType, string>> = {
       quotation: 'QT',
       delivery_note: 'DO',
       purchase_order: 'PO',
@@ -313,6 +316,7 @@ export class QuotationRepository {
       tax_invoice: 'INV',
       payment_voucher: 'PV',
       material_return_note: 'MRN',
+      material_return: 'MRN',
       debit_note: 'DN'
     };
     const prefix = prefixMap[targetType] || 'DOC';
@@ -1641,8 +1645,8 @@ export class QuotationRepository {
               unit_cost: Number(item.unit_price) || 0,
               reason_notes: `Soft-Delete Stock Rollback for ${isPO ? 'Purchase Order' : 'Material Return Note'} (${existing.formatted_quote_ref || existing.id})`,
               created_at: now,
-              created_by_uid: deletedById || 'system',
-              created_by_name: deletedByName || 'System'
+              created_by_uid: actor?.id || 'system',
+              created_by_name: actor?.name || 'System'
             });
           }
         }

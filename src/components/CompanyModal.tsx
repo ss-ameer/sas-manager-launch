@@ -171,6 +171,7 @@ const CreatableCombobox = ({ value, onChange, onCreateOption, options, placehold
 };
 
 interface CompanyModalProps {
+  key?: any;
   companies: Company[];
   contacts: Contact[];
   enquiries: Enquiry[];

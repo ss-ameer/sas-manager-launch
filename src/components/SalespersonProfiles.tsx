@@ -36,6 +36,7 @@ import { isSuperAdmin, isAdmin, canAccessEnquiry, isRecordOwner, getUserWorkspac
 import { isWonStatus, isLostOrCancelledStatus } from '../services/inventoryService';
 
 interface SalespersonProfilesProps {
+  key?: any;
   salespersons: Salesperson[];
   enquiries: Enquiry[];
   companies: Company[];

@@ -60,6 +60,7 @@ export interface ProcurementLaunchContext {
 }
 
 interface ProcurementPayablesHubProps {
+  key?: any;
   activeWorkspace: Workspace;
   user: UserProfile;
   companies: Company[];
@@ -3889,7 +3890,7 @@ export default function ProcurementPayablesHub({
                                   setPvSelectedBills(next);
                                   setPvAmountPaid(
                                     QuotationRepository.roundCurrency(
-                                      Object.values(next).reduce((s, v) => s + Number(v || 0), 0)
+                                      (Object.values(next) as any[]).reduce((s: number, v: any) => s + Number(v || 0), 0)
                                     )
                                   );
                                   if (!pvPayeeName) setPvPayeeName(bill.vendor_name);
@@ -3899,7 +3900,7 @@ export default function ProcurementPayablesHub({
                                   setPvSelectedBills(next);
                                   setPvAmountPaid(
                                     QuotationRepository.roundCurrency(
-                                      Object.values(next).reduce((s, v) => s + Number(v || 0), 0)
+                                      (Object.values(next) as any[]).reduce((s: number, v: any) => s + Number(v || 0), 0)
                                     )
                                   );
                                 }
@@ -3933,7 +3934,7 @@ export default function ProcurementPayablesHub({
                                   setPvSelectedBills(next);
                                   setPvAmountPaid(
                                     QuotationRepository.roundCurrency(
-                                      Object.values(next).reduce((s, v) => s + Number(v || 0), 0)
+                                      (Object.values(next) as any[]).reduce((s: number, v: any) => s + Number(v || 0), 0)
                                     )
                                   );
                                 }}

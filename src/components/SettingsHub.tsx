@@ -97,6 +97,7 @@ import { QuotationRepository } from '../services/repositories/QuotationRepositor
 import { ProcurementRepository } from '../services/repositories/ProcurementRepository';
 
 interface SettingsHubProps {
+  key?: any;
   user: UserProfile;
   activeWorkspace?: Workspace;
   enquirySources: DropdownOption[];

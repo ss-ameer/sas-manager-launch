@@ -4,6 +4,7 @@ import {
   Product,
   StockMovement,
   UserProfile,
+  User,
   Project,
   GrnReceiptData,
   StockAdjustmentData,
@@ -1180,7 +1181,7 @@ export async function reconcileProcurementDocumentStockOnLifecycleChange(
       ? targetQty
       : -targetQty;
 
-    const product = await fetchProductById(item.product_id);
+    const product = await getProductLiveOrLocal(item.product_id);
     if (!product) continue;
 
     const prevOnHand = Number(product.stock_on_hand) || 0;
@@ -1203,15 +1204,16 @@ export async function reconcileProcurementDocumentStockOnLifecycleChange(
     const movement: Omit<StockMovement, 'id'> = {
       workspace_id: doc.workspace_id || product.workspace_id || 'default',
       product_id: product.id,
-      product_code: product.product_code,
-      product_name: product.name,
+      product_code: product.product_code || product.sku || '',
+      product_name: product.name || 'Catalog Item',
       movement_type: 'ADJUSTMENT',
+      quantity: Math.abs(actualDelta),
       quantity_delta: actualDelta,
       previous_on_hand: prevOnHand,
       new_on_hand: newOnHand,
       previous_reserved: prevReserved,
       new_reserved: prevReserved,
-      reference_type: isPO ? 'PO' : 'VENDOR_RETURN',
+      reference_type: isPO ? 'PO' : 'MRN',
       reference_id: doc.id,
       reference_number: docRef,
       unit_cost: Number(item.unit_price) || 0,

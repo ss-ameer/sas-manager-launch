@@ -43,6 +43,7 @@ import {
 } from 'lucide-react';
 
 interface ProjectRegistryProps {
+  key?: any;
   projects: Project[];
   setProjects?: React.Dispatch<React.SetStateAction<Project[]>>;
   products?: Product[];
@@ -932,7 +933,7 @@ export default function ProjectRegistry({
                       ) : (
                         <>No projects found in the <span className="font-semibold text-slate-800">{statusFilter}</span> stage.</>
                       )}{' '}
-                      Clear your search or status filter to view all {activeProjects.length} projects.
+                      Clear your search or status filter to view all {workspaceProjects.length} projects.
                     </p>
                     <button
                       type="button"
