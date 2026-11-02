@@ -540,8 +540,13 @@ export async function processStockGrn(
     const updatePayload: Partial<Product> & { updatedAt: string } = {
       is_inventoried: true,
       stock_on_hand: newOnHand,
+      last_grn_ref: data.grn_number,
       updatedAt: nowIso
     };
+
+    if (unitCost > 0) {
+      updatePayload.last_landed_cost = unitCost;
+    }
 
     if (data.storage_location && data.storage_location.trim()) {
       updatePayload.storage_location = data.storage_location.trim();
@@ -557,7 +562,7 @@ export async function processStockGrn(
     const movement: StockMovement = {
       workspace_id: wsId,
       product_id: data.product_id,
-      product_name: data.product_name || prodData?.name || 'Product',
+      product_name: data.product_name || prodData?.name || prodData?.description || 'Product',
       movement_type: 'STOCK_IN',
       quantity: qty,
       previous_on_hand: previousOnHand,

@@ -204,7 +204,7 @@ export default function ProductManager({
   const [grnProductId, setGrnProductId] = useState('');
   const [grnQuantity, setGrnQuantity] = useState<number | string>('');
   const [grnUnitCost, setGrnUnitCost] = useState<number | string>('');
-  const [grnUpdateCost, setGrnUpdateCost] = useState(true);
+  const [grnUpdateCost, setGrnUpdateCost] = useState(false);
   const [grnSupplierName, setGrnSupplierName] = useState('');
   const [grnSupplierId, setGrnSupplierId] = useState('');
   const [grnDeliveryNote, setGrnDeliveryNote] = useState('');
@@ -244,18 +244,20 @@ export default function ProductManager({
   }, [showLedgerModal, activeWorkspace?.id]);
 
   const productCategories: string[] = useMemo(() => {
-    const list = propCategories && propCategories.length > 0 ? propCategories : [...UNIVERSAL_CATEGORIES];
+    const fromProps = propCategories && propCategories.length > 0 ? propCategories : [];
     const fromProducts = products.filter((p) => !p.is_deleted && p.product_type).map((p) => p.product_type);
-    return Array.from(new Set([...list, ...fromProducts])).filter((c) => {
+    return Array.from(new Set([...UNIVERSAL_CATEGORIES, ...fromProps, ...fromProducts])).filter((c) => {
       const l = c.toLowerCase();
       return l !== 'anthrecite' && l !== 'anthresite';
     });
   }, [propCategories, products]);
 
   const units: string[] = useMemo(() => {
-    const list = propUnits && propUnits.length > 0 ? propUnits : [...UNIVERSAL_UNITS];
-    const fromProducts = products.filter((p) => !p.is_deleted && p.unit).map((p) => p.unit);
-    return Array.from(new Set([...list, ...fromProducts]));
+    const fromProps = propUnits && propUnits.length > 0 ? propUnits : [];
+    const fromProducts = products
+      .filter((p) => !p.is_deleted && p.unit && p.unit !== 'Custom Unit')
+      .map((p) => p.unit);
+    return Array.from(new Set([...UNIVERSAL_UNITS, ...fromProps, ...fromProducts]));
   }, [propUnits, products]);
 
   // Dynamic workspace & category attribute suggestions (SaaS multi-tenant friendly)
@@ -322,7 +324,13 @@ export default function ProductManager({
       }
       if (movementsSearch.trim()) {
         const query = movementsSearch.toLowerCase();
-        const prod = (m.product_name || '').toLowerCase();
+        const linkedProd = products.find((p) => p.id === m.product_id);
+        const prod = (
+          m.product_name ||
+          linkedProd?.name ||
+          linkedProd?.description ||
+          ''
+        ).toLowerCase();
         const ref = (m.reference_number || m.reference_id || '').toLowerCase();
         const dn = (m.delivery_note_ref || '').toLowerCase();
         const sup = (m.supplier_name || '').toLowerCase();
@@ -331,7 +339,7 @@ export default function ProductManager({
       }
       return true;
     });
-  }, [movements, movementsTypeFilter, movementsSearch]);
+  }, [movements, movementsTypeFilter, movementsSearch, products]);
 
   // Live Gross Margin & Markup Calculation for Modal
   const livePricingMetrics = useMemo(() => {
@@ -360,7 +368,7 @@ export default function ProductManager({
     setGrnSupplierName('');
     setGrnSupplierId('');
     setGrnNotes('');
-    setGrnUpdateCost(true);
+    setGrnUpdateCost(false);
 
     const target = prod || inventoriedProducts[0] || activeCatalogProducts[0];
     if (target) {
@@ -422,7 +430,7 @@ export default function ProductManager({
       workspace_id: wsId,
       grn_number: grnNumber.trim(),
       received_date: grnDate,
-      supplier_id: grnSupplierId || undefined,
+      supplier_id: grnSupplierId && grnSupplierId !== '__custom__' ? grnSupplierId : undefined,
       supplier_name: grnSupplierName.trim() || 'Vendor',
       delivery_note_ref: grnDeliveryNote.trim(),
       product_id: prod.id!,
@@ -446,6 +454,8 @@ export default function ProductManager({
                 ...item,
                 is_inventoried: true,
                 stock_on_hand: (item.stock_on_hand || 0) + qty,
+                last_landed_cost: unitCostNum > 0 ? unitCostNum : item.last_landed_cost,
+                last_grn_ref: grnNumber.trim(),
                 cost_price: grnUpdateCost && unitCostNum > 0 ? unitCostNum : item.cost_price,
                 storage_location: grnStorageLocation.trim() || item.storage_location
               };
@@ -808,6 +818,10 @@ export default function ProductManager({
     setEditingProduct(null);
     setFormVariantParentId(null);
     setFormProductFamily('');
+    setIsCreatingCategory(false);
+    setNewCategoryInput('');
+    setIsCreatingUnit(false);
+    setNewUnitInput('');
     setActiveFormTab('overview');
     setFormName('');
     setFormProductType(productCategories[0] || 'General Equipment');
@@ -844,11 +858,15 @@ export default function ProductManager({
     setEditingProduct(p);
     setFormVariantParentId(p.variant_parent_id || null);
     setFormProductFamily(p.product_family || '');
+    setIsCreatingCategory(false);
+    setNewCategoryInput('');
+    setIsCreatingUnit(false);
+    setNewUnitInput('');
     setActiveFormTab('overview');
     setFormName(p.name || p.description || '');
     setFormProductType(p.product_type || productCategories[0] || 'General Equipment');
     setFormDescription(p.description || '');
-    setFormUnit(p.unit || units[0] || 'Nos');
+    setFormUnit(p.unit && p.unit !== 'Custom Unit' ? p.unit : units[0] || 'Nos');
     setFormUnitPrice(p.unit_price ?? undefined);
     setFormCostPrice(p.cost_price ?? undefined);
     setFormIsCompositeSet(Boolean(p.is_composite_set));
@@ -890,11 +908,15 @@ export default function ProductManager({
     setEditingProduct(null);
     setFormVariantParentId(p.variant_parent_id || p.id || null);
     setFormProductFamily(p.product_family || baseName);
+    setIsCreatingCategory(false);
+    setNewCategoryInput('');
+    setIsCreatingUnit(false);
+    setNewUnitInput('');
     setActiveFormTab('specs_media');
     setFormName(baseName);
     setFormProductType(p.product_type || productCategories[0] || 'General Equipment');
     setFormDescription(p.description || '');
-    setFormUnit(p.unit || units[0] || 'Nos');
+    setFormUnit(p.unit && p.unit !== 'Custom Unit' ? p.unit : units[0] || 'Nos');
     setFormUnitPrice(p.unit_price ?? undefined);
     setFormCostPrice(p.cost_price ?? undefined);
     setFormIsCompositeSet(Boolean(p.is_composite_set));
@@ -937,11 +959,15 @@ export default function ProductManager({
     setEditingProduct(null);
     setFormVariantParentId(null);
     setFormProductFamily('');
+    setIsCreatingCategory(false);
+    setNewCategoryInput('');
+    setIsCreatingUnit(false);
+    setNewUnitInput('');
     setActiveFormTab('overview');
     setFormName(`${p.name || p.description} (Copy)`);
     setFormProductType(p.product_type || productCategories[0] || 'General Equipment');
     setFormDescription(p.description || '');
-    setFormUnit(p.unit || units[0] || 'Nos');
+    setFormUnit(p.unit && p.unit !== 'Custom Unit' ? p.unit : units[0] || 'Nos');
     setFormUnitPrice(p.unit_price ?? undefined);
     setFormCostPrice(p.cost_price ?? undefined);
     setFormIsCompositeSet(Boolean(p.is_composite_set));
@@ -1198,18 +1224,8 @@ export default function ProductManager({
               }
             : undefined
         }
-        secondaryActions={[
-          ...(onOpenProcurement
-            ? [
-                {
-                  label: 'Procurement & Payables',
-                  icon: ShoppingBag,
-                  onClick: onOpenProcurement,
-                  variant: 'outline' as const
-                }
-              ]
-            : []),
-          ...(isEditable
+        secondaryActions={
+          isEditable
             ? [
                 {
                   label: 'Receive Stock (GRN)',
@@ -1224,14 +1240,8 @@ export default function ProductManager({
                   variant: 'outline' as const
                 }
               ]
-            : []),
-          {
-            label: 'Stock Ledger',
-            icon: History,
-            onClick: () => setShowLedgerModal(true),
-            variant: 'ghost' as const
-          }
-        ]}
+            : []
+        }
       />
 
       <PageBody>
@@ -1274,13 +1284,13 @@ export default function ProductManager({
 
         {/* Filters and Search Console */}
         <div className="relative z-10 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-4 sm:p-5 shadow-xs">
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-center">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-center">
             {/* Search bar */}
-            <div className="md:col-span-5 relative flex items-center">
+            <div className="lg:col-span-4 relative flex items-center">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
               <input
                 type="text"
-                placeholder="Search products by name, brand, model, SKU, or spec (e.g. S3: 20-40)..."
+                placeholder="Search by name, brand, model, SKU, or spec..."
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 className="w-full bg-white border border-slate-200 hover:border-slate-300 focus:border-blue-500 rounded-xl py-2 pl-10 pr-8 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none transition h-10"
@@ -1297,11 +1307,11 @@ export default function ProductManager({
             </div>
 
             {/* Category filter */}
-            <div className="md:col-span-2 relative flex items-center bg-white border border-slate-200 hover:border-slate-300 rounded-xl shadow-2xs h-10 transition">
+            <div className="lg:col-span-2 relative flex items-center bg-white border border-slate-200 hover:border-slate-300 rounded-xl shadow-2xs h-10 transition">
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
-                className="appearance-none w-full bg-transparent pl-3.5 pr-8 text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer h-full font-sans truncate"
+                className="appearance-none w-full bg-transparent pl-3 pr-7 text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer h-full font-sans truncate"
               >
                 <option value="All">All Categories</option>
                 {productCategories.map((cat) => (
@@ -1313,9 +1323,9 @@ export default function ProductManager({
               <ChevronDown className="absolute right-2.5 w-4 h-4 text-slate-400 pointer-events-none" />
             </div>
 
-            {/* Stock & Media Filter Segmented Control + Group Variants Toggle */}
-            <div className="md:col-span-5 flex items-center gap-2">
-              <div className="flex-1 flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl h-10 overflow-x-auto">
+            {/* Stock & Media Filter Segmented Control + Group Variants + Ledger / Procurement Quick Tools */}
+            <div className="lg:col-span-6 flex items-center gap-2 flex-wrap sm:flex-nowrap">
+              <div className="flex-1 flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl h-10 overflow-x-auto min-w-[240px]">
                 {(
                   [
                     { id: 'All', label: 'All' },
@@ -1343,7 +1353,7 @@ export default function ProductManager({
               <button
                 type="button"
                 onClick={() => setGroupVariantsByFamily((prev) => !prev)}
-                className={`h-10 px-3 rounded-xl border text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer shrink-0 ${
+                className={`h-10 px-2.5 rounded-xl border text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer shrink-0 ${
                   groupVariantsByFamily
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
                     : 'bg-white hover:bg-indigo-50/60 text-slate-700 hover:text-indigo-700 border-slate-200'
@@ -1364,6 +1374,28 @@ export default function ProductManager({
                   </span>
                 )}
               </button>
+
+              <button
+                type="button"
+                onClick={() => setShowLedgerModal(true)}
+                className="h-10 px-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer shrink-0"
+                title="Open Inventory Stock Movement Ledger & Audit Log"
+              >
+                <History className="w-3.5 h-3.5 text-blue-600" />
+                <span>Stock Ledger</span>
+              </button>
+
+              {onOpenProcurement && (
+                <button
+                  type="button"
+                  onClick={onOpenProcurement}
+                  className="h-10 px-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer shrink-0"
+                  title="Open Procurement & Payables Hub"
+                >
+                  <ShoppingBag className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Procurement</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -1392,13 +1424,12 @@ export default function ProductManager({
                 <table className="w-full text-left border-collapse">
                   <thead className="bg-slate-50/90 border-b border-slate-200/80 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 select-none">
                     <tr>
-                      <th className="py-3 px-4 whitespace-nowrap">Product &amp; Specifications</th>
-                      <th className="py-3 px-3 whitespace-nowrap">Category</th>
-                      <th className="py-3 px-3 whitespace-nowrap">Brand / SKU</th>
-                      <th className="py-3 px-3 whitespace-nowrap">Stock &amp; Lead Time</th>
-                      <th className="py-3 px-3 whitespace-nowrap">Unit</th>
-                      <th className="py-3 px-4 text-right whitespace-nowrap">Standard Price</th>
-                      <th className="py-3 px-4 text-center whitespace-nowrap">Actions</th>
+                      <th className="py-3 px-4">Product &amp; Specifications</th>
+                      <th className="py-3 px-2.5 whitespace-nowrap">Category</th>
+                      <th className="py-3 px-2.5 whitespace-nowrap">Brand / SKU</th>
+                      <th className="py-3 px-2.5 whitespace-nowrap">Stock &amp; Lead Time</th>
+                      <th className="py-3 px-3 text-right whitespace-nowrap">Standard Price</th>
+                      <th className="py-3 px-3 text-center whitespace-nowrap">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 font-sans text-sm">
@@ -1407,6 +1438,7 @@ export default function ProductManager({
                       const isLowStock = Boolean(p.is_inventoried) && availableQty <= (p.reorder_level || 0);
                       const sellPrice = p.unit_price || 0;
                       const costPrice = p.cost_price || 0;
+                      const cleanUnit = p.unit && p.unit !== 'Custom Unit' ? p.unit : 'Nos';
                       const marginPct =
                         sellPrice > 0 && costPrice > 0
                           ? Math.round(((sellPrice - costPrice) / sellPrice) * 100)
@@ -1416,18 +1448,18 @@ export default function ProductManager({
                       const showFamilyGroupHeader =
                         groupVariantsByFamily &&
                         Boolean(vInfo?.isVariant) &&
-                        (!prevProd || resolveProductFamilyKey(prevProd) !== resolveProductFamilyKey(p));
+                        (!prevProd || (prevProd.id && variantAnalysisMap.get(prevProd.id)?.familyKey) !== vInfo?.familyKey);
 
                       return (
                         <React.Fragment key={p.id || rowIdx}>
                           {showFamilyGroupHeader && vInfo && (
                             <tr className="bg-indigo-50/60 border-y border-indigo-200/80">
-                              <td colSpan={7} className="py-2 px-4">
+                              <td colSpan={6} className="py-2 px-4">
                                 <div className="flex items-center justify-between gap-3 flex-wrap">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-indigo-600 text-white text-xs font-bold">
                                       <GitFork className="w-3.5 h-3.5" />
-                                      <span>{resolveProductFamilyDisplayName(p)}</span>
+                                      <span>{vInfo.familyDisplayName}</span>
                                     </span>
                                     <span className="text-xs font-mono font-bold text-indigo-900">
                                       {vInfo.siblingCount} Spec Variants
@@ -1473,7 +1505,7 @@ export default function ProductManager({
                             }`}
                           >
                             <td className="py-3 px-4">
-                              <div className="flex items-start gap-3.5">
+                              <div className="flex items-start gap-3">
                                 {/* Product Image Thumbnail or Clean Placeholder */}
                                 {p.image_url ? (
                                     <button
@@ -1488,7 +1520,7 @@ export default function ProductManager({
                                       <img
                                         src={p.image_url}
                                         alt={p.name || p.description}
-                                        className="w-11 h-11 rounded-xl object-contain bg-white border border-slate-200 group-hover/thumb:border-blue-400 p-0.5 shrink-0 shadow-2xs transition"
+                                        className="w-10 h-10 rounded-xl object-contain bg-white border border-slate-200 group-hover/thumb:border-blue-400 p-0.5 shrink-0 shadow-2xs transition"
                                         style={{
                                           transform: `rotate(${p.image_adjustments?.rotation || 0}deg) scale(${p.image_adjustments?.scale || 1})`
                                         }}
@@ -1507,18 +1539,18 @@ export default function ProductManager({
                                         e.stopPropagation();
                                         setLightboxProduct(p);
                                       }}
-                                      className="w-11 h-11 rounded-xl bg-slate-100 hover:bg-blue-50 border border-slate-200/80 hover:border-blue-300 flex items-center justify-center text-slate-400 hover:text-blue-600 shrink-0 cursor-pointer transition"
+                                      className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-blue-50 border border-slate-200/80 hover:border-blue-300 flex items-center justify-center text-slate-400 hover:text-blue-600 shrink-0 cursor-pointer transition"
                                       title="Click to upload or paste product image"
                                     >
-                                      <Package className="w-5 h-5" />
+                                      <Package className="w-4.5 h-4.5" />
                                     </button>
                                   )}
 
                                 <div className="space-y-1 min-w-0 flex-1">
-                                  <div className="flex items-center gap-2 flex-wrap">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
                                     <HoverScrollText
                                       text={p.name || p.product_type}
-                                      className="font-semibold text-slate-900 font-sans max-w-[280px]"
+                                      className="font-semibold text-slate-900 font-sans max-w-[260px]"
                                     />
                                     {vInfo?.isVariant && (
                                       <span
@@ -1568,7 +1600,7 @@ export default function ProductManager({
                                           {vInfo.differentiatingAttributes.map((attr, idx) => (
                                             <span
                                               key={`diff-${idx}`}
-                                              className="text-[10px] font-mono font-bold bg-indigo-100/90 text-indigo-900 px-2 py-0.5 rounded-md border border-indigo-300 shadow-2xs"
+                                              className="text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-md border border-indigo-200 shadow-2xs"
                                               title={`Differentiating Variant Spec — ${attr.key}: ${attr.value}`}
                                             >
                                               {attr.key}: {attr.value || '—'}
@@ -1607,23 +1639,23 @@ export default function ProductManager({
                               </div>
                             </td>
 
-                            <td className="py-3 px-3">
-                              <span className="inline-flex items-center text-[11px] font-mono font-bold px-2.5 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-700 uppercase whitespace-nowrap">
+                            <td className="py-3 px-2.5">
+                              <span className="inline-flex items-center text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-full bg-blue-50 border border-blue-100 text-blue-700 uppercase whitespace-nowrap">
                                 {p.product_type}
                               </span>
                             </td>
 
-                            <td className="py-3 px-3">
-                              <div className="space-y-1 text-xs">
+                            <td className="py-3 px-2.5">
+                              <div className="space-y-0.5 text-xs">
                                 {(p.brand_make || p.model_part_no) ? (
-                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                  <div className="flex items-center gap-1 flex-wrap">
                                     {p.brand_make && (
                                       <span className="font-semibold text-slate-800">
                                         {p.brand_make}
                                       </span>
                                     )}
                                     {p.model_part_no && (
-                                      <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                                      <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
                                         {p.model_part_no}
                                       </span>
                                     )}
@@ -1635,12 +1667,12 @@ export default function ProductManager({
                               </div>
                             </td>
 
-                            <td className="py-3 px-3">
-                              <div className="space-y-1">
+                            <td className="py-3 px-2.5">
+                              <div className="space-y-0.5">
                                 {p.is_inventoried ? (
                                   <>
                                     <span
-                                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${
                                         isLowStock
                                           ? 'bg-amber-100 text-amber-800 border border-amber-200'
                                           : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
@@ -1648,10 +1680,10 @@ export default function ProductManager({
                                     >
                                       {isLowStock && <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />}
                                       <span>
-                                        Avail: {availableQty} {p.unit && p.unit !== 'Custom Unit' ? p.unit : 'Nos'}
+                                        Avail: {availableQty} {cleanUnit}
                                       </span>
                                     </span>
-                                    <div className="text-[10px] font-mono text-slate-400 flex items-center gap-2">
+                                    <div className="text-[10px] font-mono text-slate-400 flex items-center gap-2 whitespace-nowrap">
                                       <span>On Hand: {p.stock_on_hand || 0}</span>
                                       {(p.stock_reserved || 0) > 0 && (
                                         <span className="text-amber-600">Res: {p.stock_reserved}</span>
@@ -1659,7 +1691,7 @@ export default function ProductManager({
                                     </div>
                                     {p.storage_location && (
                                       <span
-                                        className="block text-[10px] text-slate-400 font-mono truncate max-w-[140px]"
+                                        className="block text-[10px] text-slate-400 font-mono truncate max-w-[130px]"
                                         title={p.storage_location}
                                       >
                                         Bin: {p.storage_location}
@@ -1667,18 +1699,14 @@ export default function ProductManager({
                                     )}
                                   </>
                                 ) : (
-                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200 whitespace-nowrap">
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200 whitespace-nowrap">
                                     {p.default_availability || 'Order / Non-Stock'}
                                   </span>
                                 )}
                               </div>
                             </td>
 
-                            <td className="py-3 px-3 font-mono text-xs text-slate-600 font-semibold whitespace-nowrap">
-                              {p.unit && p.unit !== 'Custom Unit' ? p.unit : 'Nos'}
-                            </td>
-
-                            <td className="py-3 px-4 text-right whitespace-nowrap">
+                            <td className="py-3 px-3 text-right whitespace-nowrap">
                               {p.unit_price !== undefined && p.unit_price > 0 ? (
                                 <div>
                                   <span className="font-bold font-mono tabular-nums text-slate-900 block">
@@ -1687,6 +1715,9 @@ export default function ProductManager({
                                       minimumFractionDigits: 2,
                                       maximumFractionDigits: 2
                                     })}
+                                    <span className="text-[10.5px] font-normal text-slate-400 ml-1">
+                                      / {cleanUnit}
+                                    </span>
                                   </span>
                                   {marginPct !== null && (
                                     <span
@@ -1711,12 +1742,15 @@ export default function ProductManager({
                                   )}
                                 </div>
                               ) : (
-                                <span className="text-xs font-medium text-slate-400 italic">Price on Request</span>
+                                <div>
+                                  <span className="text-xs font-medium text-slate-400 italic block">Price on Request</span>
+                                  <span className="text-[10px] font-mono text-slate-400">UOM: {cleanUnit}</span>
+                                </div>
                               )}
                             </td>
 
-                            <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex items-center justify-center space-x-1.5">
+                            <td className="py-3 px-3 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                              <div className="inline-flex items-center justify-center gap-1">
                                 {isEditable ? (
                                   <>
                                     <button
@@ -1728,7 +1762,7 @@ export default function ProductManager({
                                       className="p-1.5 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-200 text-slate-500 hover:text-emerald-700 rounded-lg transition cursor-pointer"
                                       title="Receive Stock (Inbound GRN)"
                                     >
-                                      <ArrowDownToLine className="w-4 h-4" />
+                                      <ArrowDownToLine className="w-3.5 h-3.5" />
                                     </button>
                                     <button
                                       type="button"
@@ -1739,7 +1773,7 @@ export default function ProductManager({
                                       className="p-1.5 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 text-slate-500 hover:text-indigo-700 rounded-lg transition cursor-pointer"
                                       title="Quick Stock Adjustment (Recount / Opening Stock / Write-Off)"
                                     >
-                                      <Sliders className="w-4 h-4" />
+                                      <Sliders className="w-3.5 h-3.5" />
                                     </button>
                                     <button
                                       type="button"
@@ -1747,10 +1781,10 @@ export default function ProductManager({
                                         e.stopPropagation();
                                         openSpecVariantModal(p);
                                       }}
-                                      className="px-2 py-1.5 hover:bg-indigo-100 bg-indigo-50/70 border border-indigo-200 text-indigo-700 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+                                      className="px-2 py-1 hover:bg-indigo-100 bg-indigo-50/70 border border-indigo-200 text-indigo-700 rounded-lg text-[10.5px] font-bold inline-flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
                                       title="Add Spec Variant (keeps base product name & clones spec keys so you only edit the differing spec & SKU)"
                                     >
-                                      <GitFork className="w-3.5 h-3.5" />
+                                      <GitFork className="w-3 h-3" />
                                       <span>Variant</span>
                                     </button>
                                     <button
@@ -1762,19 +1796,7 @@ export default function ProductManager({
                                       className="p-1.5 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-slate-500 hover:text-blue-700 rounded-lg transition cursor-pointer"
                                       title="Duplicate as Standalone Copy"
                                     >
-                                      <Copy className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openEditModal(p);
-                                      }}
-                                      className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-50/70 hover:bg-blue-100/80 text-blue-700 border border-blue-200/80 transition inline-flex items-center gap-1 cursor-pointer"
-                                      title="Edit Product"
-                                    >
-                                      <Edit2 className="w-3.5 h-3.5" />
-                                      <span>Edit</span>
+                                      <Copy className="w-3.5 h-3.5" />
                                     </button>
                                     <button
                                       type="button"
@@ -1785,7 +1807,7 @@ export default function ProductManager({
                                       className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition cursor-pointer"
                                       title="Move to Recycle Bin"
                                     >
-                                      <Trash2 className="w-4 h-4" />
+                                      <Trash2 className="w-3.5 h-3.5" />
                                     </button>
                                   </>
                                 ) : (
@@ -1887,25 +1909,44 @@ export default function ProductManager({
           >
             <form
               onSubmit={handleSaveProduct}
-              className={`bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] w-full ${
-                formIsCompositeSet ? 'max-w-5xl' : 'max-w-3xl'
+              className={`bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] w-full ${
+                formIsCompositeSet ? 'max-w-5xl' : 'max-w-4xl'
               } relative animate-in fade-in zoom-in-95 duration-150 transition-all`}
             >
-              {/* Standardized Modal Header */}
-              <div className="px-6 py-3.5 border-b border-slate-200 bg-white flex items-center justify-between gap-3 shrink-0">
+              {/* Standardized Modal Header with Live Pricing & Metadata Badges */}
+              <div className="px-5 py-3 border-b border-slate-200 bg-white flex items-center justify-between gap-3 shrink-0">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="p-2 rounded-xl bg-blue-50 border border-blue-200/80 text-blue-600 shrink-0">
-                    <Package className="w-5 h-5" />
-                  </div>
+                  {formImageUrl ? (
+                    <img
+                      src={formImageUrl}
+                      alt="Product preview"
+                      className="w-9 h-9 rounded-xl object-contain bg-white border border-slate-200 p-0.5 shrink-0"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="p-2 rounded-xl bg-blue-50 border border-blue-200/80 text-blue-600 shrink-0">
+                      <Package className="w-5 h-5" />
+                    </div>
+                  )}
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-base font-bold text-slate-900 font-sans">
+                      <h3 className="text-base font-bold text-slate-900 font-sans truncate">
                         {editingProduct
                           ? 'Edit Catalog Product'
                           : formVariantParentId
                           ? 'Register Product Spec Variant'
                           : 'Register New Catalog Product'}
                       </h3>
+                      {formProductType && (
+                        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 uppercase whitespace-nowrap">
+                          {formProductType}
+                        </span>
+                      )}
+                      {formSku.trim() && (
+                        <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 whitespace-nowrap">
+                          SKU: {formSku.trim()}
+                        </span>
+                      )}
                       {formVariantParentId && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
                           <GitFork className="w-3 h-3" />
@@ -1918,7 +1959,32 @@ export default function ProductManager({
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+
+                <div className="flex items-center gap-2.5 shrink-0">
+                  {/* Live Price & Margin Pill */}
+                  <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-xl bg-slate-50 border border-slate-200 text-right font-mono">
+                    <div>
+                      <span className="text-xs font-bold text-slate-900 block">
+                        {formUnitPrice !== undefined && formUnitPrice > 0
+                          ? `AED ${Number(formUnitPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${formUnit || 'Nos'}`
+                          : 'Price on Request'}
+                      </span>
+                      {livePricingMetrics && (
+                        <span
+                          className={`block text-[10px] font-bold ${
+                            livePricingMetrics.marginPct >= 20
+                              ? 'text-emerald-600'
+                              : livePricingMetrics.marginPct > 0
+                              ? 'text-amber-600'
+                              : 'text-rose-600'
+                          }`}
+                        >
+                          {livePricingMetrics.marginPct.toFixed(1)}% Margin ({livePricingMetrics.markupPct.toFixed(1)}% Markup)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
                   {editingProduct && (
                     <button
                       type="button"
@@ -1940,75 +2006,8 @@ export default function ProductManager({
                 </div>
               </div>
 
-              {/* Compact Header Summary & 3-Tab Navigation Bar */}
-              <div className="px-6 py-2.5 border-b border-slate-200/80 bg-slate-50/70 space-y-2 shrink-0">
-                <div className="p-2.5 rounded-xl bg-white border border-slate-200/90 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    {formImageUrl ? (
-                      <img
-                        src={formImageUrl}
-                        alt="Product preview"
-                        className="w-10 h-10 rounded-xl object-contain bg-white border border-slate-200 p-0.5 shrink-0"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
-                        <ImageIcon className="w-4 h-4" />
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-bold text-slate-900 truncate">
-                          {formName.trim() || 'Untitled Catalog Product'}
-                        </span>
-                        {formProductType && (
-                          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 uppercase whitespace-nowrap">
-                            {formProductType}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono mt-0.5 flex-wrap">
-                        <span>{formSku.trim() ? `SKU: ${formSku.trim()}` : 'No SKU'}</span>
-                        {formBrandMake.trim() && <span>• Brand: {formBrandMake.trim()}</span>}
-                        {formModelPartNo.trim() && <span>• Model: {formModelPartNo.trim()}</span>}
-                        {formAttributes.filter((a) => a.key.trim() && a.value.trim()).length > 0 && (
-                          <span className="text-indigo-700 font-semibold">
-                            • {formAttributes.filter((a) => a.key.trim() && a.value.trim()).length} Spec(s)
-                          </span>
-                        )}
-                        {formDatasheetAttachment && (
-                          <span className="text-indigo-600 font-sans font-semibold">• Datasheet Attached</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3 sm:text-right shrink-0 border-t sm:border-t-0 pt-1.5 sm:pt-0 border-slate-100">
-                    <div>
-                      <span className="text-[10px] font-mono uppercase text-slate-400 block">Selling Price</span>
-                      <span className="text-sm font-bold font-mono text-slate-900 dark:text-white">
-                        {formUnitPrice !== undefined && formUnitPrice > 0
-                          ? `AED ${Number(formUnitPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${formUnit || 'Unit'}`
-                          : 'On Request'}
-                      </span>
-                      {livePricingMetrics && (
-                        <span
-                          className={`block text-[10px] font-mono font-bold ${
-                            livePricingMetrics.marginPct >= 20
-                              ? 'text-emerald-600'
-                              : livePricingMetrics.marginPct > 0
-                              ? 'text-amber-600'
-                              : 'text-rose-600'
-                          }`}
-                        >
-                          {livePricingMetrics.marginPct.toFixed(1)}% Margin ({livePricingMetrics.markupPct.toFixed(1)}% Markup)
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3-Tab Navigation Bar */}
+              {/* Compact 3-Tab Navigation Bar */}
+              <div className="px-5 py-2 border-b border-slate-200/80 bg-slate-50/70 shrink-0">
                 <div className="grid grid-cols-3 gap-1.5 bg-slate-200/70 dark:bg-slate-800 p-1 rounded-xl">
                   <button
                     type="button"
@@ -2054,10 +2053,10 @@ export default function ProductManager({
               </div>
 
               {/* Scrollable Tab Body */}
-              <div className="px-6 py-4 overflow-y-auto flex-1 font-sans">
+              <div className="px-5 py-3.5 overflow-y-auto flex-1 font-sans">
                 {/* TAB 1: OVERVIEW & PRICING */}
                 {activeFormTab === 'overview' && (
-                  <div className="space-y-3.5">
+                  <div className="space-y-3">
                     <div>
                       <label className="block text-[11px] font-mono text-slate-500 uppercase tracking-wider mb-1 font-bold">
                         Product Name / Commercial Title <span className="text-rose-500">*</span>
@@ -2072,9 +2071,9 @@ export default function ProductManager({
                       />
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                       {/* Category Selector */}
-                      <div>
+                      <div className="sm:col-span-1">
                         <div className="flex items-center justify-between mb-1">
                           <label className="block text-[11px] font-mono text-slate-500 uppercase tracking-wider font-bold">
                             Category <span className="text-rose-500">*</span>
@@ -2086,22 +2085,22 @@ export default function ProductManager({
                                 setIsCreatingCategory(true);
                                 setNewCategoryInput('');
                               }}
-                              className="text-[11px] text-blue-600 hover:text-blue-700 font-bold flex items-center space-x-0.5 cursor-pointer hover:underline"
+                              className="text-[10.5px] text-blue-600 hover:text-blue-700 font-bold flex items-center space-x-0.5 cursor-pointer hover:underline"
                             >
                               <Plus className="w-3 h-3" />
-                              <span>Add Category</span>
+                              <span>Add</span>
                             </button>
                           )}
                         </div>
                         {isCreatingCategory ? (
-                          <div className="flex items-center space-x-1.5">
+                          <div className="flex items-center space-x-1">
                             <input
                               type="text"
                               autoFocus
                               value={newCategoryInput}
                               onChange={(e) => setNewCategoryInput(e.target.value)}
-                              placeholder="Enter category name..."
-                              className="w-full bg-white border border-blue-400 rounded-xl py-2 px-3 text-xs text-slate-800 focus:outline-none"
+                              placeholder="Category..."
+                              className="w-full bg-white border border-blue-400 rounded-xl py-2 px-2.5 text-xs text-slate-800 focus:outline-none"
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                   e.preventDefault();
@@ -2114,14 +2113,15 @@ export default function ProductManager({
                             <button
                               type="button"
                               onClick={handleConfirmNewCategory}
-                              className="px-3 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 shrink-0 cursor-pointer"
+                              className="px-2.5 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 shrink-0 cursor-pointer"
                             >
                               Add
                             </button>
                             <button
                               type="button"
                               onClick={() => setIsCreatingCategory(false)}
-                              className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 shrink-0 cursor-pointer"
+                              className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 shrink-0 cursor-pointer"
+                              title="Cancel custom category"
                             >
                               <X className="w-4 h-4" />
                             </button>
@@ -2162,10 +2162,8 @@ export default function ProductManager({
                           placeholder="e.g. SKU-1042-A"
                         />
                       </div>
-                    </div>
 
-                    {/* First-Class Brand/Make & Model/Part No (Auto-populates Quotation Columns) */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      {/* Brand / Make */}
                       <div>
                         <label className="block text-[11px] font-mono text-slate-500 uppercase tracking-wider mb-1 font-bold">
                           Brand / Make
@@ -2175,10 +2173,11 @@ export default function ProductManager({
                           value={formBrandMake}
                           onChange={(e) => setFormBrandMake(e.target.value)}
                           className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none"
-                          placeholder="e.g. Siemens, ABB, Schneider, Bosch"
+                          placeholder="e.g. Siemens, ABB"
                         />
                       </div>
 
+                      {/* Model / Part Number */}
                       <div>
                         <label className="block text-[11px] font-mono text-slate-500 uppercase tracking-wider mb-1 font-bold">
                           Model / Part Number
@@ -2194,8 +2193,8 @@ export default function ProductManager({
                     </div>
 
                     {/* Unit, Standard Selling Price, Cost Price */}
-                    <div className="p-3.5 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-3">
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                    <div className="p-3 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-2.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
                           <div className="flex items-center justify-between mb-1">
                             <label className="block text-[11px] font-mono text-slate-500 uppercase tracking-wider font-bold">
@@ -2240,10 +2239,21 @@ export default function ProductManager({
                               >
                                 Add
                               </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsCreatingUnit(false);
+                                  setNewUnitInput('');
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 shrink-0 cursor-pointer"
+                                title="Cancel custom unit and return to standard UOM list"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
                             </div>
                           ) : (
                             <select
-                              value={formUnit}
+                              value={formUnit || 'Nos'}
                               onChange={(e) => {
                                 if (e.target.value === '__NEW_UNIT__') {
                                   setIsCreatingUnit(true);
@@ -3016,23 +3026,23 @@ export default function ProductManager({
 
         {/* Inbound GRN Modal */}
         {showGrnModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
-              <div className="p-5 px-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50/50 dark:bg-slate-950/50">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-3xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[94vh]">
+              <div className="py-3.5 px-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50/50 dark:bg-slate-950/50">
                 <div className="flex items-center space-x-3">
-                  <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-100">
-                    <ArrowDownToLine className="w-5 h-5" />
+                  <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-100">
+                    <ArrowDownToLine className="w-4 h-4" />
                   </div>
                   <div>
                     <div className="flex items-center space-x-2">
-                      <h3 className="text-base font-bold text-slate-900 dark:text-white font-sans">
+                      <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white font-sans">
                         Inbound Goods Receipt Note (GRN)
                       </h3>
                       <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
                         {activeWorkspace?.name || 'Workspace'}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-500 font-sans mt-0.5">
+                    <p className="text-[11px] text-slate-500 font-sans">
                       Receive vendor shipment into warehouse stock and write an immutable audit movement.
                     </p>
                   </div>
@@ -3047,10 +3057,10 @@ export default function ProductManager({
               </div>
 
               <form onSubmit={handleSubmitGrn} className="flex flex-col flex-1 overflow-hidden">
-                <div className="p-6 space-y-4 overflow-y-auto flex-1 font-sans">
+                <div className="p-4 px-5 space-y-3 overflow-y-auto flex-1 font-sans">
                   {grnFeedback && (
                     <div
-                      className={`p-3.5 rounded-xl border flex items-start space-x-2.5 text-xs font-medium ${
+                      className={`p-3 rounded-xl border flex items-start space-x-2 text-xs font-medium ${
                         grnFeedback.type === 'success'
                           ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                           : 'bg-rose-50 text-rose-800 border-rose-200'
@@ -3065,9 +3075,9 @@ export default function ProductManager({
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                         GRN Reference Number <span className="text-rose-500">*</span>
                       </label>
                       <input
@@ -3076,12 +3086,12 @@ export default function ProductManager({
                         value={grnNumber}
                         onChange={(e) => setGrnNumber(e.target.value)}
                         placeholder="e.g. GRN-2026-1001"
-                        className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-mono font-semibold text-slate-800 focus:outline-none"
+                        className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-1.5 px-3 text-xs font-mono font-semibold text-slate-800 focus:outline-none"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                         Received Date <span className="text-rose-500">*</span>
                       </label>
                       <input
@@ -3089,44 +3099,54 @@ export default function ProductManager({
                         required
                         value={grnDate}
                         onChange={(e) => setGrnDate(e.target.value)}
-                        className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-semibold text-slate-800 focus:outline-none"
+                        className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-1.5 px-3 text-xs font-semibold text-slate-800 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Delivery Note / PO Ref
+                      </label>
+                      <input
+                        type="text"
+                        value={grnDeliveryNote}
+                        onChange={(e) => setGrnDeliveryNote(e.target.value)}
+                        placeholder="e.g. DN-88192 or PO-2026-44"
+                        className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-1.5 px-3 text-xs font-semibold text-slate-800 focus:outline-none"
                       />
                     </div>
                   </div>
 
                   {/* Product Selection (Any catalog product; auto-enables stock tracking if untracked) */}
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                       Catalog Product <span className="text-rose-500">*</span>
                     </label>
                     <select
                       required
                       value={grnProductId}
                       onChange={(e) => handleGrnProductChange(e.target.value)}
-                      className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2.5 px-3 text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer"
+                      className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer"
                     >
                       <option value="">-- Select Product to Receive Stock --</option>
                       {activeCatalogProducts.map((p) => (
                         <option key={p.id} value={p.id}>
-                          {formatProductVariantSelectorLabel(p, activeCatalogProducts)} —{' '}
-                          {p.is_inventoried
-                            ? `On Hand: ${p.stock_on_hand || 0} ${p.unit || ''}`
-                            : 'Non-Stock (Will Auto-Enable Tracking)'}
+                          {formatProductVariantSelectorLabel(p, activeCatalogProducts)}
                         </option>
                       ))}
                     </select>
 
                     {selectedGrnProduct && !selectedGrnProduct.is_inventoried && (
-                      <div className="mt-2 p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-[11px] text-blue-800 flex items-center gap-2">
-                        <Boxes className="w-4 h-4 text-blue-600 shrink-0" />
+                      <div className="mt-1.5 p-2 rounded-xl bg-blue-50 border border-blue-200 text-[11px] text-blue-800 flex items-center gap-2">
+                        <Boxes className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                         <span>
-                          <strong>Auto-Track Stock:</strong> "{selectedGrnProduct.name || selectedGrnProduct.description}" is currently marked as Non-Stock. Confirming this GRN will automatically enable <strong>Track Inventory & Physical Stock</strong>.
+                          <strong>Auto-Track Stock:</strong> "{selectedGrnProduct.name || selectedGrnProduct.description}" is Non-Stock. Confirming this GRN automatically enables physical stock tracking.
                         </span>
                       </div>
                     )}
 
                     {selectedGrnProduct && (
-                      <div className="mt-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                      <div className="mt-2 py-2 px-3 rounded-xl bg-slate-50 border border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                         <div>
                           <span className="block text-[10px] text-slate-400 font-mono uppercase">On Hand</span>
                           <span className="font-bold text-slate-800">
@@ -3160,9 +3180,9 @@ export default function ProductManager({
                   </div>
 
                   {/* Quantity & Unit Cost */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                         Quantity Received <span className="text-rose-500">*</span>
                       </label>
                       <input
@@ -3173,12 +3193,12 @@ export default function ProductManager({
                         value={grnQuantity ?? ''}
                         onChange={(e) => setGrnQuantity(e.target.value)}
                         placeholder="e.g. 50"
-                        className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-semibold font-mono text-slate-800 focus:outline-none"
+                        className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-1.5 px-3 text-xs font-semibold font-mono text-slate-800 focus:outline-none"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                         Landed Unit Cost (AED)
                       </label>
                       <input
@@ -3188,15 +3208,15 @@ export default function ProductManager({
                         value={grnUnitCost ?? ''}
                         onChange={(e) => setGrnUnitCost(e.target.value)}
                         placeholder="0.00"
-                        className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-semibold font-mono text-slate-800 focus:outline-none"
+                        className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-1.5 px-3 text-xs font-semibold font-mono text-slate-800 focus:outline-none"
                       />
                     </div>
 
-                    <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-center">
-                      <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">
-                        Total Receipt Value
+                    <div className="py-1.5 px-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                      <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">
+                        Receipt Value
                       </span>
-                      <span className="text-sm font-bold font-mono text-slate-900">
+                      <span className="text-xs font-bold font-mono text-slate-900">
                         AED{' '}
                         {((Number(grnQuantity) || 0) * (Number(grnUnitCost) || 0)).toLocaleString(undefined, {
                           minimumFractionDigits: 2,
@@ -3206,39 +3226,88 @@ export default function ProductManager({
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-2.5 pt-1">
+                  <div className="flex items-center space-x-2 py-1 px-2.5 rounded-lg bg-slate-50/70 border border-slate-200/70">
                     <input
                       type="checkbox"
                       id="grnUpdateCost"
                       checked={grnUpdateCost}
                       onChange={(e) => setGrnUpdateCost(e.target.checked)}
-                      className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500 cursor-pointer"
+                      className="w-3.5 h-3.5 rounded text-blue-600 border-slate-300 focus:ring-blue-500 cursor-pointer"
                     />
-                    <label htmlFor="grnUpdateCost" className="text-xs text-slate-600 cursor-pointer select-none">
-                      Update product catalog standard cost price to this unit cost (
-                      {Number(grnUnitCost) > 0 ? `AED ${Number(grnUnitCost).toFixed(2)}` : 'Current'})
+                    <label htmlFor="grnUpdateCost" className="text-[11px] text-slate-600 cursor-pointer select-none">
+                      Overwrite catalog <strong>Standard Cost Price</strong> with this landed cost (
+                      {Number(grnUnitCost) > 0 ? `AED ${Number(grnUnitCost).toFixed(2)}` : 'Current'}) —{' '}
+                      <span className="text-slate-500">Leave unchecked to preserve standard cost &amp; only record Last Landed Cost</span>
                     </label>
                   </div>
 
-                  {/* Supplier & Delivery Note */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Supplier Selector, Bin Location & Receiving Notes */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">Supplier / Vendor</label>
-                      <input
-                        type="text"
-                        list="grn-supplier-list"
-                        value={grnSupplierName}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setGrnSupplierName(val);
-                          const match = companies?.find(
-                            (c) => (c.display_name || c.canonical_name).toLowerCase() === val.toLowerCase()
-                          );
-                          setGrnSupplierId(match?.id || '');
-                        }}
-                        placeholder="e.g. Manufacturer / Supply Partner"
-                        className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-semibold text-slate-800 focus:outline-none"
-                      />
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[11px] font-semibold text-slate-700">
+                          Supplier / Vendor
+                        </label>
+                        {companies && companies.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (grnSupplierId === '__custom__') {
+                                setGrnSupplierId('');
+                                setGrnSupplierName('');
+                              } else {
+                                setGrnSupplierId('__custom__');
+                              }
+                            }}
+                            className="text-[10px] font-semibold text-blue-600 hover:text-blue-700 cursor-pointer"
+                          >
+                            {grnSupplierId === '__custom__' ? 'Select from Directory' : 'Type Custom Vendor'}
+                          </button>
+                        )}
+                      </div>
+                      {companies && companies.length > 0 && grnSupplierId !== '__custom__' ? (
+                        <select
+                          value={grnSupplierId}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === '__custom__') {
+                              setGrnSupplierId('__custom__');
+                              setGrnSupplierName('');
+                              return;
+                            }
+                            setGrnSupplierId(val);
+                            const matched = companies.find((c) => c.id === val);
+                            setGrnSupplierName(matched ? matched.display_name || matched.canonical_name : '');
+                          }}
+                          className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-1.5 px-3 text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer"
+                        >
+                          <option value="">-- Select Supplier / Vendor --</option>
+                          {companies.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.display_name || c.canonical_name}
+                            </option>
+                          ))}
+                          <option value="__custom__">+ Enter Custom Supplier Name...</option>
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          list="grn-supplier-list"
+                          value={grnSupplierName}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setGrnSupplierName(val);
+                            const match = companies?.find(
+                              (c) => (c.display_name || c.canonical_name).toLowerCase() === val.toLowerCase()
+                            );
+                            if (match?.id) {
+                              setGrnSupplierId(match.id);
+                            }
+                          }}
+                          placeholder="e.g. Manufacturer / Supply Partner"
+                          className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-1.5 px-3 text-xs font-semibold text-slate-800 focus:outline-none"
+                        />
+                      )}
                       <datalist id="grn-supplier-list">
                         {companies?.map((c) => (
                           <option key={c.id} value={c.display_name || c.canonical_name} />
@@ -3247,58 +3316,45 @@ export default function ProductManager({
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                        Delivery Note / PO Ref
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Warehouse Bin / Storage Location
                       </label>
                       <input
                         type="text"
-                        value={grnDeliveryNote}
-                        onChange={(e) => setGrnDeliveryNote(e.target.value)}
-                        placeholder="e.g. DN-88192 or PO-2026-44"
-                        className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-semibold text-slate-800 focus:outline-none"
+                        value={grnStorageLocation}
+                        onChange={(e) => setGrnStorageLocation(e.target.value)}
+                        placeholder="e.g. Rack B-03, Warehouse 1"
+                        className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-1.5 px-3 text-xs font-semibold text-slate-800 focus:outline-none"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                      Warehouse Bin / Storage Location
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Receiving Notes &amp; Inspection Remarks
                     </label>
                     <input
                       type="text"
-                      value={grnStorageLocation}
-                      onChange={(e) => setGrnStorageLocation(e.target.value)}
-                      placeholder="e.g. Rack B-03, Warehouse 1"
-                      className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-semibold text-slate-800 focus:outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                      Receiving Notes & Inspection Remarks
-                    </label>
-                    <textarea
-                      rows={2}
                       value={grnNotes}
                       onChange={(e) => setGrnNotes(e.target.value)}
                       placeholder="Optional receiving remarks, batch/lot numbers..."
-                      className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-medium text-slate-800 focus:outline-none resize-none"
+                      className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-1.5 px-3 text-xs font-medium text-slate-800 focus:outline-none"
                     />
                   </div>
                 </div>
 
-                <div className="p-4 px-6 border-t border-slate-100 bg-slate-50/60 rounded-b-2xl flex items-center justify-end space-x-3 shrink-0">
+                <div className="py-3 px-5 border-t border-slate-100 bg-slate-50/60 rounded-b-2xl flex items-center justify-end space-x-3 shrink-0">
                   <button
                     type="button"
                     onClick={() => setShowGrnModal(false)}
-                    className="px-4 py-2 border border-slate-200 hover:bg-slate-100 text-slate-600 font-semibold rounded-xl text-xs transition cursor-pointer"
+                    className="px-4 py-1.5 border border-slate-200 hover:bg-slate-100 text-slate-600 font-semibold rounded-xl text-xs transition cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={grnSubmitting || activeCatalogProducts.length === 0}
-                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold rounded-xl text-xs transition shadow-xs flex items-center justify-center space-x-1.5 cursor-pointer"
+                    className="px-5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold rounded-xl text-xs transition shadow-xs flex items-center justify-center space-x-1.5 cursor-pointer"
                   >
                     <ArrowDownToLine className="w-4 h-4" />
                     <span>{grnSubmitting ? 'Processing GRN...' : 'Confirm & Receive Stock'}</span>
@@ -3376,7 +3432,7 @@ export default function ProductManager({
                     <option value="">-- Choose Product --</option>
                     {activeCatalogProducts.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {formatProductVariantSelectorLabel(p, activeCatalogProducts)} — Current On Hand: {p.stock_on_hand || 0} {p.unit || ''}
+                        {formatProductVariantSelectorLabel(p, activeCatalogProducts)}
                       </option>
                     ))}
                   </select>
@@ -3488,9 +3544,9 @@ export default function ProductManager({
 
         {/* Stock Movement Audit Ledger Modal */}
         {showLedgerModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-5xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
-              <div className="p-5 px-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50/50 dark:bg-slate-950/50">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-6xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+              <div className="p-4 px-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50/50 dark:bg-slate-950/50">
                 <div className="flex items-center space-x-3">
                   <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl border border-blue-100">
                     <History className="w-5 h-5" />
@@ -3518,7 +3574,7 @@ export default function ProductManager({
                 </button>
               </div>
 
-              <div className="p-4 px-6 border-b border-slate-100 bg-white grid grid-cols-1 sm:grid-cols-12 gap-3 shrink-0">
+              <div className="p-3.5 px-6 border-b border-slate-100 bg-white grid grid-cols-1 sm:grid-cols-12 gap-3 shrink-0">
                 <div className="sm:col-span-8 relative flex items-center">
                   <Search className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
                   <input
@@ -3546,7 +3602,7 @@ export default function ProductManager({
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-0">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden p-0">
                 {isLoadingMovements ? (
                   <div className="py-16 text-center text-slate-400 text-xs flex flex-col items-center justify-center space-y-2">
                     <span className="w-6 h-6 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin" />
@@ -3557,18 +3613,18 @@ export default function ProductManager({
                     No stock movements match the current filter.
                   </div>
                 ) : (
-                  <table className="w-full text-left border-collapse font-sans text-xs">
+                  <table className="w-full text-left border-collapse font-sans text-xs table-fixed">
                     <thead>
                       <tr className="border-b border-slate-200 text-[11px] font-semibold text-slate-500 select-none bg-slate-50/60 sticky top-0 z-10 backdrop-blur-xs">
-                        <th className="py-3 px-4">Date / Time</th>
-                        <th className="py-3 px-4">Type</th>
-                        <th className="py-3 px-4">Reference</th>
-                        <th className="py-3 px-4">Product Item</th>
-                        <th className="py-3 px-4 text-right">Quantity</th>
-                        <th className="py-3 px-4 text-center">On Hand (Prev → New)</th>
-                        <th className="py-3 px-4 text-right">Cost (AED)</th>
-                        <th className="py-3 px-4">Supplier / Context</th>
-                        <th className="py-3 px-4">User</th>
+                        <th className="py-2.5 px-3 w-[10%]">Date / Time</th>
+                        <th className="py-2.5 px-2.5 w-[12%]">Type</th>
+                        <th className="py-2.5 px-2.5 w-[13%]">Reference</th>
+                        <th className="py-2.5 px-3 w-[18%]">Product Item</th>
+                        <th className="py-2.5 px-2.5 w-[8%] text-right">Qty</th>
+                        <th className="py-2.5 px-2.5 w-[15%] text-center">Stock Balance Impact</th>
+                        <th className="py-2.5 px-2.5 w-[10%] text-right">Cost (AED)</th>
+                        <th className="py-2.5 px-2.5 w-[9%]">Context</th>
+                        <th className="py-2.5 px-3 w-[5%]">User</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -3578,9 +3634,16 @@ export default function ProductManager({
                         const isReserve = m.movement_type === 'STOCK_RESERVE';
                         const isRelease = m.movement_type === 'STOCK_RELEASE';
 
+                        const linkedProd = products.find((p) => p.id === m.product_id);
+                        const resolvedProductName =
+                          (m.product_name && m.product_name.trim()) ||
+                          linkedProd?.name ||
+                          linkedProd?.description ||
+                          (m.reference_number ? `Linked Project Item (${m.reference_number})` : 'Catalog Stock Item');
+
                         return (
                           <tr key={m.id || `${m.product_id}-${m.created_at}`} className="hover:bg-slate-50/50 transition">
-                            <td className="py-3 px-4 text-slate-500 font-mono whitespace-nowrap">
+                            <td className="py-2.5 px-3 text-slate-500 font-mono whitespace-nowrap text-[11px]">
                               {m.created_at ? new Date(m.created_at).toLocaleDateString() : '—'}
                               <span className="block text-[10px] text-slate-400">
                                 {m.created_at
@@ -3588,9 +3651,9 @@ export default function ProductManager({
                                   : ''}
                               </span>
                             </td>
-                            <td className="py-3 px-4 whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 whitespace-nowrap">
                               <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider inline-flex items-center space-x-1 ${
+                                className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider inline-flex items-center ${
                                   isStockIn
                                     ? 'bg-emerald-100 text-emerald-800'
                                     : isStockOut
@@ -3605,51 +3668,88 @@ export default function ProductManager({
                                 <span>{m.movement_type.replace('_', ' ')}</span>
                               </span>
                             </td>
-                            <td className="py-3 px-4 font-mono font-semibold text-slate-800 whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 font-mono font-semibold text-slate-800 truncate" title={m.reference_number || m.reference_id || ''}>
                               {m.reference_number || m.reference_id || '—'}
                               {m.delivery_note_ref && (
-                                <span className="block text-[10px] text-slate-400 font-normal">
+                                <span className="block text-[10px] text-slate-400 font-normal truncate">
                                   DN: {m.delivery_note_ref}
                                 </span>
                               )}
                             </td>
-                            <td className="py-3 px-4 text-slate-900 font-medium max-w-[180px] truncate" title={m.product_name}>
-                              {m.product_name}
+                            <td className="py-2.5 px-3 text-slate-900 font-medium truncate" title={resolvedProductName}>
+                              {resolvedProductName}
+                              {linkedProd?.sku && (
+                                <span className="block text-[10px] font-mono text-slate-400 truncate">
+                                  {linkedProd.sku}
+                                </span>
+                              )}
                             </td>
-                            <td className="py-3 px-4 text-right font-mono font-bold whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 text-right font-mono font-bold whitespace-nowrap">
                               <span
                                 className={
-                                  isStockIn || m.quantity > 0
+                                  isStockIn
                                     ? 'text-emerald-600'
-                                    : isStockOut || m.quantity < 0
+                                    : isStockOut
+                                    ? 'text-rose-600'
+                                    : isReserve
+                                    ? 'text-amber-700'
+                                    : isRelease
+                                    ? 'text-purple-700'
+                                    : m.quantity > 0
+                                    ? 'text-emerald-600'
+                                    : m.quantity < 0
                                     ? 'text-rose-600'
                                     : 'text-slate-700'
                                 }
                               >
-                                {isStockIn ? `+${m.quantity}` : isStockOut ? `-${m.quantity}` : m.quantity > 0 ? `+${m.quantity}` : m.quantity}
+                                {isStockIn
+                                  ? `+${m.quantity}`
+                                  : isStockOut
+                                  ? `-${Math.abs(m.quantity)}`
+                                  : isReserve
+                                  ? `${Math.abs(m.quantity)} Res.`
+                                  : isRelease
+                                  ? `${Math.abs(m.quantity)} Rel.`
+                                  : m.quantity > 0
+                                  ? `+${m.quantity}`
+                                  : m.quantity}
                               </span>
                             </td>
-                            <td className="py-3 px-4 text-center font-mono text-slate-500 whitespace-nowrap">
-                              <span className="text-slate-400">{m.previous_on_hand}</span>
-                              <span className="mx-1 text-slate-300">→</span>
-                              <span className="font-bold text-slate-800">{m.new_on_hand}</span>
+                            <td className="py-2.5 px-2.5 text-center font-mono text-slate-500 whitespace-nowrap">
+                              {isReserve ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold">
+                                  <span>Reserved +{Math.abs(m.quantity)}</span>
+                                  <span className="text-amber-600/80">(OH: {m.new_on_hand})</span>
+                                </span>
+                              ) : isRelease ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-50 text-purple-800 border border-purple-200 text-[10px] font-semibold">
+                                  <span>Released -{Math.abs(m.quantity)}</span>
+                                  <span className="text-purple-600/80">(OH: {m.new_on_hand})</span>
+                                </span>
+                              ) : (
+                                <>
+                                  <span className="text-slate-400">{m.previous_on_hand}</span>
+                                  <span className="mx-1 text-slate-300">→</span>
+                                  <span className="font-bold text-slate-800">{m.new_on_hand}</span>
+                                </>
+                              )}
                             </td>
-                            <td className="py-3 px-4 text-right font-mono font-semibold text-slate-700 whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 text-right font-mono font-semibold text-slate-700 whitespace-nowrap text-[11px]">
                               {m.total_cost !== undefined && m.total_cost > 0
                                 ? `AED ${m.total_cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                                 : m.unit_cost !== undefined && m.unit_cost > 0
                                 ? `AED ${(m.unit_cost * Math.abs(m.quantity)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                                 : '—'}
                             </td>
-                            <td className="py-3 px-4 text-slate-500 max-w-[200px] truncate" title={m.reason_notes || m.supplier_name}>
-                              <span className="font-medium text-slate-700 block truncate">
+                            <td className="py-2.5 px-2.5 text-slate-500 truncate" title={m.reason_notes || m.supplier_name || ''}>
+                              <span className="font-medium text-slate-700 block truncate text-[11px]">
                                 {m.supplier_name || m.reference_type || 'Internal'}
                               </span>
                               {m.reason_notes && (
                                 <span className="text-[10px] text-slate-400 block truncate">{m.reason_notes}</span>
                               )}
                             </td>
-                            <td className="py-3 px-4 text-slate-400 text-[11px] whitespace-nowrap">
+                            <td className="py-2.5 px-3 text-slate-400 text-[11px] truncate" title={m.created_by_name || 'System'}>
                               {m.created_by_name || 'System'}
                             </td>
                           </tr>
@@ -3660,14 +3760,14 @@ export default function ProductManager({
                 )}
               </div>
 
-              <div className="p-4 px-6 border-t border-slate-100 bg-slate-50/60 rounded-b-2xl flex items-center justify-between shrink-0">
+              <div className="p-3.5 px-6 border-t border-slate-100 bg-slate-50/60 rounded-b-2xl flex items-center justify-between shrink-0">
                 <span className="text-xs text-slate-400">
                   Displaying {filteredMovements.length} of {movements.length} total movement records
                 </span>
                 <button
                   type="button"
                   onClick={() => setShowLedgerModal(false)}
-                  className="px-4 py-2 border border-slate-200 hover:bg-slate-100 text-slate-600 font-semibold rounded-xl text-xs transition cursor-pointer"
+                  className="px-4 py-1.5 border border-slate-200 hover:bg-slate-100 text-slate-600 font-semibold rounded-xl text-xs transition cursor-pointer"
                 >
                   Close
                 </button>
