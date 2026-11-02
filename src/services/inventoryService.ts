@@ -261,10 +261,15 @@ export async function reserveEnquiryStock(
  */
 export async function releaseEnquiryStock(
   enquiry: Enquiry,
-  user?: UserProfile | { uid?: string; name?: string; full_name?: string; username?: string; email?: string }
+  user?: UserProfile | { uid?: string; name?: string; full_name?: string; username?: string; email?: string },
+  includeAllConfirmedOptions: boolean = false
 ): Promise<ReleaseResult> {
   const lineItems: LineItem[] = enquiry.line_items || [];
-  const requirements = extractEffectiveStockRequirements(lineItems, enquiry.proposal_option);
+  const requirements = extractEffectiveStockRequirements(
+    lineItems,
+    enquiry.proposal_option,
+    includeAllConfirmedOptions
+  );
   const result: ReleaseResult = {
     success: true,
     releasedCount: 0,
@@ -1123,4 +1128,104 @@ export async function processVendorReturnStockDeduction(
   }
 }
 
+/**
+ * Reconciles physical stock_on_hand when a Purchase Order (with received quantities)
+ * or Material Return Note (with deducted stock) is soft-deleted or restored.
+ */
+export async function reconcileProcurementDocumentStockOnLifecycleChange(
+  doc: Quotation,
+  action: 'soft_delete' | 'restore',
+  user?: User | null
+): Promise<{ adjustedCount: number; updatedProducts: Product[] }> {
+  const updatedProducts: Product[] = [];
+  let adjustedCount = 0;
 
+  if (!doc || !Array.isArray(doc.line_items) || doc.line_items.length === 0) {
+    return { adjustedCount: 0, updatedProducts: [] };
+  }
+
+  const isPO = doc.document_type === 'purchase_order';
+  const isMRN = doc.document_type === 'material_return_note';
+
+  if (!isPO && !isMRN) {
+    return { adjustedCount: 0, updatedProducts: [] };
+  }
+
+  if (isMRN && !doc.vendor_return_metadata?.stock_deducted) {
+    return { adjustedCount: 0, updatedProducts: [] };
+  }
+
+  const nowIso = new Date().toISOString();
+  const userUid = user?.uid || user?.id || 'system';
+  const userName = user?.displayName || user?.name || user?.email || 'System';
+  const docRef = doc.formatted_quote_ref || doc.id;
+
+  for (const item of doc.line_items) {
+    if (!item.product_id || item.item_type === 'charge' || item.item_type === 'discount') continue;
+
+    // For PO: only rollback/restore qty_received > 0
+    // For MRN: rollback/restore item.quantity > 0
+    const targetQty = isPO ? Number(item.qty_received) || 0 : Number(item.quantity) || 0;
+    if (targetQty <= 0) continue;
+
+    // soft_delete on PO -> deduct received stock (-targetQty)
+    // restore on PO -> re-add received stock (+targetQty)
+    // soft_delete on MRN -> restore returned stock (+targetQty)
+    // restore on MRN -> re-deduct returned stock (-targetQty)
+    const delta = isPO
+      ? action === 'soft_delete'
+        ? -targetQty
+        : targetQty
+      : action === 'soft_delete'
+      ? targetQty
+      : -targetQty;
+
+    const product = await fetchProductById(item.product_id);
+    if (!product) continue;
+
+    const prevOnHand = Number(product.stock_on_hand) || 0;
+    const prevReserved = Number(product.stock_reserved) || 0;
+    const newOnHand = Math.max(0, prevOnHand + delta);
+    const actualDelta = newOnHand - prevOnHand;
+
+    const updatedProduct: Product = {
+      ...product,
+      stock_on_hand: newOnHand,
+      updated_at: nowIso
+    };
+
+    await safeUpdateDoc('products', product.id, {
+      stock_on_hand: newOnHand,
+      updated_at: nowIso
+    });
+    updatedProducts.push(updatedProduct);
+
+    const movement: Omit<StockMovement, 'id'> = {
+      workspace_id: doc.workspace_id || product.workspace_id || 'default',
+      product_id: product.id,
+      product_code: product.product_code,
+      product_name: product.name,
+      movement_type: 'ADJUSTMENT',
+      quantity_delta: actualDelta,
+      previous_on_hand: prevOnHand,
+      new_on_hand: newOnHand,
+      previous_reserved: prevReserved,
+      new_reserved: prevReserved,
+      reference_type: isPO ? 'PO' : 'VENDOR_RETURN',
+      reference_id: doc.id,
+      reference_number: docRef,
+      unit_cost: Number(item.unit_price) || 0,
+      reason_notes: `${action === 'soft_delete' ? 'Soft-Delete Rollback' : 'Restore Re-Application'} for ${
+        isPO ? 'Purchase Order' : 'Material Return Note'
+      } (${docRef})`,
+      created_at: nowIso,
+      created_by_uid: userUid,
+      created_by_name: userName
+    };
+
+    await safeAddDoc('stock_movements', movement);
+    adjustedCount++;
+  }
+
+  return { adjustedCount, updatedProducts };
+}

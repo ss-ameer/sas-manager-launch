@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Project, Product, Workspace, UserProfile, LineItem, ProjectMilestone, Enquiry, Salesperson, Quotation, SupplierBill, getInitials } from '../types';
-import { dispatchProjectStock } from '../services/inventoryService';
+import { dispatchProjectStock, releaseEnquiryStock } from '../services/inventoryService';
 import { updateProjectStatus, updateProjectMetadata, softDeleteProject } from '../services/projectService';
 import { ProcurementRepository } from '../services/repositories/ProcurementRepository';
+import { canManageWorkspace, isAdmin } from '../utils/permissions';
 import { safeUpdateDoc, safeAddDoc, db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { PageHeader, PageBody, CardPanel, KpiStatCard } from './layout/UiContainer';
@@ -467,12 +468,15 @@ export default function ProjectRegistry({
     }
   };
 
+  const canViewConfidentialMargins =
+    canManageWorkspace(user, activeWorkspace) || isAdmin(user, activeWorkspace?.id, activeWorkspace);
+
   // Quick Status Transition
   const handleUpdateStatus = async (newStatus: Project['status']) => {
     if (!selectedProject?.id || isUpdatingStatus) return;
     setIsUpdatingStatus(true);
     try {
-      await updateProjectStatus(selectedProject.id, newStatus, user);
+      await updateProjectStatus(selectedProject.id, newStatus, user, selectedProject);
       const updated: Project = {
         ...selectedProject,
         status: newStatus,
@@ -481,9 +485,26 @@ export default function ProjectRegistry({
       if (setProjects) {
         setProjects((prev) => prev.map((p) => (p.id === selectedProject.id ? updated : p)));
       }
+      if (newStatus === 'Cancelled') {
+        if (selectedProject.enquiry_id && setEnquiries) {
+          setEnquiries((prev) =>
+            prev.map((e) =>
+              e.id === selectedProject.enquiry_id
+                ? { ...e, stock_reserved: false, stock_reserved_at: null }
+                : e
+            )
+          );
+        }
+        onStockUpdated?.();
+      }
       setSelectedProject(updated);
       if (triggerToast) {
-        triggerToast(`Project status updated to ${newStatus}`, 'success');
+        triggerToast(
+          newStatus === 'Cancelled'
+            ? 'Project cancelled and reserved warehouse stock released.'
+            : `Project status updated to ${newStatus}`,
+          'success'
+        );
       }
     } catch (err: any) {
       console.error('Failed to update status:', err);
@@ -503,55 +524,29 @@ export default function ProjectRegistry({
     if (!project?.id || isVoiding) return;
     setIsVoiding(true);
     const nowIso = new Date().toISOString();
-    const userName = user?.full_name || (user as any)?.username || user?.email || 'Operator';
-    const userUid = user?.uid;
 
     try {
-      // 1. Release reserved stock back to catalog for inventoried line items (if physical stock was not yet dispatched)
+      // 1. Release reserved stock back to catalog for inventoried line items & BOM sub-components (if physical stock was not yet dispatched)
       const didDeductStock = Boolean((project as any).stock_deducted);
       if (!didDeductStock && project.line_items && project.line_items.length > 0) {
-        for (const item of project.line_items) {
-          if (!item.product_id) continue;
-          try {
-            const prodRef = doc(db, 'products', item.product_id);
-            const prodSnap = await getDoc(prodRef);
-            if (prodSnap.exists()) {
-              const prodData = prodSnap.data() as Product;
-              if (prodData.is_inventoried) {
-                const currentReserved = Number(prodData.stock_reserved) || 0;
-                const qty = Number(item.quantity) || 0;
-                const newReserved = Math.max(0, currentReserved - qty);
-                await safeUpdateDoc('products', item.product_id, {
-                  stock_reserved: newReserved,
-                  updatedAt: nowIso
-                });
+        const enquiryForRelease: Enquiry = {
+          id: project.enquiry_id || project.id,
+          workspace_id: activeWorkspace.id,
+          company_name: project.client_name,
+          quote_ref_no: project.project_number,
+          subject: project.title,
+          line_items: project.line_items,
+          stock_reserved: true
+        } as any;
 
-                // Update local products state if provided
-                if (setProducts) {
-                  setProducts(prev => prev.map(p => p.id === item.product_id ? { ...p, stock_reserved: newReserved } : p));
-                }
-
-                // Add immutable stock movement audit record
-                await safeAddDoc('stock_movements', {
-                  product_id: item.product_id,
-                  workspace_id: activeWorkspace.id,
-                  movement_type: 'STOCK_RELEASE',
-                  quantity: qty,
-                  previous_on_hand: Number(prodData.stock_on_hand) || 0,
-                  new_on_hand: Number(prodData.stock_on_hand) || 0,
-                  reference_type: 'PROJECT_VOID',
-                  reference_id: project.id,
-                  reference_number: project.project_number,
-                  reason_notes: `Stock reservation released: Project #${project.project_number} voided/cancelled by ${userName}`,
-                  created_at: nowIso,
-                  created_by_uid: userUid,
-                  created_by_name: userName
-                });
-              }
-            }
-          } catch (stockErr) {
-            console.warn(`[handleConfirmVoidProject] Failed releasing stock for product ${item.product_id}:`, stockErr);
-          }
+        const relResult = await releaseEnquiryStock(enquiryForRelease, user, true);
+        if (setProducts && relResult.details.length > 0) {
+          const updatedMap = new Map(relResult.details.map((d) => [d.productId, d.newReserved]));
+          setProducts((prev) =>
+            prev.map((p) =>
+              p.id && updatedMap.has(p.id) ? { ...p, stock_reserved: updatedMap.get(p.id)! } : p
+            )
+          );
         }
       }
 
@@ -1215,8 +1210,8 @@ export default function ProjectRegistry({
                 </div>
               </div>
 
-              {/* Project Procurement, GRN & Realized Net Margin Rollup */}
-              {(() => {
+              {/* Project Procurement, GRN & Realized Net Margin Rollup (Gated to Workspace Admins/Managers - DEF-17) */}
+              {canViewConfidentialMargins && (() => {
                 const estCatalogCost = (selectedProject.line_items || []).reduce((s, li) => {
                   const qty = Number(li.quantity) || 1;
                   const prod = li.product_id ? productMap.get(li.product_id) : null;

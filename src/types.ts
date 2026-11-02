@@ -1143,18 +1143,16 @@ export interface IndustryTaxonomySector {
 }
 
 export const CATEGORY_SUGGESTED_ATTRIBUTES: Record<string, string[]> = {
-  'FRP Tanks': ['Brand / Make', 'Diameter', 'Height', 'Volume', 'Design Pressure'],
-  'FRP Vessels': ['Brand / Make', 'Model', 'Top/Bottom Opening', 'Volume'],
-  'Pressure Vessels': ['Brand / Make', 'Shell Material', 'Design Temp', 'Volume'],
-  'RO Membranes': ['Brand / Make', 'Membrane Type', 'Active Area', 'Flow Rate', 'Salt Rejection'],
-  'RO Housing': ['Brand / Make', 'Ports', 'Element Capacity', 'Max Pressure'],
-  'Cartridge Filters': ['Brand / Make', 'Micron Rating', 'Length', 'Material', 'Core Material'],
-  'Dosing Pumps': ['Brand / Make', 'Flow Rate', 'Pressure', 'Voltage', 'Control Type'],
-  'MBBR Media': ['Brand / Make', 'Specific Surface Area', 'Void Ratio', 'Density', 'Material'],
-  'Filter Media': ['Brand / Make', 'Media Type', 'Effective Size', 'Uniformity Coefficient', 'Specific Gravity'],
-  'Tube Settler Media': ['Brand / Make', 'Chamber Length', 'Slope Angle', 'Material'],
-  'Chemicals': ['Brand / Make', 'Form', 'Concentration', 'Packaging Type'],
+  'General Equipment': ['Brand / Make', 'Model', 'Capacity / Rating', 'Material / Grade', 'Dimensions'],
+  'Instrumentation & Controls': ['Brand / Make', 'Model', 'Signal / Protocol', 'Voltage', 'Enclosure Rating'],
+  'Hardware & Fasteners': ['Brand / Make', 'Size / Dimension', 'Material Grade', 'Connection Type', 'Pressure Rating'],
+  'Consumables & Spares': ['Brand / Make', 'Part Number', 'Specification', 'Packaging Unit'],
+  'Custom Fabrication': ['Brand / Make', 'Material Grade', 'Surface Finish', 'Dimensions', 'Drawing Ref'],
+  'Turnkey / Services': ['Scope Reference', 'Duration / Lead Time', 'Warranty', 'Location'],
   'Valves': ['Brand / Make', 'Size', 'Body Material', 'Actuator Type', 'Connection Type'],
+  'Pressure Vessels': ['Brand / Make', 'Shell Material', 'Design Temp', 'Volume', 'Design Pressure'],
+  'Dosing Pumps': ['Brand / Make', 'Flow Rate', 'Pressure', 'Voltage', 'Control Type'],
+  'Chemicals': ['Brand / Make', 'Form', 'Concentration', 'Packaging Type'],
   'Frames/Fabrication': ['Brand / Make', 'Material Grade', 'Surface Finish', 'Dimensions'],
   'Various': ['Brand / Make', 'Model/Specification'],
   'Other': ['Brand / Make', 'Specification']

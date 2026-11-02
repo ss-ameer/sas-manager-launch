@@ -1205,9 +1205,9 @@ export default function SettingsHub({
                                   setSeqResetCadence('never');
                                 }}
                                 className="px-2 py-0.5 text-[10px] font-semibold font-mono rounded bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 transition"
-                                title="Aventura: {SEQ}-{DD}{MM}{YY}"
+                                title="Standard Sequence: {SEQ}-{DD}{MM}{YY}"
                               >
-                                Aventura Standard
+                                Enterprise Standard
                               </button>
                             </div>
                           </div>

@@ -1,5 +1,5 @@
 import { Project, ProjectMilestone, Enquiry, UserProfile } from '../types';
-import { safeAddDoc, safeDeleteDoc, safeGetDocs, safeUpdateDoc } from '../firebase';
+import { safeAddDoc, safeDeleteDoc, safeGetDoc, safeGetDocs, safeUpdateDoc } from '../firebase';
 import { where } from 'firebase/firestore';
 import { reserveEnquiryStock, releaseEnquiryStock, isOptionActiveForInventoryAndBaseline } from './inventoryService';
 
@@ -253,11 +253,50 @@ export async function getDeletedWorkspaceProjects(workspaceId: string): Promise<
 export async function updateProjectStatus(
   projectId: string,
   status: Project['status'],
-  user?: any
+  user?: any,
+  projectData?: Project | null
 ): Promise<boolean> {
   if (!projectId) return false;
   const nowIso = new Date().toISOString();
   try {
+    let targetProject: Project | null = projectData || null;
+    if (!targetProject && status === 'Cancelled') {
+      try {
+        const snap = await safeGetDoc('projects', projectId);
+        if (snap && snap.exists()) {
+          targetProject = { id: snap.id, ...(snap.data() as Project) };
+        }
+      } catch (_) {}
+    }
+
+    // DEF-20: When transitioning a project to 'Cancelled' before physical dispatch, release all reserved stock (including BOM sub-components)
+    if (status === 'Cancelled' && targetProject && !Boolean((targetProject as any).stock_deducted)) {
+      const enquiryForRelease: Enquiry = {
+        id: targetProject.enquiry_id || targetProject.id || projectId,
+        workspace_id: targetProject.workspace_id,
+        company_name: targetProject.client_name,
+        quote_ref_no: targetProject.project_number,
+        subject: targetProject.title,
+        line_items: targetProject.line_items || [],
+        stock_reserved: true
+      } as any;
+
+      try {
+        await releaseEnquiryStock(enquiryForRelease, user || undefined, true);
+      } catch (relErr) {
+        console.warn('[updateProjectStatus] Non-critical warning releasing stock on project cancellation:', relErr);
+      }
+
+      if (targetProject.enquiry_id) {
+        await safeUpdateDoc('enquiries', targetProject.enquiry_id, {
+          project_status: 'Cancelled',
+          stock_reserved: false,
+          stock_reserved_at: null,
+          updatedAt: nowIso
+        }).catch(() => {});
+      }
+    }
+
     const payload: Partial<Project> = {
       status,
       updated_at: nowIso
@@ -314,9 +353,9 @@ export async function softDeleteProject(
       stock_reserved: true
     } as any);
 
-    if (project.status !== 'Delivered' && project.status !== 'Completed') {
+    if (project.status !== 'Delivered' && project.status !== 'Completed' && !Boolean((project as any).stock_deducted)) {
       try {
-        await releaseEnquiryStock(enquiryForRelease, user || undefined);
+        await releaseEnquiryStock(enquiryForRelease, user || undefined, true);
       } catch (stockErr) {
         console.warn('Non-critical warning releasing stock during project soft-delete:', stockErr);
       }

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone, Product, LineItem, QuotationLineItem, DropdownOption, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource, PIPELINE_STATUS_GROUPS } from '../types';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { safeUpdateDoc, safeAddDoc } from '../firebase';
-import { isRecordOwner, getUserWorkspaceRole, canManageEnquirySharing, canEditEnquiry, canDeleteEnquiry, isCreatorOnlyViewer } from '../utils/permissions';
+import { isRecordOwner, getUserWorkspaceRole, canManageEnquirySharing, canEditEnquiry, canDeleteEnquiry, isCreatorOnlyViewer, canManageWorkspace, isAdmin } from '../utils/permissions';
 import TemperatureBadge from './TemperatureBadge';
 import { IndustryBadge } from '../utils/taxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
@@ -2629,10 +2629,50 @@ export default function EnquiryDetail({
   const isOwnerOrAttributed = isRecordOwner(user, currentEnquiry);
   const isMaskedForBasic = isBasicTier && !isOwnerOrAttributed;
   const isCreatorOnly = isCreatorOnlyViewer(user, currentEnquiry, activeWorkspace, salespersons);
+  const canViewConfidentialMargins =
+    canManageWorkspace(user, activeWorkspace) || isAdmin(user, activeWorkspace?.id, activeWorkspace);
 
   const handleReleaseCreatorAccess = async () => {
     const enquiryId = currentEnquiry.id || (currentEnquiry as any)._id;
     if (!enquiryId) return;
+
+    // DEF-19 Guard: Verify the enquiry has a valid assigned salesperson linked to a workspace member/profile before releasing creator access
+    const assignedSpId = resolveSalespersonIdentifier(currentEnquiry).trim().toLowerCase();
+    const assignedSpName = resolveSalespersonName(currentEnquiry).trim().toLowerCase();
+    const matchedRep = (salespersons || []).find((sp) => {
+      if (!sp) return false;
+      const id = (sp.id || '').trim().toLowerCase();
+      const uid = (sp.uid || sp.userId || sp.linked_user_id || '').trim().toLowerCase();
+      const initials = (sp.initials || '').trim().toLowerCase();
+      const fullName = (sp.full_name || sp.name || '').trim().toLowerCase();
+      return (
+        (assignedSpId && (assignedSpId === id || assignedSpId === uid || assignedSpId === initials)) ||
+        (assignedSpName && (assignedSpName === fullName || assignedSpName === initials || assignedSpName === id))
+      );
+    });
+
+    const hasLinkedMember = Boolean(
+      matchedRep &&
+        (matchedRep.uid ||
+          matchedRep.userId ||
+          matchedRep.linked_user_id ||
+          matchedRep.email ||
+          matchedRep.initials ||
+          matchedRep.id) &&
+        assignedSpName !== 'unassigned' &&
+        assignedSpId !== 'unassigned'
+    );
+
+    if (!hasLinkedMember) {
+      if (triggerToast) {
+        triggerToast(
+          'Cannot hand over ownership: Please assign a valid workspace Sales Representative to this enquiry first so it is not stranded.',
+          'error'
+        );
+      }
+      return;
+    }
+
     const nowIso = new Date().toISOString();
     try {
       const patch: Partial<Enquiry> = {
@@ -3480,9 +3520,10 @@ export default function EnquiryDetail({
                   </div>
                 </div>
 
-                {/* Procurement Cost & Realized Net Margin Rollup Strip */}
-                {(enquiryProcurementRollup.linkedPos.length > 0 ||
-                  enquiryProcurementRollup.linkedBills.length > 0) && (
+                {/* Procurement Cost & Realized Net Margin Rollup Strip (Gated to Workspace Admins/Managers - DEF-17) */}
+                {canViewConfidentialMargins &&
+                  (enquiryProcurementRollup.linkedPos.length > 0 ||
+                    enquiryProcurementRollup.linkedBills.length > 0) && (
                   <div className="p-3 rounded-xl bg-white border border-indigo-200/80 shadow-2xs grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
                     <div>
                       <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">

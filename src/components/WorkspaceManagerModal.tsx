@@ -1280,7 +1280,7 @@ export default function WorkspaceManagerModal({
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Aventura Trading LLC or Service Ops"
+                  placeholder="e.g. Apex Industrial Solutions LLC"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
                 />
               </div>

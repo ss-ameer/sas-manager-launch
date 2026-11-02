@@ -1082,47 +1082,46 @@ export default function EnquiryForm({
   const [rawTextModalOpen, setRawTextModalOpen] = useState(false);
   const [rawTextInput, setRawTextInput] = useState('');
 
-  const SAMPLE_EXCEL_ROW = `2792\t2751-300626AA\tJul-2026\t29/06/2026\tPV\tAquaEnviro Solutions\tMukesh Katara\tmukesh.katara@aquaenvirosolutions.com\t\t+971 55 267 0574\tUAE\tDubai\tEMAIL\tFRP Filter Vessels, Graded Sand Media and Frontal Piping, Fittings, Valve and Frame\t"FRP Filter Vessel
+  const SAMPLE_EXCEL_ROW = `2792\t2751-300626AA\tJul-2026\t29/06/2026\tPV\tApex Industrial Solutions LLC\tRajesh Menon\trajesh.menon@apexindustrial.com\t\t+971 55 267 0574\tUAE\tDubai\tEMAIL\tCommercial Control Units, Modular Assembly Package and Actuated Valve Manifold\t"Commercial Control Unit
 Quantity 05 Nos.
 
 10 Weeks from Order and advance payment
 
-Model 63” x 67” (Dia x Height)
-Arrangements 04 Duty + 01 SB
-Type Vertical
-MOC FRP
-Design Pressure 10.5 Bar
-Operation Automatic
-Accessories 2 x 6” Top and Bottom Distributor, 1 x Vacuum Breaker, 2 x Flange Kits 6”x3”
-Manufacturing Standard: Manufactured to USA-ASME Standard
-Make Aventura
+Model CCU-6300 (Heavy Duty)
+Arrangements 04 Duty + 01 Standby
+Type Vertical Skid-Mounted
+Enclosure Grade SS316L / IP65
+Design Rating 10.5 Bar
+Operation Automatic PLC
+Accessories Dual Manifold Header, Pressure Relief Assembly, Flanged Connection Kit
+Manufacturing Standard: ISO 9001 / ASME Compliant
+Make OEM Standard
 
-Special Iron Removal Media DMI65
+Auxiliary Sensor Module
 Quantity 5 Sets - Client Scope
 
-Support Sand Media
-Quantity 5 Sets (1300 Kg per Tank)
-Sizes: Coarse Sand 1-2mm – 250Kg, Coarse Sand 2-3mm – 250Kg, Gravel 5-10mm – 800Kg
-Make Aquafil (UAE)
+Consumables & Spares Kit
+Quantity 5 Sets
+Contents: Primary Seal Set, Calibration Kit, Mounting Hardware
+Make Standard OEM
 
-Automatic Butterfly Valves – 3”
-Quantity 15 Nos. (Duty) 4 per Vessel
-Make FIP
+Actuated Isolation Valves – DN80
+Quantity 15 Nos. (Duty)
+Make Georg Fischer
 
-Automatic Backwash Butterfly Valves – 4”
-Quantity 10 Nos. (Duty) 2 per Vessel
-Make FIP
+Pneumatic Bypass Valves – DN100
+Quantity 10 Nos. (Duty)
+Make Georg Fischer
 
-MMF Frontal Frame
+Modular Skid Frame & Instrumentation Header
 Quantity 05 Sets (Duty)
-Size As per Design, Type Fabricated, MOC MSEP, Main Header 4” uPVC Pipeline Termination, Connections Flanged, Pressure Gauges 15 Nos. - Wika, Make Aventura
-
+Size As per Design, Type Fabricated Skid, Material Coated Carbon Steel, Main Header DN100 Flanged Termination, Pressure Gauges 15 Nos. - Wika
 PRICE & COMMERCIAL TERMS
 Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
-1 FRP Filter Vessel 63”x67” Design Pressure: 10.5 Bar Manufactured to USA-ASME Standard Brand: Aventura Ex-Works UAE Basis 05 Nos. 12,500.00 62,500.00
-2 Special Iron Removal Media DMI65 (CLIENT SCOPE) 05 Set NA NA
-3 Graded Sand Media Ex-Works UAE Basis 05 Set 1,500.00 7,500.00
-4 Electric Actuated Butterfly Valves with uPVC Plumbing, Butterfly valves, Pressure Gauges and Frontal Frame MSEP Tubes assembled locally by Aventura 05 Set 23,100.00 115,500.00"\t195,500.00`;
+1 Commercial Control Unit Model CCU-6300 Design Rating: 10.5 Bar Ex-Works UAE Basis 05 Nos. 12,500.00 62,500.00
+2 Auxiliary Sensor Module (CLIENT SCOPE) 05 Set NA NA
+3 Consumables & Spares Kit Ex-Works UAE Basis 05 Set 1,500.00 7,500.00
+4 Actuated Isolation Valves with Manifold Piping, Pressure Gauges and Modular Skid Frame 05 Set 23,100.00 115,500.00"\t195,500.00`;
 
   // Currency of this individual Enquiry (AED or USD)
   const [formCurrency, setFormCurrency] = useState<'AED' | 'USD'>('AED');
@@ -2531,13 +2530,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           }
 
           // Company Name (contains company keywords or legal suffixes)
-          if (!extractedCompany && /\b(solutions|llc|fze|fzc|ltd|co\.|trading|est|wll|projects|services|engineering|industries|systems|group|aquaenviro)\b/i.test(p)) {
+          if (!extractedCompany && /\b(solutions|llc|fze|fzc|ltd|co\.|trading|est|wll|projects|services|engineering|industries|systems|group|enterprise|global)\b/i.test(p)) {
             extractedCompany = p;
             continue;
           }
 
           // Contact Name (2 capitalized words, not email, phone, or quote ref)
-          if (!extractedContact && /^[A-[Z][a-z]+\s+[A-Z][a-z]+$/.test(p) && p !== extractedCompany && !p.includes('@')) {
+          if (!extractedContact && /^[A-Z][a-z]+\s+[A-Z][a-z]+$/.test(p) && p !== extractedCompany && !p.includes('@')) {
             extractedContact = p;
             continue;
           }
@@ -2574,19 +2573,19 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       // Line items intelligent parser
       const lineItemsArr: any[] = [];
-      const itemBlocks = clean.split(/(?=(?:FRP Filter|Graded Sand|Butterfly Valves|Media|Vessel|Filter|Piping|Pump|Membrane))/i);
+      const itemBlocks = clean.split(/(?=(?:Commercial Control|Modular Assembly|Consumables|Actuated|Isolation Valve|Control Unit|Skid Frame|Assembly|Pump|Valve|Equipment|Module))/i);
 
       if (itemBlocks.length > 1) {
         itemBlocks.forEach((block) => {
           const trimmed = block.trim();
           if (trimmed.length < 5) return;
 
-          let productType = 'General';
-          if (/frp|vessel/i.test(trimmed)) productType = 'FRP Vessels';
-          else if (/media|sand|gravel|pebble|anthracite|garnet/i.test(trimmed)) productType = 'Filter Media';
-          else if (/valve/i.test(trimmed)) productType = 'Valves';
-          else if (/membrane/i.test(trimmed)) productType = 'RO Membranes';
-          else if (/housing|cartridge/i.test(trimmed)) productType = 'Cartridge Filters';
+          let productType = 'General Equipment';
+          if (/control|instrument|sensor|plc/i.test(trimmed)) productType = 'Instrumentation & Controls';
+          else if (/consumable|spare|seal|kit/i.test(trimmed)) productType = 'Consumables & Spares';
+          else if (/valve|manifold|flange|fastener/i.test(trimmed)) productType = 'Hardware & Fasteners';
+          else if (/frame|skid|fabrication/i.test(trimmed)) productType = 'Custom Fabrication';
+          else if (/service|commissioning|turnkey/i.test(trimmed)) productType = 'Turnkey / Services';
 
           const qtyMatch = trimmed.match(/(?:quantity|qty|nos\.?|sets?)\s*:?\s*(\d+)/i) || trimmed.match(/(\d+)\s*(?:nos|pcs|set|kg|mtr|lot)/i);
           const qty = qtyMatch ? Number(qtyMatch[1]) : 1;
@@ -4898,7 +4897,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. RO Supply and Commissioning"
+                  placeholder="e.g. Equipment Supply & Commissioning"
                   value={subject || ''}
                   onChange={(e) => setSubject(e.target.value)}
                   className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans ${getHighlightClasses('subject')}`}

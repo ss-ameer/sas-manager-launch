@@ -70,19 +70,19 @@ Your job is to analyze the uploaded document or copy-pasted raw text (which may 
 HIGH-PRECISION EXTRACTION RULES FOR ENTITIES & CONTACTS:
 1. COMPANY NAME & SUBJECT:
    - Search headers, "To:", "Client:", "Customer:", "Messrs:", letterheads, signature blocks, and tabular text.
-   - Look for corporate names like "AquaEnviro Solutions", "Al Reef Projects LLC", "Aventura", "Gulf Engineering Services".
+   - Look for corporate names like "Apex Industrial Solutions LLC", "Al Reef Projects LLC", "Gulf Engineering Services", "Meridian Systems FZE".
    - Extract the legal entity name as company_name and clean suffix (LLC, FZE, FZC, Co. LLC, Ltd, W.L.L., Est., etc.) into legal_suffix.
-   - subject: Extract the exact Subject line of the email, RFQ, or document if present (e.g., "SUBJECT: AIR DIFFUSERS FOR MITROAN DELHI PROJECT").
+   - subject: Extract the exact Subject line of the email, RFQ, or document if present (e.g., "SUBJECT: INDUSTRIAL CONTROL UNITS FOR PHASE II EXPANSION").
 
 2. CONTACT PERSON, EMAIL & PHONE NUMBER:
    - contact_name: Search "Attn:", "Attention:", "Kind Attn:", "Contact Person:", "Name:", "Mr.", "Ms.", "Eng.".
    - contact_designation: Extract the exact job title or role of the contact person (e.g., "General Manager - Sales & Projects", "Procurement Engineer").
-   - contact_email: Extract valid email addresses (e.g. mukesh.katara@aquaenvirosolutions.com, purchase@arpco.ae). DO NOT leave empty if an email appears anywhere in the text or signature.
+   - contact_email: Extract valid email addresses (e.g. rajesh.menon@apexindustrial.com, purchase@arpco.ae). DO NOT leave empty if an email appears anywhere in the text or signature.
    - contact_phone: Extract mobile or landline numbers (e.g. "+971 55 267 0574", "+971 2 5591110", "050-1234567"). DO NOT leave empty if a phone/mobile string is present.
 
 3. CUSTOM ATTRIBUTE KEY-VALUE PAIRS FOR LINE ITEMS:
-   - For every line item, extract ALL technical specifications, model specs, materials, and parameters into the 'attributes' array as explicit key-value objects: [{ "key": "Model", "value": "63\\" x 67\\"" }, { "key": "Make", "value": "Aventura" }, { "key": "Design Pressure", "value": "10.5 Bar" }, { "key": "MOC", "value": "FRP" }].
-   - Common Attribute Keys to extract when found: "Model", "Make / Brand", "Design Pressure", "Dimensions", "MOC / Material", "Operation", "Flow Rate", "Application", "Standard", "Lead Time / Delivery".
+   - For every line item, extract ALL technical specifications, model specs, materials, and parameters into the 'attributes' array as explicit key-value objects: [{ "key": "Model", "value": "CCU-6300" }, { "key": "Make", "value": "OEM Standard" }, { "key": "Design Rating", "value": "10.5 Bar" }, { "key": "Material", "value": "SS316L" }].
+   - Common Attribute Keys to extract when found: "Model", "Make / Brand", "Design Rating", "Dimensions", "Material / Grade", "Operation", "Capacity", "Application", "Standard", "Lead Time / Delivery".
    - BOTH 'key' and 'value' strings MUST be non-empty strings for each attribute object.
 
 4. RAW EXCEL TAB-DELIMITED ROWS & COPY-PASTED TEXT RULES:
@@ -92,9 +92,9 @@ HIGH-PRECISION EXTRACTION RULES FOR ENTITIES & CONTACTS:
      * Field 3 (Listed): Month e.g. "Jul-2026".
      * Field 4 (Received Date): Convert to YYYY-MM-DD (e.g. "29/06/2026" -> "2026-06-29").
      * Field 5 (Sales Person): salesperson (e.g. "PV").
-     * Field 6 (Customer Name): company_name (e.g. "AquaEnviro Solutions").
-     * Field 7 (Contact Person): contact_name (e.g. "Mukesh Katara").
-     * Field 8 (Email): contact_email (e.g. "mukesh.katara@aquaenvirosolutions.com").
+     * Field 6 (Customer Name): company_name (e.g. "Apex Industrial Solutions LLC").
+     * Field 7 (Contact Person): contact_name (e.g. "Rajesh Menon").
+     * Field 8 (Email): contact_email (e.g. "rajesh.menon@apexindustrial.com").
      * Field 9 (Landline): Landline e.g. "+971 2 5591110".
      * Field 10 (Mobile): contact_phone (e.g. "+971 55 267 0574").
      * Field 11 (Country): country e.g. "UAE".
@@ -106,7 +106,7 @@ HIGH-PRECISION EXTRACTION RULES FOR ENTITIES & CONTACTS:
 
 5. CLASSIFICATION OF LINE ITEMS (PRODUCT VS. CHARGE / SERVICE / DISCOUNT):
    - Every line item MUST be classified by 'item_type': 'product' | 'charge' | 'discount'.
-   - Assign 'item_type': 'product' for physical components, equipment, or materials (e.g. Membranes, FRP Vessels, Pumps, Valves, Filters, Chemicals, Sand Media). Set 'product_type' to the specific product category name.
+   - Assign 'item_type': 'product' for physical components, equipment, or materials (e.g. Control Units, Industrial Pumps, Actuated Valves, Sensors, Modular Skids, Spares Kits). Set 'product_type' to the specific product category name.
    - Assign 'item_type': 'charge' for non-product fees such as transportation, freight, delivery, installation, testing, commissioning, customs clearance, or mobilization. Set 'charge_type' (e.g. "Transportation", "Installation", "Customs", "Other Charge") and set 'product_type' to "Service / Charge".
    - Assign 'item_type': 'discount' for price deductions or commercial discounts. Set 'charge_type' to "Discount".
 
@@ -122,19 +122,19 @@ HIGH-PRECISION EXTRACTION RULES FOR ENTITIES & CONTACTS:
 
 8. FEW-SHOT TRAINING EXAMPLES FOR ACCURATE EXTRACTION:
    Example Input:
-   "2792\\t2751-300626AA\\tJul-2026\\t29/06/2026\\tPV\\tAquaEnviro Solutions\\tMukesh Katara\\tmukesh.katara@aquaenvirosolutions.com\\t\\t+971 55 267 0574\\tUAE\\tDubai\\tEMAIL\\tFRP Filter Vessels...\\t\\"PRICE & COMMERCIAL TERMS\\n1 FRP Filter Vessel 63”x67” 05 Nos. 12,500.00 62,500.00\\n2 Transportation 01 LS 100.00 100.00\\"\\t195,500.00"
+   "2792\\t2751-300626AA\\tJul-2026\\t29/06/2026\\tPV\\tApex Industrial Solutions LLC\\tRajesh Menon\\trajesh.menon@apexindustrial.com\\t\\t+971 55 267 0574\\tUAE\\tDubai\\tEMAIL\\tGeneral Equipment...\\t\\"PRICE & COMMERCIAL TERMS\\n1 Commercial Control Unit CCU-6300 05 Nos. 12,500.00 62,500.00\\n2 Transportation 01 LS 100.00 100.00\\"\\t195,500.00"
    Output Mapping:
    - quote_ref_no: "2751-300626AA"
-   - company_name: "AquaEnviro Solutions"
-   - contact_name: "Mukesh Katara"
-   - contact_email: "mukesh.katara@aquaenvirosolutions.com"
+   - company_name: "Apex Industrial Solutions LLC"
+   - contact_name: "Rajesh Menon"
+   - contact_email: "rajesh.menon@apexindustrial.com"
    - contact_phone: "+971 55 267 0574"
    - country: "UAE"
    - project_location: "Dubai"
    - package_value: 195500.00
    - line_items: [
-       { item_type: "product", product_type: "FRP Filter Vessels", description: "FRP Filter Vessel 63”x67” Design Pressure 10.5 Bar", quantity: 5, unit: "Nos", unit_price_aed: 12500, attributes: [{ key: "Model", value: "63\\" x 67\\"" }] },
-       { item_type: "charge", charge_type: "Transportation", product_type: "Service / Charge", description: "Transportation - Up to Muscat Transporter warehouse in Muscat", quantity: 1, unit: "LS", unit_price_aed: 100, attributes: [] }
+       { item_type: "product", product_type: "General Equipment", description: "Commercial Control Unit CCU-6300 Design Rating 10.5 Bar", quantity: 5, unit: "Nos", unit_price_aed: 12500, attributes: [{ key: "Model", value: "CCU-6300" }] },
+       { item_type: "charge", charge_type: "Transportation", product_type: "Service / Charge", description: "Transportation - Standard Delivery to Client Site", quantity: 1, unit: "LS", unit_price_aed: 100, attributes: [] }
      ]
 
 Extract the details accurately into the requested JSON format.${salespersonExclusionPrompt}\n\n${JSON_FORMAT}`;

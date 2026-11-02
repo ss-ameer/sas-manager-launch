@@ -1585,9 +1585,73 @@ export class QuotationRepository {
     }
 
     if (
+      existing.document_type === 'purchase_order' ||
+      existing.document_type === 'material_return_note'
+    ) {
+      try {
+        const isPO = existing.document_type === 'purchase_order';
+        const shouldAdjust = isPO
+          ? (existing.line_items || []).some((it) => (Number(it.qty_received) || 0) > 0 && Boolean(it.product_id))
+          : Boolean(existing.vendor_return_metadata?.stock_deducted);
+
+        if (shouldAdjust) {
+          for (const item of existing.line_items || []) {
+            if (!item.product_id || item.item_type === 'charge' || item.item_type === 'discount') continue;
+            const targetQty = isPO ? Number(item.qty_received) || 0 : Number(item.quantity) || 0;
+            if (targetQty <= 0) continue;
+
+            // soft_delete on PO deducts received stock; soft_delete on MRN restores deducted stock
+            const delta = isPO ? -targetQty : targetQty;
+            const prodSnap = await safeGetDoc('products', item.product_id);
+            let prodData: any = prodSnap && prodSnap.exists() ? { id: prodSnap.id, ...prodSnap.data() } : null;
+            if (!prodData) {
+              const localProds = (await getFromLocalStore<any>('products')) || [];
+              prodData = localProds.find((p: any) => p.id === item.product_id) || null;
+            }
+            if (!prodData) continue;
+
+            const prevOnHand = Number(prodData.stock_on_hand) || 0;
+            const prevReserved = Number(prodData.stock_reserved) || 0;
+            const newOnHand = Math.max(0, prevOnHand + delta);
+            const actualDelta = newOnHand - prevOnHand;
+
+            await safeUpdateDoc('products', item.product_id, {
+              stock_on_hand: newOnHand,
+              updated_at: now
+            });
+
+            await safeAddDoc('stock_movements', {
+              workspace_id: existing.workspace_id || prodData.workspace_id || 'default',
+              product_id: item.product_id,
+              product_code: prodData.product_code || '',
+              product_name: prodData.name || item.description || 'Catalog Item',
+              movement_type: 'ADJUSTMENT',
+              quantity_delta: actualDelta,
+              previous_on_hand: prevOnHand,
+              new_on_hand: newOnHand,
+              previous_reserved: prevReserved,
+              new_reserved: prevReserved,
+              reference_type: isPO ? 'PO' : 'VENDOR_RETURN',
+              reference_id: existing.id,
+              reference_number: existing.formatted_quote_ref || existing.id,
+              unit_cost: Number(item.unit_price) || 0,
+              reason_notes: `Soft-Delete Stock Rollback for ${isPO ? 'Purchase Order' : 'Material Return Note'} (${existing.formatted_quote_ref || existing.id})`,
+              created_at: now,
+              created_by_uid: deletedById || 'system',
+              created_by_name: deletedByName || 'System'
+            });
+          }
+        }
+      } catch (stockErr) {
+        console.warn('[QuotationRepository] Non-fatal: stock rollback on procurement doc soft-delete failed:', stockErr);
+      }
+    }
+
+    if (
       (existing.document_type === 'payment_voucher' ||
         existing.document_type === 'debit_note' ||
-        existing.document_type === 'material_return_note') &&
+        existing.document_type === 'material_return_note' ||
+        existing.document_type === 'purchase_order') &&
       this.onProcurementDocLifecycleChange
     ) {
       try {
@@ -1646,9 +1710,73 @@ export class QuotationRepository {
     }
 
     if (
+      existing.document_type === 'purchase_order' ||
+      existing.document_type === 'material_return_note'
+    ) {
+      try {
+        const isPO = existing.document_type === 'purchase_order';
+        const shouldAdjust = isPO
+          ? (existing.line_items || []).some((it) => (Number(it.qty_received) || 0) > 0 && Boolean(it.product_id))
+          : Boolean(existing.vendor_return_metadata?.stock_deducted);
+
+        if (shouldAdjust) {
+          for (const item of existing.line_items || []) {
+            if (!item.product_id || item.item_type === 'charge' || item.item_type === 'discount') continue;
+            const targetQty = isPO ? Number(item.qty_received) || 0 : Number(item.quantity) || 0;
+            if (targetQty <= 0) continue;
+
+            // restore on PO re-adds received stock; restore on MRN re-deducts returned stock
+            const delta = isPO ? targetQty : -targetQty;
+            const prodSnap = await safeGetDoc('products', item.product_id);
+            let prodData: any = prodSnap && prodSnap.exists() ? { id: prodSnap.id, ...prodSnap.data() } : null;
+            if (!prodData) {
+              const localProds = (await getFromLocalStore<any>('products')) || [];
+              prodData = localProds.find((p: any) => p.id === item.product_id) || null;
+            }
+            if (!prodData) continue;
+
+            const prevOnHand = Number(prodData.stock_on_hand) || 0;
+            const prevReserved = Number(prodData.stock_reserved) || 0;
+            const newOnHand = Math.max(0, prevOnHand + delta);
+            const actualDelta = newOnHand - prevOnHand;
+
+            await safeUpdateDoc('products', item.product_id, {
+              stock_on_hand: newOnHand,
+              updated_at: now
+            });
+
+            await safeAddDoc('stock_movements', {
+              workspace_id: existing.workspace_id || prodData.workspace_id || 'default',
+              product_id: item.product_id,
+              product_code: prodData.product_code || '',
+              product_name: prodData.name || item.description || 'Catalog Item',
+              movement_type: 'ADJUSTMENT',
+              quantity_delta: actualDelta,
+              previous_on_hand: prevOnHand,
+              new_on_hand: newOnHand,
+              previous_reserved: prevReserved,
+              new_reserved: prevReserved,
+              reference_type: isPO ? 'PO' : 'VENDOR_RETURN',
+              reference_id: existing.id,
+              reference_number: existing.formatted_quote_ref || existing.id,
+              unit_cost: Number(item.unit_price) || 0,
+              reason_notes: `Restore Stock Re-Application for ${isPO ? 'Purchase Order' : 'Material Return Note'} (${existing.formatted_quote_ref || existing.id})`,
+              created_at: now,
+              created_by_uid: 'system',
+              created_by_name: 'System'
+            });
+          }
+        }
+      } catch (stockErr) {
+        console.warn('[QuotationRepository] Non-fatal: stock re-application on procurement doc restore failed:', stockErr);
+      }
+    }
+
+    if (
       (existing.document_type === 'payment_voucher' ||
         existing.document_type === 'debit_note' ||
-        existing.document_type === 'material_return_note') &&
+        existing.document_type === 'material_return_note' ||
+        existing.document_type === 'purchase_order') &&
       this.onProcurementDocLifecycleChange
     ) {
       try {

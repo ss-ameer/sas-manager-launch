@@ -80,7 +80,7 @@ import {
   CheckSquare,
   CheckCircle2
 } from 'lucide-react';
-import { isRecordOwner, canUserClickRecord, getSalespersonFullName } from '../utils/permissions';
+import { isRecordOwner, canUserClickRecord, getSalespersonFullName, getUserWorkspaceRole, canDeleteRecords, isAdmin } from '../utils/permissions';
 import { computeCanonicalName, generateCompanySearchTerms, sanitizeWhatsAppNumber, getWhatsAppUrl } from '../utils/defaults';
 import { findDuplicateCompany, findDuplicateContact } from '../utils/fuzzyMatch';
 import { PageHeader, PageBody, CardPanel, KpiStatCard } from './layout/UiContainer';
@@ -848,7 +848,9 @@ export default function CompanyModal({
   const [mergeTargetId, setMergeTargetId] = useState<string | null>(null);
   const [merging, setMerging] = useState(false);
 
-  const isEditable = user.role !== 'Viewer';
+  const workspaceRole = getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace);
+  const isEditable = workspaceRole !== 'Viewer';
+  const canDeleteCompanyRecord = canDeleteRecords(user, activeWorkspace?.id, activeWorkspace);
 
   // Debounced inline duplicate checking as user types into Canonical Name (250ms debounce)
   useEffect(() => {
@@ -1702,6 +1704,7 @@ export default function CompanyModal({
   };
 
   const deleteCompany = (id: string) => {
+    if (!canDeleteRecords(user, activeWorkspace?.id, activeWorkspace)) return;
     const targetComp = companies.find((c) => c.id === id);
     if (!targetComp) return;
 
@@ -1715,7 +1718,7 @@ export default function CompanyModal({
   };
 
   const handleExecuteCompanyDelete = async () => {
-    if (!companyToDelete) return;
+    if (!companyToDelete || !canDeleteRecords(user, activeWorkspace?.id, activeWorkspace)) return;
     const { id, name } = companyToDelete;
     setIsDeletingCompany(true);
 
@@ -3878,7 +3881,7 @@ export default function CompanyModal({
       )}
 
       {/* Company Deletion Choice Modal */}
-      {companyToDelete && (
+      {companyToDelete && canDeleteCompanyRecord && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-150 font-sans">
             <div className="flex items-center space-x-3 mb-3">
@@ -4065,7 +4068,7 @@ export default function CompanyModal({
         salespersons={salespersons}
         user={user}
         isEditable={isEditable}
-        isBasicTier={user.role !== 'Admin' && user.dataVisibilityTier === 'BASIC'}
+        isBasicTier={!isAdmin(user, activeWorkspace?.id, activeWorkspace) && user.dataVisibilityTier === 'BASIC'}
         activeWorkspace={activeWorkspace}
         onInitiateActivity={handleInitiate}
         onOpenCompany360={onOpenCompany360}
@@ -4087,7 +4090,7 @@ export default function CompanyModal({
           setMergeSourceId(companyId);
           setShowMerge(true);
         }}
-        onDeleteCompany={deleteCompany}
+        onDeleteCompany={canDeleteCompanyRecord ? deleteCompany : undefined}
         onLaunchProcurement={onLaunchProcurement}
         setCompanies={setCompanies}
       />
