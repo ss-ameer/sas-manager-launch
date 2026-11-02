@@ -53,7 +53,6 @@ export const FieldHelpHint: React.FC<FieldHelpHintProps> = ({
           e.stopPropagation();
           setPinned((prev) => !prev);
         }}
-        title={hint}
         aria-label="Field information"
         className={`inline-flex items-center justify-center w-4 h-4 rounded-full transition-colors cursor-pointer focus:outline-none ${
           isOpen

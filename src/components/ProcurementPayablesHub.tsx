@@ -23,7 +23,8 @@ import {
 import { isAdmin, isSuperAdmin } from '../utils/permissions';
 import { PageHeader, PageBody, KpiStatCard } from './layout/UiContainer';
 import HoverScrollText from './common/HoverScrollText';
-import { FieldLabel, FieldHelpHint } from './common/FieldHelpHint';
+import { FieldLabel } from './common/FieldHelpHint';
+import { formatProductVariantSelectorLabel } from '../utils/productVariantFormat';
 import { QuotationStudioModal } from './quotations/QuotationStudioModal';
 import {
   ShoppingBag,
@@ -2284,10 +2285,7 @@ export default function ProcurementPayablesHub({
             <div className="p-5 overflow-y-auto space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end">
                 <div>
-                  <FieldLabel
-                    label="Select Vendor from Directory"
-                    hint="Pick a registered Vendor from your Companies Directory to auto-fill their legal name, TRN, currency, and payment terms, or type a custom supplier name on the right."
-                  />
+                  <FieldLabel label="Select Vendor from Directory" />
                   <select
                     value={newPoVendorId}
                     onChange={(e) => {
@@ -2310,12 +2308,7 @@ export default function ProcurementPayablesHub({
                   </select>
                 </div>
                 <div>
-                  <FieldLabel
-                    label="Supplier / Vendor Legal Name"
-                    required
-                    hint="Official legal entity name of the supplier that will appear on the Purchase Order and Accounts Payable ledger."
-                    hintAlign="right"
-                  />
+                  <FieldLabel label="Supplier / Vendor Legal Name" required />
                   <input
                     type="text"
                     value={newPoSupplierName}
@@ -2326,8 +2319,8 @@ export default function ProcurementPayablesHub({
                 </div>
                 <div>
                   <FieldLabel
-                    label="Link to Enquiry (Optional)"
-                    hint="Leave blank to issue a standalone Warehouse Stock Replenishment PO, or select an active Client Enquiry to automatically import its line items."
+                    label="Link to Enquiry"
+                    hint="Optional — Leave blank to issue a standalone Warehouse Stock Replenishment PO, or select an active Client Enquiry to automatically import its line items."
                   />
                   <select
                     value={newPoEnquiryId}
@@ -2362,11 +2355,7 @@ export default function ProcurementPayablesHub({
                   </select>
                 </div>
                 <div>
-                  <FieldLabel
-                    label="Expected Delivery Date"
-                    hint="Target delivery or warehouse arrival date for tracking pending GRN stock receipts."
-                    hintAlign="right"
-                  />
+                  <FieldLabel label="Expected Delivery Date" />
                   <input
                     type="date"
                     value={newPoExpectedDate}
@@ -2378,12 +2367,9 @@ export default function ProcurementPayablesHub({
 
               <div className="space-y-2 pt-1">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
                     <span className="font-bold text-slate-800">PO Line Items</span>
                     <span className="text-rose-500 font-bold">*</span>
-                    <FieldHelpHint
-                      hint="Pick a catalog item to auto-fill description and unit cost, or type a custom item description directly. At least one named item is required."
-                    />
                   </div>
                   <button
                     type="button"
@@ -2444,9 +2430,9 @@ export default function ProcurementPayablesHub({
                           className="w-full h-8 rounded-lg border border-slate-300 px-2.5 py-1 bg-white text-[11px] text-slate-800 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                         >
                           <option value="">-- Pick Catalog Item or Type --</option>
-                          {products.map((p) => (
+                          {products.filter((p) => !p.is_deleted).map((p) => (
                             <option key={p.id} value={p.id}>
-                              {p.name} {p.part_no ? `(${p.part_no})` : ''} — Stock: {p.stock_on_hand ?? p.stock_quantity ?? 0}
+                              {formatProductVariantSelectorLabel(p, products)}
                             </option>
                           ))}
                         </select>
@@ -2585,10 +2571,7 @@ export default function ProcurementPayablesHub({
             <div className="p-5 overflow-y-auto space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
                 <div>
-                  <FieldLabel
-                    label="GRN Number"
-                    hint="Auto-generated Goods Received Note reference number for warehouse stock ledger tracking."
-                  />
+                  <FieldLabel label="GRN Number" />
                   <input
                     type="text"
                     value={grnNumber}
@@ -2597,10 +2580,7 @@ export default function ProcurementPayablesHub({
                   />
                 </div>
                 <div>
-                  <FieldLabel
-                    label="Receipt Date"
-                    hint="Actual warehouse receiving date for stock-on-hand valuation."
-                  />
+                  <FieldLabel label="Receipt Date" />
                   <input
                     type="date"
                     value={grnReceivedDate}
@@ -2824,10 +2804,7 @@ export default function ProcurementPayablesHub({
                   </select>
                 </div>
                 <div>
-                  <FieldLabel
-                    label="Select Vendor from Directory"
-                    hint="Choose a registered Vendor from your directory to auto-fill their legal name, TRN, and default currency."
-                  />
+                  <FieldLabel label="Select Vendor from Directory" />
                   <select
                     value={billVendorId}
                     onChange={(e) => {
@@ -2854,12 +2831,7 @@ export default function ProcurementPayablesHub({
                   </select>
                 </div>
                 <div>
-                  <FieldLabel
-                    label="Vendor / Supplier Legal Name"
-                    required
-                    hint="Official Supplier/Vendor legal name printed on the tax invoice."
-                    hintAlign="right"
-                  />
+                  <FieldLabel label="Vendor / Supplier Legal Name" required />
                   <input
                     type="text"
                     value={billVendorName}
@@ -2869,11 +2841,7 @@ export default function ProcurementPayablesHub({
                   />
                 </div>
                 <div>
-                  <FieldLabel
-                    label="Vendor Invoice #"
-                    required
-                    hint="Supplier's official Tax Invoice or Commercial Bill reference number (checked automatically for duplicates)."
-                  />
+                  <FieldLabel label="Vendor Invoice #" required />
                   <input
                     type="text"
                     value={billVendorInvoiceNo}
@@ -2883,10 +2851,7 @@ export default function ProcurementPayablesHub({
                   />
                 </div>
                 <div>
-                  <FieldLabel
-                    label="Invoice & Due Dates"
-                    hint="Document date printed on the supplier's tax invoice (left) and target payment maturity date (right)."
-                  />
+                  <FieldLabel label="Invoice & Due Dates" />
                   <div className="grid grid-cols-2 gap-2">
                     <input
                       type="date"
@@ -2915,11 +2880,7 @@ export default function ProcurementPayablesHub({
                     />
                   </div>
                   <div>
-                    <FieldLabel
-                      label="Exch. Rate"
-                      hint="Exchange rate to workspace base currency."
-                      hintAlign="right"
-                    />
+                    <FieldLabel label="Exch. Rate" />
                     <input
                       type="number"
                       step="0.0001"
@@ -3205,10 +3166,7 @@ export default function ProcurementPayablesHub({
             <div className="p-5 overflow-y-auto space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end">
                 <div>
-                  <FieldLabel
-                    label="Select Vendor from Directory"
-                    hint="Select a registered Vendor to auto-fill Payee details and automatically highlight their open unpaid Supplier Bills."
-                  />
+                  <FieldLabel label="Select Vendor from Directory" />
                   <select
                     value={pvVendorId}
                     onChange={(e) => {
@@ -3243,12 +3201,7 @@ export default function ProcurementPayablesHub({
                   </select>
                 </div>
                 <div>
-                  <FieldLabel
-                    label="Payee / Vendor Legal Name"
-                    required
-                    hint="Beneficiary legal name printed on the Outbound Payment Voucher."
-                    hintAlign="right"
-                  />
+                  <FieldLabel label="Payee / Vendor Legal Name" required />
                   <input
                     type="text"
                     value={pvPayeeName}
@@ -3259,8 +3212,8 @@ export default function ProcurementPayablesHub({
                 </div>
                 <div>
                   <FieldLabel
-                    label="Link to Supplier PO (Optional)"
-                    hint="Link an issued Supplier PO when recording an advance payment or direct PO settlement."
+                    label="Link to Supplier PO"
+                    hint="Optional — Link an issued Supplier PO when recording an advance payment or direct PO settlement."
                   />
                   <select
                     value={pvPoId}
@@ -3305,11 +3258,7 @@ export default function ProcurementPayablesHub({
                     </select>
                   </div>
                   <div>
-                    <FieldLabel
-                      label="UTR / Cheque #"
-                      hint="Bank wire transfer UTR, SWIFT reference, or Cheque number."
-                      hintAlign="right"
-                    />
+                    <FieldLabel label="UTR / Cheque #" />
                     <input
                       type="text"
                       value={pvReferenceNo}
@@ -3531,10 +3480,7 @@ export default function ProcurementPayablesHub({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end">
                 <div>
-                  <FieldLabel
-                    label="Select Vendor from Directory"
-                    hint="Pick a registered Vendor from your directory to auto-fill their legal name and TRN."
-                  />
+                  <FieldLabel label="Select Vendor from Directory" />
                   <select
                     value={retVendorId}
                     onChange={(e) => {
@@ -3557,12 +3503,7 @@ export default function ProcurementPayablesHub({
                   </select>
                 </div>
                 <div>
-                  <FieldLabel
-                    label="Supplier / Vendor Legal Name"
-                    required
-                    hint="Official Supplier/Vendor legal name for this return or commercial debit claim."
-                    hintAlign="right"
-                  />
+                  <FieldLabel label="Supplier / Vendor Legal Name" required />
                   <input
                     type="text"
                     value={retSupplierName}
@@ -3573,8 +3514,8 @@ export default function ProcurementPayablesHub({
                 </div>
                 <div>
                   <FieldLabel
-                    label="Link to Supplier PO (Optional)"
-                    hint="Select an issued Supplier PO to import its line items into this Material Return or Debit Note."
+                    label="Link to Supplier PO"
+                    hint="Optional — Select an issued Supplier PO to import its line items into this Material Return or Debit Note."
                   />
                   <select
                     value={retPoId}
@@ -3612,8 +3553,8 @@ export default function ProcurementPayablesHub({
                 </div>
                 <div>
                   <FieldLabel
-                    label="Link to Supplier Bill (Optional)"
-                    hint="When issuing a Vendor Debit Note (DN), linking a Supplier Bill automatically deducts the claim value from that bill's Balance Due."
+                    label="Link to Supplier Bill"
+                    hint="Optional — When issuing a Vendor Debit Note (DN), linking a Supplier Bill automatically deducts the claim value from that bill's Balance Due."
                     hintAlign="right"
                   />
                   <select
@@ -3664,11 +3605,7 @@ export default function ProcurementPayablesHub({
                   </select>
                 </div>
                 <div>
-                  <FieldLabel
-                    label="Resolution Requested"
-                    hint="Specify whether you require a Credit / Bill Deduction, physical Replacement, or Refund."
-                    hintAlign="right"
-                  />
+                  <FieldLabel label="Resolution Requested" />
                   <select
                     value={retResolution}
                     onChange={(e) => setRetResolution(e.target.value as any)}
@@ -3743,9 +3680,9 @@ export default function ProcurementPayablesHub({
                           className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-[11px]"
                         >
                           <option value="">-- Pick Catalog Item or Type --</option>
-                          {products.map((p) => (
+                          {products.filter((p) => !p.is_deleted).map((p) => (
                             <option key={p.id} value={p.id}>
-                              {p.name} {p.part_no ? `(${p.part_no})` : ''}
+                              {formatProductVariantSelectorLabel(p, products)}
                             </option>
                           ))}
                         </select>

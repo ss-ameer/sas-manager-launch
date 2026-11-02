@@ -5,6 +5,7 @@ import {
   applyMarkupToSubComponents,
   parseBulkSubComponentsText,
 } from '../../utils/compositeBomUtils';
+import { buildCatalogVariantAnalysisMap } from '../../utils/productVariantFormat';
 import {
   Layers,
   Plus,
@@ -896,53 +897,83 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
             />
           </div>
           <div className="max-h-48 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-            {filteredPickerProducts.map((prod) => {
-              const avail = (prod.stock_on_hand || 0) - (prod.stock_reserved || 0);
-              const priceConv = convertFromCatalogAed(prod.unit_price);
-              const cleanUnit = !prod.unit || prod.unit === 'Custom Unit' ? 'Nos' : prod.unit;
-              return (
-                <button
-                  key={prod.id}
-                  type="button"
-                  onClick={() => handleSelectCatalogProductForSub(prod, showCatalogPickerForRow)}
-                  className="text-left p-2 rounded-lg bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-400 flex items-center justify-between gap-2 transition cursor-pointer"
-                >
-                  <div className="min-w-0">
-                    <div className="text-xs font-bold text-slate-800 truncate">
-                      {prod.name || prod.product_type}
+            {(() => {
+              const variantAnalysisMap = buildCatalogVariantAnalysisMap(activeCatalogProducts);
+              return filteredPickerProducts.map((prod) => {
+                const avail = (prod.stock_on_hand || 0) - (prod.stock_reserved || 0);
+                const priceConv = convertFromCatalogAed(prod.unit_price);
+                const cleanUnit = !prod.unit || prod.unit === 'Custom Unit' ? 'Nos' : prod.unit;
+                const vInfo = prod.id ? variantAnalysisMap.get(prod.id) : undefined;
+                return (
+                  <button
+                    key={prod.id}
+                    type="button"
+                    onClick={() => handleSelectCatalogProductForSub(prod, showCatalogPickerForRow)}
+                    className="text-left p-2 rounded-lg bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-400 flex items-center justify-between gap-2 transition cursor-pointer"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <div className="text-xs font-bold text-slate-800 truncate">
+                          {prod.name || prod.product_type}
+                        </div>
+                        {vInfo?.isVariant && (
+                          <span className="text-[9px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.2 rounded">
+                            Variant • {vInfo.siblingCount} SKUs
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] font-mono text-slate-500 truncate">
+                        {[prod.sku ? `SKU: ${prod.sku}` : '', prod.brand_make, prod.model_part_no]
+                          .filter(Boolean)
+                          .join(' · ') || prod.product_type}
+                      </div>
+                      <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                        {prod.is_inventoried && (
+                          <span
+                            className={`inline-block text-[9.5px] font-mono font-bold px-1.5 py-0.2 rounded ${
+                              avail > 0
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : 'bg-amber-50 text-amber-700'
+                            }`}
+                          >
+                            Avail: {avail} {cleanUnit}
+                          </span>
+                        )}
+                        {vInfo?.isVariant
+                          ? vInfo.differentiatingAttributes.slice(0, 2).map((attr, aIdx) => (
+                              <span
+                                key={aIdx}
+                                className="text-[9px] font-mono font-bold bg-indigo-100/90 border border-indigo-300 text-indigo-900 px-1.5 py-0.2 rounded truncate max-w-[120px]"
+                              >
+                                {attr.key}: {attr.value}
+                              </span>
+                            ))
+                          : (prod.attributes || []).slice(0, 2).map((attr, aIdx) => (
+                              <span
+                                key={aIdx}
+                                className="text-[9px] font-mono bg-slate-50 border border-slate-200 text-slate-600 px-1 py-0.2 rounded truncate max-w-[110px]"
+                              >
+                                {attr.key}: {attr.value}
+                              </span>
+                            ))}
+                      </div>
                     </div>
-                    <div className="text-[10px] font-mono text-slate-500 truncate">
-                      {[prod.sku ? `SKU: ${prod.sku}` : '', prod.brand_make, prod.model_part_no]
-                        .filter(Boolean)
-                        .join(' · ') || prod.product_type}
-                    </div>
-                    {prod.is_inventoried && (
-                      <span
-                        className={`inline-block mt-0.5 text-[9.5px] font-mono font-bold px-1.5 py-0.2 rounded ${
-                          avail > 0
-                            ? 'bg-emerald-50 text-emerald-700'
-                            : 'bg-amber-50 text-amber-700'
-                        }`}
-                      >
-                        Avail: {avail} {cleanUnit}
+                    <div className="text-right font-mono tabular-nums shrink-0">
+                      <span className="text-xs font-bold text-emerald-700 block">
+                        {currency}{' '}
+                        {priceConv.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
                       </span>
-                    )}
-                  </div>
-                  <div className="text-right font-mono tabular-nums shrink-0">
-                    <span className="text-xs font-bold text-emerald-700 block">
-                      {currency}{' '}
-                      {priceConv.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </span>
-                    <span className="text-[10px] text-blue-600 font-sans font-semibold">
-                      Select
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
+                      <span className="text-[10px] text-blue-600 font-sans font-semibold">
+                        Select
+                      </span>
+                    </div>
+                  </button>
+                );
+              });
+            })()}
             {filteredPickerProducts.length === 0 && (
               <div className="col-span-2 py-4 text-center text-xs text-slate-400 italic">
                 No matching catalog products found.
@@ -968,7 +999,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                 className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold flex items-center gap-1 transition cursor-pointer"
               >
                 <Link2 className="w-3.5 h-3.5" />
-                <span>+ Link Catalog SKU</span>
+                <span>Link Catalog SKU</span>
               </button>
             )}
             <button
@@ -977,7 +1008,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
               className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1 shadow-2xs transition cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>+ Add Priced Sub-Component</span>
+              <span>Add Priced Sub-Component</span>
             </button>
           </div>
         </div>

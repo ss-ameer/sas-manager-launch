@@ -9,6 +9,7 @@ import { IndustryBadge } from '../utils/taxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import HoverScrollText from './common/HoverScrollText';
 import { FieldLabel } from './common/FieldHelpHint';
+import { buildCatalogVariantAnalysisMap } from '../utils/productVariantFormat';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { useEntityEdit } from '../context/EntityEditContext';
 import { getWhatsAppUrl } from '../utils/defaults';
@@ -5069,100 +5070,131 @@ export default function EnquiryDetail({
                     })()}
 
                     <div className="max-h-64 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {(products || [])
-                        .filter((p) => {
-                          if (p.is_deleted) return false;
-                          if (quickCatalogCategory !== 'ALL' && (p.product_type || 'Other') !== quickCatalogCategory) return false;
-                          const avail = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
-                          const isLow = Boolean(p.is_inventoried) && avail <= (p.reorder_level || 0);
-                          if (quickCatalogStockFilter === 'in_stock' && (!p.is_inventoried || avail <= 0)) return false;
-                          if (quickCatalogStockFilter === 'low_stock' && !isLow) return false;
+                      {(() => {
+                        const variantAnalysisMap = buildCatalogVariantAnalysisMap(products || []);
+                        return (products || [])
+                          .filter((p) => {
+                            if (p.is_deleted) return false;
+                            if (quickCatalogCategory !== 'ALL' && (p.product_type || 'Other') !== quickCatalogCategory) return false;
+                            const avail = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
+                            const isLow = Boolean(p.is_inventoried) && avail <= (p.reorder_level || 0);
+                            if (quickCatalogStockFilter === 'in_stock' && (!p.is_inventoried || avail <= 0)) return false;
+                            if (quickCatalogStockFilter === 'low_stock' && !isLow) return false;
 
-                          const q = quickCatalogSearch.toLowerCase().trim();
-                          if (!q) return true;
-                          return (
-                            (p.name || '').toLowerCase().includes(q) ||
-                            (p.sku || '').toLowerCase().includes(q) ||
-                            (p.brand_make || '').toLowerCase().includes(q) ||
-                            (p.model_part_no || '').toLowerCase().includes(q) ||
-                            (p.description || '').toLowerCase().includes(q) ||
-                            (p.attributes || []).some((a) => `${a.key} ${a.value}`.toLowerCase().includes(q))
-                          );
-                        })
-                        .slice(0, 30)
-                        .map((p) => {
-                          const avail = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
-                          const isLow = Boolean(p.is_inventoried) && avail <= (p.reorder_level || 0);
-                          const sell = Number(p.unit_price) || 0;
-                          const cost = Number(p.cost_price ?? p.cost_price_aed) || 0;
-                          const marginPct = sell > 0 && cost > 0 ? ((sell - cost) / sell) * 100 : null;
-                          const cleanUnit = !p.unit || p.unit === 'Custom Unit' ? 'Nos' : p.unit;
-                          return (
-                            <div
-                              key={p.id}
-                              onClick={() => handleQuickAddCatalogProduct(p)}
-                              className="bg-white hover:bg-blue-50/40 border border-slate-200 hover:border-blue-300 rounded-lg p-2.5 flex items-center justify-between gap-2 cursor-pointer transition"
-                            >
-                              <div className="flex items-center gap-2.5 min-w-0">
-                                {p.image_url ? (
-                                  <img
-                                    src={p.image_url}
-                                    alt={p.name}
-                                    className="w-10 h-10 rounded-lg object-contain bg-white border border-slate-200 p-0.5 shrink-0"
-                                    referrerPolicy="no-referrer"
-                                  />
-                                ) : (
-                                  <div className="w-10 h-10 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
-                                    <Package className="w-4 h-4" />
-                                  </div>
-                                )}
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-1.5">
-                                    <div className="text-xs font-bold text-slate-800 truncate">{p.name || p.product_type}</div>
-                                    {p.is_composite_set && p.sub_components && p.sub_components.length > 0 && (
-                                      <span className="text-[9px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.2 rounded whitespace-nowrap shrink-0">
-                                        📦 Kit ({p.sub_components.length})
+                            const q = quickCatalogSearch.toLowerCase().trim();
+                            if (!q) return true;
+                            return (
+                              (p.name || '').toLowerCase().includes(q) ||
+                              (p.sku || '').toLowerCase().includes(q) ||
+                              (p.brand_make || '').toLowerCase().includes(q) ||
+                              (p.model_part_no || '').toLowerCase().includes(q) ||
+                              (p.description || '').toLowerCase().includes(q) ||
+                              (p.attributes || []).some((a) => `${a.key} ${a.value}`.toLowerCase().includes(q))
+                            );
+                          })
+                          .slice(0, 30)
+                          .map((p) => {
+                            const avail = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
+                            const isLow = Boolean(p.is_inventoried) && avail <= (p.reorder_level || 0);
+                            const sell = Number(p.unit_price) || 0;
+                            const cost = Number(p.cost_price ?? p.cost_price_aed) || 0;
+                            const marginPct = sell > 0 && cost > 0 ? ((sell - cost) / sell) * 100 : null;
+                            const cleanUnit = !p.unit || p.unit === 'Custom Unit' ? 'Nos' : p.unit;
+                            const vInfo = p.id ? variantAnalysisMap.get(p.id) : undefined;
+                            return (
+                              <div
+                                key={p.id}
+                                onClick={() => handleQuickAddCatalogProduct(p)}
+                                className="bg-white hover:bg-blue-50/40 border border-slate-200 hover:border-blue-300 rounded-lg p-2.5 flex items-center justify-between gap-2 cursor-pointer transition"
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  {p.image_url ? (
+                                    <img
+                                      src={p.image_url}
+                                      alt={p.name}
+                                      className="w-10 h-10 rounded-lg object-contain bg-white border border-slate-200 p-0.5 shrink-0"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  ) : (
+                                    <div className="w-10 h-10 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
+                                      <Package className="w-4 h-4" />
+                                    </div>
+                                  )}
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <div className="text-xs font-bold text-slate-800 truncate">{p.name || p.product_type}</div>
+                                      {vInfo?.isVariant && (
+                                        <span className="text-[9px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.2 rounded whitespace-nowrap shrink-0">
+                                          Variant • {vInfo.siblingCount} SKUs
+                                        </span>
+                                      )}
+                                      {p.is_composite_set && p.sub_components && p.sub_components.length > 0 && (
+                                        <span className="text-[9px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.2 rounded whitespace-nowrap shrink-0">
+                                          Kit ({p.sub_components.length})
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-[10px] font-mono text-slate-500 truncate">
+                                      {[p.brand_make, p.model_part_no, p.sku ? `SKU: ${p.sku}` : ''].filter(Boolean).join(' · ') || p.product_type}
+                                    </div>
+                                    <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                                      <span className="text-[9px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
+                                        Unit: {cleanUnit}
                                       </span>
-                                    )}
-                                  </div>
-                                  <div className="text-[10px] font-mono text-slate-500 truncate">
-                                    {[p.brand_make, p.model_part_no, p.sku ? `SKU: ${p.sku}` : ''].filter(Boolean).join(' · ') || p.product_type}
-                                  </div>
-                                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                                    <span className="text-[9px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
-                                      Unit: {cleanUnit}
-                                    </span>
-                                    {p.is_inventoried ? (
-                                      <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded ${isLow ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                                        Avail: {avail} {cleanUnit}
-                                      </span>
-                                    ) : (
-                                      <span className="text-[9px] font-mono text-slate-400">
-                                        {p.default_availability || 'Order / Non-Stock'}
-                                      </span>
-                                    )}
-                                    {(p.attributes || []).slice(0, 2).map((attr, aIdx) => (
-                                      <span key={aIdx} className="text-[9px] font-mono bg-slate-50 border border-slate-200 text-slate-600 px-1 rounded truncate max-w-[110px]">
-                                        {attr.key}: {attr.value}
-                                      </span>
-                                    ))}
+                                      {p.is_inventoried ? (
+                                        <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded ${isLow ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                                          Avail: {avail} {cleanUnit}
+                                        </span>
+                                      ) : (
+                                        <span className="text-[9px] font-mono text-slate-400">
+                                          {p.default_availability || 'Order / Non-Stock'}
+                                        </span>
+                                      )}
+                                      {vInfo?.isVariant ? (
+                                        <>
+                                          {vInfo.differentiatingAttributes.slice(0, 3).map((attr, aIdx) => (
+                                            <span
+                                              key={`diff-${aIdx}`}
+                                              className="text-[9px] font-mono font-bold bg-indigo-100/90 border border-indigo-300 text-indigo-900 px-1.5 py-0.2 rounded truncate max-w-[130px]"
+                                              title={`Differentiating Variant Spec — ${attr.key}: ${attr.value}`}
+                                            >
+                                              {attr.key}: {attr.value}
+                                            </span>
+                                          ))}
+                                          {vInfo.sharedAttributes.slice(0, 2).map((attr, aIdx) => (
+                                            <span
+                                              key={`shared-${aIdx}`}
+                                              className="text-[9px] font-mono bg-slate-50 border border-slate-200 text-slate-500 px-1 py-0.2 rounded truncate max-w-[110px]"
+                                            >
+                                              {attr.key}: {attr.value}
+                                            </span>
+                                          ))}
+                                        </>
+                                      ) : (
+                                        (p.attributes || []).slice(0, 3).map((attr, aIdx) => (
+                                          <span key={aIdx} className="text-[9px] font-mono bg-slate-50 border border-slate-200 text-slate-600 px-1 rounded truncate max-w-[110px]">
+                                            {attr.key}: {attr.value}
+                                          </span>
+                                        ))
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                              <div className="text-right font-mono tabular-nums shrink-0">
-                                <span className={`text-xs font-bold block ${sell > 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
-                                  {sell > 0 ? `AED ${sell.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'AED 0.00 (Custom)'}
-                                </span>
-                                {marginPct !== null && (
-                                  <span className="text-[9px] text-slate-400 block">
-                                    {marginPct.toFixed(0)}% Margin
+                                <div className="text-right font-mono tabular-nums shrink-0">
+                                  <span className={`text-xs font-bold block ${sell > 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
+                                    {sell > 0 ? `AED ${sell.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'AED 0.00 (Custom)'}
                                   </span>
-                                )}
-                                <span className="text-[10px] text-blue-600 font-sans font-semibold">+ Add</span>
+                                  {marginPct !== null && (
+                                    <span className="text-[9px] text-slate-400 block">
+                                      {marginPct.toFixed(0)}% Margin
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] text-blue-600 font-sans font-semibold">+ Add</span>
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          });
+                      })()}
                     </div>
                   </div>
                 )}
@@ -7260,10 +7292,7 @@ export default function EnquiryDetail({
 
               {/* Quick Select Supplier from Companies Directory */}
               <div>
-                <FieldLabel
-                  label="Select from Companies Directory (Optional)"
-                  hint="Pick a registered Vendor or Company from your directory to auto-fill their legal name, primary contact, address, and TRN."
-                />
+                <FieldLabel label="Select from Companies Directory (Optional)" />
                 <select
                   value={poModalState.supplierCompanyId}
                   onChange={(e) => {
@@ -7302,11 +7331,7 @@ export default function EnquiryDetail({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end">
                 <div>
-                  <FieldLabel
-                    label="Supplier / Vendor Name"
-                    required
-                    hint="Official legal entity name of the Supplier or Client for this commercial document."
-                  />
+                  <FieldLabel label="Supplier / Vendor Name" required />
                   <input
                     type="text"
                     value={poModalState.supplierName}
@@ -7318,11 +7343,7 @@ export default function EnquiryDetail({
                   />
                 </div>
                 <div>
-                  <FieldLabel
-                    label="Contact Person"
-                    hint="Attention to / account representative at the Supplier or Client organization."
-                    hintAlign="right"
-                  />
+                  <FieldLabel label="Contact Person" />
                   <input
                     type="text"
                     value={poModalState.supplierContact}
@@ -7334,10 +7355,7 @@ export default function EnquiryDetail({
                   />
                 </div>
                 <div>
-                  <FieldLabel
-                    label="Shipping Destination"
-                    hint="Select whether goods should be delivered to Our Warehouse, Direct to Client Site, or a Custom Address."
-                  />
+                  <FieldLabel label="Shipping Destination" />
                   <select
                     value={poModalState.shippingDestination}
                     onChange={(e) =>
@@ -7354,11 +7372,7 @@ export default function EnquiryDetail({
                   </select>
                 </div>
                 <div>
-                  <FieldLabel
-                    label="Incoterms"
-                    hint="Commercial shipping and delivery terms (Ex-Works, FOB, CIF, DDP, DAP)."
-                    hintAlign="right"
-                  />
+                  <FieldLabel label="Incoterms" />
                   <select
                     value={poModalState.incoterms}
                     onChange={(e) =>

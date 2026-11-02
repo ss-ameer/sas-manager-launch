@@ -65,6 +65,7 @@ import SaveToCatalogModal, {
 } from '../SaveToCatalogModal';
 import CompositePackageEditor from './CompositePackageEditor';
 import LineItemImageOptionsPopover from '../common/LineItemImageOptionsPopover';
+import { formatProductVariantSelectorLabel } from '../../utils/productVariantFormat';
 import { db, safeUpdateDoc } from '../../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import {
@@ -8791,9 +8792,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   className="flex-1 rounded border border-slate-300 px-2 py-1 bg-slate-50 text-[11px] min-w-0"
                                 >
                                   <option value="">-- Pick Catalog Item or Type Below --</option>
-                                  {workspaceProducts.map((p) => (
+                                  {workspaceProducts.filter((p) => !p.is_deleted).map((p) => (
                                     <option key={p.id} value={p.id}>
-                                      {p.name} {p.sku ? `(${p.sku})` : ''}
+                                      {formatProductVariantSelectorLabel(p, workspaceProducts)}
                                     </option>
                                   ))}
                                 </select>

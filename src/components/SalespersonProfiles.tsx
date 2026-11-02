@@ -29,8 +29,9 @@ import {
 } from 'lucide-react';
 import SearchResultCounter from './common/SearchResultCounter';
 import HoverScrollText from './common/HoverScrollText';
+import { FieldLabel } from './common/FieldHelpHint';
 import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
-import { isSuperAdmin, isAdmin, canAccessEnquiry, getUserWorkspaceRole } from '../utils/permissions';
+import { isSuperAdmin, isAdmin, canAccessEnquiry, isRecordOwner, getUserWorkspaceRole } from '../utils/permissions';
 import { isWonStatus, isLostOrCancelledStatus } from '../services/inventoryService';
 
 interface SalespersonProfilesProps {
@@ -64,6 +65,8 @@ export default function SalespersonProfiles({
 }: SalespersonProfilesProps) {
   const [selectedSalespersonId, setSelectedSalespersonId] = useState<string | null>(salespersons[0]?.id || salespersons[0]?.initials || null);
   const [enquirySearchQuery, setEnquirySearchQuery] = useState('');
+  const [enquiryStatusFilter, setEnquiryStatusFilter] = useState<'ALL' | 'ACTIVE' | 'WON' | 'LOST'>('ALL');
+  const [enquirySortBy, setEnquirySortBy] = useState<'newest' | 'highest_value' | 'updated'>('newest');
   const [isDeduplicating, setIsDeduplicating] = useState(false);
 
   // Pagination states for linked enquiries list
@@ -72,7 +75,7 @@ export default function SalespersonProfiles({
 
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [selectedSalespersonId, enquirySearchQuery]);
+  }, [selectedSalespersonId, enquirySearchQuery, enquiryStatusFilter, enquirySortBy]);
 
   // Form states
   const [showFormModal, setShowFormModal] = useState(false);
@@ -284,6 +287,43 @@ export default function SalespersonProfiles({
     if (canManageTeam) return true;
     if (isOwnProfile(sp)) return true;
     return currentUser.dataVisibilityTier !== 'BASIC';
+  };
+
+  // Check if a specific enquiry on another rep's profile is explicitly shared with or owned by the viewing user
+  const isEnquiryExplicitlySharedOrOwnedByViewer = (enq: Enquiry): boolean => {
+    if (!currentUser) return false;
+    if (isRecordOwner(currentUser, enq)) return true;
+    const uid = currentUser.uid || currentUser.id || '';
+    const uEmail = (currentUser.email || '').toLowerCase().trim();
+    const uInitials = (currentUser.initials || '').toUpperCase().trim();
+    const sharedList: any[] = [
+      ...(Array.isArray((enq as any).collaborators) ? (enq as any).collaborators : []),
+      ...(Array.isArray((enq as any).shared_with) ? (enq as any).shared_with : []),
+      ...(Array.isArray((enq as any).sharedWith) ? (enq as any).sharedWith : []),
+      ...(Array.isArray((enq as any).collaborator_ids) ? (enq as any).collaborator_ids : [])
+    ];
+    return sharedList.some((entry) => {
+      if (!entry) return false;
+      if (typeof entry === 'string') {
+        const norm = entry.trim();
+        return (
+          (uid && norm === uid) ||
+          (uEmail && norm.toLowerCase() === uEmail) ||
+          (uInitials && norm.toUpperCase() === uInitials)
+        );
+      }
+      if (typeof entry === 'object') {
+        const eUid = entry.uid || entry.id || entry.user_id || '';
+        const eEmail = (entry.email || '').toLowerCase().trim();
+        const eInit = (entry.initials || '').toUpperCase().trim();
+        return (
+          (uid && eUid === uid) ||
+          (uEmail && eEmail === uEmail) ||
+          (uInitials && eInit === uInitials)
+        );
+      }
+      return false;
+    });
   };
 
   // Format currency in AED by default
@@ -684,18 +724,41 @@ export default function SalespersonProfiles({
     });
   };
 
-  // Filter linked enquiries based on search query
+  // Filter & sort linked enquiries based on search query, status pill, and sort mode
   const filteredEnquiries = React.useMemo(() => {
     if (!metrics) return [];
-    if (!enquirySearchQuery) return metrics.enquiries;
-    const q = enquirySearchQuery.toLowerCase();
-    return metrics.enquiries.filter((e) => {
-      const compName = (companyMap.get(e.company_id) || '').toLowerCase();
-      const ref = e.quote_ref_no.toLowerCase();
-      const snStr = e.sn.toString();
-      return compName.includes(q) || ref.includes(q) || snStr.includes(q);
+    const q = enquirySearchQuery.toLowerCase().trim();
+    const canSortByValue = selectedSalesperson ? canSeeSpFinancialMetrics(selectedSalesperson) : false;
+
+    const list = metrics.enquiries.filter((e) => {
+      if (enquiryStatusFilter === 'ACTIVE') {
+        if (isWonStatus(e.status) || isLostOrCancelledStatus(e.status) || e.status === 'Dead') return false;
+      } else if (enquiryStatusFilter === 'WON') {
+        if (!isWonStatus(e.status)) return false;
+      } else if (enquiryStatusFilter === 'LOST') {
+        if (!isLostOrCancelledStatus(e.status) && e.status !== 'Dead') return false;
+      }
+
+      if (!q) return true;
+      const compName = (companyMap.get(e.company_id) || e.company_name || '').toLowerCase();
+      const ref = (e.quote_ref_no || '').toLowerCase();
+      const desc = (e.description || e.project_name || '').toLowerCase();
+      const snStr = String(e.sn || '');
+      return compName.includes(q) || ref.includes(q) || desc.includes(q) || snStr.includes(q);
     });
-  }, [metrics, enquirySearchQuery, companyMap]);
+
+    return [...list].sort((a, b) => {
+      if (enquirySortBy === 'highest_value' && canSortByValue) {
+        return (Number(b.value_aed) || 0) - (Number(a.value_aed) || 0);
+      }
+      if (enquirySortBy === 'updated') {
+        const aTime = new Date((a as any).updatedAt || a.enquiry_date || 0).getTime();
+        const bTime = new Date((b as any).updatedAt || b.enquiry_date || 0).getTime();
+        return bTime - aTime;
+      }
+      return (Number(b.sn) || 0) - (Number(a.sn) || 0);
+    });
+  }, [metrics, enquirySearchQuery, enquiryStatusFilter, enquirySortBy, companyMap, selectedSalesperson]);
 
   // Paginated subset of linked enquiries
   const paginatedEnquiries = React.useMemo(() => {
@@ -829,7 +892,9 @@ export default function SalespersonProfiles({
                         </span>
                       )}
                     </div>
-                    <span className="text-[10px] text-slate-400 font-mono block mt-0.5 truncate">{s.role}</span>
+                    <span className="text-[10px] text-slate-400 font-mono block mt-0.5 truncate">
+                      {s.role?.trim() || 'Sales Representative'}
+                    </span>
                   </div>
                 </button>
 
@@ -896,7 +961,9 @@ export default function SalespersonProfiles({
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5 text-xs text-slate-500 font-sans">
-                    <p className="font-medium text-slate-700">{selectedSalesperson.role}</p>
+                    <p className="font-medium text-slate-700">
+                      {selectedSalesperson.role?.trim() || 'Sales Representative'}
+                    </p>
                     {canSeeSpAdvancedDetails(selectedSalesperson) ? (
                       <>
                         {selectedSalesperson.email && (
@@ -1006,29 +1073,72 @@ export default function SalespersonProfiles({
 
             {/* List of their Enquiries */}
             <div className="space-y-4 pt-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-3 gap-2">
-                <h4 className="text-base font-bold text-slate-900 font-sans flex items-center space-x-2">
-                  <Layers className="w-4 h-4 text-slate-400" />
-                  <span>Linked Enquiries ({filteredEnquiries.length})</span>
-                </h4>
-                {/* Linked Enquiries Search Input */}
-                <div className="relative w-full sm:w-64">
-                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Filter by SN, Ref or Client..."
-                    value={enquirySearchQuery}
-                    onChange={(e) => setEnquirySearchQuery(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-700 focus:outline-none"
-                  />
-                  {enquirySearchQuery && (
-                    <button
-                      onClick={() => setEnquirySearchQuery('')}
-                      className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between border-b border-slate-100 pb-3 gap-3">
+                <div className="flex items-center flex-wrap gap-2.5">
+                  <h4 className="text-base font-bold text-slate-900 font-sans flex items-center space-x-2">
+                    <Layers className="w-4 h-4 text-slate-400" />
+                    <span>Linked Enquiries ({filteredEnquiries.length})</span>
+                  </h4>
+                  {/* Pipeline Status Quick Filters */}
+                  <div className="inline-flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200/80">
+                    {(
+                      [
+                        { id: 'ALL', label: 'All' },
+                        { id: 'ACTIVE', label: 'Active' },
+                        { id: 'WON', label: 'Won' },
+                        { id: 'LOST', label: 'Lost' }
+                      ] as const
+                    ).map((pill) => (
+                      <button
+                        key={pill.id}
+                        type="button"
+                        onClick={() => setEnquiryStatusFilter(pill.id)}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                          enquiryStatusFilter === pill.id
+                            ? 'bg-white text-blue-600 shadow-2xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        {pill.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Sort & Search Controls */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <select
+                    value={enquirySortBy}
+                    onChange={(e) => setEnquirySortBy(e.target.value as any)}
+                    className="bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 focus:outline-none cursor-pointer"
+                    title="Sort Linked Enquiries"
+                  >
+                    <option value="newest">Sort: Newest SN</option>
+                    {canSeeSpFinancialMetrics(selectedSalesperson) && (
+                      <option value="highest_value">Sort: Highest Value</option>
+                    )}
+                    <option value="updated">Sort: Recently Updated</option>
+                  </select>
+
+                  <div className="relative w-full sm:w-60">
+                    <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Filter by SN, Ref or Client..."
+                      value={enquirySearchQuery}
+                      onChange={(e) => setEnquirySearchQuery(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-lg pl-8 pr-7 py-1.5 text-xs text-slate-700 focus:outline-none"
+                    />
+                    {enquirySearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setEnquirySearchQuery('')}
+                        className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -1039,56 +1149,102 @@ export default function SalespersonProfiles({
                 searchQuery={enquirySearchQuery}
                 entityLabel="Linked Enquiries"
                 singularEntityLabel="Linked Enquiry"
-                onClear={() => setEnquirySearchQuery('')}
+                onClear={() => {
+                  setEnquirySearchQuery('');
+                  setEnquiryStatusFilter('ALL');
+                }}
               />
 
               {paginatedEnquiries.length > 0 ? (
                 <div className="space-y-3">
-                  <div className="space-y-3 max-h-[450px] overflow-y-auto pr-2 scrollbar-thin">
+                  <div className="space-y-2.5 max-h-[450px] overflow-y-auto pr-1 scrollbar-thin">
                     {paginatedEnquiries.map((e) => {
-                      const canAccess = canAccessEnquiry(currentUser, e, activeWorkspace);
+                      const canViewRepFinances = canSeeSpFinancialMetrics(selectedSalesperson);
+                      const isExplicitlySharedOrOwned = isEnquiryExplicitlySharedOrOwnedByViewer(e);
+                      const canViewRowAndValue =
+                        canViewRepFinances ||
+                        (isExplicitlySharedOrOwned && canAccessEnquiry(currentUser, e, activeWorkspace));
+                      const showSharedBadge = !canViewRepFinances && canViewRowAndValue;
+
                       return (
                         <div
                           key={e.id}
-                          className="bg-slate-50 border border-slate-200/60 p-4 rounded-xl hover:border-slate-300 transition duration-100 flex flex-col md:flex-row md:items-center justify-between gap-4 group"
+                          onClick={() => {
+                            if (canViewRowAndValue && e.id) {
+                              onSelectEnquiry(e.id);
+                            }
+                          }}
+                          className={`bg-slate-50 border border-slate-200/70 p-3.5 rounded-xl transition duration-100 flex flex-col md:flex-row md:items-center justify-between gap-3 group ${
+                            canViewRowAndValue
+                              ? 'hover:border-blue-300 hover:bg-blue-50/30 cursor-pointer'
+                              : 'opacity-90 cursor-default'
+                          }`}
                         >
-                          <div className="space-y-1">
-                            <div className="flex items-center space-x-2">
-                              <span className="text-xs font-mono text-slate-400">#{e.sn}</span>
-                              <span className="text-sm font-semibold text-slate-800 font-sans">
-                                {companyMap.get(e.company_id) || 'Unknown Company'}
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-mono font-bold text-slate-400">#{e.sn}</span>
+                              <span className="text-sm font-semibold text-slate-800 font-sans truncate">
+                                {companyMap.get(e.company_id) || e.company_name || 'Client Enquiry'}
                               </span>
+                              {showSharedBadge && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                  <Users2 className="w-2.5 h-2.5" />
+                                  <span>Shared with You</span>
+                                </span>
+                              )}
                             </div>
-                            <p className="text-xs text-slate-500 truncate max-w-[320px] font-sans">
-                              {e.quote_ref_no} — {e.remarks || 'No notes added'}
+                            <p className="text-xs text-slate-500 truncate max-w-[420px] font-sans">
+                              {e.quote_ref_no} — {e.description || e.project_name || e.remarks || 'No description'}
                             </p>
                           </div>
 
-                          <div className="flex items-center space-x-6 justify-between md:justify-end shrink-0">
+                          <div className="flex items-center space-x-4 justify-between md:justify-end shrink-0">
                             <div className="text-right">
-                              <span className="text-xs font-mono font-semibold text-slate-800 block">
-                                {canAccess ? formatCurrency(e.value_aed) : 'AED ••••••'}
-                              </span>
-                              <span className="text-[10px] font-mono font-bold block mt-0.5 text-slate-400 uppercase">
+                              {canViewRowAndValue ? (
+                                <span className="text-xs font-mono font-bold text-slate-800 block">
+                                  {formatCurrency(Number(e.value_aed) || 0)}
+                                </span>
+                              ) : (
+                                <span
+                                  className="inline-flex items-center gap-1 text-xs font-mono font-bold text-amber-700 bg-amber-50 border border-amber-200/80 px-2 py-0.5 rounded-md"
+                                  title="Deal value is confidential to this representative and workspace admins"
+                                >
+                                  <Lock className="w-2.5 h-2.5 shrink-0" />
+                                  <span>AED ••••</span>
+                                </span>
+                              )}
+                              <span
+                                className={`text-[10px] font-mono font-bold block mt-0.5 uppercase ${
+                                  isWonStatus(e.status)
+                                    ? 'text-emerald-600'
+                                    : isLostOrCancelledStatus(e.status)
+                                    ? 'text-rose-500'
+                                    : 'text-slate-500'
+                                }`}
+                              >
                                 {e.status}
                               </span>
                             </div>
 
-                            {canAccess ? (
+                            {canViewRowAndValue ? (
                               <button
-                                onClick={() => e.id && onSelectEnquiry(e.id)}
-                                className="p-2 bg-white border border-slate-200 hover:border-slate-300 rounded-lg text-slate-400 hover:text-slate-700 transition duration-150 flex items-center justify-center shadow-sm cursor-pointer"
+                                type="button"
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  if (e.id) onSelectEnquiry(e.id);
+                                }}
+                                className="p-2 bg-white border border-slate-200 group-hover:border-blue-300 rounded-lg text-slate-400 group-hover:text-blue-600 transition duration-150 flex items-center justify-center shadow-2xs cursor-pointer"
                                 title="Open Enquiry Details"
                               >
                                 <ArrowUpRight className="w-4 h-4" />
                               </button>
                             ) : (
                               <div
-                                className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-medium text-slate-500 dark:text-slate-400 flex items-center space-x-1 cursor-not-allowed select-none"
-                                title="Restricted: You do not have permission to inspect this proposal"
+                                className="px-2.5 py-1.5 bg-slate-100 border border-slate-200 rounded-lg text-[11px] font-semibold text-slate-500 flex items-center space-x-1 cursor-not-allowed select-none"
+                                title="Confidential: Only the assigned representative, collaborators, or Admins can open this enquiry"
                               >
                                 <Lock className="w-3 h-3 text-slate-400" />
-                                <span>Restricted</span>
+                                <span>Confidential</span>
                               </div>
                             )}
                           </div>
@@ -1227,9 +1383,10 @@ export default function SalespersonProfiles({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">
-                  Salesperson Email (Excludes from client contact detection)
-                </label>
+                <FieldLabel
+                  label="Email Address"
+                  hint="Used to match this representative's account and automatically excluded from client contact detection during AI RFQ extraction."
+                />
                 <input
                   type="email"
                   placeholder="e.g. ameer@ourcompany.com"
@@ -1252,9 +1409,10 @@ export default function SalespersonProfiles({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">
-                  Salesperson Direct Phone / Mobile (Excludes from client contact detection)
-                </label>
+                <FieldLabel
+                  label="Direct Phone / Mobile"
+                  hint="Representative's direct phone or mobile number — automatically excluded from client contact detection during AI RFQ extraction."
+                />
                 <input
                   type="text"
                   placeholder="e.g. +971 50 123 4567"

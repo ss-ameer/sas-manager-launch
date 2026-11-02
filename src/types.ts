@@ -969,6 +969,8 @@ export interface Product extends SoftDeleteFields {
   sub_components?: LineItemComponent[];
   package_pricing_mode?: 'itemized' | 'lump_sum';
   option_scope_notes?: string;
+  variant_parent_id?: string | null;
+  product_family?: string | null;
 }
 
 export const getInitials = (name?: string | null): string => {

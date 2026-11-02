@@ -1,93 +1,41 @@
-# Procurement, Payables & A4 Studio Reliability and UX Upgrade
+# Stage 1 Polish: Tooltips, Team Roster, Products Catalog & Spec Variants
 
-Eliminate runtime console errors (`openCreatePvModal` and `QuotationRepository.listByWorkspace`), enable universal row click-to-open across all four Procurement tables, keep Save/Issue controls permanently visible in the A4 Studio header, add a live inline Line Items Editor inside the Studio's Deal Data & Content drawer, and refine creation modals for Supplier POs, Supplier Bills, Payment Vouchers, and Vendor Returns.
+## 1. `<FieldHelpHint />` Double-Tooltip Fix & Label Simplification
+- **`src/components/common/FieldHelpHint.tsx`**:
+  - Remove the native browser `title={hint}` attribute on the `<button>` trigger so hovering or focusing displays only the custom styled floating popover without a duplicate browser tooltip.
+- **`src/components/ProcurementPayablesHub.tsx` & `src/components/EnquiryDetail.tsx`**:
+  - Strip redundant `<FieldHelpHint />` icons from self-explanatory labels (`Select Vendor from Directory`, `Supplier / Vendor Legal Name`, `Expected Delivery Date`, `PO Line Items`, `Vendor Invoice #`, `GRN Number`, `Receipt Date`, `Payee / Vendor Legal Name`, `Supplier / Vendor Name`, `Contact Person`).
+  - Retain `<FieldHelpHint />` strictly where it shortens verbose explanatory labels (`Link to Enquiry`, `Landed Cost Mode`, and `Link to Supplier Bill`).
+- **`src/components/SalespersonProfiles.tsx`**:
+  - In the `Edit Your Profile` / `Add Team Member` modal, replace `"Salesperson Email (Excludes from client contact detection)"` with `"Email Address"` + `<FieldHelpHint />` and `"Salesperson Direct Phone / Mobile (Excludes from client contact detection)"` with `"Direct Phone / Mobile"` + `<FieldHelpHint />`.
 
-## User Review & Critical Decisions
+## 2. Team Roster (`src/components/SalespersonProfiles.tsx`) Confidentiality & UX Polish
+- **Confidential Deal Value Protection in `Linked Enquiries`**:
+  - Replace the broad workspace read check on each row with a dedicated profile-level visibility check: a non-admin `Member` viewing another rep's profile can only see the `AED` value and open the enquiry if they are the record owner, assigned rep, or an explicit collaborator (`collaborators` / `shared_with`).
+  - For unshared enquiries on another rep's profile, mask the deal value as `AED ••••` (`Confidential`) and disable row click-through while still displaying the enquiry title, project, and status badge.
+  - For enquiries on another rep's profile that are shared with the viewing user, display a **`Shared with You`** badge and allow 1-click navigation to the enquiry.
+- **Role Fallback, Header Alignment & Pipeline Filtering**:
+  - Provide a clean role fallback (`Sales Representative`) whenever a team member's `role` field is blank.
+  - Add status filter pills (`All`, `Active`, `Won`, `Lost`) and sort controls (`Newest`, `Highest Value`, `Updated`) directly above the `Linked Enquiries` list.
 
-> [!IMPORTANT]
-> The following architectural and UX decisions have been confirmed and incorporated into this plan:
+## 3. Products Catalog UI/UX & Modal Layout Overhaul (`src/components/ProductManager.tsx`)
+- **Sticky Header Clearance, Column Headers & Clickable Rows**:
+  - Adjust sticky header / toolbar spacing so the search and category filter bar never clips behind `<PageHeader>` on scroll.
+  - Shorten the `Brand / Model / SKU` column header to `Brand / SKU` with `whitespace-nowrap` so it never wraps onto multiple vertical lines.
+  - Make every product table row clickable (`cursor-pointer`) to open the product editor/viewer modal, with `e.stopPropagation()` on all row action buttons.
+- **Compact `Edit Catalog Product` Modal & Top-Surfaced Specs**:
+  - Make the top product summary banner inside `Edit Catalog Product` more compact and tighten vertical spacing in Tab `1. Overview & Pricing` so `UNIT (UOM)`, `SELLING PRICE`, and `BASE COST PRICE` fit cleanly at 100% zoom without slicing.
+  - Reorder Tab `2. Specs, Image & Datasheet` so the **Technical Specifications / Attributes (`S1, S2, S3`)** editor appears at the top of the tab, followed by a compact side-by-side uploader for Product Image and Technical Datasheet.
 
-- **Confirmed Decision 1 — Supplier PO Row Click Behavior**: Clicking a row in the **Supplier POs** table opens a dedicated **Supplier PO Summary & GRN Status Viewer Modal** with quick actions (`Receive GRN`, `Record Bill`, `+ Payment Voucher`, `Return / DN`, and `Open in A4 Studio`), while row action buttons use `e.stopPropagation()`.
-- **Confirmed Decision 2 — Mandatory Named Line Item on PO Creation**: Saving a new Outbound Supplier PO requires at least one named line item (`item_name` non-empty and `qty >= 1`), ensuring every created PO immediately populates **Pending Stock Receipts** and increments **PENDING GRN LINES**.
-- **Confirmed Decision 3 — Legacy Zero-Value Test Vouchers**: Zero-value dummy test records (`AED 0.00` with generic `Vendor / Supplier` names) are automatically filtered out of the active **Payment Vouchers & Returns** table while providing a 1-click delete action on all rows.
-
----
-
-## 1. Overview & Core Concept
-
-- **What It Does**: Provides a crash-free, responsive end-to-end procurement and commercial document workflow (`PO -> GRN -> 3-Way Match Bill -> PV / MRN / DN`) with interactive table rows, live modal financial calculators, and full inline line-item editing inside the A4 Document Studio.
-- **Target Audience / Persona**: Procurement officers, warehouse storekeepers, finance controllers, and commercial executives conducting live operational reviews.
-- **Key Value**: Eliminates runtime exceptions on bill payment and return creation, removes friction when inspecting or editing documents, and ensures every financial total and line item stays synchronized across modals, tables, and A4 printouts.
-
----
-
-## 2. User Experience & Visual Design
-
-- **Key User Flows**:
-  1. **Universal Table Row Click-to-Open**:
-     - **Supplier POs Tab**: Clicking any PO row opens the **Supplier PO Summary & Receiving Status Modal** displaying vendor details, linked enquiry, line-by-line ordered vs. received vs. pending quantities, and 1-click lifecycle actions.
-     - **Pending Stock Receipts Tab**: Clicking any pending line row opens the **Receive Stock (GRN) & Landed Cost Modal** for that PO.
-     - **Supplier Bills & 3-Way Match Tab**: Clicking any bill row opens the printable **3-Way Match Bill Summary & Voucher Sheet Modal** with embedded PDF/image scan preview and a streamlined action bar (`Approve`, `Pay Bill`, `Hold`, `Edit`, `Delete`).
-     - **Payment Vouchers & Returns Tab**: Clicking any `PV`, `MRN`, or `DN` row launches that document directly in the **A4 Studio**.
-  2. **A4 Studio Header & Inline Line Items Editor**:
-     - Top header bar permanently displays `[ Save <Document> ]` and `[ Issue <Document> ]` regardless of whether the Left Controls Drawer or Right Inspector is open.
-     - Opening **Deal Data & Content** shows the **Document Metadata Editor** and a new **Document Line Items Editor** (with Catalog Item selector, Description, Qty, UOM, Unit Rate, and Delete) at the top of the drawer, while the `Document Data & @ Fields` reference accordion starts collapsed by default.
-     - Vendor documents (`debit_note`, `material_return_note`, `payment_voucher`) suppress client-only quotation blocks (`Commercial Terms & Conditions` and `* Taxes EXTRA to client account`) and display an interactive empty-table prompt (`"No line items added yet — click here to add items."`) that focuses the Line Items Editor.
-  3. **Guided Modal Auto-Fill & Live Totals**:
-     - **Create Outbound Supplier PO Modal**: Selecting a catalog item auto-fills description, part number, UOM, and unit cost (`cost_price` or `selling_price` fallback), shows column headers and per-line totals, displays a live **PO Total (AED)** bar, and validates that at least one named item is present before saving.
-     - **Record Supplier Bill & 3-Way Match Modal**: Combines Vendor selection and legal name into a clean unified selector + editable input without redundant fields, fixes leading-zero numeric input behavior by parsing clean numbers and allowing empty transient strings while typing, populates PO/GRN quantities when linking a PO, and adds a live **Bill Financial Summary Bar** (`Items Subtotal + Tax / VAT + Freight / Duty = Grand Total Payable`).
-     - **Issue Outbound Payment Voucher (PV) Modal**: Checking open bills automatically populates the vendor, sums checked `balance_due` into `Amount Paid (AED)`, and builds the payment narration (`Settlement against BILL-XXXX (Inv #...)`). Saving writes `amount_paid` to both `payment_voucher_metadata.amount_paid` and `grand_total`.
-     - **Issue Vendor Debit Note (DN) & Material Return (MRN) Modal**: Selecting a linked PO or Supplier Bill populates `Return / Claim Line Items` with descriptions, quantities, and rates, adds column headers and a live **Total Claim / Debit Note Amount (AED)** summary bar, and persists all line items and calculated totals onto the `QuotationDocumentRecord`.
-
-- **Visual Identity & Theme**:
-  - *Aesthetic Direction*: High-density enterprise SaaS ledger and A4 document studio following the 60-30-10 neutral slate canvas (`bg-slate-50`/`bg-white`), crisp `1px` structural borders (`border-slate-200`), and semantic status accents (Indigo for POs, Emerald for GRN/Matched, Amber for Bills/PVs, Rose for Returns/Holds).
-  - *Typography & Hierarchy*: `Plus Jakarta Sans` UI headers and controls paired with `JetBrains Mono` (`font-mono tabular-nums`) for all document references, quantities, rates, and currency totals.
-  - *Single-Row Header Actions*: `PageHeader` action buttons use `flex-nowrap whitespace-nowrap shrink-0` so `Record Supplier Bill`, `Issue Payment Voucher`, and `+ New Supplier PO` remain on a single horizontal line.
-
----
-
-## 3. Key Product Decisions & Trade-Offs
-
-- **Decision 1: Aliasing `listByWorkspace` on `QuotationRepository` & `ProcurementRepository`**
-  - *Chosen Approach*: Expose `QuotationRepository.listByWorkspace(workspaceId)` (delegating to `getQuotationsForWorkspace`) and `ProcurementRepository.listByWorkspace(workspaceId)` (delegating to `getWorkspaceSupplierBills`), and define `openCreatePvModal` in `ProcurementPayablesHub`.
-  - *Why*: Guarantees backward and forward compatibility across all modal save handlers and row action triggers without runtime `TypeError` or `ReferenceError` crashes.
-- **Decision 2: Live Inline Line Items State in Studio (`customStudioLineItems`)**
-  - *Chosen Approach*: Seed editable studio line items from the active document's `line_items` (or empty array for new standalone vendor docs rather than injecting dummy `MOD-100-PRO` sample items on vendor documents) and recalculate `subtotal`, `tax_amount`, and `grand_total` on every item addition, edit, or deletion.
-  - *Why*: Allows users to add or adjust items directly inside Studio for `PO`, `DN`, `MRN`, `DO`, and `QT` with instant A4 preview updates.
-
----
-
-## 4. Technical Architecture & Data Strategy *(Technical Reference)*
-
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                        Procurement & Payables Hub                          │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────────┐  │
-│  │PageHeader (1-Row)│  │ 4 Interactive    │  │ Guided Modals (PO, GRN,  │  │
-│  │nowrap CTA buttons│  │ Tables (RowClick)│  │ Bill, PV, MRN/DN, Viewer)│  │
-│  └────────┬─────────┘  └────────┬─────────┘  └────────────┬─────────────┘  │
-└───────────┼─────────────────────┼─────────────────────────┼────────────────┘
-            │                     ▼                         ▼
-┌───────────┴────────────────────────────────────────────────────────────────┐
-│                    A4 Document Studio (QuotationStudioModal)               │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │ Always-Visible Top Header: [Save <Doc>] [Issue <Doc>] [Hide Controls]│  │
-│  ├──────────────────────────────────┬───────────────────────────────────┤  │
-│  │ Deal Data & Content Drawer       │ Live A4 Canvas (QuotationDocument)│  │
-│  │ • Document Metadata Editor       │ • Hides Client Terms on DN/MRN/PV │  │
-│  │ • Inline Line Items Editor (NEW) │ • Interactive Empty Table Prompt  │  │
-│  │ • Collapsed @Fields Accordion    │ • Synchronized Financial Totals   │  │
-│  └──────────────────────────────────┴───────────────────────────────────┘  │
-└─────────────────────────────────────┬──────────────────────────────────────┘
-                                      ▼
-┌────────────────────────────────────────────────────────────────────────────┐
-│              Repository Layer (Firestore + Local Cache Sync)               │
-│  • QuotationRepository.listByWorkspace() <-> getQuotationsForWorkspace()   │
-│  • ProcurementRepository.recalculateBillSettlement()                       │
-└────────────────────────────────────────────────────────────────────────────┘
-```
-
-- **Interactive Component & State Mapping**:
-  - `openCreatePvModal(bill?, po?)`: Closes `viewingBillSummary` if open, invokes `handleIssuePaymentVoucher(bill, po)` to pre-select vendor, allocate the bill's `balance_due`, populate `pvAmountPaid`, and open `showCreatePvModal`.
-  - Numeric inputs in Bill, PO, PV, and Return modals use `value={val === 0 ? '' : val}` (or `String(val || '')` with `placeholder="0"`) so typing `50` never produces `050`.
-  - Console cleanup: Removes `console.log('[Visibility Check]', ...)` from `App.tsx` and uses static imports for `aiExtractionClient` in `SettingsHub.tsx`.
+## 4. Product Spec Variants & Variation System (`src/types.ts`, `src/components/ProductManager.tsx`, `src/components/EnquiryDetail.tsx`, `src/components/ProcurementPayablesHub.tsx`, `src/components/quotations/QuotationStudioModal.tsx`)
+- **Data Model & Variant Helper (`src/types.ts` & `src/utils/productVariantFormat.ts`)**:
+  - Add optional `variant_parent_id?: string | null` and `product_family?: string | null` fields to `ProductRecord` (and automatic family detection by normalized base product name `I1` so existing products work automatically).
+  - Create a shared formatting utility that computes differentiating spec keys across sibling variants (e.g. `S3: 15-20` vs `S3: 20-40`) and formats selector labels cleanly across the app: `I1 (S3: 15-20 • S1: Black, S2: 1.1) [SKU] — Stock: 4`.
+- **1-Click `+ Add Spec Variant` Flow (`src/components/ProductManager.tsx`)**:
+  - Add a `+ Add Spec Variant` button on product table rows and inside the `Edit Catalog Product` modal header.
+  - Clicking `+ Add Spec Variant` opens the modal pre-filled with the exact base product name (`I1`, without appending `(Copy)`), category, brand, description, and cloned spec attributes (`S1, S2, S3`), opening directly on Tab `2. Specs, Image & Datasheet` with quick inline inputs for **SKU Code**, **Selling Price**, **Cost Price**, and **Opening Stock** at the top so creating a new spec variation takes seconds.
+- **Smart Spec Diff Highlighting & `Group Variants` Toggle (`src/components/ProductManager.tsx`)**:
+  - Default to a flat catalog list where sibling variants display a family badge (`Variant • 2 SKUs`) and highlight differentiating spec pills (e.g. `S3: 15-20` vs `S3: 20-40`) in high-contrast indigo/amber pills while shared specs (`S1: Black`, `S2: 1.1`) render in subtle slate pills.
+  - Provide a **`Group Variants`** toggle in the catalog filter bar to collapse/expand sibling variants cleanly under their parent product family (`I1 — 2 Variants`).
+- **Unmistakable Variant Selection Across Enquiries, Studio & Supplier POs**:
+  - Update product dropdowns and search selectors in `EnquiryDetail.tsx`, `QuotationStudioModal.tsx`, and `ProcurementPayablesHub.tsx` to display each product's differentiating spec attributes, shared specs, SKU, and live stock count.
