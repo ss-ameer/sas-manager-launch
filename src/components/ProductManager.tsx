@@ -65,6 +65,7 @@ import {
   resolveProductFamilyDisplayName,
   formatProductVariantSelectorLabel
 } from '../utils/productVariantFormat';
+import { compileDescriptionWithSpecs } from './SaveToCatalogModal';
 
 const UNIVERSAL_QUICK_ATTRIBUTES = [
   'Dimensions / Size',
@@ -247,19 +248,21 @@ export default function ProductManager({
   const productCategories: string[] = useMemo(() => {
     const fromProps = propCategories && propCategories.length > 0 ? propCategories : [];
     const fromProducts = products.filter((p) => !p.is_deleted && p.product_type).map((p) => p.product_type);
-    return Array.from(new Set([...UNIVERSAL_CATEGORIES, ...fromProps, ...fromProducts])).filter((c) => {
+    const activeCat = formProductType ? [formProductType] : [];
+    return Array.from(new Set([...activeCat, ...UNIVERSAL_CATEGORIES, ...fromProps, ...fromProducts])).filter((c) => {
       const l = c.toLowerCase();
       return l !== 'anthrecite' && l !== 'anthresite';
     });
-  }, [propCategories, products]);
+  }, [propCategories, products, formProductType]);
 
   const units: string[] = useMemo(() => {
     const fromProps = propUnits && propUnits.length > 0 ? propUnits : [];
     const fromProducts = products
       .filter((p) => !p.is_deleted && p.unit && p.unit !== 'Custom Unit')
       .map((p) => p.unit);
-    return Array.from(new Set([...UNIVERSAL_UNITS, ...fromProps, ...fromProducts]));
-  }, [propUnits, products]);
+    const activeU = formUnit && formUnit !== 'Custom Unit' ? [formUnit] : [];
+    return Array.from(new Set([...activeU, 'Nos', 'SET', 'Set', 'Pcs', ...UNIVERSAL_UNITS, ...fromProps, ...fromProducts]));
+  }, [propUnits, products, formUnit]);
 
   // Dynamic workspace & category attribute suggestions (SaaS multi-tenant friendly)
   const suggestedAttributeChips = useMemo(() => {
@@ -827,7 +830,7 @@ export default function ProductManager({
     setFormName('');
     setFormProductType(productCategories[0] || 'General Equipment');
     setFormDescription('');
-    setFormUnit(units[0] || 'Nos');
+    setFormUnit('Nos');
     setFormUnitPrice(undefined);
     setFormCostPrice(undefined);
     setFormIsCompositeSet(false);
@@ -866,8 +869,8 @@ export default function ProductManager({
     setActiveFormTab('overview');
     setFormName(p.name || p.description || '');
     setFormProductType(p.product_type || productCategories[0] || 'General Equipment');
-    setFormDescription(p.description || '');
-    setFormUnit(p.unit && p.unit !== 'Custom Unit' ? p.unit : units[0] || 'Nos');
+    setFormDescription(compileDescriptionWithSpecs(p.name || '', p.description || '', p.attributes || []) || p.description || '');
+    setFormUnit(p.unit && p.unit !== 'Custom Unit' ? p.unit : 'Nos');
     setFormUnitPrice(p.unit_price ?? undefined);
     setFormCostPrice(p.cost_price ?? undefined);
     setFormIsCompositeSet(Boolean(p.is_composite_set));
@@ -916,8 +919,8 @@ export default function ProductManager({
     setActiveFormTab('specs_media');
     setFormName(baseName);
     setFormProductType(p.product_type || productCategories[0] || 'General Equipment');
-    setFormDescription(p.description || '');
-    setFormUnit(p.unit && p.unit !== 'Custom Unit' ? p.unit : units[0] || 'Nos');
+    setFormDescription(compileDescriptionWithSpecs(baseName, p.description || '', p.attributes || []) || p.description || '');
+    setFormUnit(p.unit && p.unit !== 'Custom Unit' ? p.unit : 'Nos');
     setFormUnitPrice(p.unit_price ?? undefined);
     setFormCostPrice(p.cost_price ?? undefined);
     setFormIsCompositeSet(Boolean(p.is_composite_set));
@@ -967,8 +970,8 @@ export default function ProductManager({
     setActiveFormTab('overview');
     setFormName(`${p.name || p.description} (Copy)`);
     setFormProductType(p.product_type || productCategories[0] || 'General Equipment');
-    setFormDescription(p.description || '');
-    setFormUnit(p.unit && p.unit !== 'Custom Unit' ? p.unit : units[0] || 'Nos');
+    setFormDescription(compileDescriptionWithSpecs(p.name || '', p.description || '', p.attributes || []) || p.description || '');
+    setFormUnit(p.unit && p.unit !== 'Custom Unit' ? p.unit : 'Nos');
     setFormUnitPrice(p.unit_price ?? undefined);
     setFormCostPrice(p.cost_price ?? undefined);
     setFormIsCompositeSet(Boolean(p.is_composite_set));
@@ -1072,7 +1075,7 @@ export default function ProductManager({
       workspace_id: activeWorkspace.id,
       name: formName.trim(),
       product_type: formProductType || 'General',
-      description: formDescription.trim() || formName.trim(),
+      description: compileDescriptionWithSpecs(formName.trim(), formDescription.trim(), cleanAttributes) || formDescription.trim() || formName.trim(),
       unit: formUnit || (formIsCompositeSet ? 'SET' : 'Nos'),
       unit_price: finalSellingPrice,
       cost_price: finalCostPrice,
@@ -2571,27 +2574,48 @@ export default function ProductManager({
                                 type="text"
                                 placeholder="Spec Key (e.g. Color, Capacity, Range, Material)"
                                 value={attr.key ?? ''}
-                                onChange={(e) =>
-                                  setFormAttributes((prev) =>
-                                    prev.map((a, i) => (i === index ? { ...a, key: e.target.value } : a))
-                                  )
-                                }
+                                onChange={(e) => {
+                                  const nextKey = e.target.value;
+                                  setFormAttributes((prev) => {
+                                    const next = prev.map((a, i) => (i === index ? { ...a, key: nextKey } : a));
+                                    const prevCompiled = compileDescriptionWithSpecs(formName, '', prev);
+                                    if (!formDescription.trim() || formDescription.trim() === formName.trim() || formDescription.trim() === prevCompiled.trim()) {
+                                      setFormDescription(compileDescriptionWithSpecs(formName, '', next));
+                                    }
+                                    return next;
+                                  });
+                                }}
                                 className="w-[42%] bg-slate-50/70 border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white"
                               />
                               <input
                                 type="text"
                                 placeholder="Spec Value (e.g. Black, 1.1, 15-20, SS316L)"
                                 value={attr.value ?? ''}
-                                onChange={(e) =>
-                                  setFormAttributes((prev) =>
-                                    prev.map((a, i) => (i === index ? { ...a, value: e.target.value } : a))
-                                  )
-                                }
+                                onChange={(e) => {
+                                  const nextVal = e.target.value;
+                                  setFormAttributes((prev) => {
+                                    const next = prev.map((a, i) => (i === index ? { ...a, value: nextVal } : a));
+                                    const prevCompiled = compileDescriptionWithSpecs(formName, '', prev);
+                                    if (!formDescription.trim() || formDescription.trim() === formName.trim() || formDescription.trim() === prevCompiled.trim()) {
+                                      setFormDescription(compileDescriptionWithSpecs(formName, '', next));
+                                    }
+                                    return next;
+                                  });
+                                }}
                                 className="flex-1 min-w-0 bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-mono text-slate-900 focus:outline-none focus:border-blue-500"
                               />
                               <button
                                 type="button"
-                                onClick={() => setFormAttributes((prev) => prev.filter((_, i) => i !== index))}
+                                onClick={() =>
+                                  setFormAttributes((prev) => {
+                                    const next = prev.filter((_, i) => i !== index);
+                                    const prevCompiled = compileDescriptionWithSpecs(formName, '', prev);
+                                    if (!formDescription.trim() || formDescription.trim() === formName.trim() || formDescription.trim() === prevCompiled.trim()) {
+                                      setFormDescription(compileDescriptionWithSpecs(formName, '', next));
+                                    }
+                                    return next;
+                                  })
+                                }
                                 className="p-1.5 text-slate-400 hover:text-rose-500 transition rounded-md shrink-0 cursor-pointer"
                                 title="Remove Attribute"
                               >
@@ -2609,11 +2633,24 @@ export default function ProductManager({
 
                     {/* 2. Commercial & Technical Description */}
                     <div>
-                      <label className="block text-[11px] font-mono text-slate-500 uppercase tracking-wider mb-1 font-bold">
-                        Commercial &amp; Technical Description
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[11px] font-mono text-slate-500 uppercase tracking-wider font-bold">
+                          Commercial &amp; Technical Description
+                        </label>
+                        {formAttributes.some((a) => a.key.trim() && a.value.trim()) && (
+                          <button
+                            type="button"
+                            onClick={() => setFormDescription(compileDescriptionWithSpecs(formName, formDescription, formAttributes))}
+                            className="text-[11px] text-blue-600 hover:text-blue-700 font-bold flex items-center space-x-1 cursor-pointer hover:underline"
+                            title="Compile structured specification attributes into the Commercial & Technical Description"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            <span>Sync from Spec Attributes</span>
+                          </button>
+                        )}
+                      </div>
                       <textarea
-                        rows={2}
+                        rows={3}
                         value={formDescription}
                         onChange={(e) => setFormDescription(e.target.value)}
                         className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3.5 text-sm text-slate-800 focus:outline-none"

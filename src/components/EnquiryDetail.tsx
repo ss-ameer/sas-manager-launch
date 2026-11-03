@@ -24,7 +24,7 @@ import { QuotationStudioModal } from './quotations/QuotationStudioModal';
 import { QuotationDocument } from './quotations/QuotationDocument';
 import EnquiryCollaboratorsModal from './EnquiryCollaboratorsModal';
 import { CreateCompanyModal } from './companies/CreateCompanyModal';
-import SaveToCatalogModal, { parseLineItemTitleAndSpec, hasCatalogDrift, syncLineItemToCatalogProduct } from './SaveToCatalogModal';
+import SaveToCatalogModal, { parseLineItemTitleAndSpec, hasCatalogDrift, syncLineItemToCatalogProduct, compileDescriptionWithSpecs } from './SaveToCatalogModal';
 import CompositePackageEditor from './quotations/CompositePackageEditor';
 import { cloneLineItemToNextOption, recalculateCompositeItemTotals, isOptionActiveForInventoryAndBaseline } from '../utils/compositeBomUtils';
 import LineItemImageOptionsPopover from './common/LineItemImageOptionsPopover';
@@ -2093,9 +2093,9 @@ export default function EnquiryDetail({
       item_name: p.name || p.product_type,
       item_type: 'product',
       product_type: p.product_type || 'Other',
-      description: p.description || p.name || '',
+      description: compileDescriptionWithSpecs(p.name || '', p.description || '', p.attributes || []) || p.description || p.name || '',
       quantity: 1,
-      unit: p.unit || 'Nos',
+      unit: p.unit || (p.is_composite_set ? 'SET' : 'Nos'),
       unit_price: bomRollup ? bomRollup.unitSellingPrice : unitPrice,
       cost_price: bomRollup ? bomRollup.unitCostPrice : costPrice,
       total_price: bomRollup ? bomRollup.totalSellingPrice : unitPrice,
@@ -7875,12 +7875,19 @@ export default function EnquiryDetail({
                   sku: newProduct.sku || next[idx].sku,
                   item_name: newProduct.name || next[idx].item_name,
                   product_type: newProduct.product_type || next[idx].product_type,
+                  description: newProduct.description || next[idx].description,
+                  unit: newProduct.unit || next[idx].unit,
                   brand_make: newProduct.brand_make || next[idx].brand_make,
                   model_part_no: newProduct.model_part_no || next[idx].model_part_no,
                   country_of_origin: newProduct.country_of_origin || next[idx].country_of_origin,
                   hs_code: newProduct.hs_code || next[idx].hs_code,
+                  lead_time_note: newProduct.default_availability || next[idx].lead_time_note,
                   image_url: newProduct.image_url || next[idx].image_url,
-                  datasheet_attachment: newProduct.datasheet_attachment || next[idx].datasheet_attachment
+                  datasheet_attachment: newProduct.datasheet_attachment || next[idx].datasheet_attachment,
+                  attributes:
+                    newProduct.attributes && newProduct.attributes.length > 0
+                      ? newProduct.attributes
+                      : next[idx].attributes
                 };
               }
               return next;
@@ -7894,17 +7901,24 @@ export default function EnquiryDetail({
                 sku: newProduct.sku || nextItems[idx].sku,
                 item_name: newProduct.name || nextItems[idx].item_name,
                 product_type: newProduct.product_type || nextItems[idx].product_type,
+                description: newProduct.description || nextItems[idx].description,
+                unit: newProduct.unit || nextItems[idx].unit,
                 brand_make: newProduct.brand_make || nextItems[idx].brand_make,
                 model_part_no: newProduct.model_part_no || nextItems[idx].model_part_no,
-                  country_of_origin: newProduct.country_of_origin || nextItems[idx].country_of_origin,
-                  hs_code: newProduct.hs_code || nextItems[idx].hs_code,
-                  image_url: newProduct.image_url || nextItems[idx].image_url,
-                  secondary_image_url: newProduct.secondary_image_url || nextItems[idx].secondary_image_url,
-                  image_caption: newProduct.image_caption || nextItems[idx].image_caption,
-                  secondary_image_caption: newProduct.secondary_image_caption || nextItems[idx].secondary_image_caption,
-                  image_adjustments: newProduct.image_adjustments || nextItems[idx].image_adjustments,
-                  datasheet_attachment: newProduct.datasheet_attachment || nextItems[idx].datasheet_attachment
-                };
+                country_of_origin: newProduct.country_of_origin || nextItems[idx].country_of_origin,
+                hs_code: newProduct.hs_code || nextItems[idx].hs_code,
+                lead_time_note: newProduct.default_availability || nextItems[idx].lead_time_note,
+                image_url: newProduct.image_url || nextItems[idx].image_url,
+                secondary_image_url: newProduct.secondary_image_url || nextItems[idx].secondary_image_url,
+                image_caption: newProduct.image_caption || nextItems[idx].image_caption,
+                secondary_image_caption: newProduct.secondary_image_caption || nextItems[idx].secondary_image_caption,
+                image_adjustments: newProduct.image_adjustments || nextItems[idx].image_adjustments,
+                datasheet_attachment: newProduct.datasheet_attachment || nextItems[idx].datasheet_attachment,
+                attributes:
+                  newProduct.attributes && newProduct.attributes.length > 0
+                    ? newProduct.attributes
+                    : nextItems[idx].attributes
+              };
                 const updatedEnq = { ...currentEnquiry, line_items: nextItems, updatedAt: new Date().toISOString() };
                 setCurrentEnquiry(updatedEnq);
                 setDraftLineItems(nextItems);

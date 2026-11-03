@@ -51,6 +51,37 @@ export function parseLineItemTitleAndSpec(
   const cleanDesc = (description ?? '').trim();
 
   if (cleanName) {
+    // Handle case where item_name itself has multiple lines
+    const nameLines = cleanName.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (nameLines.length > 1) {
+      const firstLineTitle = nameLines[0].replace(/[:\-–—]\s*$/, '').trim();
+      const restFromName = nameLines.slice(1).join('\n').trim();
+      const combinedSpec =
+        cleanDesc && cleanDesc !== cleanName
+          ? `${restFromName}\n${cleanDesc}`.trim()
+          : restFromName;
+      return {
+        title: firstLineTitle,
+        spec: combinedSpec,
+        wasSplit: true
+      };
+    }
+
+    // Strip redundant first line from description if it repeats cleanName
+    if (cleanDesc) {
+      const descLines = cleanDesc.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      if (
+        descLines.length > 1 &&
+        descLines[0].replace(/[:\-–—]\s*$/, '').trim().toLowerCase() === cleanName.toLowerCase()
+      ) {
+        return {
+          title: cleanName,
+          spec: descLines.slice(1).join('\n').trim(),
+          wasSplit: true
+        };
+      }
+    }
+
     return {
       title: cleanName,
       spec: cleanDesc,
@@ -107,6 +138,106 @@ export function parseLineItemTitleAndSpec(
     spec: cleanDesc,
     wasSplit: true
   };
+}
+
+/**
+ * Extracts structured Key/Value specification attributes from multi-line
+ * technical descriptions (e.g. "Flow Rate: 50 m3/h" or "• Material: SS316L")
+ * and merges them with any existing attributes without duplicating keys.
+ */
+export function extractAttributesFromDescription(
+  description?: string | null,
+  existingAttributes?: ProductAttribute[] | null
+): ProductAttribute[] {
+  const baseAttrs: ProductAttribute[] = Array.isArray(existingAttributes)
+    ? existingAttributes
+        .map((a) => ({ key: String(a?.key ?? '').trim(), value: String(a?.value ?? '').trim() }))
+        .filter((a) => a.key !== '' || a.value !== '')
+    : [];
+
+  const seenKeys = new Set(baseAttrs.map((a) => a.key.toLowerCase()).filter(Boolean));
+  const raw = (description ?? '').trim();
+  if (!raw) return baseAttrs;
+
+  const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  for (const line of lines) {
+    const cleaned = line.replace(/^(?:[-•*▪▸]+|\d+[.)])\s*/, '').trim();
+    const match = cleaned.match(/^([A-Za-z0-9][A-Za-z0-9\s/&().\-_#]{1,42}?)\s*:\s*(.+)$/);
+    if (match) {
+      const k = match[1].trim();
+      const v = match[2].trim();
+      if (
+        k &&
+        v &&
+        !k.toLowerCase().startsWith('http') &&
+        !k.toLowerCase().startsWith('note') &&
+        !seenKeys.has(k.toLowerCase())
+      ) {
+        seenKeys.add(k.toLowerCase());
+        baseAttrs.push({ key: k, value: v });
+      }
+    }
+  }
+
+  return baseAttrs;
+}
+
+/**
+ * Ensures the Commercial & Technical Description includes both any narrative/multi-line
+ * technical breakdown AND any structured Key/Value specification attributes so that
+ * Quotations, Delivery Notes, and Purchase Orders always print the complete specification.
+ */
+export function compileDescriptionWithSpecs(
+  title?: string | null,
+  rawDescription?: string | null,
+  attributes?: ProductAttribute[] | null
+): string {
+  const cleanTitle = (title ?? '').trim();
+  let cleanDesc = (rawDescription ?? '').trim();
+
+  if (cleanTitle && cleanDesc) {
+    const descLines = cleanDesc.split(/\r?\n/);
+    if (
+      descLines.length > 1 &&
+      descLines[0].trim().replace(/[:\-–—]\s*$/, '').toLowerCase() === cleanTitle.toLowerCase()
+    ) {
+      cleanDesc = descLines.slice(1).join('\n').trim();
+    }
+  }
+
+  const validAttrs = (Array.isArray(attributes) ? attributes : [])
+    .map((a) => ({ key: String(a?.key ?? '').trim(), value: String(a?.value ?? '').trim() }))
+    .filter((a) => a.key !== '' && a.value !== '');
+
+  const isDescSameAsTitle =
+    !cleanDesc || (cleanTitle !== '' && cleanDesc.toLowerCase() === cleanTitle.toLowerCase());
+
+  if (validAttrs.length === 0) {
+    return cleanDesc || cleanTitle;
+  }
+
+  if (isDescSameAsTitle) {
+    return validAttrs.map((a) => `${a.key}: ${a.value}`).join('\n');
+  }
+
+  const descLower = cleanDesc.toLowerCase();
+  const missingAttrLines: string[] = [];
+  for (const attr of validAttrs) {
+    const keyLower = attr.key.toLowerCase();
+    const valLower = attr.value.toLowerCase();
+    const alreadyPresent =
+      descLower.includes(`${keyLower}:`) ||
+      (descLower.includes(keyLower) && descLower.includes(valLower));
+    if (!alreadyPresent) {
+      missingAttrLines.push(`${attr.key}: ${attr.value}`);
+    }
+  }
+
+  if (missingAttrLines.length === 0) {
+    return cleanDesc;
+  }
+
+  return `${cleanDesc}\n${missingAttrLines.join('\n')}`;
 }
 
 /**
@@ -227,10 +358,23 @@ export async function syncLineItemToCatalogProduct(
 
   const parsed = parseLineItemTitleAndSpec(item.item_name || item.title, item.description);
   const updatedName = (item.item_name || item.title || product.name || parsed.title || '').trim();
-  const updatedDesc = (item.description || product.description || '').trim();
+  const rawAttrsSource: ProductAttribute[] = Array.isArray(item.attributes)
+    ? item.attributes
+        .map((a: any) => ({ key: String(a.key ?? '').trim(), value: String(a.value ?? '').trim() }))
+        .filter((a: ProductAttribute) => a.key !== '' && a.value !== '')
+    : product.attributes || [];
+  const updatedAttributes = extractAttributesFromDescription(
+    parsed.spec || item.description,
+    rawAttrsSource
+  ).filter((a) => a.key !== '' && a.value !== '');
+  const updatedDesc = compileDescriptionWithSpecs(
+    updatedName,
+    item.description || product.description || '',
+    updatedAttributes
+  );
   const updatedBrand = (item.brand_make ?? product.brand_make ?? '').trim() || undefined;
   const updatedModel = (item.model_part_no ?? product.model_part_no ?? '').trim() || undefined;
-  const updatedUnit = (item.unit || product.unit || 'Nos').trim();
+  const updatedUnit = (item.unit || (item as any).uom || product.unit || 'Nos').trim();
   const updatedSell =
     item.unit_price !== undefined && item.unit_price !== null && !isNaN(Number(item.unit_price))
       ? Math.round(Number(item.unit_price) * fxMultiplier * 100) / 100
@@ -248,11 +392,6 @@ export async function syncLineItemToCatalogProduct(
   const updatedSecondaryCaption = (item.secondary_image_caption ?? product.secondary_image_caption ?? '').trim() || undefined;
   const updatedImageAdjustments = item.image_adjustments || product.image_adjustments || undefined;
   const updatedDatasheet = item.datasheet_attachment || product.datasheet_attachment || undefined;
-  const updatedAttributes: ProductAttribute[] = Array.isArray(item.attributes)
-    ? item.attributes
-        .map((a: any) => ({ key: String(a.key ?? '').trim(), value: String(a.value ?? '').trim() }))
-        .filter((a: ProductAttribute) => a.key !== '' && a.value !== '')
-    : product.attributes || [];
 
   const updatedSubComponents = Array.isArray(item.sub_components)
     ? item.sub_components.map((sub: any) => {
@@ -395,18 +534,6 @@ export default function SaveToCatalogModal({
   const lineItem = propLineItem || initialItem || null;
   const [isSaving, setIsSaving] = useState(false);
 
-  const availableCategories = useMemo(() => {
-    const base = propCategories && propCategories.length > 0 ? propCategories : [...UNIVERSAL_CATEGORIES];
-    const fromProds = (products || []).filter((p) => !p.is_deleted && p.product_type).map((p) => p.product_type);
-    return Array.from(new Set([...base, ...fromProds])).filter(Boolean);
-  }, [propCategories, products]);
-
-  const availableUnits = useMemo(() => {
-    const base = propUnits && propUnits.length > 0 ? propUnits : [...UNIVERSAL_UNITS];
-    const fromProds = (products || []).filter((p) => !p.is_deleted && p.unit).map((p) => p.unit);
-    return Array.from(new Set([...base, ...fromProds])).filter(Boolean);
-  }, [propUnits, products]);
-
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('General Equipment');
@@ -432,25 +559,71 @@ export default function SaveToCatalogModal({
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isUploadingDatasheet, setIsUploadingDatasheet] = useState(false);
 
+  const availableCategories = useMemo(() => {
+    const base = propCategories && propCategories.length > 0 ? propCategories : [...UNIVERSAL_CATEGORIES];
+    const fromProds = (products || []).filter((p) => !p.is_deleted && p.product_type).map((p) => p.product_type);
+    const itemCat =
+      lineItem?.product_type && lineItem.product_type !== 'Custom' && lineItem.product_type !== 'Standard'
+        ? lineItem.product_type.trim()
+        : '';
+    const activeCat = (category || '').trim();
+    return Array.from(
+      new Set([
+        ...(activeCat ? [activeCat] : []),
+        ...(itemCat ? [itemCat] : []),
+        ...base,
+        ...UNIVERSAL_CATEGORIES,
+        ...fromProds
+      ])
+    ).filter(Boolean);
+  }, [propCategories, products, lineItem, category]);
+
+  const availableUnits = useMemo(() => {
+    const base = propUnits && propUnits.length > 0 ? propUnits : [...UNIVERSAL_UNITS];
+    const fromProds = (products || []).filter((p) => !p.is_deleted && p.unit).map((p) => p.unit);
+    const itemUom = String(lineItem?.unit || (lineItem as any)?.uom || '').trim();
+    const activeUom = (unit || '').trim();
+    return Array.from(
+      new Set([
+        ...(activeUom ? [activeUom] : []),
+        ...(itemUom ? [itemUom] : []),
+        'Nos',
+        'SET',
+        'Set',
+        'Pcs',
+        ...base,
+        ...UNIVERSAL_UNITS,
+        ...fromProds
+      ])
+    ).filter(Boolean);
+  }, [propUnits, products, lineItem, unit]);
+
   useEffect(() => {
     if (!isOpen || !lineItem) return;
     const rawTitle = lineItem.item_name || lineItem.title || '';
     const rawDesc = lineItem.description || '';
     const parsed = parseLineItemTitleAndSpec(rawTitle, rawDesc);
 
+    const rawAttrs = Array.isArray(lineItem.attributes) ? lineItem.attributes : [];
+    const mergedAttrs = extractAttributesFromDescription(parsed.spec || rawDesc, rawAttrs);
+    const compiledDesc = compileDescriptionWithSpecs(
+      parsed.title || rawTitle,
+      parsed.spec || rawDesc,
+      mergedAttrs
+    );
+
     setName(parsed.title || '');
-    setDescription(parsed.spec || parsed.title || '');
+    setDescription(compiledDesc || parsed.spec || parsed.title || '');
 
     const initialCat =
       lineItem.product_type && lineItem.product_type !== 'Custom' && lineItem.product_type !== 'Standard'
         ? lineItem.product_type
-        : availableCategories[0] || 'General Equipment';
+        : (propCategories && propCategories[0]) || 'General Equipment';
     setCategory(initialCat);
 
     // Extract brand or model from attributes if not set directly
-    const attrs = Array.isArray(lineItem.attributes) ? lineItem.attributes : [];
-    const attrBrand = attrs.find((a) => /^(brand|make|manufacturer|brand \/ make)$/i.test((a.key || '').trim()))?.value;
-    const attrModel = attrs.find((a) => /^(model|model no|part no|model \/ part no)$/i.test((a.key || '').trim()))?.value;
+    const attrBrand = mergedAttrs.find((a) => /^(brand|make|manufacturer|brand \/ make)$/i.test((a.key || '').trim()))?.value;
+    const attrModel = mergedAttrs.find((a) => /^(model|model no|part no|model \/ part no)$/i.test((a.key || '').trim()))?.value;
 
     const resolvedBrand = lineItem.brand_make || attrBrand || '';
     const resolvedModel = lineItem.model_part_no || attrModel || '';
@@ -480,7 +653,10 @@ export default function SaveToCatalogModal({
         ? Math.round(Number(lineItem.cost_price) * fxMultiplier * 100) / 100
         : null;
 
-    setUnit(lineItem.unit || (lineItem.is_composite_set ? 'Set' : 'Nos'));
+    const rawItemUnit = String(
+      lineItem.unit || (lineItem as any).uom || (lineItem.is_composite_set ? 'SET' : 'Nos')
+    ).trim();
+    setUnit(rawItemUnit || 'Nos');
     setUnitPrice(scaledSell !== null ? String(scaledSell) : '');
     setCostPrice(scaledCost !== null ? String(scaledCost) : '');
     setLeadTime(lineItem.lead_time_note || lineItem.availability || '');
@@ -492,10 +668,10 @@ export default function SaveToCatalogModal({
     setSecondaryImageCaption(lineItem.secondary_image_caption || '');
     setImageAdjustments(lineItem.image_adjustments);
     setDatasheetAttachment(lineItem.datasheet_attachment);
-    setAttributes(attrs.map((a) => ({ key: a.key ?? '', value: a.value ?? '' })));
+    setAttributes(mergedAttrs.map((a) => ({ key: a.key ?? '', value: a.value ?? '' })));
     setIsCreatingCategory(false);
     setNewCategoryInput('');
-  }, [isOpen, lineItem, availableCategories, propCurrency]);
+  }, [isOpen, lineItem, propCurrency]);
 
   const suggestedChips = useMemo(() => {
     const known = category ? CATEGORY_SUGGESTED_ATTRIBUTES[category] || [] : [];
@@ -638,15 +814,18 @@ export default function SaveToCatalogModal({
             })
           : undefined;
 
+      const finalCompiledDescription =
+        compileDescriptionWithSpecs(name.trim(), description.trim(), cleanAttrs) || name.trim();
+
       const productPayload: Partial<Product> = {
         workspace_id: activeWorkspace?.id || activeWorkspaceId || 'ws_default',
         name: name.trim(),
-        description: description.trim() || name.trim(),
+        description: finalCompiledDescription,
         product_type: category || 'General Equipment',
         sku: sku.trim() || undefined,
         brand_make: brandMake.trim() || undefined,
         model_part_no: modelPartNo.trim() || undefined,
-        unit: unit || 'Nos',
+        unit: (unit || '').trim() || 'Nos',
         unit_price: numSell,
         cost_price: numCost,
         default_availability: leadTime.trim() || undefined,
@@ -1005,16 +1184,30 @@ export default function SaveToCatalogModal({
             </div>
           </div>
 
-          {/* Description */}
+          {/* Commercial & Technical Description */}
           <div>
-            <label className="block text-[11px] font-mono font-bold uppercase text-slate-500 mb-1">
-              Detailed Technical Specification / Description
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-[11px] font-mono font-bold uppercase text-slate-500">
+                Commercial &amp; Technical Description
+              </label>
+              {attributes.some((a) => (a.key || '').trim() && (a.value || '').trim()) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const compiled = compileDescriptionWithSpecs(name, description, attributes);
+                    if (compiled) setDescription(compiled);
+                  }}
+                  className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 cursor-pointer hover:underline"
+                >
+                  Sync from Spec Attributes
+                </button>
+              )}
+            </div>
             <textarea
               rows={3}
               value={description ?? ''}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Technical scope, materials of construction, operating parameters..."
+              placeholder="Detailed commercial narrative, operating conditions, materials of construction, or scope of supply..."
               className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 focus:outline-none"
             />
           </div>
@@ -1135,24 +1328,64 @@ export default function SaveToCatalogModal({
                     <input
                       type="text"
                       value={attr.key ?? ''}
-                      onChange={(e) =>
-                        setAttributes((prev) => prev.map((a, i) => (i === idx ? { ...a, key: e.target.value } : a)))
-                      }
+                      onChange={(e) => {
+                        const nextVal = e.target.value;
+                        setAttributes((prev) => {
+                          const prevCompiled = compileDescriptionWithSpecs(name, '', prev);
+                          const next = prev.map((a, i) => (i === idx ? { ...a, key: nextVal } : a));
+                          const curDesc = (description || '').trim();
+                          if (
+                            !curDesc ||
+                            curDesc.toLowerCase() === (name || '').trim().toLowerCase() ||
+                            curDesc === prevCompiled
+                          ) {
+                            setDescription(compileDescriptionWithSpecs(name, '', next));
+                          }
+                          return next;
+                        });
+                      }}
                       placeholder="Parameter"
                       className="w-[42%] bg-white border border-slate-200 rounded-lg py-1 px-2 text-xs font-semibold text-slate-800 focus:outline-none"
                     />
                     <input
                       type="text"
                       value={attr.value ?? ''}
-                      onChange={(e) =>
-                        setAttributes((prev) => prev.map((a, i) => (i === idx ? { ...a, value: e.target.value } : a)))
-                      }
+                      onChange={(e) => {
+                        const nextVal = e.target.value;
+                        setAttributes((prev) => {
+                          const prevCompiled = compileDescriptionWithSpecs(name, '', prev);
+                          const next = prev.map((a, i) => (i === idx ? { ...a, value: nextVal } : a));
+                          const curDesc = (description || '').trim();
+                          if (
+                            !curDesc ||
+                            curDesc.toLowerCase() === (name || '').trim().toLowerCase() ||
+                            curDesc === prevCompiled
+                          ) {
+                            setDescription(compileDescriptionWithSpecs(name, '', next));
+                          }
+                          return next;
+                        });
+                      }}
                       placeholder="Value"
                       className="flex-1 bg-white border border-slate-200 rounded-lg py-1 px-2 text-xs text-slate-800 focus:outline-none"
                     />
                     <button
                       type="button"
-                      onClick={() => setAttributes((prev) => prev.filter((_, i) => i !== idx))}
+                      onClick={() => {
+                        setAttributes((prev) => {
+                          const prevCompiled = compileDescriptionWithSpecs(name, '', prev);
+                          const next = prev.filter((_, i) => i !== idx);
+                          const curDesc = (description || '').trim();
+                          if (
+                            !curDesc ||
+                            curDesc.toLowerCase() === (name || '').trim().toLowerCase() ||
+                            curDesc === prevCompiled
+                          ) {
+                            setDescription(compileDescriptionWithSpecs(name, '', next));
+                          }
+                          return next;
+                        });
+                      }}
                       className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
                     >
                       <X className="w-3.5 h-3.5" />

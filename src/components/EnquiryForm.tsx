@@ -70,7 +70,8 @@ import {
 import SaveToCatalogModal, {
   parseLineItemTitleAndSpec,
   hasCatalogDrift,
-  syncLineItemToCatalogProduct
+  syncLineItemToCatalogProduct,
+  compileDescriptionWithSpecs
 } from './SaveToCatalogModal';
 
 // Cache to store generated Blob URLs from Base64 data URLs to prevent memory leaks and multiple allocations
@@ -2383,7 +2384,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         const rawOpt = String(item.option_designation || item.option || 'Default / Included').trim();
         const rawDesc = String(item.description || '').trim();
         const rawName = String(item.item_name || item.name || '').trim();
-        const parsedTitleSpec = parseLineItemTitleAndSpec(rawDesc, rawName);
+        const parsedTitleSpec = parseLineItemTitleAndSpec(rawName, rawDesc);
         const extractedBrand =
           item.brand_make ||
           normalizedAttrMap.get('Brand / Make') ||
@@ -2432,9 +2433,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           item_type: itemType,
           charge_type: chargeType,
           product_type: matchedCatalogProd?.product_type || productType,
-          description: parsedTitleSpec.spec || rawDesc || matchedCatalogProd?.description || '',
+          description:
+            compileDescriptionWithSpecs(
+              parsedTitleSpec.title || matchedCatalogProd?.name || '',
+              parsedTitleSpec.spec || rawDesc || matchedCatalogProd?.description || '',
+              mergedAttributes.length > 0 ? mergedAttributes : (matchedCatalogProd?.attributes || [])
+            ) ||
+            parsedTitleSpec.spec ||
+            rawDesc ||
+            matchedCatalogProd?.description ||
+            '',
           quantity: qty,
-          unit: item.unit || matchedCatalogProd?.unit || 'Nos',
+          unit: item.unit || item.uom || matchedCatalogProd?.unit || 'Nos',
           unit_price: finalUnitPrice,
           cost_price: finalCostPrice,
           total_price: Number((qty * finalUnitPrice).toFixed(2)),
