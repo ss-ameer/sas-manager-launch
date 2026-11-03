@@ -1131,8 +1131,6 @@ export default function EnquiryList({
   const isWsAdmin = effectiveRole === 'admin';
   const currentUserId = (currentUser?.uid || currentUser?.id || '').trim();
 
-  console.log('[Visibility Check]', { currentUserId, effectiveRole, isWsAdmin, totalEnquiries: enquiries?.length || 0 });
-
   // Scoped Enquiry Access Control: Base set of authorized records visible to the current user
   const authorizedEnquiries = React.useMemo(() => {
     if (isWsAdmin) {

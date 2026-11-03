@@ -2190,6 +2190,30 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     if (data.customer_reference_code) {
       setCustomerReferenceCode(String(data.customer_reference_code));
     }
+    // Detect document currency (USD vs AED) so USD proposals are never forced into AED or divided by 3.6725
+    const rawCurrencySignal = String(
+      data.currency ||
+        data.document_currency ||
+        (Array.isArray(data.line_items) && data.line_items[0]?.currency) ||
+        ''
+    )
+      .trim()
+      .toUpperCase();
+    const hasUsdIndicatorInPayload =
+      rawCurrencySignal === 'USD' ||
+      rawCurrencySignal.includes('USD') ||
+      rawCurrencySignal.includes('$') ||
+      /\bUSD\b|\(USD\)/i.test(String(data.remarks || '') + ' ' + String(data.subject || ''));
+    const effectiveExtractedCurrency: 'AED' | 'USD' = hasUsdIndicatorInPayload
+      ? 'USD'
+      : rawCurrencySignal === 'AED'
+      ? 'AED'
+      : formCurrency;
+
+    if (effectiveExtractedCurrency !== formCurrency) {
+      setFormCurrency(effectiveExtractedCurrency);
+    }
+
     if (data.package_value && !isNaN(Number(data.package_value)) && Number(data.package_value) > 0) {
       setManualValue(Number(data.package_value));
       setIsLumpSum(true);
@@ -2330,8 +2354,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     if (data.line_items && Array.isArray(data.line_items)) {
       const formattedItems = data.line_items.map((item: any) => {
         const qty = Number(item.quantity) || 1;
-        const rawPrice = Number(item.unit_price_aed) || Number(item.unit_price) || Number(item.price) || Number(item.unitPrice) || 0;
-        const price = formCurrency === 'USD' ? rawPrice / 3.6725 : rawPrice;
+        // Preserve the exact numeric rate from the document without dividing by 3.6725 when extracted in USD
+        const rawPrice =
+          Number(item.unit_price) ||
+          Number(item.unit_price_aed) ||
+          Number(item.price) ||
+          Number(item.unitPrice) ||
+          0;
+        const price = rawPrice;
 
         const rawExtracted: any[] = Array.isArray(item.attributes) ? item.attributes : [];
         const normalizedAttrMap = new Map<string, string>(); // canonicalKey -> value
@@ -2409,7 +2439,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             ? Number(price.toFixed(2))
             : matchedCatalogProd?.unit_price
             ? Number(
-                (formCurrency === 'USD'
+                (effectiveExtractedCurrency === 'USD'
                   ? matchedCatalogProd.unit_price / 3.6725
                   : matchedCatalogProd.unit_price
                 ).toFixed(2)
@@ -2423,7 +2453,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           0;
         const finalCostPrice =
           rawCostAed > 0
-            ? Number((formCurrency === 'USD' ? rawCostAed / 3.6725 : rawCostAed).toFixed(2))
+            ? Number(
+                (effectiveExtractedCurrency === 'USD' && !item.cost_price
+                  ? rawCostAed / 3.6725
+                  : rawCostAed
+                ).toFixed(2)
+              )
             : undefined;
 
         return {
@@ -2454,7 +2489,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           hs_code: item.hs_code || matchedCatalogProd?.hs_code || undefined,
           lead_time_note: item.lead_time_note || matchedCatalogProd?.default_availability || '',
           image_url: item.image_url || matchedCatalogProd?.image_url || undefined,
-          datasheet_attachment: item.datasheet_attachment || matchedCatalogProd?.datasheet_attachment || undefined,
+          datasheet_attachment: item.datasheet_attachment || matchedProdDatasheetFallback(item, matchedCatalogProd),
           include_datasheet_in_quote:
             item.datasheet_attachment || matchedCatalogProd?.datasheet_attachment ? true : undefined,
           option: rawOpt,
@@ -2464,6 +2499,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       setLineItems(formattedItems);
     }
   };
+
+  function matchedProdDatasheetFallback(item: any, matchedCatalogProd: any) {
+    return item?.datasheet_attachment || matchedCatalogProd?.datasheet_attachment || undefined;
+  }
 
   // Ultra-fast client-side instant pre-parser for Excel tab-delimited & Email text (<5ms execution)
   const parseInstantSmartTextData = (text: string) => {
@@ -2650,6 +2689,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         }
       }
 
+      const detectedInstantCurrency =
+        /\bunit\s*price\s*\(usd\)|\btotal\s*price\s*\(usd\)|\busd\b|\$/i.test(clean) &&
+        !/\baed\b/i.test(clean)
+          ? 'USD'
+          : undefined;
+
       if (extractedCompany || extractedContact || extractedEmail || extractedQuoteRef || lineItemsArr.length > 0) {
         return {
           sn: null,
@@ -2664,6 +2709,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           country: extractedCountry,
           project_location: extractedLocation,
           enquiry_source: 'EMAIL',
+          ...(detectedInstantCurrency ? { currency: detectedInstantCurrency } : {}),
           package_value: extractedValue,
           line_items: lineItemsArr,
           confidence_scores: { company_name: 'high', contact_name: 'high', project_location: 'high', line_items: 'medium' }
@@ -5043,11 +5089,38 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           {/* Section 4: Line Items Table */}
           <div id="field-line_items" className={`bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 ${getHighlightClasses('line_items')}`}>
             <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 flex-wrap">
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5 whitespace-nowrap">
                   <span>📦 Proposal Line Items ({lineItems.length})</span>
                 </span>
                 {renderConfidenceBadge('line_items')}
+                <div
+                  className="inline-flex items-center rounded-lg bg-slate-200/70 dark:bg-slate-800 p-0.5 border border-slate-300/70 dark:border-slate-700"
+                  title="Switch active proposal currency (converts existing line item rates between AED and USD)"
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleCurrencySwitch('AED')}
+                    className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded-md transition cursor-pointer ${
+                      formCurrency === 'AED'
+                        ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-2xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    AED
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCurrencySwitch('USD')}
+                    className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded-md transition cursor-pointer ${
+                      formCurrency === 'USD'
+                        ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-2xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    USD
+                  </button>
+                </div>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {lineItems.some((li) => !li.item_name?.trim() && li.description?.trim()) && (
@@ -5855,6 +5928,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     {!isServiceOrFee && (
                       <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
                         <CompositePackageEditor
+                          item={item}
                           isCompositeSet={Boolean(
                             item.is_composite_set ||
                               (item.sub_components && item.sub_components.length > 0)
@@ -5865,6 +5939,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           parentQuantity={item.quantity || 1}
                           currency={formCurrency || 'USD'}
                           products={products || []}
+                          activeWorkspace={activeWorkspace}
                           onChange={(patch) => {
                             setLineItems((prev) => {
                               const next = [...prev];

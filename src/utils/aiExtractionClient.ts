@@ -29,6 +29,7 @@ REQUIRED JSON OUTPUT FORMAT:
   "salesperson": null,
   "enquiry_source": null,
   "category": null,
+  "currency": "AED",
   "package_value": null,
   "probability": null,
   "expected_award_date": null,
@@ -39,10 +40,12 @@ REQUIRED JSON OUTPUT FORMAT:
       "item_type": "product",
       "charge_type": null,
       "product_type": null,
+      "item_name": null,
       "description": null,
       "option_designation": "Default / Included",
       "quantity": null,
       "unit": null,
+      "unit_price": null,
       "unit_price_aed": null,
       "margin_percentage": null,
       "margin_amount": null,
@@ -80,7 +83,10 @@ HIGH-PRECISION EXTRACTION RULES FOR ENTITIES & CONTACTS:
    - contact_email: Extract valid email addresses (e.g. rajesh.menon@apexindustrial.com, purchase@arpco.ae). DO NOT leave empty if an email appears anywhere in the text or signature.
    - contact_phone: Extract mobile or landline numbers (e.g. "+971 55 267 0574", "+971 2 5591110", "050-1234567"). DO NOT leave empty if a phone/mobile string is present.
 
-3. CUSTOM ATTRIBUTE KEY-VALUE PAIRS FOR LINE ITEMS:
+3. CUSTOM ATTRIBUTE KEY-VALUE PAIRS & CURRENCY DETECTION FOR LINE ITEMS:
+   - currency: Detect the document's primary commercial currency ("USD" or "AED"). If table headers or values say "Unit Price (USD)", "Total Price (USD)", "USD", or "$", set "currency": "USD". Otherwise default to "AED".
+   - unit_price & unit_price_aed: Extract the exact numeric unit rate shown in the document table (e.g. 436.00 or 2000.00) into BOTH "unit_price" and "unit_price_aed" WITHOUT performing any currency conversion.
+   - item_name: Extract the primary bold heading or equipment name of the line item (e.g. "RO PRESSURE VESSEL - 8\\" x 6E, 300PSI, End port With Accessories" or "MULTIMEDIA FILTER VESSEL 63\\" X 67\\"").
    - For every line item, extract ALL technical specifications, model specs, materials, and parameters into the 'attributes' array as explicit key-value objects: [{ "key": "Model", "value": "CCU-6300" }, { "key": "Make", "value": "OEM Standard" }, { "key": "Design Rating", "value": "10.5 Bar" }, { "key": "Material", "value": "SS316L" }].
    - Common Attribute Keys to extract when found: "Model", "Make / Brand", "Design Rating", "Dimensions", "Material / Grade", "Operation", "Capacity", "Application", "Standard", "Lead Time / Delivery".
    - BOTH 'key' and 'value' strings MUST be non-empty strings for each attribute object.
@@ -131,10 +137,11 @@ HIGH-PRECISION EXTRACTION RULES FOR ENTITIES & CONTACTS:
    - contact_phone: "+971 55 267 0574"
    - country: "UAE"
    - project_location: "Dubai"
+   - currency: "AED"
    - package_value: 195500.00
    - line_items: [
-       { item_type: "product", product_type: "General Equipment", description: "Commercial Control Unit CCU-6300 Design Rating 10.5 Bar", quantity: 5, unit: "Nos", unit_price_aed: 12500, attributes: [{ key: "Model", value: "CCU-6300" }] },
-       { item_type: "charge", charge_type: "Transportation", product_type: "Service / Charge", description: "Transportation - Standard Delivery to Client Site", quantity: 1, unit: "LS", unit_price_aed: 100, attributes: [] }
+       { item_type: "product", product_type: "General Equipment", item_name: "Commercial Control Unit CCU-6300", description: "Commercial Control Unit CCU-6300 Design Rating 10.5 Bar", quantity: 5, unit: "Nos", unit_price: 12500, unit_price_aed: 12500, attributes: [{ key: "Model", value: "CCU-6300" }] },
+       { item_type: "charge", charge_type: "Transportation", product_type: "Service / Charge", item_name: "Transportation", description: "Transportation - Standard Delivery to Client Site", quantity: 1, unit: "LS", unit_price: 100, unit_price_aed: 100, attributes: [] }
      ]
 
 Extract the details accurately into the requested JSON format.${salespersonExclusionPrompt}\n\n${JSON_FORMAT}`;
