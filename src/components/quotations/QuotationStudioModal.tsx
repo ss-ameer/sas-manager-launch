@@ -148,6 +148,8 @@ import {
   AlertTriangle,
   PanelLeft,
   PanelLeftClose,
+  PanelRight,
+  PanelRightClose,
   AlignJustify,
   Bold,
   Italic,
@@ -1610,13 +1612,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     handleToggleBlockEnabled('signatory', enabled);
   };
 
-  // Retractable Right-Side Contextual Block & Section Inspector selection (Mutually exclusive with Left Drawer)
+  // Retractable Right-Side Contextual Block & Section Inspector selection (Independent of Left Drawer)
   const [selectedSection, setSelectedSectionState] = useState<StudioSelectedSection>(null);
+  const lastInspectedSectionRef = useRef<StudioSelectedSection>('items_table');
   const setSelectedSection = useCallback((next: React.SetStateAction<StudioSelectedSection>) => {
     setSelectedSectionState((prev) => {
       const resolved = typeof next === 'function' ? (next as any)(prev) : next;
       if (resolved !== null) {
-        setIsLeftDrawerOpen(false);
+        lastInspectedSectionRef.current = resolved;
       }
       return resolved;
     });
@@ -1662,7 +1665,6 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         (section === 'items_table' &&
           (documentType === 'payment_voucher' || documentType === 'receipt')))
     ) {
-      setSelectedSectionState(null);
       setIsLeftDrawerOpen(true);
       setActiveLeftTab('content');
       setHighlightDocMetaCard(true);
@@ -2452,16 +2454,42 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   const [zoomScale, setZoomScale] = useState<number>(0.85);
   const previewScrollRef = useRef<HTMLDivElement | null>(null);
 
-  const handleFitPage = () => {
+  const handleFitPage = useCallback(() => {
     if (previewScrollRef.current) {
+      const containerWidth = previewScrollRef.current.clientWidth;
       const containerHeight = previewScrollRef.current.clientHeight;
-      const availableHeight = containerHeight - 48;
-      const fitScale = Math.min(1.0, Math.max(0.45, Number((availableHeight / 1123).toFixed(2))));
+      const availableWidth = Math.max(320, containerWidth - 48);
+      const availableHeight = Math.max(320, containerHeight - 48);
+      const widthScale = availableWidth / 794;
+      const heightScale = availableHeight / 1123;
+      const fitScale = Math.min(1.0, Math.max(0.45, Number(Math.min(widthScale, heightScale).toFixed(2))));
       setZoomScale(fitScale);
     } else {
       setZoomScale(0.70);
     }
-  };
+  }, []);
+
+  // Automatically adjust preview scale when both side drawers are open so A4 canvas never clips horizontally
+  const isRightDrawerOpen = selectedSection !== null;
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (!previewScrollRef.current) return;
+      const containerWidth = previewScrollRef.current.clientWidth;
+      if (containerWidth <= 0) return;
+      const availableWidth = Math.max(300, containerWidth - 40);
+      const maxHorizontalScale = Number(Math.min(1.0, Math.max(0.45, availableWidth / 794)).toFixed(2));
+      setZoomScale((prev) => {
+        if (prev > maxHorizontalScale) {
+          return maxHorizontalScale;
+        }
+        if ((!isLeftDrawerOpen || !isRightDrawerOpen) && prev < 0.85 && maxHorizontalScale >= 0.75) {
+          return Math.min(0.85, maxHorizontalScale);
+        }
+        return prev;
+      });
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [isLeftDrawerOpen, isRightDrawerOpen]);
 
   // Collapsible accordions
   const [isLayoutOpen, setIsLayoutOpen] = useState<boolean>(true);
@@ -5304,406 +5332,455 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         className="hidden"
       />
 
-      <div className="bg-slate-50 w-[96vw] max-w-[1600px] h-[95vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-        {/* Modal Top Bar */}
-        <header className="px-6 py-3.5 bg-white border-b border-slate-200 flex items-center justify-between gap-3 flex-wrap shrink-0 print:hidden">
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
-              <FileText className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center flex-wrap gap-2">
-                <h2 className="text-base font-bold text-slate-900">
-                  {documentType === 'delivery_note'
-                    ? 'Delivery Note Studio'
-                    : documentType === 'purchase_order'
-                    ? 'Purchase Order Studio'
-                    : documentType === 'receipt'
-                    ? 'Payment Receipt Studio'
-                    : documentType === 'payment_voucher'
-                    ? 'Payment Voucher Studio'
-                    : documentType === 'material_return_note'
-                    ? 'Material Return Studio'
-                    : documentType === 'debit_note'
-                    ? 'Debit Note Studio'
-                    : 'Quotation Studio'}
-                </h2>
-                <span className="px-2 py-0.5 text-xs font-mono font-bold bg-blue-50 text-blue-700 border border-blue-200 rounded-md">
-                  {liveQuotation.formatted_quote_ref}
-                </span>
+      <div className="bg-slate-50 w-[98vw] max-w-[1680px] h-[95vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        {/* Modal Top Bar: Structured Two-Row Header */}
+        <header className="bg-white border-b border-slate-200 flex flex-col shrink-0 print:hidden">
+          {/* Row 1: Studio Identity, Quote Reference, Client Context & Primary Save/Issue Actions */}
+          <div className="px-5 py-2.5 flex items-center justify-between gap-4 border-b border-slate-100">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                <FileText className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-base font-bold text-slate-900 whitespace-nowrap">
+                    {documentType === 'delivery_note'
+                      ? 'Delivery Note Studio'
+                      : documentType === 'purchase_order'
+                      ? 'Purchase Order Studio'
+                      : documentType === 'receipt'
+                      ? 'Payment Receipt Studio'
+                      : documentType === 'payment_voucher'
+                      ? 'Payment Voucher Studio'
+                      : documentType === 'material_return_note'
+                      ? 'Material Return Studio'
+                      : documentType === 'debit_note'
+                      ? 'Debit Note Studio'
+                      : 'Quotation Studio'}
+                  </h2>
+                  <span className="px-2 py-0.5 text-xs font-mono font-bold bg-blue-50 text-blue-700 border border-blue-200 rounded-md whitespace-nowrap">
+                    {liveQuotation.formatted_quote_ref}
+                  </span>
 
-                {/* Commercial Document Suite Mode Switcher: Separated Client vs Vendor Groups */}
-                {(() => {
-                  const isVendorDocMode =
-                    documentType === 'purchase_order' ||
-                    documentType === 'payment_voucher' ||
-                    documentType === 'material_return_note' ||
-                    documentType === 'debit_note';
-                  const isStandaloneRecord =
-                    !enquiry?.id ||
-                    /^standalone_qdoc_/i.test(String(enquiry.id)) ||
-                    /^sandbox_/i.test(String(enquiry.id));
-                  const clientModes = [
-                    { id: 'quotation' as const, label: 'Quotation (QT)' },
-                    { id: 'delivery_note' as const, label: 'Delivery Note (DO)' },
-                    { id: 'receipt' as const, label: 'Receipt (REC)' }
-                  ];
-                  const vendorModes = [
-                    { id: 'purchase_order' as const, label: 'Purchase Order (PO)' },
-                    { id: 'payment_voucher' as const, label: 'Payment Voucher (PV)' },
-                    { id: 'material_return_note' as const, label: 'Material Return (MRN)' },
-                    { id: 'debit_note' as const, label: 'Debit Note (DN)' }
-                  ];
-                  const showClientGroup = !isStandaloneRecord || !isVendorDocMode;
-                  const showVendorGroup = !isStandaloneRecord || isVendorDocMode;
+                  {/* One-Click Revision Cloner Button (Quotations only) */}
+                  {documentType === 'quotation' && (
+                    <button
+                      type="button"
+                      onClick={handleCloneAsNextRevision}
+                      title={`Deep-clone current quotation into Revision R${(liveQuotation.revision_number || 1) + 1}`}
+                      className="px-2 py-0.5 text-[11px] font-bold font-mono bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-md transition flex items-center gap-1 cursor-pointer shadow-2xs whitespace-nowrap shrink-0"
+                    >
+                      <span>⎘ Clone as R{(liveQuotation.revision_number || 1) + 1}</span>
+                    </button>
+                  )}
 
-                  return (
-                    <div className="inline-flex items-center gap-1.5 flex-wrap">
-                      {showClientGroup && (
-                        <div className="inline-flex items-center gap-0.5 bg-slate-100 border border-slate-200 rounded-lg p-0.5">
-                          <span className="px-1.5 text-[9.5px] font-mono font-bold uppercase tracking-wider text-slate-400 select-none">
-                            Client:
-                          </span>
-                          {clientModes.map((docOpt) => {
-                            const isActive = (documentType || 'quotation') === docOpt.id;
+                  {/* In-Studio Revision History Switcher (R1 <-> R2) */}
+                  {enquiryRevisions.filter((r) => (r.document_type || 'quotation') === 'quotation').length > 1 &&
+                    documentType === 'quotation' && (
+                      <div className="inline-flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-0.5 shrink-0">
+                        <span className="text-[10px] font-mono font-bold text-slate-400 uppercase mr-1">
+                          Revisions:
+                        </span>
+                        {enquiryRevisions
+                          .filter((r) => (r.document_type || 'quotation') === 'quotation')
+                          .map((rev) => {
+                            const isCurrent =
+                              rev.id === liveQuotation.id ||
+                              rev.revision_number === liveQuotation.revision_number;
+                            const isSuperseded = rev.status === 'Superseded';
                             return (
                               <button
-                                key={docOpt.id}
+                                key={rev.id || `rev_${rev.revision_number}`}
                                 type="button"
-                                onClick={() => handleSwitchDocumentType(docOpt.id)}
-                                className={`px-2 py-0.5 text-[10.5px] font-semibold rounded-md transition cursor-pointer whitespace-nowrap ${
-                                  isActive
-                                    ? 'bg-blue-600 text-white shadow-2xs'
-                                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
-                                }`}
-                              >
-                                {docOpt.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {showVendorGroup && (
-                        <div className="inline-flex items-center gap-0.5 bg-indigo-50/70 border border-indigo-200/80 rounded-lg p-0.5">
-                          <span className="px-1.5 text-[9.5px] font-mono font-bold uppercase tracking-wider text-indigo-400 select-none">
-                            Vendor:
-                          </span>
-                          {vendorModes.map((docOpt) => {
-                            const isActive = (documentType || 'quotation') === docOpt.id;
-                            return (
-                              <button
-                                key={docOpt.id}
-                                type="button"
-                                onClick={() => handleSwitchDocumentType(docOpt.id)}
-                                className={`px-2 py-0.5 text-[10.5px] font-semibold rounded-md transition cursor-pointer whitespace-nowrap ${
-                                  isActive
+                                onClick={() => handleSelectRevisionInStudio(rev)}
+                                title={`Switch to ${rev.formatted_quote_ref} (${rev.status || 'Draft'})`}
+                                className={`px-2 py-0.5 text-[10.5px] font-mono font-bold rounded transition cursor-pointer flex items-center gap-1 whitespace-nowrap ${
+                                  isCurrent
                                     ? 'bg-indigo-600 text-white shadow-2xs'
-                                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
+                                    : isSuperseded
+                                    ? 'bg-amber-50 text-amber-800 border border-amber-200/80 hover:bg-amber-100'
+                                    : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
                                 }`}
                               >
-                                {docOpt.label}
+                                <span>R{rev.revision_number || 1}</span>
+                                <span
+                                  className={`text-[9px] font-sans font-normal ${
+                                    isCurrent ? 'text-indigo-100' : 'text-slate-400'
+                                  }`}
+                                >
+                                  ({rev.status || 'Draft'})
+                                </span>
                               </button>
                             );
                           })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsLeftDrawerOpen((prev) => {
-                      const next = !prev;
-                      if (next) setSelectedSectionState(null);
-                      return next;
-                    });
-                  }}
-                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition cursor-pointer flex items-center gap-1.5 ${
-                    isLeftDrawerOpen
-                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                      : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 shadow-2xs'
-                  }`}
-                  title={isLeftDrawerOpen ? 'Hide Left Controls (Focus on Preview)' : 'Show Controls Panel'}
-                >
-                  {isLeftDrawerOpen ? <PanelLeftClose className="w-3.5 h-3.5" /> : <PanelLeft className="w-3.5 h-3.5" />}
-                  <span className="hidden sm:inline">{isLeftDrawerOpen ? 'Hide Controls' : 'Show Controls'}</span>
-                </button>
-
-                {/* Interactive Quotation Status Lifecycle Selector Pill */}
-                <div className="inline-flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-lg p-0.5">
-                  {(
-                    [
-                      { id: 'Draft', label: 'Draft' },
-                      { id: 'Sent', label: 'Sent' },
-                      { id: 'Approved', label: 'Approved' },
-                      { id: 'Rejected', label: 'Rejected' },
-                      { id: 'Superseded', label: 'Superseded' }
-                    ] as const
-                  ).map((st) => {
-                    const isActive = (quotationStatus || 'Draft') === st.id;
-                    const activeColor =
-                      st.id === 'Approved'
-                        ? 'bg-emerald-600 text-white shadow-2xs'
-                        : st.id === 'Sent'
-                        ? 'bg-blue-600 text-white shadow-2xs'
-                        : st.id === 'Rejected'
-                        ? 'bg-rose-600 text-white shadow-2xs'
-                        : st.id === 'Superseded'
-                        ? 'bg-amber-600 text-white shadow-2xs'
-                        : 'bg-slate-800 text-white shadow-2xs';
-                    return (
-                      <button
-                        key={st.id}
-                        type="button"
-                        onClick={() => setQuotationStatus(st.id)}
-                        className={`px-2 py-0.5 text-[10.5px] font-semibold rounded-md transition cursor-pointer ${
-                          isActive
-                            ? activeColor
-                            : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
-                        }`}
-                      >
-                        {st.label}
-                      </button>
-                    );
-                  })}
+                      </div>
+                    )}
                 </div>
 
-                {/* One-Click Revision Cloner Button (Quotations only) */}
-                {documentType === 'quotation' && (
-                  <button
-                    type="button"
-                    onClick={handleCloneAsNextRevision}
-                    title={`Deep-clone current quotation into Revision R${(liveQuotation.revision_number || 1) + 1}`}
-                    className="px-2.5 py-1 text-[11px] font-bold font-mono bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg transition flex items-center gap-1 cursor-pointer shadow-2xs"
-                  >
-                    <span>⎘ Clone as R{(liveQuotation.revision_number || 1) + 1}</span>
-                  </button>
-                )}
-
-                {/* Optional 1-Click Stock Deduction Button (Delivery Notes only) */}
-                {documentType === 'delivery_note' && (
-                  <button
-                    type="button"
-                    disabled={isDeductingStock || stockDeductedForDoc}
-                    onClick={handleDeductDeliveredStock}
-                    title="Deduct delivered quantities on this Delivery Note from linked Product Catalog stock on hand"
-                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg border transition flex items-center gap-1 cursor-pointer shadow-2xs whitespace-nowrap ${
-                      stockDeductedForDoc
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 cursor-default'
-                        : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
-                    }`}
-                  >
-                    <Truck className="w-3.5 h-3.5" />
-                    <span>
-                      {stockDeductedForDoc
-                        ? '✓ Stock Deducted'
-                        : isDeductingStock
-                        ? 'Deducting...'
-                        : 'Deduct Delivered Qty from Stock'}
+                <p className="text-xs text-slate-500 mt-0.5 truncate">
+                  {documentType === 'purchase_order' &&
+                  purchaseOrderMetadata.po_variant !== 'order_acknowledgment' ? (
+                    <>
+                      Vendor / Supplier:{' '}
+                      <span className="font-semibold text-slate-700">
+                        {purchaseOrderMetadata.supplier_name ||
+                          liveQuotation.client_snapshot.entity_name ||
+                          'Select / Enter Supplier'}
+                      </span>
+                    </>
+                  ) : documentType === 'payment_voucher' ? (
+                    <>
+                      Payee / Vendor:{' '}
+                      <span className="font-semibold text-slate-700">
+                        {paymentVoucherMetadata.payee_name ||
+                          paymentVoucherMetadata.paid_to_vendor_name ||
+                          liveQuotation.client_snapshot.entity_name ||
+                          'Select / Enter Vendor'}
+                      </span>
+                    </>
+                  ) : documentType === 'material_return_note' || documentType === 'debit_note' ? (
+                    <>
+                      Vendor / Supplier:{' '}
+                      <span className="font-semibold text-slate-700">
+                        {vendorReturnMetadata.supplier_name ||
+                          vendorReturnMetadata.vendor_name ||
+                          liveQuotation.client_snapshot.entity_name ||
+                          'Select / Enter Vendor'}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      Client:{' '}
+                      <span className="font-semibold text-slate-700">
+                        {liveQuotation.client_snapshot.entity_name}
+                      </span>
+                    </>
+                  )}
+                  {salespersonName && ` • Assigned: ${salespersonName}`}
+                  {liveQuotation.parent_quotation_id && documentType === 'quotation' && (
+                    <span className="ml-2 text-[10.5px] font-mono text-indigo-600">
+                      • Revision R{liveQuotation.revision_number || 1}
                     </span>
-                  </button>
-                )}
-
-                {/* Optional 1-Click RETURN_TO_VENDOR Stock Deduction Button (Material Return Note) */}
-                {documentType === 'material_return_note' && (
-                  <button
-                    type="button"
-                    disabled={
-                      isDeductingStock ||
-                      stockDeductedForDoc ||
-                      Boolean(vendorReturnMetadata.stock_deducted)
-                    }
-                    onClick={handleDeductVendorReturnStock}
-                    title="Deduct returned material quantities from warehouse stock on hand (RETURN_TO_VENDOR)"
-                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg border transition flex items-center gap-1 cursor-pointer shadow-2xs whitespace-nowrap ${
-                      stockDeductedForDoc || vendorReturnMetadata.stock_deducted
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 cursor-default'
-                        : 'bg-rose-50 hover:bg-rose-100 text-rose-800 border-rose-200'
-                    }`}
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>
-                      {stockDeductedForDoc || vendorReturnMetadata.stock_deducted
-                        ? '✓ Return Deducted from Stock'
-                        : isDeductingStock
-                        ? 'Deducting...'
-                        : 'Deduct Returned Qty from Stock'}
-                    </span>
-                  </button>
-                )}
-
-                {/* In-Studio Revision History Switcher (R1 <-> R2) */}
-                {enquiryRevisions.filter((r) => (r.document_type || 'quotation') === 'quotation').length > 1 &&
-                  documentType === 'quotation' && (
-                  <div className="inline-flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-0.5">
-                    <span className="text-[10px] font-mono font-bold text-slate-400 uppercase mr-1">
-                      Revisions:
-                    </span>
-                    {enquiryRevisions
-                      .filter((r) => (r.document_type || 'quotation') === 'quotation')
-                      .map((rev) => {
-                      const isCurrent =
-                        rev.id === liveQuotation.id ||
-                        rev.revision_number === liveQuotation.revision_number;
-                      const isSuperseded = rev.status === 'Superseded';
-                      return (
-                        <button
-                          key={rev.id || `rev_${rev.revision_number}`}
-                          type="button"
-                          onClick={() => handleSelectRevisionInStudio(rev)}
-                          title={`Switch to ${rev.formatted_quote_ref} (${rev.status || 'Draft'})`}
-                          className={`px-2 py-0.5 text-[10.5px] font-mono font-bold rounded transition cursor-pointer flex items-center gap-1 ${
-                            isCurrent
-                              ? 'bg-indigo-600 text-white shadow-2xs'
-                              : isSuperseded
-                              ? 'bg-amber-50 text-amber-800 border border-amber-200/80 hover:bg-amber-100'
-                              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                          }`}
-                        >
-                          <span>R{rev.revision_number || 1}</span>
-                          <span
-                            className={`text-[9px] font-sans font-normal ${
-                              isCurrent ? 'text-indigo-100' : 'text-slate-400'
-                            }`}
-                          >
-                            ({rev.status || 'Draft'})
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                  )}
+                </p>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {documentType === 'purchase_order' &&
-                purchaseOrderMetadata.po_variant !== 'order_acknowledgment' ? (
-                  <>
-                    Vendor / Supplier:{' '}
-                    <span className="font-semibold text-slate-700">
-                      {purchaseOrderMetadata.supplier_name ||
-                        liveQuotation.client_snapshot.entity_name ||
-                        'Select / Enter Supplier'}
-                    </span>
-                  </>
-                ) : documentType === 'payment_voucher' ? (
-                  <>
-                    Payee / Vendor:{' '}
-                    <span className="font-semibold text-slate-700">
-                      {paymentVoucherMetadata.payee_name ||
-                        paymentVoucherMetadata.paid_to_vendor_name ||
-                        liveQuotation.client_snapshot.entity_name ||
-                        'Select / Enter Vendor'}
-                    </span>
-                  </>
-                ) : documentType === 'material_return_note' || documentType === 'debit_note' ? (
-                  <>
-                    Vendor / Supplier:{' '}
-                    <span className="font-semibold text-slate-700">
-                      {vendorReturnMetadata.supplier_name ||
-                        vendorReturnMetadata.vendor_name ||
-                        liveQuotation.client_snapshot.entity_name ||
-                        'Select / Enter Vendor'}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    Client:{' '}
-                    <span className="font-semibold text-slate-700">
-                      {liveQuotation.client_snapshot.entity_name}
-                    </span>
-                  </>
-                )}
-                {salespersonName && ` • Assigned: ${salespersonName}`}
-                {liveQuotation.parent_quotation_id && documentType === 'quotation' && (
-                  <span className="ml-2 text-[10.5px] font-mono text-indigo-600">
-                    • Revision R{liveQuotation.revision_number || 1}
+            </div>
+
+            {/* Primary Save / Issue / Stock Actions & Close Button */}
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Optional 1-Click Stock Deduction Button (Delivery Notes only) */}
+              {documentType === 'delivery_note' && (
+                <button
+                  type="button"
+                  disabled={isDeductingStock || stockDeductedForDoc}
+                  onClick={handleDeductDeliveredStock}
+                  title="Deduct delivered quantities on this Delivery Note from linked Product Catalog stock on hand"
+                  className={`px-2.5 py-1.5 text-[11px] font-bold rounded-lg border transition flex items-center gap-1 cursor-pointer shadow-2xs whitespace-nowrap shrink-0 ${
+                    stockDeductedForDoc
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 cursor-default'
+                      : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                  }`}
+                >
+                  <Truck className="w-3.5 h-3.5" />
+                  <span>
+                    {stockDeductedForDoc
+                      ? '✓ Stock Deducted'
+                      : isDeductingStock
+                      ? 'Deducting...'
+                      : 'Deduct Delivered Qty'}
                   </span>
-                )}
-              </p>
+                </button>
+              )}
+
+              {/* Optional 1-Click RETURN_TO_VENDOR Stock Deduction Button (Material Return Note) */}
+              {documentType === 'material_return_note' && (
+                <button
+                  type="button"
+                  disabled={
+                    isDeductingStock ||
+                    stockDeductedForDoc ||
+                    Boolean(vendorReturnMetadata.stock_deducted)
+                  }
+                  onClick={handleDeductVendorReturnStock}
+                  title="Deduct returned material quantities from warehouse stock on hand (RETURN_TO_VENDOR)"
+                  className={`px-2.5 py-1.5 text-[11px] font-bold rounded-lg border transition flex items-center gap-1 cursor-pointer shadow-2xs whitespace-nowrap shrink-0 ${
+                    stockDeductedForDoc || vendorReturnMetadata.stock_deducted
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 cursor-default'
+                      : 'bg-rose-50 hover:bg-rose-100 text-rose-800 border-rose-200'
+                  }`}
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>
+                    {stockDeductedForDoc || vendorReturnMetadata.stock_deducted
+                      ? '✓ Return Deducted'
+                      : isDeductingStock
+                      ? 'Deducting...'
+                      : 'Deduct Returned Qty'}
+                  </span>
+                </button>
+              )}
+
+              {isEffectiveSandbox ? (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleSaveToActiveProfileAndPreset(false)}
+                    disabled={isSavingPreset}
+                    className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    <Save className="w-3.5 h-3.5 text-emerald-600" />
+                    <span className="hidden sm:inline">Update Preset</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveToActiveProfileAndPreset(true)}
+                    disabled={isSavingPreset}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Update &amp; Close</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleSaveQuotation(quotationStatus || 'Draft')}
+                    disabled={isSaving}
+                    className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    <Save className="w-3.5 h-3.5 text-slate-500" />
+                    <span className="hidden sm:inline">
+                      {documentType === 'delivery_note'
+                        ? 'Save Delivery Note'
+                        : documentType === 'purchase_order'
+                        ? 'Save Purchase Order'
+                        : documentType === 'receipt'
+                        ? 'Save Receipt'
+                        : documentType === 'payment_voucher'
+                        ? 'Save Payment Voucher'
+                        : documentType === 'material_return_note'
+                        ? 'Save Material Return'
+                        : documentType === 'debit_note'
+                        ? 'Save Debit Note'
+                        : 'Save Quotation'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveQuotation('Sent')}
+                    disabled={isSaving}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">
+                      {documentType === 'delivery_note'
+                        ? 'Issue Delivery Note'
+                        : documentType === 'purchase_order'
+                        ? 'Issue Purchase Order'
+                        : documentType === 'receipt'
+                        ? 'Issue Receipt'
+                        : documentType === 'payment_voucher'
+                        ? 'Issue Payment Voucher'
+                        : documentType === 'material_return_note'
+                        ? 'Issue Material Return'
+                        : documentType === 'debit_note'
+                        ? 'Issue Debit Note'
+                        : 'Issue Quotation'}
+                    </span>
+                  </button>
+                </div>
+              )}
+              <div className="h-5 w-px bg-slate-200 mx-0.5" />
+              <button
+                type="button"
+                onClick={onClose}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer shrink-0"
+                title="Close Studio"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
-            {isEffectiveSandbox ? (
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => handleSaveToActiveProfileAndPreset(false)}
-                  disabled={isSavingPreset}
-                  className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Save className="w-3.5 h-3.5 text-emerald-600" />
-                  <span className="hidden sm:inline">Update Preset</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSaveToActiveProfileAndPreset(true)}
-                  disabled={isSavingPreset}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Update &amp; Close</span>
-                </button>
+          {/* Row 2: Independent Drawer Toggles, Document Type Suite Switcher & Status Lifecycle */}
+          <div className="px-5 py-2 bg-slate-50/90 flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Independent Left Controls Drawer Toggle */}
+              <button
+                type="button"
+                onClick={() => setIsLeftDrawerOpen((prev) => !prev)}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                  isLeftDrawerOpen
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200/90'
+                }`}
+                title={isLeftDrawerOpen ? 'Hide Left Controls Drawer' : 'Show Left Controls Drawer'}
+              >
+                {isLeftDrawerOpen ? (
+                  <PanelLeftClose className="w-3.5 h-3.5" />
+                ) : (
+                  <PanelLeft className="w-3.5 h-3.5 text-blue-600" />
+                )}
+                <span>Left Controls</span>
+              </button>
+
+              <div className="h-4 w-px bg-slate-200 hidden sm:block" />
+
+              {/* Commercial Document Suite Mode Switcher: Separated Client vs Vendor Groups */}
+              {(() => {
+                const isVendorDocMode =
+                  documentType === 'purchase_order' ||
+                  documentType === 'payment_voucher' ||
+                  documentType === 'material_return_note' ||
+                  documentType === 'debit_note';
+                const isStandaloneRecord =
+                  !enquiry?.id ||
+                  /^standalone_qdoc_/i.test(String(enquiry.id)) ||
+                  /^sandbox_/i.test(String(enquiry.id));
+                const clientModes = [
+                  { id: 'quotation' as const, label: 'Quotation (QT)' },
+                  { id: 'delivery_note' as const, label: 'Delivery Note (DO)' },
+                  { id: 'receipt' as const, label: 'Receipt (REC)' }
+                ];
+                const vendorModes = [
+                  { id: 'purchase_order' as const, label: 'Purchase Order (PO)' },
+                  { id: 'payment_voucher' as const, label: 'Payment Voucher (PV)' },
+                  { id: 'material_return_note' as const, label: 'Material Return (MRN)' },
+                  { id: 'debit_note' as const, label: 'Debit Note (DN)' }
+                ];
+                const showClientGroup = !isStandaloneRecord || !isVendorDocMode;
+                const showVendorGroup = !isStandaloneRecord || isVendorDocMode;
+
+                return (
+                  <div className="inline-flex items-center gap-1.5 flex-wrap">
+                    {showClientGroup && (
+                      <div className="inline-flex items-center gap-0.5 bg-white border border-slate-200 rounded-lg p-0.5 shadow-2xs">
+                        <span className="px-1.5 text-[9.5px] font-mono font-bold uppercase tracking-wider text-slate-400 select-none">
+                          Client:
+                        </span>
+                        {clientModes.map((docOpt) => {
+                          const isActive = (documentType || 'quotation') === docOpt.id;
+                          return (
+                            <button
+                              key={docOpt.id}
+                              type="button"
+                              onClick={() => handleSwitchDocumentType(docOpt.id)}
+                              className={`px-2 py-0.5 text-[10.5px] font-semibold rounded-md transition cursor-pointer whitespace-nowrap ${
+                                isActive
+                                  ? 'bg-blue-600 text-white shadow-2xs'
+                                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                              }`}
+                            >
+                              {docOpt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {showVendorGroup && (
+                      <div className="inline-flex items-center gap-0.5 bg-indigo-50/70 border border-indigo-200/80 rounded-lg p-0.5 shadow-2xs">
+                        <span className="px-1.5 text-[9.5px] font-mono font-bold uppercase tracking-wider text-indigo-500 select-none">
+                          Vendor:
+                        </span>
+                        {vendorModes.map((docOpt) => {
+                          const isActive = (documentType || 'quotation') === docOpt.id;
+                          return (
+                            <button
+                              key={docOpt.id}
+                              type="button"
+                              onClick={() => handleSwitchDocumentType(docOpt.id)}
+                              className={`px-2 py-0.5 text-[10.5px] font-semibold rounded-md transition cursor-pointer whitespace-nowrap ${
+                                isActive
+                                  ? 'bg-indigo-600 text-white shadow-2xs'
+                                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/80'
+                              }`}
+                            >
+                              {docOpt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 ml-auto">
+              {/* Interactive Quotation Status Lifecycle Selector Pill */}
+              <div className="inline-flex items-center gap-0.5 bg-white border border-slate-200 rounded-lg p-0.5 shadow-2xs">
+                <span className="px-1.5 text-[9.5px] font-mono font-bold uppercase tracking-wider text-slate-400 select-none hidden md:inline">
+                  Status:
+                </span>
+                {(
+                  [
+                    { id: 'Draft', label: 'Draft' },
+                    { id: 'Sent', label: 'Sent' },
+                    { id: 'Approved', label: 'Approved' },
+                    { id: 'Rejected', label: 'Rejected' },
+                    { id: 'Superseded', label: 'Superseded' }
+                  ] as const
+                ).map((st) => {
+                  const isActive = (quotationStatus || 'Draft') === st.id;
+                  const activeColor =
+                    st.id === 'Approved'
+                      ? 'bg-emerald-600 text-white shadow-2xs'
+                      : st.id === 'Sent'
+                      ? 'bg-blue-600 text-white shadow-2xs'
+                      : st.id === 'Rejected'
+                      ? 'bg-rose-600 text-white shadow-2xs'
+                      : st.id === 'Superseded'
+                      ? 'bg-amber-600 text-white shadow-2xs'
+                      : 'bg-slate-800 text-white shadow-2xs';
+                  return (
+                    <button
+                      key={st.id}
+                      type="button"
+                      onClick={() => setQuotationStatus(st.id)}
+                      className={`px-2 py-0.5 text-[10.5px] font-semibold rounded-md transition cursor-pointer whitespace-nowrap ${
+                        isActive
+                          ? activeColor
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      }`}
+                    >
+                      {st.label}
+                    </button>
+                  );
+                })}
               </div>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => handleSaveQuotation(quotationStatus || 'Draft')}
-                  disabled={isSaving}
-                  className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Save className="w-3.5 h-3.5 text-slate-500" />
-                  <span className="hidden sm:inline">
-                    {documentType === 'delivery_note'
-                      ? 'Save Delivery Note'
-                      : documentType === 'purchase_order'
-                      ? 'Save Purchase Order'
-                      : documentType === 'receipt'
-                      ? 'Save Receipt'
-                      : documentType === 'payment_voucher'
-                      ? 'Save Payment Voucher'
-                      : documentType === 'material_return_note'
-                      ? 'Save Material Return'
-                      : documentType === 'debit_note'
-                      ? 'Save Debit Note'
-                      : 'Save Quotation'}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSaveQuotation('Sent')}
-                  disabled={isSaving}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">
-                    {documentType === 'delivery_note'
-                      ? 'Issue Delivery Note'
-                      : documentType === 'purchase_order'
-                      ? 'Issue Purchase Order'
-                      : documentType === 'receipt'
-                      ? 'Issue Receipt'
-                      : documentType === 'payment_voucher'
-                      ? 'Issue Payment Voucher'
-                      : documentType === 'material_return_note'
-                      ? 'Issue Material Return'
-                      : documentType === 'debit_note'
-                      ? 'Issue Debit Note'
-                      : 'Issue Quotation'}
-                  </span>
-                </button>
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
+
+              <div className="h-4 w-px bg-slate-200 hidden sm:block" />
+
+              {/* Independent Right Contextual Inspector Drawer Toggle */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedSection !== null) {
+                    setSelectedSection(null);
+                  } else {
+                    setSelectedSection(lastInspectedSectionRef.current || 'items_table');
+                  }
+                }}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                  selectedSection !== null
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200/90'
+                }`}
+                title={
+                  selectedSection !== null
+                    ? 'Hide Right Inspector Drawer'
+                    : 'Show Right Inspector Drawer (Can be open simultaneously with Left Controls)'
+                }
+              >
+                {selectedSection !== null ? (
+                  <PanelRightClose className="w-3.5 h-3.5" />
+                ) : (
+                  <PanelRight className="w-3.5 h-3.5 text-blue-600" />
+                )}
+                <span>Right Inspector</span>
+              </button>
+            </div>
           </div>
         </header>
 
@@ -5747,11 +5824,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           </div>
         )}
 
-        {/* Modal Body: Two-Pane Split Layout */}
+        {/* Modal Body: Three-Pane Simultaneous Split Layout */}
         <div className="flex-1 flex flex-col lg:flex-row overflow-hidden print:overflow-visible print:block print:w-full">
-          {/* Left Column: Form Controls & Customization */}
+          {/* Left Column: Form Controls & Customization (380px width so both drawers can stay open together) */}
           {isLeftDrawerOpen && (
-          <div className="w-full lg:w-[460px] xl:w-[500px] bg-white border-r border-slate-200 flex flex-col shrink-0 overflow-y-auto print:hidden animate-in slide-in-from-left-4 duration-150">
+          <div className="w-full lg:w-[360px] xl:w-[380px] bg-white border-r border-slate-200 flex flex-col shrink-0 overflow-y-auto print:hidden animate-in slide-in-from-left-4 duration-150">
             {/* Sticky Top Bar: Document Preset Selector + 2-Tab Mode Switcher */}
             <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-xs border-b border-slate-200 px-5 pt-4 pb-3 space-y-3">
               {/* Preset Selector */}
@@ -9749,8 +9826,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           </div>
           )}
 
-          {/* Right Column: Live A4 Document Preview */}
-          <div className="flex-1 bg-slate-200/80 flex flex-col overflow-hidden print:bg-transparent print:overflow-visible print:w-full print:block">
+          {/* Center Column: Live A4 Document Preview + Right Inspector */}
+          <div className="flex-1 min-w-0 bg-slate-200/80 flex flex-col overflow-hidden print:bg-transparent print:overflow-visible print:w-full print:block">
             {/* Preview Toolbar */}
             <div className="px-4 py-2 bg-slate-100 border-b border-slate-300/80 flex items-center justify-between text-xs text-slate-600 shrink-0 print:hidden flex-wrap gap-2">
               <div className="flex items-center space-x-2">
@@ -9825,8 +9902,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 <button
                   type="button"
                   onClick={handleFitPage}
-                  className="px-2 py-1 bg-white hover:bg-slate-50 border border-slate-300/80 rounded-lg text-slate-700 font-medium text-xs transition cursor-pointer hidden sm:flex items-center gap-1"
-                  title="Fit to Page Height"
+                  className="px-2 py-1 bg-white hover:bg-slate-50 border border-slate-300/80 rounded-lg text-slate-700 font-medium text-xs transition cursor-pointer hidden sm:flex items-center gap-1 whitespace-nowrap"
+                  title="Fit to Available Canvas Width & Height"
                 >
                   <span>Fit Page</span>
                 </button>
@@ -9834,7 +9911,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 <button
                   type="button"
                   onClick={handleRequestPrint}
-                  className="px-2.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 font-semibold rounded-lg text-xs flex items-center gap-1.5 transition ml-1 shadow-2xs cursor-pointer"
+                  className="px-2.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 font-semibold rounded-lg text-xs flex items-center gap-1.5 transition ml-1 shadow-2xs cursor-pointer whitespace-nowrap"
                 >
                   <Printer className="w-3.5 h-3.5 text-slate-500" />
                   <span>Print Document</span>
@@ -9843,56 +9920,63 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             </div>
 
             {/* Scaled Preview Canvas & Retractable Inspector Drawer */}
-            <div className="flex-1 flex overflow-hidden relative print:block">
+            <div className="flex-1 flex overflow-hidden relative print:block min-w-0">
               {/* Scaled Preview Canvas */}
               <div
                 ref={previewScrollRef}
-                className="flex-1 overflow-auto w-full h-full relative p-4 sm:p-8 flex print:hidden"
+                className="flex-1 min-w-0 overflow-auto w-full h-full relative p-4 sm:p-6 flex justify-center items-start print:hidden"
               >
                 <div
                   style={{
-                    transform: `scale(${zoomScale})`,
-                    transformOrigin: 'top center',
-                    transition: 'transform 0.1s ease-out'
+                    width: `${Math.round(794 * zoomScale)}px`
                   }}
-                  className="preview-canvas-wrapper m-auto inline-block origin-top text-center shrink-0 flex-shrink-0 w-[210mm] min-w-[210mm] max-w-[210mm] print:hidden text-left"
+                  className="mx-auto flex justify-center shrink-0 overflow-visible"
                 >
-                  <QuotationDocument
-                    quotation={liveQuotation}
-                    profile={activeProfile}
-                    visibleColumns={visibleColumns}
-                    columnConfig={visibleColumns}
-                    tableDensity={tableDensity}
-                    tableFontScale={tableFontScale}
-                    fontSizeScale={fontSizeScale}
-                    headerConfig={headerConfig}
-                    recipientConfig={recipientConfig}
-                    footerConfig={footerConfig}
-                    pageMode={pageMode}
-                    isCompactView={tableDensity === 'compact'}
-                    showBankDetails={showBankDetails}
-                    showStampAndSignatures={showCompanySeal || signatoryMode !== 'none'}
-                    user={user}
-                    signatoryName={signatoryName}
-                    signatoryTitle={signatoryTitle}
-                    blockStyle={blockStyle}
-                    globalCardRadius={globalCardRadius}
-                    cardsOrder={cardsOrder}
-                    subjectPlacement={subjectPlacement}
-                    layoutBlocks={layoutBlocks}
-                    selectedSection={selectedSection}
-                    selectedBlockId={selectedBlockId}
-                    onSelectSection={handleCanvasSelectSection}
-                    onSelectBlock={(id) => handleCanvasSelectSection(id)}
-                    onInlineFieldEdit={handleInlineFieldEdit}
-                    showPageBreakGuides={showPageBreakGuides}
-                  />
+                  <div
+                    style={{
+                      transform: `scale(${zoomScale})`,
+                      transformOrigin: 'top center',
+                      transition: 'transform 0.1s ease-out'
+                    }}
+                    className="preview-canvas-wrapper inline-block origin-top text-center shrink-0 flex-shrink-0 w-[210mm] min-w-[210mm] max-w-[210mm] print:hidden text-left"
+                  >
+                    <QuotationDocument
+                      quotation={liveQuotation}
+                      profile={activeProfile}
+                      visibleColumns={visibleColumns}
+                      columnConfig={visibleColumns}
+                      tableDensity={tableDensity}
+                      tableFontScale={tableFontScale}
+                      fontSizeScale={fontSizeScale}
+                      headerConfig={headerConfig}
+                      recipientConfig={recipientConfig}
+                      footerConfig={footerConfig}
+                      pageMode={pageMode}
+                      isCompactView={tableDensity === 'compact'}
+                      showBankDetails={showBankDetails}
+                      showStampAndSignatures={showCompanySeal || signatoryMode !== 'none'}
+                      user={user}
+                      signatoryName={signatoryName}
+                      signatoryTitle={signatoryTitle}
+                      blockStyle={blockStyle}
+                      globalCardRadius={globalCardRadius}
+                      cardsOrder={cardsOrder}
+                      subjectPlacement={subjectPlacement}
+                      layoutBlocks={layoutBlocks}
+                      selectedSection={selectedSection}
+                      selectedBlockId={selectedBlockId}
+                      onSelectSection={handleCanvasSelectSection}
+                      onSelectBlock={(id) => handleCanvasSelectSection(id)}
+                      onInlineFieldEdit={handleInlineFieldEdit}
+                      showPageBreakGuides={showPageBreakGuides}
+                    />
+                  </div>
                 </div>
               </div>
 
               {/* Retractable Right-Side Contextual Header Inspector Drawer */}
               {selectedSection === 'header' && (
-                <aside className="w-full sm:w-[380px] xl:w-[410px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                <aside className="w-full lg:w-[360px] xl:w-[380px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
                   {/* Drawer Header */}
                   <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
                     <div className="flex items-center gap-2 min-w-0">
@@ -10928,7 +11012,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
               {/* Retractable Right-Side Contextual Recipient Info Inspector Drawer */}
               {(selectedSection === 'recipient_info' || selectedSection === 'recipient_meta') && (
-                <aside className="w-full sm:w-[380px] xl:w-[410px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                <aside className="w-full lg:w-[360px] xl:w-[380px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
                   {/* Drawer Header */}
                   <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
                     <div className="flex items-center gap-2 min-w-0">
@@ -11287,7 +11371,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
               {/* Retractable Right-Side Contextual Commercial Offer Inspector Drawer */}
               {selectedSection === 'quote_meta' && (
-                <aside className="w-full sm:w-[380px] xl:w-[410px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                <aside className="w-full lg:w-[360px] xl:w-[380px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
                   {/* Drawer Header */}
                   <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
                     <div className="flex items-center gap-2 min-w-0">
@@ -11639,7 +11723,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
               {/* Retractable Right-Side Contextual Project Subject Banner Inspector Drawer */}
               {selectedSection === 'subject' && (
-                <aside className="w-full sm:w-[380px] xl:w-[410px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                <aside className="w-full lg:w-[360px] xl:w-[380px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
                   {/* Drawer Header */}
                   <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
                     <div className="flex items-center gap-2 min-w-0">
@@ -11771,7 +11855,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
               {/* Retractable Right-Side Contextual Footer & Legal Inspector Drawer */}
               {selectedSection === 'footer' && (
-                <aside className="w-full sm:w-[380px] xl:w-[410px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                <aside className="w-full lg:w-[360px] xl:w-[380px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
                   {/* Drawer Header */}
                   <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
                     <div className="flex items-center gap-2 min-w-0">
@@ -12099,7 +12183,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
               {/* Retractable Right-Side Contextual Table Inspector Drawer */}
               {selectedSection === 'items_table' && (
-                <aside className="w-full sm:w-[380px] xl:w-[410px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                <aside className="w-full lg:w-[360px] xl:w-[380px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
                   {/* Drawer Header */}
                   <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
                     <div className="flex items-center gap-2 min-w-0">
@@ -13801,7 +13885,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     : selectedBlock.id);
 
                 return (
-                  <aside className="w-full sm:w-[380px] xl:w-[410px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
+                  <aside className="w-full lg:w-[360px] xl:w-[380px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
                     {/* Drawer Header */}
                     <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
                       <div className="flex items-center gap-2 min-w-0">
