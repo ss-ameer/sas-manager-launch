@@ -1486,12 +1486,14 @@ export type QuotationBlockPieceType =
   | 'columns';
 
 export interface QuotationTextFormatStyle {
-  fontSize?: 'xs' | 'sm' | 'base' | 'lg' | 'xl';
+  fontSize?: 'xs' | 'sm' | 'md' | 'base' | 'lg' | 'xl' | '2xl';
   fontWeight?: 'normal' | 'medium' | 'semibold' | 'bold';
   italic?: boolean;
   underline?: boolean;
+  uppercase?: boolean;
+  showAccentBar?: boolean;
   textAlign?: 'left' | 'center' | 'right' | 'justify';
-  textColor?: 'default' | 'muted' | 'accent' | 'custom';
+  textColor?: 'default' | 'muted' | 'accent' | 'emerald' | 'amber' | 'rose' | 'custom';
   customColorHex?: string;
   highlightBg?: 'none' | 'SoftYellow' | 'SoftBlue' | 'SoftEmerald' | 'SoftRose' | 'ThemeTint';
   lineHeight?: 'tight' | 'normal' | 'relaxed';
@@ -1505,6 +1507,9 @@ export interface QuotationBlockFieldRowItem {
   value: string; // Supports @tags
   hideIfEmpty?: boolean; // Default false per Choice A2
   valueBold?: boolean;
+  textStyle?: QuotationTextFormatStyle;
+  labelStyle?: QuotationTextFormatStyle;
+  valueStyle?: QuotationTextFormatStyle;
 }
 
 export interface QuotationBlockPiece {
@@ -1629,6 +1634,7 @@ export interface QuotationHeaderFieldItem {
   fontWeight?: 'normal' | 'medium' | 'bold';
   icon?: 'map-pin' | 'phone' | 'smartphone' | 'mail' | 'globe' | 'building' | 'hash' | 'user' | 'shield' | 'none';
   showIcon?: boolean;
+  textStyle?: QuotationTextFormatStyle;
 }
 
 export interface QuotationHeaderConfig {
@@ -1665,6 +1671,7 @@ export interface QuotationHeaderConfig {
   topAccentBarStyle?: QuotationTopAccentBarStyle;
   tableHeaderStyle?: QuotationSectionHeaderStyle;
   blockHeaderStyle?: QuotationSectionHeaderStyle;
+  elementStyles?: Record<string, QuotationTextFormatStyle>;
 }
 
 export interface QuotationFooterConfig {
@@ -1691,11 +1698,14 @@ export interface QuotationFooterConfig {
   signatureOffsetX?: number; // range -120 to 120, default 0
   signatureOffsetY?: number; // range -80 to 80, default 0
   stampSignatureOverlapMode?: 'side_by_side' | 'realistic_overlap' | 'stamp_over_name'; // default 'realistic_overlap'
+  signatureSpaceHeightMm?: number; // default 25mm gap between header and printed signatory name
   inkMultiplyBlend?: boolean; // default true
   footerHorizontalAlign?: 'split' | 'left' | 'center' | 'right'; // default 'split'
   footerVerticalAlign?: 'top' | 'middle' | 'bottom'; // default 'middle'
   systemTaglineText?: string; // default 'GENERATED VIA MARabi WORKSPACE STUDIO'
   showSystemTagline?: boolean; // default true
+  showFooterPrefix?: boolean; // default true
+  footerPrefixText?: string; // default workspace company name
   showReferenceInFooter?: boolean; // default true
   showIssueDateInFooter?: boolean; // default true
   customFooterPills?: string[]; // e.g., ['ISO 9001:2015 Certified', 'Confidential']
@@ -1725,6 +1735,7 @@ export interface QuotationFooterConfig {
     }
   >;
   visibleSignatoryLines?: Record<string, boolean>;
+  elementStyles?: Record<string, QuotationTextFormatStyle>;
 }
 
 export interface QuotationRecipientConfig {
@@ -1749,6 +1760,18 @@ export interface QuotationRecipientConfig {
   cardsOrder?: 'recipient_first' | 'offer_first';
   subjectPlacement?: 'above_cards' | 'below_cards';
   globalCardRadius?: 'rounded' | 'sharp';
+  // Field-level & revision controls
+  recipientHeadingOverride?: string;
+  offerHeadingOverride?: string;
+  recipientFieldRows?: QuotationBlockFieldRowItem[];
+  offerFieldRows?: QuotationBlockFieldRowItem[];
+  offerGridLayout?: 'grid_2col' | 'table_1col' | 'minimal_inline';
+  revisionSuffixMode?: 'custom' | 'hyphen' | 'slash' | 'parens' | 'hidden';
+  showRevisionBadge?: boolean; // default true
+  revisionBadgeTextOverride?: string;
+  showOfferStatus?: boolean; // default true
+  statusTextOverride?: string;
+  elementStyles?: Record<string, QuotationTextFormatStyle>;
 }
 
 export interface QuotationBlockCustomRow {
@@ -1759,6 +1782,7 @@ export interface QuotationBlockCustomRow {
   hideIfEmpty?: boolean;
   isHighlight?: boolean;
   position?: 'above_grand_total' | 'below_grand_total';
+  textStyle?: QuotationTextFormatStyle;
 }
 
 export interface QuotationBlockConfig {
@@ -1796,6 +1820,7 @@ export interface QuotationBlockConfig {
   allowPageSplit?: boolean; // Default: false; true for long cover letters/clauses
   borderStyleOverride?: 'inherit' | 'framed' | 'tinted' | 'left_accent' | 'minimal';
   pieces?: QuotationBlockPiece[];
+  elementStyles?: Record<string, QuotationTextFormatStyle>;
 }
 
 export interface QuotationLayoutSettings {

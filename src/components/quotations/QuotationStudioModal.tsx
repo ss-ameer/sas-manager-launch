@@ -2469,26 +2469,41 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     }
   }, []);
 
-  // Automatically adjust preview scale when both side drawers are open so A4 canvas never clips horizontally
+  // Automatically adjust preview scale when drawers open/close or container resizes so A4 canvas never clips horizontally
   const isRightDrawerOpen = selectedSection !== null;
+  const [focusedRecipientStyleTarget, setFocusedRecipientStyleTarget] = useState<string>('recipient_entity_name');
+  const [focusedOfferStyleTarget, setFocusedOfferStyleTarget] = useState<string>('offer_quote_ref');
+
   useEffect(() => {
-    const timer = window.setTimeout(() => {
+    const computeAutoScale = () => {
       if (!previewScrollRef.current) return;
       const containerWidth = previewScrollRef.current.clientWidth;
       if (containerWidth <= 0) return;
-      const availableWidth = Math.max(300, containerWidth - 40);
-      const maxHorizontalScale = Number(Math.min(1.0, Math.max(0.45, availableWidth / 794)).toFixed(2));
+      const availableWidth = Math.max(280, containerWidth - 48);
+      const maxHorizontalScale = Number(Math.min(1.0, Math.max(0.42, availableWidth / 794)).toFixed(2));
       setZoomScale((prev) => {
         if (prev > maxHorizontalScale) {
           return maxHorizontalScale;
         }
-        if ((!isLeftDrawerOpen || !isRightDrawerOpen) && prev < 0.85 && maxHorizontalScale >= 0.75) {
+        if ((!isLeftDrawerOpen || !isRightDrawerOpen) && prev < 0.85 && maxHorizontalScale >= 0.72) {
           return Math.min(0.85, maxHorizontalScale);
         }
         return prev;
       });
-    }, 60);
-    return () => window.clearTimeout(timer);
+    };
+
+    const timer = window.setTimeout(computeAutoScale, 40);
+    let observer: ResizeObserver | null = null;
+    if (previewScrollRef.current && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => {
+        computeAutoScale();
+      });
+      observer.observe(previewScrollRef.current);
+    }
+    return () => {
+      window.clearTimeout(timer);
+      if (observer) observer.disconnect();
+    };
   }, [isLeftDrawerOpen, isRightDrawerOpen]);
 
   // Collapsible accordions
@@ -4253,9 +4268,25 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       (editingQuotation as any)?.quote_ref_no ||
       enquiry.quote_ref_no ||
       `QT-${new Date().getFullYear()}-${String(enquiry.sn || 1).padStart(4, '0')}`;
-    const cleanQuoteNumber = rawQuoteNumber.replace(/-R\d+$/, '');
+    const cleanQuoteNumber = rawQuoteNumber.replace(/-R\d+$/i, '').replace(/\/Rev\.\d+$/i, '').replace(/\s*\(Rev\s*\d+\)$/i, '').trim();
     const revNum = revisionNumber ?? editingQuotation?.revision_number ?? 1;
     const isNonQuoteDoc = documentType && documentType !== 'quotation';
+    const revMode = recipientConfig.revisionSuffixMode || 'hyphen';
+    const baseQuoteRef = formattedQuoteRefOverride
+      ? formattedQuoteRefOverride.replace(/-R\d+$/i, '').replace(/\/Rev\.\d+$/i, '').replace(/\s*\(Rev\s*\d+\)$/i, '').trim()
+      : cleanQuoteNumber;
+
+    const computedQuoteRef =
+      revMode === 'custom'
+        ? (formattedQuoteRefOverride || cleanQuoteNumber)
+        : revMode === 'hidden'
+        ? baseQuoteRef
+        : revMode === 'slash'
+        ? `${baseQuoteRef}/Rev.${revNum}`
+        : revMode === 'parens'
+        ? `${baseQuoteRef} (Rev ${revNum})`
+        : `${baseQuoteRef}-R${revNum}`;
+
     const formattedQuoteRef = isNonQuoteDoc
       ? (documentType === 'delivery_note' && deliveryMetadata.delivery_ref) ||
         (documentType === 'purchase_order' && purchaseOrderMetadata.po_ref) ||
@@ -4266,9 +4297,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           vendorReturnMetadata.return_ref) ||
         formattedQuoteRefOverride ||
         QuotationRepository.generateLinkedDocumentRef(cleanQuoteNumber, documentType, enquiryRevisions)
-      : formattedQuoteRefOverride
-      ? formattedQuoteRefOverride.replace(/-R\d+$/i, `-R${revNum}`)
-      : `${cleanQuoteNumber}-R${revNum}`;
+      : computedQuoteRef;
 
     return {
       id: activeQuotationId || editingQuotation?.id || 'preview_draft',
@@ -4655,6 +4684,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       }
 
       switch (fieldKey) {
+        case 'quote_ref':
+          setFormattedQuoteRefOverride(nextValue);
+          setRecipientConfig((prev) => ({
+            ...prev,
+            revisionSuffixMode: 'custom'
+          }));
+          break;
         case 'subject':
           setQuotationSubject(nextValue);
           break;
@@ -4706,6 +4742,216 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     },
     [activeProfile, liveQuotation.sender_snapshot]
   );
+
+  // Unified Context-Aware Element Text & Style Bar helper for Recipient, Commercial Offer, and Subject inspectors
+  const renderUnifiedElementStyleBar = (
+    targetKey: string,
+    targetLabel: string,
+    targetOptions?: { id: string; label: string }[],
+    onSelectTarget?: (nextId: string) => void
+  ) => {
+    const currentStyle: QuotationTextFormatStyle =
+      recipientConfig.elementStyles?.[targetKey] || {};
+    const updateElementStyle = (patch: Partial<QuotationTextFormatStyle>) => {
+      setRecipientConfig((prev) => ({
+        ...prev,
+        elementStyles: {
+          ...(prev.elementStyles || {}),
+          [targetKey]: {
+            ...(prev.elementStyles?.[targetKey] || {}),
+            ...patch
+          }
+        }
+      }));
+    };
+
+    return (
+      <div className="rounded-xl border border-blue-200/80 bg-gradient-to-b from-blue-50/70 to-white p-2.5 space-y-2 shadow-2xs">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-blue-900 flex items-center gap-1">
+            <Sliders className="w-3 h-3 text-blue-600" />
+            Text &amp; Style Bar
+          </span>
+          {targetOptions && onSelectTarget ? (
+            <select
+              value={targetKey}
+              onChange={(e) => onSelectTarget(e.target.value)}
+              className="px-2 py-0.5 text-[10.5px] font-semibold bg-white border border-blue-200 rounded-md text-blue-800 cursor-pointer focus:outline-hidden"
+            >
+              {targetOptions.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  Target: {opt.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-[10px] font-mono font-semibold text-blue-700 bg-blue-100/70 px-1.5 py-0.5 rounded">
+              {targetLabel}
+            </span>
+          )}
+        </div>
+
+        {/* Row 1: Font Size + Bold/Italic/Underline/Uppercase */}
+        <div className="flex items-center justify-between gap-1.5 flex-wrap">
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+            {(['xs', 'sm', 'md', 'lg', 'xl', '2xl'] as const).map((sz) => {
+              const active = (currentStyle.fontSize || 'md') === sz;
+              return (
+                <button
+                  key={sz}
+                  type="button"
+                  onClick={() => updateElementStyle({ fontSize: sz })}
+                  className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold uppercase transition cursor-pointer ${
+                    active ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title={`Font Size: ${sz.toUpperCase()}`}
+                >
+                  {sz}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() =>
+                updateElementStyle({
+                  fontWeight: currentStyle.fontWeight === 'bold' ? 'normal' : 'bold'
+                })
+              }
+              className={`w-6 h-6 rounded-md border text-[11px] font-black transition cursor-pointer flex items-center justify-center ${
+                currentStyle.fontWeight === 'bold'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+              title="Bold"
+            >
+              B
+            </button>
+            <button
+              type="button"
+              onClick={() => updateElementStyle({ italic: !currentStyle.italic })}
+              className={`w-6 h-6 rounded-md border text-[11px] italic font-serif transition cursor-pointer flex items-center justify-center ${
+                currentStyle.italic
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+              title="Italic"
+            >
+              I
+            </button>
+            <button
+              type="button"
+              onClick={() => updateElementStyle({ underline: !currentStyle.underline })}
+              className={`w-6 h-6 rounded-md border text-[11px] underline transition cursor-pointer flex items-center justify-center ${
+                currentStyle.underline
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+              title="Underline"
+            >
+              U
+            </button>
+            <button
+              type="button"
+              onClick={() => updateElementStyle({ uppercase: !currentStyle.uppercase })}
+              className={`px-1.5 h-6 rounded-md border text-[9.5px] font-bold transition cursor-pointer flex items-center justify-center ${
+                currentStyle.uppercase
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+              title="Uppercase"
+            >
+              AA
+            </button>
+          </div>
+        </div>
+
+        {/* Row 2: Text Alignment + Color Tone + Highlight/Accent Bar */}
+        <div className="flex items-center justify-between gap-1.5 flex-wrap pt-0.5">
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+            {[
+              { id: 'left' as const, label: 'L' },
+              { id: 'center' as const, label: 'C' },
+              { id: 'right' as const, label: 'R' },
+              { id: 'justify' as const, label: 'J' }
+            ].map((al) => {
+              const active = (currentStyle.textAlign || 'left') === al.id;
+              return (
+                <button
+                  key={al.id}
+                  type="button"
+                  onClick={() => updateElementStyle({ textAlign: al.id })}
+                  className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold transition cursor-pointer ${
+                    active ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title={`Align ${al.id}`}
+                >
+                  {al.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-1">
+            {[
+              { id: 'default' as const, bg: 'bg-slate-900', title: 'Dark Ink' },
+              { id: 'muted' as const, bg: 'bg-slate-400', title: 'Muted Slate' },
+              { id: 'accent' as const, bg: 'bg-blue-600', title: 'Brand Accent' },
+              { id: 'emerald' as const, bg: 'bg-emerald-600', title: 'Emerald' },
+              { id: 'amber' as const, bg: 'bg-amber-500', title: 'Amber' },
+              { id: 'rose' as const, bg: 'bg-rose-600', title: 'Rose' }
+            ].map((c) => {
+              const active = (currentStyle.colorTone || 'default') === c.id;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => updateElementStyle({ colorTone: c.id })}
+                  className={`w-4 h-4 rounded-full ${c.bg} transition cursor-pointer ${
+                    active ? 'ring-2 ring-offset-1 ring-blue-500 scale-110' : 'opacity-75 hover:opacity-100'
+                  }`}
+                  title={`Color: ${c.title}`}
+                />
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() =>
+                updateElementStyle({
+                  highlightBg: currentStyle.highlightBg === 'soft_accent' ? 'none' : 'soft_accent'
+                })
+              }
+              className={`px-1.5 py-0.5 rounded border text-[9px] font-semibold transition cursor-pointer ${
+                currentStyle.highlightBg && currentStyle.highlightBg !== 'none'
+                  ? 'bg-amber-100 border-amber-300 text-amber-900'
+                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+              title="Toggle Soft Highlight Background"
+            >
+              Bg
+            </button>
+            <button
+              type="button"
+              onClick={() => updateElementStyle({ accentBar: !currentStyle.accentBar })}
+              className={`px-1.5 py-0.5 rounded border text-[9px] font-semibold transition cursor-pointer ${
+                currentStyle.accentBar
+                  ? 'bg-blue-100 border-blue-300 text-blue-900'
+                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+              title="Toggle Left Accent Bar"
+            >
+              | Bar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   // Switch between revisions in-studio (R1 <-> R2) without leaving the modal
   const handleSelectRevisionInStudio = (targetQuote: Quotation) => {
@@ -5358,9 +5604,21 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       ? 'Debit Note Studio'
                       : 'Quotation Studio'}
                   </h2>
-                  <span className="px-2 py-0.5 text-xs font-mono font-bold bg-blue-50 text-blue-700 border border-blue-200 rounded-md whitespace-nowrap">
-                    {liveQuotation.formatted_quote_ref}
-                  </span>
+                  <div className="inline-flex items-center bg-blue-50 border border-blue-200 rounded-md px-1.5 py-0.5 focus-within:ring-2 focus-within:ring-blue-500/30 focus-within:border-blue-400 transition">
+                    <input
+                      type="text"
+                      value={formattedQuoteRefOverride !== null && formattedQuoteRefOverride !== undefined && formattedQuoteRefOverride !== '' ? formattedQuoteRefOverride : (liveQuotation.formatted_quote_ref || '')}
+                      onChange={(e) => {
+                        setFormattedQuoteRefOverride(e.target.value);
+                        setRecipientConfig((prev) => ({
+                          ...prev,
+                          revisionSuffixMode: 'custom'
+                        }));
+                      }}
+                      title="Click to edit Document Reference Code directly (e.g. remove or customize -R1)"
+                      className="text-xs font-mono font-bold text-blue-700 bg-transparent focus:outline-hidden min-w-[170px] max-w-[260px]"
+                    />
+                  </div>
 
                   {/* One-Click Revision Cloner Button (Quotations only) */}
                   {documentType === 'quotation' && (
@@ -9737,96 +9995,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 </>
               )}
             </div>
-
-            {/* Bottom Actions Bar */}
-            <div className="p-4 bg-slate-50 border-t border-slate-200 mt-auto flex items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={isSaving || isSavingPreset}
-                className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium text-xs rounded-xl transition cursor-pointer"
-              >
-                {isEffectiveSandbox ? 'Close' : 'Cancel'}
-              </button>
-
-              {isEffectiveSandbox ? (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleSaveToActiveProfileAndPreset(false)}
-                    disabled={isSavingPreset}
-                    className="px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-xl shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Save className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Update Preset</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleSaveToActiveProfileAndPreset(true)}
-                    disabled={isSavingPreset}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Update Preset &amp; Close</span>
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleSaveQuotation(quotationStatus || 'Draft')}
-                    disabled={isSaving}
-                    className="px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-xl shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Save className="w-3.5 h-3.5 text-slate-500" />
-                    <span>
-                      {documentType === 'delivery_note'
-                        ? 'Save Delivery Note'
-                        : documentType === 'purchase_order'
-                        ? 'Save Purchase Order'
-                        : documentType === 'receipt'
-                        ? 'Save Receipt'
-                        : documentType === 'payment_voucher'
-                        ? 'Save Payment Voucher'
-                        : documentType === 'material_return_note'
-                        ? 'Save Material Return'
-                        : documentType === 'debit_note'
-                        ? 'Save Debit Note'
-                        : 'Save Quotation'}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleSaveQuotation('Sent')}
-                    disabled={isSaving}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>
-                      {documentType === 'delivery_note'
-                        ? 'Issue Delivery Note'
-                        : documentType === 'purchase_order'
-                        ? 'Issue Purchase Order'
-                        : documentType === 'receipt'
-                        ? 'Issue Receipt'
-                        : documentType === 'payment_voucher'
-                        ? 'Issue Payment Voucher'
-                        : documentType === 'material_return_note'
-                        ? 'Issue Material Return'
-                        : documentType === 'debit_note'
-                        ? 'Issue Debit Note'
-                        : 'Issue Quotation'}
-                    </span>
-                  </button>
-                </div>
-              )}
-            </div>
           </div>
           )}
 
-          {/* Center Column: Live A4 Document Preview + Right Inspector */}
+          {/* Center Column: Live A4 Document Preview */}
           <div className="flex-1 min-w-0 bg-slate-200/80 flex flex-col overflow-hidden print:bg-transparent print:overflow-visible print:w-full print:block">
             {/* Preview Toolbar */}
             <div className="px-4 py-2 bg-slate-100 border-b border-slate-300/80 flex items-center justify-between text-xs text-slate-600 shrink-0 print:hidden flex-wrap gap-2">
@@ -9973,6 +10145,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Full-Height Right-Side Contextual Inspector Column */}
 
               {/* Retractable Right-Side Contextual Header Inspector Drawer */}
               {selectedSection === 'header' && (
@@ -11040,15 +11216,47 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                   {/* Drawer Content */}
                   <div className="p-4 space-y-4 text-xs">
+                    {/* Unified Text & Element Style Bar */}
+                    {renderUnifiedElementStyleBar(
+                      focusedRecipientStyleTarget,
+                      'Recipient Element',
+                      [
+                        { id: 'recipient_heading', label: 'Section Heading' },
+                        { id: 'recipient_entity_name', label: 'Company Name' },
+                        { id: 'recipient_attention', label: 'Attention Line' },
+                        { id: 'recipient_address', label: 'Address Block' },
+                        { id: 'recipient_trn', label: 'TRN / VAT Line' },
+                        { id: 'recipient_contact', label: 'Phone / Email' }
+                      ],
+                      setFocusedRecipientStyleTarget
+                    )}
+
+                    {/* Section Heading Text Override */}
+                    <div className="space-y-1.5 pt-1">
+                      <label className="text-slate-700 font-semibold text-[11px] block">
+                        Section Heading Label
+                      </label>
+                      <AtMentionInput
+                        value={recipientConfig.recipientHeadingOverride ?? 'SUBMITTED TO / ATTENTION TO'}
+                        onChange={(val) =>
+                          setRecipientConfig((prev) => ({
+                            ...prev,
+                            recipientHeadingOverride: val
+                          }))
+                        }
+                        onFocus={() => setFocusedRecipientStyleTarget('recipient_heading')}
+                        tokenContext={studioTokenContext}
+                        placeholder="SUBMITTED TO / ATTENTION TO"
+                        className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                      />
+                    </div>
+
                     {/* 1. Presentation Style */}
-                    <div className="space-y-2">
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
                       <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
                         <Sliders className="w-3.5 h-3.5 text-blue-600" />
                         Card Presentation Style
                       </label>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Toggle between an enterprise framed card box or a clean minimal divider line.
-                      </p>
                       <div className="grid grid-cols-2 gap-2 pt-1">
                         {[
                           { id: 'framed' as const, label: 'Framed Box', desc: 'Bordered card container' },
@@ -11083,9 +11291,6 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         <Columns className="w-3.5 h-3.5 text-blue-600" />
                         Card Placement &amp; Width
                       </label>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Position on the 2-column A4 grid or span full 100% width.
-                      </p>
                       <div className="grid grid-cols-3 gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
                         {[
                           { id: 'left' as const, label: 'Left 50%' },
@@ -11164,11 +11369,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* 3. Card Corners */}
+                    {/* 3. Card Corners & Sequence */}
                     <div className="space-y-2 pt-2 border-t border-slate-100">
                       <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
                         <Square className="w-3.5 h-3.5 text-blue-600" />
-                        Card Corner Radius
+                        Card Corner Radius &amp; Sequence
                       </label>
                       <div className="grid grid-cols-2 gap-2 pt-1">
                         {[
@@ -11198,79 +11403,35 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Top Cards Ordering */}
+                    {/* 4. Client Details on This Quote (Editable Multi-Line Snapshot + @Tags) */}
                     <div className="space-y-2 pt-2 border-t border-slate-100">
                       <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                        <ArrowLeftRight className="w-3.5 h-3.5 text-blue-600" />
-                        Top Cards Sequence
+                        <Building className="w-3.5 h-3.5 text-blue-600" />
+                        Client Details &amp; Field Visibility
                       </label>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Order of Client Information and Commercial Offer cards.
+                      <p className="text-[10px] text-slate-500 leading-normal">
+                        Press <span className="font-mono font-semibold">Enter</span> for multi-line text or type <span className="font-mono text-blue-600">@</span> to insert dynamic tags. Click any field to style it above.
                       </p>
-                      <div className="grid grid-cols-2 gap-2 pt-1">
-                        {[
-                          { id: 'recipient_first' as const, label: 'Submitted To First', desc: 'Client first / left' },
-                          { id: 'offer_first' as const, label: 'Commercial Offer First', desc: 'Offer first / left' }
-                        ].map((item) => {
-                          const isSelected = (recipientConfig.cardsOrder || cardsOrder || 'recipient_first') === item.id;
-                          return (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => {
-                                setCardsOrder(item.id);
-                                setRecipientConfig((prev) => {
-                                  const isRecFull = prev.recipientPlacement === 'full' || prev.recipientCardWidth === '100';
-                                  const isOffFull = prev.offerPlacement === 'full' || prev.offerCardWidth === '100';
-                                  return {
-                                    ...prev,
-                                    cardsOrder: item.id,
-                                    ...(!isRecFull && !isOffFull
-                                      ? {
-                                          recipientPlacement: item.id === 'offer_first' ? 'right' : 'left',
-                                          offerPlacement: item.id === 'offer_first' ? 'left' : 'right'
-                                        }
-                                      : {})
-                                  };
-                                });
-                              }}
-                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
-                                isSelected
-                                  ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
-                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
-                              }`}
-                            >
-                              <span className="text-xs font-semibold">{item.label}</span>
-                              <span className="text-[9.5px] text-slate-400 mt-0.5">{item.desc}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                      <div className="border border-slate-200 bg-slate-50/70 rounded-xl p-3 space-y-2.5 text-[11px]">
+                        <div>
+                          <label className="text-slate-500 text-[10px] uppercase font-bold block mb-1">
+                            Company / Client Name
+                          </label>
+                          <AtMentionInput
+                            value={clientNameOverride}
+                            onChange={setClientNameOverride}
+                            onFocus={() => setFocusedRecipientStyleTarget('recipient_entity_name')}
+                            tokenContext={studioTokenContext}
+                            placeholder="Client Company Name"
+                            className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-900 font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
 
-                    {/* 4. Attention To Toggle */}
-                    <div className="space-y-2 pt-2 border-t border-slate-100">
-                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                        <User className="w-3.5 h-3.5 text-blue-600" />
-                        Attention Contact Visibility
-                      </label>
-                      <div className="pt-1">
-                        <div
-                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
-                            recipientConfig.showAttention !== false
-                              ? 'bg-white border-slate-200 shadow-2xs'
-                              : 'bg-slate-50/70 border-slate-200/60 opacity-60'
-                          }`}
-                        >
-                          <div className="min-w-0 pr-1">
-                            <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-slate-500 text-[10px] uppercase font-bold">
                               Attention To (Attn:)
-                            </span>
-                            <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                              Client contact person or department
-                            </span>
-                          </div>
-                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            </label>
                             <input
                               type="checkbox"
                               checked={recipientConfig.showAttention !== false}
@@ -11280,90 +11441,229 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   showAttention: e.target.checked
                                 }))
                               }
-                              className="sr-only peer"
+                              className="rounded border-slate-300 text-blue-600 cursor-pointer"
                             />
-                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
-                          </label>
+                          </div>
+                          {recipientConfig.showAttention !== false && (
+                            <AtMentionInput
+                              value={clientContactPerson}
+                              onChange={setClientContactPerson}
+                              onFocus={() => setFocusedRecipientStyleTarget('recipient_attention')}
+                              tokenContext={studioTokenContext}
+                              placeholder="e.g. Siva Subramanian"
+                              className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          )}
                         </div>
 
-                        {recipientConfig.showAttention !== false && (
-                          <div className="space-y-1 pt-1.5">
-                            <label className="text-slate-700 font-semibold text-[11px] block">
-                              Attention Contact Person Name
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-slate-500 text-[10px] uppercase font-bold">
+                              Registered Address
                             </label>
                             <input
-                              type="text"
-                              value={clientContactPerson}
-                              onChange={(e) => setClientContactPerson(e.target.value)}
-                              placeholder="e.g. Monali Kharge"
-                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                              type="checkbox"
+                              checked={recipientConfig.showAddress !== false}
+                              onChange={(e) =>
+                                setRecipientConfig((prev) => ({
+                                  ...prev,
+                                  showAddress: e.target.checked
+                                }))
+                              }
+                              className="rounded border-slate-300 text-blue-600 cursor-pointer"
                             />
-                            <p className="text-[10px] text-slate-400">
-                              Inherited directly from customer enquiry or contact record.
-                            </p>
+                          </div>
+                          {recipientConfig.showAddress !== false && (
+                            <AtMentionInput
+                              value={clientAddressOverride}
+                              onChange={setClientAddressOverride}
+                              onFocus={() => setFocusedRecipientStyleTarget('recipient_address')}
+                              tokenContext={studioTokenContext}
+                              placeholder="City, Country or P.O. Box"
+                              className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          )}
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-slate-500 text-[10px] uppercase font-bold">
+                              Tax Registration (TRN)
+                            </label>
+                            <input
+                              type="checkbox"
+                              checked={recipientConfig.showTrn !== false}
+                              onChange={(e) =>
+                                setRecipientConfig((prev) => ({
+                                  ...prev,
+                                  showTrn: e.target.checked
+                                }))
+                              }
+                              className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                            />
+                          </div>
+                          {recipientConfig.showTrn !== false && (
+                            <AtMentionInput
+                              value={clientTrnOverride}
+                              onChange={setClientTrnOverride}
+                              onFocus={() => setFocusedRecipientStyleTarget('recipient_trn')}
+                              tokenContext={studioTokenContext}
+                              placeholder="Optional Client TRN"
+                              className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <label className="flex items-center justify-between p-2 rounded-lg border border-slate-200 bg-white cursor-pointer">
+                            <span className="text-[10.5px] font-semibold text-slate-700">Show Phone</span>
+                            <input
+                              type="checkbox"
+                              checked={Boolean(recipientConfig.showPhone)}
+                              onChange={(e) =>
+                                setRecipientConfig((prev) => ({
+                                  ...prev,
+                                  showPhone: e.target.checked
+                                }))
+                              }
+                              className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                            />
+                          </label>
+                          <label className="flex items-center justify-between p-2 rounded-lg border border-slate-200 bg-white cursor-pointer">
+                            <span className="text-[10.5px] font-semibold text-slate-700">Show Email</span>
+                            <input
+                              type="checkbox"
+                              checked={Boolean(recipientConfig.showEmail)}
+                              onChange={(e) =>
+                                setRecipientConfig((prev) => ({
+                                  ...prev,
+                                  showEmail: e.target.checked
+                                }))
+                              }
+                              className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 5. Custom Recipient Lines */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <div className="flex items-center justify-between">
+                        <label className="text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                          <Plus className="w-3.5 h-3.5 text-blue-600" />
+                          Custom Recipient Lines
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextRow: QuotationBlockFieldRowItem = {
+                              id: `rec_custom_${Date.now()}`,
+                              key: 'custom',
+                              label: 'Project Site',
+                              value: '',
+                              visible: true,
+                              style: { fontSize: 'xs', fontWeight: 'normal' }
+                            };
+                            setRecipientConfig((prev) => ({
+                              ...prev,
+                              recipientFieldRows: [...(prev.recipientFieldRows || []), nextRow]
+                            }));
+                          }}
+                          className="px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-semibold text-[10.5px] transition cursor-pointer"
+                        >
+                          + Add Custom Line
+                        </button>
+                      </div>
+
+                      {Array.isArray(recipientConfig.recipientFieldRows) &&
+                        recipientConfig.recipientFieldRows.length > 0 && (
+                          <div className="space-y-2">
+                            {recipientConfig.recipientFieldRows.map((row, idx) => (
+                              <div
+                                key={row.id}
+                                className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-1.5"
+                              >
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="text"
+                                    value={row.label}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setRecipientConfig((prev) => ({
+                                        ...prev,
+                                        recipientFieldRows: (prev.recipientFieldRows || []).map((r, i) =>
+                                          i === idx ? { ...r, label: val } : r
+                                        )
+                                      }));
+                                    }}
+                                    placeholder="Label (optional)"
+                                    className="w-28 px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-md font-semibold text-slate-700"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <AtMentionInput
+                                      value={row.value || ''}
+                                      onChange={(val) => {
+                                        setRecipientConfig((prev) => ({
+                                          ...prev,
+                                          recipientFieldRows: (prev.recipientFieldRows || []).map((r, i) =>
+                                            i === idx ? { ...r, value: val } : r
+                                          )
+                                        }));
+                                      }}
+                                      tokenContext={studioTokenContext}
+                                      placeholder="Value or @tag..."
+                                      className="w-full px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-md text-slate-800"
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setRecipientConfig((prev) => ({
+                                        ...prev,
+                                        recipientFieldRows: (prev.recipientFieldRows || []).map((r, i) =>
+                                          i === idx
+                                            ? {
+                                                ...r,
+                                                style: {
+                                                  ...(r.style || {}),
+                                                  fontWeight:
+                                                    r.style?.fontWeight === 'bold' ? 'normal' : 'bold'
+                                                }
+                                              }
+                                            : r
+                                        )
+                                      }));
+                                    }}
+                                    className={`w-6 h-6 rounded border text-[10px] font-bold cursor-pointer ${
+                                      row.style?.fontWeight === 'bold'
+                                        ? 'bg-blue-600 text-white border-blue-600'
+                                        : 'bg-white text-slate-600 border-slate-200'
+                                    }`}
+                                    title="Toggle Bold"
+                                  >
+                                    B
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setRecipientConfig((prev) => ({
+                                        ...prev,
+                                        recipientFieldRows: (prev.recipientFieldRows || []).filter(
+                                          (_, i) => i !== idx
+                                        )
+                                      }))
+                                    }
+                                    className="p-1 text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                                    title="Remove Line"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         )}
-                      </div>
-                    </div>
-
-                    {/* 3. Client Details on This Quote (Editable Snapshot) */}
-                    <div className="space-y-2 pt-2 border-t border-slate-100">
-                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                        <Building className="w-3.5 h-3.5 text-blue-600" />
-                        Client Details on This Quote
-                      </label>
-                      <p className="text-[10px] text-slate-500 leading-normal">
-                        Edit client details below or click directly on the A4 preview card.
-                      </p>
-                      <div className="border border-slate-200 bg-slate-50/70 rounded-xl p-3 space-y-2.5 text-[11px]">
-                        <div>
-                          <label className="text-slate-500 text-[10px] uppercase font-bold block mb-1">
-                            Company / Client Name
-                          </label>
-                          <input
-                            type="text"
-                            value={clientNameOverride}
-                            onChange={(e) => setClientNameOverride(e.target.value)}
-                            placeholder="Client Company Name"
-                            className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-900 font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-slate-500 text-[10px] uppercase font-bold block mb-1">
-                            Registered Address
-                          </label>
-                          <input
-                            type="text"
-                            value={clientAddressOverride}
-                            onChange={(e) => setClientAddressOverride(e.target.value)}
-                            placeholder="City, Country or P.O. Box"
-                            className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-slate-500 text-[10px] uppercase font-bold block mb-1">
-                            Tax Registration (TRN)
-                          </label>
-                          <input
-                            type="text"
-                            value={clientTrnOverride}
-                            onChange={(e) => setClientTrnOverride(e.target.value)}
-                            placeholder="Optional Client TRN"
-                            className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Informational Guardrail Card */}
-                    <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-slate-600 space-y-1">
-                      <div className="font-semibold text-blue-900 text-[11px] flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
-                        Saved With This Quote Only
-                      </div>
-                      <p className="text-[10px] text-slate-500 leading-relaxed">
-                        Changes to client details here apply only to this quotation version without overwriting your master CRM records.
-                      </p>
                     </div>
                   </div>
                 </aside>
@@ -11399,15 +11699,210 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                   {/* Drawer Content */}
                   <div className="p-4 space-y-4 text-xs">
+                    {/* Unified Text & Element Style Bar */}
+                    {renderUnifiedElementStyleBar(
+                      focusedOfferStyleTarget,
+                      'Offer Element',
+                      [
+                        { id: 'offer_heading', label: 'Section Heading' },
+                        { id: 'offer_quote_ref', label: 'Document Reference Code' },
+                        { id: 'offer_meta_grid', label: 'Metadata Values Grid' }
+                      ],
+                      setFocusedOfferStyleTarget
+                    )}
+
+                    {/* Section Heading & Editable Reference Code + Revision Controls */}
+                    <div className="space-y-2.5 pt-1 border-b border-slate-100 pb-3">
+                      <div>
+                        <label className="text-slate-700 font-semibold text-[11px] block mb-1">
+                          Offer Card Heading Label
+                        </label>
+                        <AtMentionInput
+                          value={recipientConfig.offerHeadingOverride ?? 'COMMERCIAL OFFER'}
+                          onChange={(val) =>
+                            setRecipientConfig((prev) => ({
+                              ...prev,
+                              offerHeadingOverride: val
+                            }))
+                          }
+                          onFocus={() => setFocusedOfferStyleTarget('offer_heading')}
+                          tokenContext={studioTokenContext}
+                          placeholder="COMMERCIAL OFFER"
+                          className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-slate-700 font-semibold text-[11px] block mb-1">
+                          Document Reference Code
+                        </label>
+                        <AtMentionInput
+                          value={
+                            formattedQuoteRefOverride !== null &&
+                            formattedQuoteRefOverride !== undefined &&
+                            formattedQuoteRefOverride !== ''
+                              ? formattedQuoteRefOverride
+                              : liveQuotation.formatted_quote_ref || ''
+                          }
+                          onChange={(val) => {
+                            setFormattedQuoteRefOverride(val);
+                            setRecipientConfig((prev) => ({
+                              ...prev,
+                              revisionSuffixMode: 'custom'
+                            }));
+                          }}
+                          onFocus={() => setFocusedOfferStyleTarget('offer_quote_ref')}
+                          tokenContext={studioTokenContext}
+                          placeholder="e.g. AVENTURA/UAE/CWS/2844-121026"
+                          className="w-full px-2.5 py-1.5 text-xs font-mono font-bold bg-white border border-slate-200 rounded-lg text-blue-800 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                        />
+                      </div>
+
+                      {/* Revision Suffix Format Selector */}
+                      <div>
+                        <label className="text-slate-700 font-semibold text-[11px] block mb-1">
+                          Revision Suffix Format
+                        </label>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {[
+                            { id: 'hyphen' as const, label: 'Standard (-R1)' },
+                            { id: 'slash' as const, label: 'Slash (/Rev.1)' },
+                            { id: 'parens' as const, label: 'Parens ((Rev 1))' },
+                            { id: 'hidden' as const, label: 'Hide Suffix (No -R1)' },
+                            { id: 'custom' as const, label: 'Custom / Exact Text' }
+                          ].map((mode) => {
+                            const active = (recipientConfig.revisionSuffixMode || 'hyphen') === mode.id;
+                            return (
+                              <button
+                                key={mode.id}
+                                type="button"
+                                onClick={() =>
+                                  setRecipientConfig((prev) => ({
+                                    ...prev,
+                                    revisionSuffixMode: mode.id
+                                  }))
+                                }
+                                className={`py-1.5 px-2 rounded-lg border text-[10.5px] font-semibold text-left transition cursor-pointer ${
+                                  active
+                                    ? 'border-blue-600 bg-blue-50 text-blue-900'
+                                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                                }`}
+                              >
+                                {mode.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Revision Pill Badge & Status Row Toggles + Overrides */}
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <div className="p-2 rounded-xl border border-slate-200 bg-slate-50/70 space-y-1.5">
+                          <label className="flex items-center justify-between cursor-pointer">
+                            <span className="text-[10.5px] font-semibold text-slate-800">Revision Badge</span>
+                            <input
+                              type="checkbox"
+                              checked={recipientConfig.showRevisionBadge !== false}
+                              onChange={(e) =>
+                                setRecipientConfig((prev) => ({
+                                  ...prev,
+                                  showRevisionBadge: e.target.checked
+                                }))
+                              }
+                              className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                            />
+                          </label>
+                          {recipientConfig.showRevisionBadge !== false && (
+                            <input
+                              type="text"
+                              value={recipientConfig.revisionBadgeTextOverride ?? ''}
+                              onChange={(e) =>
+                                setRecipientConfig((prev) => ({
+                                  ...prev,
+                                  revisionBadgeTextOverride: e.target.value
+                                }))
+                              }
+                              placeholder={`Rev ${liveQuotation.revision_number || 1}`}
+                              className="w-full px-2 py-1 text-[10.5px] bg-white border border-slate-200 rounded-md font-mono text-slate-700"
+                            />
+                          )}
+                        </div>
+
+                        <div className="p-2 rounded-xl border border-slate-200 bg-slate-50/70 space-y-1.5">
+                          <label className="flex items-center justify-between cursor-pointer">
+                            <span className="text-[10.5px] font-semibold text-slate-800">Show Status</span>
+                            <input
+                              type="checkbox"
+                              checked={recipientConfig.showOfferStatus !== false}
+                              onChange={(e) =>
+                                setRecipientConfig((prev) => ({
+                                  ...prev,
+                                  showOfferStatus: e.target.checked
+                                }))
+                              }
+                              className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                            />
+                          </label>
+                          {recipientConfig.showOfferStatus !== false && (
+                            <input
+                              type="text"
+                              value={recipientConfig.statusTextOverride ?? ''}
+                              onChange={(e) =>
+                                setRecipientConfig((prev) => ({
+                                  ...prev,
+                                  statusTextOverride: e.target.value
+                                }))
+                              }
+                              placeholder={String(liveQuotation.status || 'DRAFT').toUpperCase()}
+                              className="w-full px-2 py-1 text-[10.5px] bg-white border border-slate-200 rounded-md font-mono text-slate-700"
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Metadata Grid Layout Mode */}
+                    <div className="space-y-1.5">
+                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                        <Columns className="w-3.5 h-3.5 text-blue-600" />
+                        Metadata Grid Layout
+                      </label>
+                      <div className="grid grid-cols-3 gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                        {[
+                          { id: 'grid_2col' as const, label: '2-Col Grid' },
+                          { id: 'table_1col' as const, label: '1-Col Table' },
+                          { id: 'minimal_inline' as const, label: 'Inline Strip' }
+                        ].map((ly) => {
+                          const active = (recipientConfig.offerGridLayout || 'grid_2col') === ly.id;
+                          return (
+                            <button
+                              key={ly.id}
+                              type="button"
+                              onClick={() =>
+                                setRecipientConfig((prev) => ({
+                                  ...prev,
+                                  offerGridLayout: ly.id
+                                }))
+                              }
+                              className={`py-1.5 px-2 rounded-lg text-[10.5px] font-semibold transition cursor-pointer ${
+                                active
+                                  ? 'bg-blue-600 text-white shadow-2xs'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                            >
+                              {ly.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
                     {/* 1. Presentation Style */}
-                    <div className="space-y-2">
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
                       <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
                         <Sliders className="w-3.5 h-3.5 text-blue-600" />
                         Card Presentation Style
                       </label>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Bordered card box vs clean minimal divider.
-                      </p>
                       <div className="grid grid-cols-2 gap-2 pt-1">
                         {[
                           { id: 'framed' as const, label: 'Framed Box', desc: 'Bordered container' },
@@ -11442,9 +11937,6 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         <Columns className="w-3.5 h-3.5 text-blue-600" />
                         Card Placement &amp; Width
                       </label>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Position on the 2-column A4 grid or span full 100% width (compact 4-column horizontal bar).
-                      </p>
                       <div className="grid grid-cols-3 gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
                         {[
                           { id: 'left' as const, label: 'Left 50%' },
@@ -11485,126 +11977,6 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           );
                         })}
                       </div>
-                      {/* Quick-Pair Action Buttons */}
-                      <div className="grid grid-cols-2 gap-1.5 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const currentOrder = recipientConfig.cardsOrder || cardsOrder || 'recipient_first';
-                            setRecipientConfig((prev) => ({
-                              ...prev,
-                              layout: 'split',
-                              recipientPlacement: currentOrder === 'offer_first' ? 'right' : 'left',
-                              offerPlacement: currentOrder === 'offer_first' ? 'left' : 'right',
-                              recipientCardWidth: '50',
-                              offerCardWidth: '50'
-                            }));
-                          }}
-                          className="py-1.5 px-2 rounded-lg border border-slate-200 hover:border-blue-300 bg-slate-50 hover:bg-blue-50/50 text-[10px] font-semibold text-slate-700 transition cursor-pointer"
-                        >
-                          Pair 50/50 Side-by-Side
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setRecipientConfig((prev) => ({
-                              ...prev,
-                              layout: 'stacked',
-                              recipientPlacement: 'full',
-                              offerPlacement: 'full',
-                              recipientCardWidth: '100',
-                              offerCardWidth: '100'
-                            }))
-                          }
-                          className="py-1.5 px-2 rounded-lg border border-slate-200 hover:border-blue-300 bg-slate-50 hover:bg-blue-50/50 text-[10px] font-semibold text-slate-700 transition cursor-pointer"
-                        >
-                          Stack Both 100%
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* 3. Card Corners */}
-                    <div className="space-y-2 pt-2 border-t border-slate-100">
-                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                        <Square className="w-3.5 h-3.5 text-blue-600" />
-                        Card Corner Radius
-                      </label>
-                      <div className="grid grid-cols-2 gap-2 pt-1">
-                        {[
-                          { id: 'rounded' as const, label: 'Rounded Corners', desc: 'Modern enterprise' },
-                          { id: 'sharp' as const, label: 'Sharp Corners', desc: 'Classic rectangular' }
-                        ].map((item) => {
-                          const isSelected = (recipientConfig.offerCardRadius || globalCardRadius || 'rounded') === item.id;
-                          return (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => setRecipientConfig((prev) => ({
-                                ...prev,
-                                offerCardRadius: item.id
-                              }))}
-                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
-                                isSelected
-                                  ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
-                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
-                              }`}
-                            >
-                              <span className="text-xs font-semibold">{item.label}</span>
-                              <span className="text-[9.5px] text-slate-400 mt-0.5">{item.desc}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Top Cards Ordering */}
-                    <div className="space-y-2 pt-2 border-t border-slate-100">
-                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                        <ArrowLeftRight className="w-3.5 h-3.5 text-blue-600" />
-                        Top Cards Sequence
-                      </label>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Order of Client Information and Commercial Offer cards.
-                      </p>
-                      <div className="grid grid-cols-2 gap-2 pt-1">
-                        {[
-                          { id: 'recipient_first' as const, label: 'Submitted To First', desc: 'Client first / left' },
-                          { id: 'offer_first' as const, label: 'Commercial Offer First', desc: 'Offer first / left' }
-                        ].map((item) => {
-                          const isSelected = (recipientConfig.cardsOrder || cardsOrder || 'recipient_first') === item.id;
-                          return (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => {
-                                setCardsOrder(item.id);
-                                setRecipientConfig((prev) => {
-                                  const isRecFull = prev.recipientPlacement === 'full' || prev.recipientCardWidth === '100';
-                                  const isOffFull = prev.offerPlacement === 'full' || prev.offerCardWidth === '100';
-                                  return {
-                                    ...prev,
-                                    cardsOrder: item.id,
-                                    ...(!isRecFull && !isOffFull
-                                      ? {
-                                          recipientPlacement: item.id === 'offer_first' ? 'right' : 'left',
-                                          offerPlacement: item.id === 'offer_first' ? 'left' : 'right'
-                                        }
-                                      : {})
-                                  };
-                                });
-                              }}
-                              className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
-                                isSelected
-                                  ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
-                                  : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
-                              }`}
-                            >
-                              <span className="text-xs font-semibold">{item.label}</span>
-                              <span className="text-[9.5px] text-slate-400 mt-0.5">{item.desc}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
                     </div>
 
                     {/* 4. Metadata Field Toggles */}
@@ -11613,9 +11985,6 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         <Columns className="w-3.5 h-3.5 text-blue-600" />
                         Commercial Field Visibility
                       </label>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Toggle commercial validity, representative, and enquiry reference fields.
-                      </p>
                       <div className="space-y-1.5 pt-1">
                         {[
                           {
@@ -11675,47 +12044,108 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             <label className="text-slate-700 font-semibold text-[11px] block">
                               Sales Representative (Prepared By)
                             </label>
-                            <input
-                              type="text"
+                            <AtMentionInput
                               value={preparedBy}
-                              onChange={(e) => setPreparedBy(e.target.value)}
-                              placeholder="e.g. Nitin Srivastava"
+                              onChange={setPreparedBy}
+                              onFocus={() => setFocusedOfferStyleTarget('offer_meta_grid')}
+                              tokenContext={studioTokenContext}
+                              placeholder="e.g. Syed Anwer Ghouri"
                               className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
                             />
-                            <p className="text-[10px] text-slate-400">
-                              Inherited directly from assigned salesperson.
-                            </p>
                           </div>
                         )}
                       </div>
                     </div>
 
-                    {/* 3. Offer Summary Info */}
+                    {/* 5. Custom Commercial Meta Fields */}
                     <div className="space-y-2 pt-2 border-t border-slate-100">
-                      <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                        <FileText className="w-3.5 h-3.5 text-blue-600" />
-                        Document Reference Data
-                      </label>
-                      <div className="border border-slate-200 bg-slate-50/70 rounded-xl p-3 space-y-1.5 text-[11px]">
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-400">Quote Ref:</span>
-                          <span className="font-mono font-bold text-slate-900">
-                            {liveQuotation.formatted_quote_ref || liveQuotation.quote_number}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-400">Revision:</span>
-                          <span className="font-semibold text-slate-800">
-                            Rev {liveQuotation.revision_number}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-400">Document Status:</span>
-                          <span className="font-bold text-slate-700 uppercase tracking-wide text-[10px]">
-                            {liveQuotation.status}
-                          </span>
-                        </div>
+                      <div className="flex items-center justify-between">
+                        <label className="text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                          <Plus className="w-3.5 h-3.5 text-blue-600" />
+                          Custom Offer Meta Fields
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextRow: QuotationBlockFieldRowItem = {
+                              id: `offer_custom_${Date.now()}`,
+                              key: 'custom',
+                              label: 'CLIENT RFQ NO',
+                              value: '',
+                              visible: true,
+                              style: { fontSize: 'xs', fontWeight: 'semibold' }
+                            };
+                            setRecipientConfig((prev) => ({
+                              ...prev,
+                              offerFieldRows: [...(prev.offerFieldRows || []), nextRow]
+                            }));
+                          }}
+                          className="px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-semibold text-[10.5px] transition cursor-pointer"
+                        >
+                          + Add Custom Field
+                        </button>
                       </div>
+
+                      {Array.isArray(recipientConfig.offerFieldRows) &&
+                        recipientConfig.offerFieldRows.length > 0 && (
+                          <div className="space-y-2">
+                            {recipientConfig.offerFieldRows.map((row, idx) => (
+                              <div
+                                key={row.id}
+                                className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-1.5"
+                              >
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="text"
+                                    value={row.label}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setRecipientConfig((prev) => ({
+                                        ...prev,
+                                        offerFieldRows: (prev.offerFieldRows || []).map((r, i) =>
+                                          i === idx ? { ...r, label: val } : r
+                                        )
+                                      }));
+                                    }}
+                                    placeholder="FIELD LABEL"
+                                    className="w-28 px-2 py-1 text-[10.5px] uppercase bg-white border border-slate-200 rounded-md font-bold text-slate-700"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <AtMentionInput
+                                      value={row.value || ''}
+                                      onChange={(val) => {
+                                        setRecipientConfig((prev) => ({
+                                          ...prev,
+                                          offerFieldRows: (prev.offerFieldRows || []).map((r, i) =>
+                                            i === idx ? { ...r, value: val } : r
+                                          )
+                                        }));
+                                      }}
+                                      tokenContext={studioTokenContext}
+                                      placeholder="Value or @tag..."
+                                      className="w-full px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-md text-slate-800"
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setRecipientConfig((prev) => ({
+                                        ...prev,
+                                        offerFieldRows: (prev.offerFieldRows || []).filter(
+                                          (_, i) => i !== idx
+                                        )
+                                      }))
+                                    }
+                                    className="p-1 text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                                    title="Remove Field"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                     </div>
                   </div>
                 </aside>
@@ -11751,6 +12181,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                   {/* Drawer Content */}
                   <div className="p-4 space-y-4 text-xs">
+                    {/* Unified Text & Element Style Bar for Subject Banner */}
+                    {renderUnifiedElementStyleBar('subject_banner', 'Subject Text')}
+
                     {/* 1. Visibility Toggle */}
                     <div className="border rounded-xl p-3 bg-white border-slate-200 shadow-2xs flex items-center justify-between gap-2">
                       <div className="min-w-0 pr-1">
@@ -12054,17 +12487,19 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       {footerConfig.showSystemTagline !== false && (
                         <div>
                           <label className="block text-[10px] font-semibold text-slate-500 uppercase mb-1">
-                            System Tagline Override
+                            Footer Prefix / Company Tagline
                           </label>
                           <input
                             type="text"
-                            value={footerConfig.systemTaglineText ?? 'Generated via DealFlow Commercial Engine'}
+                            value={footerConfig.footerPrefixText ?? footerConfig.systemTaglineText ?? activeProfile?.legal_entity_name ?? ''}
                             onChange={(e) =>
                               setFooterConfig((prev) => ({
                                 ...prev,
+                                footerPrefixText: e.target.value,
                                 systemTaglineText: e.target.value
                               }))
                             }
+                            placeholder={activeProfile?.legal_entity_name || 'Company Name or Leave Blank'}
                             className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs text-slate-800"
                           />
                         </div>
@@ -15955,6 +16390,30 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       })}
                                     </div>
 
+                                    {/* Vertical Signature Space Height (mm) to prevent Stamp/Signature overlapping Signatory Name */}
+                                    <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1">
+                                      <div className="flex justify-between text-[10px] font-semibold text-slate-700">
+                                        <span>Signature Space Height (Gap Above Name)</span>
+                                        <span className="font-mono text-blue-700">
+                                          {footerConfig.signatureSpaceHeightMm ?? 25}mm
+                                        </span>
+                                      </div>
+                                      <input
+                                        type="range"
+                                        min={12}
+                                        max={50}
+                                        step={1}
+                                        value={footerConfig.signatureSpaceHeightMm ?? 25}
+                                        onChange={(e) =>
+                                          setFooterConfig((prev) => ({
+                                            ...prev,
+                                            signatureSpaceHeightMm: Number(e.target.value)
+                                          }))
+                                        }
+                                        className="w-full accent-blue-600 cursor-pointer h-1.5"
+                                      />
+                                    </div>
+
                                     {/* Stamp Size, Rotation & X/Y Nudge */}
                                     <div
                                       id="inspector-target-stamp"
@@ -18578,8 +19037,6 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   </aside>
                 );
               })()}
-            </div>
-          </div>
         </div>
       </div>
 

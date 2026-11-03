@@ -10,13 +10,15 @@ import { amountToWords } from './numberToWords';
 
 /**
  * Detects whether a reference string is a raw internal database or synthetic standalone ID
- * (e.g., "standalone_qdoc_po_1793524721119", "qdoc_pv_...", "quote_...", "enq_...", or UUID)
+ * (e.g., "standalone_qdoc_po_1793524721119", "qdoc_pv_...", "quote_...", "enq_...", "fyuDzXjAk6POwdcZHGIb_gap_60", or UUID)
  * that must never be printed on official A4 customer/vendor documents.
  */
 export function isSyntheticInternalId(val?: string | null): boolean {
   if (!val || typeof val !== 'string') return false;
   const trimmed = val.trim();
   if (!trimmed) return false;
+  if (/_gap_\d+$/i.test(trimmed)) return true;
+  if (/^[a-zA-Z0-9]{15,}(_[a-zA-Z0-9_]+)?$/.test(trimmed) && !/[-/\s]/.test(trimmed)) return true;
   return /^(standalone_|qdoc_|quote_|enq_|poli_|retli_|bline_|bill_|comp_|prod_|[0-9a-f]{8}-[0-9a-f]{4}-)/i.test(
     trimmed
   );
@@ -38,6 +40,11 @@ export function formatCleanDocumentEnquiryRef(
   const fallback = (fallbackCleanRef || '').trim();
   if (fallback && !isSyntheticInternalId(fallback)) {
     return fallback;
+  }
+  // If rawRef or fallback is a synthetic gap ID like "fyuDzXjAk6POwdcZHGIb_gap_60", extract the clean serial number "ENQ #60"
+  const gapMatch = (candidate || fallback).match(/_gap_(\d+)$/i);
+  if (gapMatch && gapMatch[1]) {
+    return `ENQ #${gapMatch[1]}`;
   }
   switch (docType) {
     case 'purchase_order':

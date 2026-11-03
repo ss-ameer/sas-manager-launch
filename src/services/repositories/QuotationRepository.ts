@@ -617,16 +617,27 @@ export class QuotationRepository {
     const freshId = `quote_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const wsId = source.workspace_id || source.workspaceId || 'ws_default';
 
-    const baseQuoteNumber = (
-      source.quote_number ||
-      (source.formatted_quote_ref ? source.formatted_quote_ref.replace(/-R\d+$/i, '') : 'QT-0001')
-    ).replace(/-R\d+$/i, '');
+    const stripKnownRevSuffix = (str: string) =>
+      str
+        .replace(/-R\d+$/i, '')
+        .replace(/\/Rev\.?\s*\d+$/i, '')
+        .replace(/\s*\(Rev\.?\s*\d+\)$/i, '')
+        .trim();
 
-    const formattedQuoteRef = source.formatted_quote_ref
-      ? /-R\d+$/i.test(source.formatted_quote_ref)
-        ? source.formatted_quote_ref.replace(/-R\d+$/i, `-R${nextRev}`)
-        : `${source.formatted_quote_ref}-R${nextRev}`
-      : `${baseQuoteNumber}-R${nextRev}`;
+    const baseQuoteNumber = stripKnownRevSuffix(
+      source.quote_number || source.formatted_quote_ref || 'QT-0001'
+    );
+
+    const suffixMode = source.recipient_config?.revisionSuffixMode || 'hyphen';
+    const rawBaseFormatted = stripKnownRevSuffix(source.formatted_quote_ref || baseQuoteNumber);
+    const formattedQuoteRef =
+      suffixMode === 'hidden'
+        ? rawBaseFormatted
+        : suffixMode === 'slash'
+        ? `${rawBaseFormatted}/Rev.${nextRev}`
+        : suffixMode === 'parens'
+        ? `${rawBaseFormatted} (Rev ${nextRev})`
+        : `${rawBaseFormatted}-R${nextRev}`;
 
     // Deep-clone line_items preserving all Phase 1–3.2 properties
     const clonedLineItems = Array.isArray(source.line_items)

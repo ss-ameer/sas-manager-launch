@@ -1874,17 +1874,25 @@ export function resolveHeaderFields(
 }
 
 export function resolveFooterPresentation(
-  footerConfig?: QuotationFooterConfig | null
+  footerConfig?: QuotationFooterConfig | null,
+  fallbackCompanyName?: string
 ) {
   const cfg = footerConfig || {};
+  const rawTagline = (cfg.footerPrefixText ?? cfg.systemTaglineText ?? '').trim();
+  const isLegacyOmniWatermark =
+    /^omni\s+suite\s+commercial\s+engine$/i.test(rawTagline) ||
+    /^generated\s+via\s+marabi/i.test(rawTagline);
+  const resolvedTagline = isLegacyOmniWatermark
+    ? (fallbackCompanyName || '').trim()
+    : rawTagline !== ''
+    ? rawTagline
+    : (fallbackCompanyName || '').trim();
+
   return {
     footerHorizontalAlign: cfg.footerHorizontalAlign || 'split',
     footerVerticalAlign: cfg.footerVerticalAlign || 'middle',
-    showSystemTagline: cfg.showSystemTagline !== false,
-    systemTaglineText:
-      cfg.systemTaglineText !== undefined && cfg.systemTaglineText.trim() !== ''
-        ? cfg.systemTaglineText.trim()
-        : 'Omni Suite Commercial Engine',
+    showSystemTagline: cfg.showFooterPrefix !== false && cfg.showSystemTagline !== false,
+    systemTaglineText: resolvedTagline,
     showReferenceInFooter: cfg.showReferenceInFooter !== false,
     showIssueDateInFooter: cfg.showIssueDateInFooter !== false,
     showPageNumbers: cfg.showPageNumbers !== false,
@@ -1915,11 +1923,13 @@ export const DEFAULT_FOOTER_CONFIG: QuotationFooterConfig = {
   signatureOffsetX: 0,
   signatureOffsetY: 0,
   stampSignatureOverlapMode: 'realistic_overlap',
+  signatureSpaceHeightMm: 25,
   inkMultiplyBlend: true,
   footerHorizontalAlign: 'split',
   footerVerticalAlign: 'middle',
-  systemTaglineText: 'Omni Suite Commercial Engine',
+  systemTaglineText: '',
   showSystemTagline: true,
+  showFooterPrefix: true,
   showReferenceInFooter: true,
   showIssueDateInFooter: true,
   customFooterPills: []
@@ -1935,7 +1945,10 @@ export const DEFAULT_RECIPIENT_CONFIG: QuotationRecipientConfig = {
   recipientPlacement: 'left',
   recipientCardWidth: '50',
   offerPlacement: 'right',
-  offerCardWidth: '50'
+  offerCardWidth: '50',
+  showRevisionBadge: true,
+  showOfferStatus: true,
+  offerGridLayout: 'grid_2col'
 };
 
 export interface QuotationSheetPage {
@@ -2002,7 +2015,7 @@ const EditableCanvasText: React.FC<EditableCanvasTextProps> = ({
   canEdit,
   onCommit,
   className = '',
-  multiline = false,
+  multiline: _multiline = false,
   placeholder = 'Click to edit...',
   renderedDisplay
 }) => {
@@ -2018,7 +2031,7 @@ const EditableCanvasText: React.FC<EditableCanvasTextProps> = ({
   const displayNode = renderedDisplay !== undefined ? renderedDisplay : value;
 
   if (!canEdit || !onCommit) {
-    return <span className={className}>{displayNode}</span>;
+    return <span className={`whitespace-pre-line ${className}`}>{displayNode}</span>;
   }
 
   if (editing) {
@@ -2028,63 +2041,42 @@ const EditableCanvasText: React.FC<EditableCanvasTextProps> = ({
         onCommit(fieldKey, draft);
       }
     };
-    if (multiline) {
-      return (
-        <textarea
-          autoFocus
-          value={draft}
-          rows={2}
-          placeholder={placeholder}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              e.stopPropagation();
-              setDraft(value || '');
-              setEditing(false);
-            } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              commit();
-            }
-          }}
-          className={`bg-white text-slate-900 border border-blue-500 rounded px-1.5 py-0.5 outline-none ring-2 ring-blue-300/60 w-full max-w-full font-sans print:hidden ${className}`}
-        />
-      );
-    }
+    const rowCount = Math.max(1, Math.min(6, (draft || '').split('\n').length));
     return (
-      <input
-        type="text"
+      <textarea
         autoFocus
         value={draft}
+        rows={rowCount}
         placeholder={placeholder}
         onClick={(e) => e.stopPropagation()}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            commit();
-          } else if (e.key === 'Escape') {
+          if (e.key === 'Escape') {
             e.stopPropagation();
             setDraft(value || '');
             setEditing(false);
+          } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            commit();
+          } else if (e.key === 'Enter') {
+            e.stopPropagation();
           }
         }}
-        className={`bg-white text-slate-900 border border-blue-500 rounded px-1 py-0 outline-none ring-2 ring-blue-300/60 min-w-[90px] max-w-full print:hidden ${className}`}
+        className={`bg-white text-slate-900 border border-blue-500 rounded px-1.5 py-0.5 outline-none ring-2 ring-blue-300/60 min-w-[120px] w-full max-w-full font-sans resize-y leading-snug print:hidden ${className}`}
       />
     );
   }
 
   return (
     <span
-      title="Click to edit text directly on page"
+      title="Click to edit text directly on page (Enter adds line break, Ctrl+Enter or click outside saves)"
       onClick={(e) => {
         e.stopPropagation();
         setDraft(value || '');
         setEditing(true);
       }}
-      className={`cursor-text border-b border-dashed border-blue-400/70 hover:bg-blue-50/70 hover:border-blue-600 rounded-xs px-0.5 -mx-0.5 transition-colors print:border-none print:bg-transparent print:p-0 print:m-0 ${className}`}
+      className={`whitespace-pre-line cursor-text border-b border-dashed border-blue-400/70 hover:bg-blue-50/70 hover:border-blue-600 rounded-xs px-0.5 -mx-0.5 transition-colors print:border-none print:bg-transparent print:p-0 print:m-0 ${className}`}
     >
       {value ? displayNode : <span className="text-slate-400 italic print:hidden">{placeholder}</span>}
     </span>
@@ -2700,19 +2692,25 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
   const bankAccount: DocumentProfileBankAccount | undefined = rawBank;
   const rawEnquiryRefCandidate =
+    (enquiry as any)?.customer_reference_code ||
     (enquiry?.sn ? `ENQ-${String(enquiry.sn).padStart(4, '0')}` : '') ||
-    (enquiry as any)?.quote_ref_no ||
-    enquiry?.enquiry_number ||
-    enquiry?.reference ||
+    (!isSyntheticInternalId((enquiry as any)?.quote_ref_no) ? (enquiry as any)?.quote_ref_no : '') ||
+    (!isSyntheticInternalId(enquiry?.enquiry_number) ? enquiry?.enquiry_number : '') ||
+    (!isSyntheticInternalId(enquiry?.reference) ? enquiry?.reference : '') ||
     (!isSyntheticInternalId(quotation.enquiry_id) ? quotation.enquiry_id : '') ||
-    (!isSyntheticInternalId(enquiry?.id) ? enquiry?.id : '');
+    (!isSyntheticInternalId(enquiry?.id) ? enquiry?.id : '') ||
+    quotation.enquiry_id ||
+    enquiry?.id ||
+    '';
   const enquiryRef = formatCleanDocumentEnquiryRef(
     rawEnquiryRefCandidate,
     quotation.document_type,
     poMeta?.requisition_ref ||
       pvMeta?.vendor_invoice_no ||
       returnMeta?.original_po_ref ||
-      receiptMeta?.settlement_for_ref
+      receiptMeta?.settlement_for_ref ||
+      quotation.enquiry_id ||
+      enquiry?.id
   );
   const resolvedSalesRep =
     salesRepName ||
@@ -2944,8 +2942,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   };
 
   const footerPresentation = React.useMemo(
-    () => resolveFooterPresentation(resolvedFooterConfig),
-    [resolvedFooterConfig]
+    () => resolveFooterPresentation(resolvedFooterConfig, senderEntityName),
+    [resolvedFooterConfig, senderEntityName]
   );
 
   // Reusable micro-footer watermark helper
@@ -2963,6 +2961,17 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         ? `flex flex-col items-end text-right gap-1`
         : `flex flex-col sm:flex-row justify-between ${vAlignClass} print:flex-row print:justify-between`;
 
+    const showRevInDoc =
+      resolvedRecipientConfig?.showRevisionBadge !== false &&
+      resolvedRecipientConfig?.revisionSuffixMode !== 'hidden';
+    const revBadgeLabel =
+      (resolvedRecipientConfig?.revisionBadgeTextOverride || '').trim() ||
+      `Rev ${quotation.revision_number || 1}`;
+    const showStatusInDoc = resolvedRecipientConfig?.showOfferStatus !== false;
+    const statusLabel =
+      (resolvedRecipientConfig?.statusTextOverride || '').trim() ||
+      String(quotation.status || 'Draft').toUpperCase();
+
     const metaTokens: React.ReactNode[] = [];
     if (footerPresentation.showSystemTagline && footerPresentation.systemTaglineText) {
       metaTokens.push(<span key="tagline">{footerPresentation.systemTaglineText}</span>);
@@ -2973,14 +2982,18 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           Ref: {quotation.formatted_quote_ref || quotation.quote_number}
         </span>
       );
-      metaTokens.push(<span key="rev">Rev {quotation.revision_number || 1}</span>);
-      metaTokens.push(
-        <span key="status" className="font-semibold uppercase text-slate-500">
-          {String(quotation.status || 'Draft').toUpperCase()}
-        </span>
-      );
-      if (enquiry?.enquiry_number) {
-        metaTokens.push(<span key="enq">Enq: {enquiry.enquiry_number}</span>);
+      if (showRevInDoc) {
+        metaTokens.push(<span key="rev">{revBadgeLabel}</span>);
+      }
+      if (showStatusInDoc) {
+        metaTokens.push(
+          <span key="status" className="font-semibold uppercase text-slate-500">
+            {statusLabel}
+          </span>
+        );
+      }
+      if (enquiryRef && enquiryRef !== 'Direct Commercial Offer') {
+        metaTokens.push(<span key="enq">Enq: {enquiryRef}</span>);
       }
     }
     if (footerPresentation.showIssueDateInFooter) {
@@ -4164,21 +4177,30 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           ? 'text-right items-end'
           : 'text-center items-center';
 
+      const signatureSpaceHeightMm =
+        typeof resolvedFooterConfig.signatureSpaceHeightMm === 'number'
+          ? Math.max(12, Math.min(60, resolvedFooterConfig.signatureSpaceHeightMm))
+          : verticalSpacing === 'compact'
+          ? 18
+          : verticalSpacing === 'spacious'
+          ? 32
+          : 25;
+
       const sigAnchorHeightClass =
         verticalSpacing === 'compact'
-          ? 'h-10'
+          ? 'min-h-[18mm]'
           : verticalSpacing === 'spacious'
-          ? 'h-20'
-          : 'h-14';
+          ? 'min-h-[32mm]'
+          : 'min-h-[25mm]';
 
       const sigLineClass =
         lineWidth === 'none'
           ? 'hidden'
           : lineWidth === 'narrow'
-          ? 'w-20 border-b border-slate-300 mb-1'
+          ? 'w-20 border-b border-slate-300 mb-1.5'
           : lineWidth === 'wide'
-          ? 'w-36 border-b border-slate-300 mb-1'
-          : 'w-28 border-b border-slate-300 mb-1';
+          ? 'w-36 border-b border-slate-300 mb-1.5'
+          : 'w-28 border-b border-slate-300 mb-1.5';
 
       const renderSealBox = (extraPositionClass = '') => {
         if (!resolvedShowCompanySeal) return null;
@@ -4197,7 +4219,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 : undefined
             }
             title={isInteractive ? 'Click to inspect & adjust Company Stamp / Seal' : undefined}
-            className={`company-seal-box w-16 ${sigAnchorHeightClass} shrink-0 flex flex-col items-center justify-center overflow-visible relative z-20 ${
+            style={{ minHeight: `${signatureSpaceHeightMm}mm` }}
+            className={`company-seal-box w-20 ${sigAnchorHeightClass} shrink-0 flex flex-col items-center justify-center overflow-visible relative z-20 ${
               isInteractive ? 'cursor-pointer' : ''
             } ${extraPositionClass}`}
           >
@@ -4207,6 +4230,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 alt="Company Seal"
                 style={{
                   position: 'absolute',
+                  bottom: '4px',
                   height: `${stampSigOverlay.sealSizePx}px`,
                   width: 'auto',
                   maxWidth: 'none',
@@ -4283,7 +4307,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             return (
               <p
                 key="sig-name"
-                className={`${nameStyle.weightClass} ${nameStyle.colorClass} text-[calc(var(--block-base)*1.08)] leading-tight`}
+                className={`${nameStyle.weightClass} ${nameStyle.colorClass} text-[calc(var(--block-base)*1.08)] leading-tight relative z-30`}
                 style={nameStyle.colorStyle}
               >
                 <EditableCanvasText
@@ -4300,7 +4324,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             return (
               <p
                 key="sig-title"
-                className={`${titleStyle.weightClass} ${titleStyle.colorClass} text-[calc(var(--block-base)*0.95)] leading-tight mt-0.5`}
+                className={`${titleStyle.weightClass} ${titleStyle.colorClass} text-[calc(var(--block-base)*0.95)] leading-tight mt-0.5 relative z-30`}
                 style={titleStyle.colorStyle}
               >
                 <EditableCanvasText
@@ -4380,9 +4404,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         return (
           <div
             key={sIdx}
-            className={`flex flex-col ${textAlignmentClass} min-w-[130px] overflow-visible relative`}
+            className={`flex flex-col ${textAlignmentClass} min-w-[140px] overflow-visible relative`}
           >
-            {/* Fixed-height signature anchor box: resizing image never stretches block height */}
+            {/* Dedicated signature & stamp space above the signature line and printed name */}
             <div
               onClick={
                 isInteractive
@@ -4397,7 +4421,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   : undefined
               }
               title={isInteractive ? 'Click to inspect & adjust Authorized Signature' : undefined}
-              className={`${sigAnchorHeightClass} w-28 flex items-end justify-center mb-1 overflow-visible relative ${
+              style={{ minHeight: `${signatureSpaceHeightMm}mm` }}
+              className={`${sigAnchorHeightClass} w-32 flex items-end justify-center mb-1.5 pb-1 overflow-visible relative ${
                 isInteractive ? 'cursor-pointer' : ''
               }`}
             >
@@ -4412,7 +4437,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   alt="Authorized Signature"
                   style={{
                     position: 'absolute',
-                    bottom: '2px',
+                    bottom: '6px',
                     height: `${stampSigOverlay.signatureSizePx}px`,
                     width: 'auto',
                     maxWidth: 'none',
@@ -4639,29 +4664,37 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       else if (fmt.fontSize === 'sm') cls.push('text-[calc(var(--block-base)*0.93)]');
       else if (fmt.fontSize === 'lg') cls.push('text-[calc(var(--block-base)*1.12)]');
       else if (fmt.fontSize === 'xl') cls.push('text-[calc(var(--block-base)*1.28)]');
+      else if (fmt.fontSize === '2xl') cls.push('text-[calc(var(--block-base)*1.48)]');
       else cls.push('text-[var(--block-base)]');
 
       if (fmt.fontWeight === 'bold') cls.push('font-bold');
       else if (fmt.fontWeight === 'semibold') cls.push('font-semibold');
       else if (fmt.fontWeight === 'medium') cls.push('font-medium');
-      else cls.push('font-normal');
+      else if (fmt.fontWeight === 'normal') cls.push('font-normal');
 
       if (fmt.italic) cls.push('italic');
       if (fmt.underline) cls.push('underline underline-offset-2');
+      if (fmt.uppercase) cls.push('uppercase tracking-wider');
 
       if (fmt.textAlign === 'center') cls.push('text-center');
       else if (fmt.textAlign === 'right') cls.push('text-right');
       else if (fmt.textAlign === 'justify') cls.push('text-justify');
-      else cls.push('text-left');
+      else if (fmt.textAlign === 'left') cls.push('text-left');
 
       if (fmt.textColor === 'muted') {
         cls.push('text-slate-500');
       } else if (fmt.textColor === 'accent') {
         st.color = themePalette.textAccent;
+      } else if (fmt.textColor === 'emerald') {
+        cls.push('text-emerald-700');
+      } else if (fmt.textColor === 'amber') {
+        cls.push('text-amber-700');
+      } else if (fmt.textColor === 'rose') {
+        cls.push('text-rose-700');
       } else if (fmt.textColor === 'custom' && fmt.customColorHex) {
         st.color = fmt.customColorHex;
-      } else {
-        cls.push('text-slate-800');
+      } else if (fmt.textColor === 'default') {
+        cls.push('text-slate-900');
       }
 
       if (fmt.highlightBg === 'SoftYellow') cls.push('bg-amber-100/80 px-1.5 py-0.5 rounded');
@@ -4675,10 +4708,15 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
       if (fmt.lineHeight === 'tight') cls.push('leading-tight');
       else if (fmt.lineHeight === 'relaxed') cls.push('leading-relaxed');
-      else cls.push('leading-snug');
+      else if (fmt.lineHeight === 'normal') cls.push('leading-snug');
 
       if (fmt.letterSpacing === 'wide') cls.push('tracking-wide');
       else if (fmt.letterSpacing === 'uppercase_tracked') cls.push('uppercase tracking-wider');
+
+      if (fmt.showAccentBar) {
+        cls.push('pl-2 border-l-2');
+        st.borderLeftColor = themePalette.primaryHex;
+      }
 
       return { className: cls.join(' '), style: st };
     };
@@ -6190,6 +6228,13 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     const isRecipientFullWidth = topCardsLayout.recipientPlacement === 'full';
     const isOfferFullWidth = topCardsLayout.offerPlacement === 'full';
 
+    const recipientElementStyles = resolvedRecipientConfig.elementStyles || {};
+    const getElemFmt = (key: string) => {
+      const s = recipientElementStyles[key];
+      if (!s) return { className: '', style: {} as React.CSSProperties };
+      return applyTextFormatStyle(s);
+    };
+
     const renderSubjectBanner = () => {
       if (
         !Boolean(quotation.subject || enquiry?.subject) ||
@@ -6200,6 +6245,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       }
       const isSubjectSelected = activeSelectedSection === 'subject';
       const rawSubj = quotation.subject || enquiry?.subject || '';
+      const subjFmt = getElemFmt('subject_banner');
       return (
         <div
           className={`mb-3 ${
@@ -6212,21 +6258,20 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             isSubjectSelected
               ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0 !print:ring-0'
               : ''
-          }`}
-          style={
-            isMinimal
-              ? {
-                  borderLeftColor: themePalette.primaryHex
-                }
+          } ${subjFmt.className}`}
+          style={{
+            ...(isMinimal
+              ? { borderLeftColor: themePalette.primaryHex }
               : {
                   backgroundColor: themePalette.tintBg,
                   borderLeftWidth: '3px',
                   borderLeftColor: themePalette.primaryHex
-                }
-          }
+                }),
+            ...subjFmt.style
+          }}
           onClick={isInteractive ? (e) => {
             e.stopPropagation();
-            onSelectSection?.('subject');
+            onSelectSection?.('subject', 'subject_banner');
           } : undefined}
         >
           {isInteractive && (
@@ -6239,7 +6284,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           <span className="font-semibold mr-1.5" style={{ color: themePalette.textAccent }}>
             Subject:
           </span>
-          <span className="text-slate-800 font-semibold">
+          <span className="text-slate-800 font-semibold whitespace-pre-line">
             <EditableCanvasText
               value={rawSubj}
               renderedDisplay={renderResolvedQuotationText(rawSubj, tokenContext)}
@@ -6252,6 +6297,20 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         </div>
       );
     };
+
+    const recipientHeadingText =
+      (resolvedRecipientConfig.recipientHeadingOverride || '').trim() ||
+      'Submitted To / Attention To';
+    const recipientHeadingFmt = getElemFmt('recipient_heading');
+    const recipientNameFmt = getElemFmt('recipient_entity_name');
+    const recipientAttnFmt = getElemFmt('recipient_attention');
+    const recipientAddrFmt = getElemFmt('recipient_address');
+    const recipientTrnFmt = getElemFmt('recipient_trn');
+    const recipientContactFmt = getElemFmt('recipient_contact');
+
+    const customRecipientRows = Array.isArray(resolvedRecipientConfig.recipientFieldRows)
+      ? resolvedRecipientConfig.recipientFieldRows.filter((r) => r.enabled !== false)
+      : [];
 
     const renderRecipientCard = () => (
       <div
@@ -6267,7 +6326,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         }`}
         onClick={isInteractive ? (e) => {
           e.stopPropagation();
-          onSelectSection?.('recipient_info');
+          onSelectSection?.('recipient_info', 'recipient_entity_name');
           onSelectBlock?.('recipient_info' as any);
         } : undefined}
         style={{ width: '100%', maxWidth: '100%' }}
@@ -6283,23 +6342,34 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           /* Compact 100% Full-Width Horizontal Strip Layout */
           <div>
             <div
-              className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
-              style={{ color: themePalette.textAccent }}
+              onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_heading'); } : undefined}
+              className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1 ${recipientHeadingFmt.className}`}
+              style={{ color: themePalette.textAccent, ...recipientHeadingFmt.style }}
             >
-              Submitted To / Attention To
+              {renderResolvedQuotationText(recipientHeadingText, tokenContext)}
             </div>
             <div className="flex flex-row items-baseline justify-between gap-4">
               <div className="min-w-0">
-                <span className={`${typoScale.entityTitle} font-bold text-slate-900 mr-2`}>
-                  <EditableCanvasText
-                    value={clientEntityName}
-                    fieldKey="client_name"
-                    canEdit={canEditCanvasInline && isRecipientSelected}
-                    onCommit={onInlineFieldEdit}
-                  />
-                </span>
+                {!isFieldOmitted('client_name', omittedFields) && (
+                  <span
+                    onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_entity_name'); } : undefined}
+                    className={`${typoScale.entityTitle} font-bold text-slate-900 mr-2 ${recipientNameFmt.className}`}
+                    style={recipientNameFmt.style}
+                  >
+                    <EditableCanvasText
+                      value={clientEntityName}
+                      fieldKey="client_name"
+                      canEdit={canEditCanvasInline && isRecipientSelected}
+                      onCommit={onInlineFieldEdit}
+                    />
+                  </span>
+                )}
                 {showAttention && (
-                  <span className={`${typoScale.body} text-slate-700 font-medium`}>
+                  <span
+                    onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_attention'); } : undefined}
+                    className={`${typoScale.body} text-slate-700 font-medium ${recipientAttnFmt.className}`}
+                    style={recipientAttnFmt.style}
+                  >
                     • Attn:{' '}
                     <span className="text-slate-900 font-semibold">
                       <EditableCanvasText
@@ -6312,7 +6382,11 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   </span>
                 )}
                 {showClientAddress && (
-                  <p className={`${typoScale.body} text-slate-600 mt-0.5`}>
+                  <p
+                    onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_address'); } : undefined}
+                    className={`${typoScale.body} text-slate-600 mt-0.5 whitespace-pre-line ${recipientAddrFmt.className}`}
+                    style={recipientAddrFmt.style}
+                  >
                     <EditableCanvasText
                       value={clientAddress}
                       fieldKey="client_address"
@@ -6321,10 +6395,25 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     />
                   </p>
                 )}
+                {customRecipientRows.map((row) => {
+                  const rowFmt = applyTextFormatStyle(row.textStyle);
+                  return (
+                    <p key={row.id} className={`${typoScale.body} text-slate-700 mt-0.5 whitespace-pre-line ${rowFmt.className}`} style={rowFmt.style}>
+                      {row.label ? <span className="font-semibold text-slate-600">{renderResolvedQuotationText(row.label, tokenContext)}: </span> : null}
+                      <span className={row.valueBold ? 'font-bold text-slate-900' : ''}>
+                        {renderResolvedQuotationText(row.value, tokenContext)}
+                      </span>
+                    </p>
+                  );
+                })}
               </div>
               <div className={`text-right shrink-0 ${typoScale.body} text-slate-600 space-y-0.5`}>
                 {showClientTrn && (
-                  <p>
+                  <p
+                    onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_trn'); } : undefined}
+                    className={recipientTrnFmt.className}
+                    style={recipientTrnFmt.style}
+                  >
                     <span className={`${typoScale.sub} text-slate-500 font-medium`}>
                       TRN:{' '}
                       <span className="text-slate-700 font-mono">
@@ -6339,7 +6428,11 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   </p>
                 )}
                 {((showClientPhone && clientPhone) || (showClientEmail && clientEmail)) && (
-                  <p className={`text-slate-500 ${typoScale.sub}`}>
+                  <p
+                    onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_contact'); } : undefined}
+                    className={`text-slate-500 ${typoScale.sub} ${recipientContactFmt.className}`}
+                    style={recipientContactFmt.style}
+                  >
                     {[showClientPhone ? clientPhone : '', showClientEmail ? clientEmail : '']
                       .filter(Boolean)
                       .join(' • ')}
@@ -6353,13 +6446,18 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           <>
             <div>
               <div
-                className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
-                style={{ color: themePalette.textAccent }}
+                onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_heading'); } : undefined}
+                className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1 ${recipientHeadingFmt.className}`}
+                style={{ color: themePalette.textAccent, ...recipientHeadingFmt.style }}
               >
-                Submitted To / Attention To
+                {renderResolvedQuotationText(recipientHeadingText, tokenContext)}
               </div>
               {!isFieldOmitted('client_name', omittedFields) && (
-                <h3 className={`${typoScale.entityTitle} font-bold text-slate-900`}>
+                <h3
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_entity_name'); } : undefined}
+                  className={`${typoScale.entityTitle} font-bold text-slate-900 whitespace-pre-line ${recipientNameFmt.className}`}
+                  style={recipientNameFmt.style}
+                >
                   <EditableCanvasText
                     value={clientEntityName}
                     fieldKey="client_name"
@@ -6369,7 +6467,11 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 </h3>
               )}
               {showAttention && (
-                <p className={`${typoScale.body} text-slate-700 font-medium mt-0.5`}>
+                <p
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_attention'); } : undefined}
+                  className={`${typoScale.body} text-slate-700 font-medium mt-0.5 whitespace-pre-line ${recipientAttnFmt.className}`}
+                  style={recipientAttnFmt.style}
+                >
                   Attn:{' '}
                   <span className="text-slate-900 font-semibold">
                     <EditableCanvasText
@@ -6382,7 +6484,11 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 </p>
               )}
               {showClientAddress && (
-                <p className={`${typoScale.body} text-slate-600 mt-0.5`}>
+                <p
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_address'); } : undefined}
+                  className={`${typoScale.body} text-slate-600 mt-0.5 whitespace-pre-line ${recipientAddrFmt.className}`}
+                  style={recipientAddrFmt.style}
+                >
                   <EditableCanvasText
                     value={clientAddress}
                     fieldKey="client_address"
@@ -6391,11 +6497,26 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   />
                 </p>
               )}
+              {customRecipientRows.map((row) => {
+                const rowFmt = applyTextFormatStyle(row.textStyle);
+                return (
+                  <p key={row.id} className={`${typoScale.body} text-slate-700 mt-0.5 whitespace-pre-line ${rowFmt.className}`} style={rowFmt.style}>
+                    {row.label ? <span className="font-semibold text-slate-600">{renderResolvedQuotationText(row.label, tokenContext)}: </span> : null}
+                    <span className={row.valueBold ? 'font-bold text-slate-900' : ''}>
+                      {renderResolvedQuotationText(row.value, tokenContext)}
+                    </span>
+                  </p>
+                );
+              })}
             </div>
             {(showClientTrn || (showClientPhone && clientPhone) || (showClientEmail && clientEmail)) && (
               <div className={`${typoScale.body} text-slate-600 space-y-0.5 ${isMinimal ? 'pt-1 mt-1' : 'pt-1.5 mt-1.5 border-t border-slate-200/60'}`}>
                 {showClientTrn && (
-                  <p>
+                  <p
+                    onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_trn'); } : undefined}
+                    className={recipientTrnFmt.className}
+                    style={recipientTrnFmt.style}
+                  >
                     <span className={`${typoScale.sub} text-slate-500 font-medium`}>
                       TRN:{' '}
                       <span className="text-slate-700">
@@ -6410,7 +6531,11 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   </p>
                 )}
                 {((showClientPhone && clientPhone) || (showClientEmail && clientEmail)) && (
-                  <p className={`text-slate-500 ${typoScale.sub}`}>
+                  <p
+                    onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_contact'); } : undefined}
+                    className={`text-slate-500 ${typoScale.sub} ${recipientContactFmt.className}`}
+                    style={recipientContactFmt.style}
+                  >
                     {[showClientPhone ? clientPhone : '', showClientEmail ? clientEmail : '']
                       .filter(Boolean)
                       .join(' • ')}
@@ -6422,6 +6547,27 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         )}
       </div>
     );
+
+    const offerHeadingText =
+      (resolvedRecipientConfig.offerHeadingOverride || '').trim() || 'Commercial Offer';
+    const showRevBadge =
+      resolvedRecipientConfig.showRevisionBadge !== false &&
+      resolvedRecipientConfig.revisionSuffixMode !== 'hidden';
+    const revBadgeText =
+      (resolvedRecipientConfig.revisionBadgeTextOverride || '').trim() ||
+      `Rev ${quotation.revision_number || 1}`;
+    const showStatusRow = resolvedRecipientConfig.showOfferStatus !== false;
+    const offerStatusText =
+      (resolvedRecipientConfig.statusTextOverride || '').trim() ||
+      String(quotation.status || 'Draft').toUpperCase();
+    const offerGridLayout = resolvedRecipientConfig.offerGridLayout || 'grid_2col';
+
+    const offerHeadingFmt = getElemFmt('offer_heading');
+    const offerRefFmt = getElemFmt('offer_quote_ref');
+    const offerMetaGridFmt = getElemFmt('offer_meta_grid');
+    const customOfferRows = Array.isArray(resolvedRecipientConfig.offerFieldRows)
+      ? resolvedRecipientConfig.offerFieldRows.filter((r) => r.enabled !== false)
+      : [];
 
     const renderOfferCard = () => (
       <div
@@ -6437,7 +6583,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         }`}
         onClick={isInteractive ? (e) => {
           e.stopPropagation();
-          onSelectSection?.('quote_meta');
+          onSelectSection?.('quote_meta', 'offer_quote_ref');
           onSelectBlock?.('quote_meta' as any);
         } : undefined}
         style={{ width: '100%', maxWidth: '100%' }}
@@ -6454,25 +6600,39 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           <div>
             <div className={`${isMinimal ? 'pb-1' : 'pb-1.5 border-b border-slate-200/60'} flex items-center justify-between gap-2`}>
               <span
-                className={`${typoScale.heading} uppercase tracking-wider font-extrabold`}
-                style={{ color: themePalette.textAccent }}
+                onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_heading'); } : undefined}
+                className={`${typoScale.heading} uppercase tracking-wider font-extrabold ${offerHeadingFmt.className}`}
+                style={{ color: themePalette.textAccent, ...offerHeadingFmt.style }}
               >
-                Commercial Offer
+                {renderResolvedQuotationText(offerHeadingText, tokenContext)}
               </span>
               <div className="flex items-center gap-2">
-                <span className={`${typoScale.quoteRef} font-mono font-bold text-slate-900`}>
-                  {quotation.formatted_quote_ref || quotation.quote_number}
+                <span
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_quote_ref'); } : undefined}
+                  className={`${typoScale.quoteRef} font-mono font-bold text-slate-900 ${offerRefFmt.className}`}
+                  style={offerRefFmt.style}
+                >
+                  <EditableCanvasText
+                    value={quotation.formatted_quote_ref || quotation.quote_number || ''}
+                    fieldKey="quote_ref"
+                    canEdit={canEditCanvasInline && isQuoteMetaSelected}
+                    onCommit={onInlineFieldEdit}
+                  />
                 </span>
-                <span className={`${typoScale.sub} font-mono font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/80`}>
-                  Rev {quotation.revision_number || 1}
-                </span>
+                {showRevBadge && (
+                  <span className={`${typoScale.sub} font-mono font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/80`}>
+                    {revBadgeText}
+                  </span>
+                )}
               </div>
             </div>
-            <div className={`grid grid-cols-4 gap-3 pt-1.5 ${typoScale.body} items-center`}>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Date</span>
-                <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
-              </div>
+            <div className={`grid grid-cols-4 gap-3 pt-1.5 ${typoScale.body} items-center ${offerMetaGridFmt.className}`} style={offerMetaGridFmt.style}>
+              {!isFieldOmitted('issue_date', omittedFields) && (
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Date</span>
+                  <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
+                </div>
+              )}
               {showValidity && quotation.valid_until && quotation.valid_until.trim() !== '' ? (
                 <div>
                   <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Valid Until</span>
@@ -6483,64 +6643,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Enquiry Ref</span>
                   <span className="font-semibold text-slate-800 font-mono truncate block">{enquiryRef}</span>
                 </div>
-              ) : (
-                <div>
-                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Validity</span>
-                  <span className="font-semibold text-slate-800">Standard</span>
-                </div>
-              )}
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared By</span>
-                <span className="font-semibold text-slate-800 truncate block">
-                  <EditableCanvasText
-                    value={showSalesRep && resolvedSalesRep ? resolvedSalesRep : 'Authorized Rep'}
-                    fieldKey="prepared_by"
-                    canEdit={canEditCanvasInline && isQuoteMetaSelected}
-                    onCommit={onInlineFieldEdit}
-                  />
-                </span>
-              </div>
-              <div className="text-right">
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Status</span>
-                <span className={`font-bold text-slate-700 uppercase tracking-wider ${typoScale.heading}`}>
-                  {String(quotation.status || 'Draft').toUpperCase()}
-                </span>
-              </div>
-            </div>
-          </div>
-        ) : (
-          /* Standard 50% Half-Width Vertical Card Layout */
-          <>
-            <div>
-              <div className={`${isMinimal ? 'pb-0.5' : 'pb-1 border-b border-slate-200/60'} flex items-center justify-between gap-2`}>
-                <span
-                  className={`${typoScale.heading} uppercase tracking-wider font-extrabold`}
-                  style={{ color: themePalette.textAccent }}
-                >
-                  Commercial Offer
-                </span>
-                <span className={`${typoScale.sub} font-mono font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/80`}>
-                  Rev {quotation.revision_number || 1}
-                </span>
-              </div>
-              <div className="py-1.5 text-center">
-                <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900`}>
-                  {quotation.formatted_quote_ref || quotation.quote_number}
-                </div>
-              </div>
-            </div>
-
-            <div className={`grid grid-cols-2 gap-1.5 ${isMinimal ? 'pt-1' : 'pt-1.5 border-t border-slate-200/60'} ${typoScale.body}`}>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Date</span>
-                <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
-              </div>
-              {showValidity && quotation.valid_until && quotation.valid_until.trim() !== '' && (
-                <div>
-                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Valid Until</span>
-                  <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
-                </div>
-              )}
+              ) : null}
               {showSalesRep && resolvedSalesRep && (
                 <div>
                   <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared By</span>
@@ -6554,19 +6657,194 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   </span>
                 </div>
               )}
-              {showEnquiryRef && enquiryRef && (
-                <div>
-                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Enquiry Ref</span>
-                  <span className="font-semibold text-slate-800 font-mono truncate block">{enquiryRef}</span>
+              {showStatusRow && (
+                <div className="text-right">
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Status</span>
+                  <span className={`font-bold text-slate-700 uppercase tracking-wider ${typoScale.heading}`}>
+                    {offerStatusText}
+                  </span>
                 </div>
               )}
-              <div className="col-span-2 pt-0.5 flex items-center justify-between">
-                <span className={`text-slate-400 ${typoScale.sub} uppercase`}>Status</span>
-                <span className={`font-bold text-slate-700 uppercase tracking-wider ${typoScale.heading}`}>
-                  {String(quotation.status || 'Draft').toUpperCase()}
-                </span>
-              </div>
+              {customOfferRows.map((row) => (
+                <div key={row.id}>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>
+                    {renderResolvedQuotationText(row.label, tokenContext)}
+                  </span>
+                  <span className={`${row.valueBold ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'} block`}>
+                    {renderResolvedQuotationText(row.value, tokenContext)}
+                  </span>
+                </div>
+              ))}
             </div>
+          </div>
+        ) : (
+          /* Standard 50% Half-Width Vertical Card Layout */
+          <>
+            <div>
+              <div className={`${isMinimal ? 'pb-0.5' : 'pb-1 border-b border-slate-200/60'} flex items-center justify-between gap-2`}>
+                <span
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_heading'); } : undefined}
+                  className={`${typoScale.heading} uppercase tracking-wider font-extrabold ${offerHeadingFmt.className}`}
+                  style={{ color: themePalette.textAccent, ...offerHeadingFmt.style }}
+                >
+                  {renderResolvedQuotationText(offerHeadingText, tokenContext)}
+                </span>
+                {showRevBadge && (
+                  <span className={`${typoScale.sub} font-mono font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/80`}>
+                    {revBadgeText}
+                  </span>
+                )}
+              </div>
+              {!isFieldOmitted('quote_ref', omittedFields) && (
+                <div
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_quote_ref'); } : undefined}
+                  className={`py-1.5 text-center ${offerRefFmt.className}`}
+                  style={offerRefFmt.style}
+                >
+                  <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900`}>
+                    <EditableCanvasText
+                      value={quotation.formatted_quote_ref || quotation.quote_number || ''}
+                      fieldKey="quote_ref"
+                      canEdit={canEditCanvasInline && isQuoteMetaSelected}
+                      onCommit={onInlineFieldEdit}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {offerGridLayout === 'table_1col' ? (
+              <div className={`space-y-1 ${isMinimal ? 'pt-1' : 'pt-1.5 border-t border-slate-200/60'} ${typoScale.body} ${offerMetaGridFmt.className}`} style={offerMetaGridFmt.style}>
+                {!isFieldOmitted('issue_date', omittedFields) && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-slate-400 ${typoScale.sub} uppercase`}>Date</span>
+                    <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
+                  </div>
+                )}
+                {showValidity && quotation.valid_until && quotation.valid_until.trim() !== '' && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-slate-400 ${typoScale.sub} uppercase`}>Valid Until</span>
+                    <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
+                  </div>
+                )}
+                {showSalesRep && resolvedSalesRep && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-slate-400 ${typoScale.sub} uppercase`}>Prepared By</span>
+                    <span className="font-semibold text-slate-800">
+                      <EditableCanvasText
+                        value={resolvedSalesRep}
+                        fieldKey="prepared_by"
+                        canEdit={canEditCanvasInline && isQuoteMetaSelected}
+                        onCommit={onInlineFieldEdit}
+                      />
+                    </span>
+                  </div>
+                )}
+                {showEnquiryRef && enquiryRef && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-slate-400 ${typoScale.sub} uppercase`}>Enquiry Ref</span>
+                    <span className="font-semibold text-slate-800 font-mono">{enquiryRef}</span>
+                  </div>
+                )}
+                {customOfferRows.map((row) => (
+                  <div key={row.id} className="flex items-center justify-between gap-2">
+                    <span className={`text-slate-400 ${typoScale.sub} uppercase`}>
+                      {renderResolvedQuotationText(row.label, tokenContext)}
+                    </span>
+                    <span className={row.valueBold ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'}>
+                      {renderResolvedQuotationText(row.value, tokenContext)}
+                    </span>
+                  </div>
+                ))}
+                {showStatusRow && (
+                  <div className="flex items-center justify-between gap-2 pt-0.5">
+                    <span className={`text-slate-400 ${typoScale.sub} uppercase`}>Status</span>
+                    <span className={`font-bold text-slate-700 uppercase tracking-wider ${typoScale.heading}`}>
+                      {offerStatusText}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : offerGridLayout === 'minimal_inline' ? (
+              <div className={`flex flex-wrap items-center justify-center gap-x-3 gap-y-1 ${isMinimal ? 'pt-1' : 'pt-1.5 border-t border-slate-200/60'} ${typoScale.sub} text-slate-600 ${offerMetaGridFmt.className}`} style={offerMetaGridFmt.style}>
+                {!isFieldOmitted('issue_date', omittedFields) && (
+                  <span><strong className="text-slate-500 uppercase">Date:</strong> {formatDate(quotation.created_at)}</span>
+                )}
+                {showValidity && quotation.valid_until && quotation.valid_until.trim() !== '' && (
+                  <span>• <strong className="text-slate-500 uppercase">Valid:</strong> {formatDate(quotation.valid_until)}</span>
+                )}
+                {showSalesRep && resolvedSalesRep && (
+                  <span>• <strong className="text-slate-500 uppercase">By:</strong> {resolvedSalesRep}</span>
+                )}
+                {showEnquiryRef && enquiryRef && (
+                  <span>• <strong className="text-slate-500 uppercase">Ref:</strong> <span className="font-mono">{enquiryRef}</span></span>
+                )}
+                {customOfferRows.map((row) => (
+                  <span key={row.id}>
+                    • <strong className="text-slate-500 uppercase">{renderResolvedQuotationText(row.label, tokenContext)}:</strong> {renderResolvedQuotationText(row.value, tokenContext)}
+                  </span>
+                ))}
+                {showStatusRow && (
+                  <span>• <strong className="text-slate-700 uppercase">{offerStatusText}</strong></span>
+                )}
+              </div>
+            ) : (
+              <div
+                onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_meta_grid'); } : undefined}
+                className={`grid grid-cols-2 gap-1.5 ${isMinimal ? 'pt-1' : 'pt-1.5 border-t border-slate-200/60'} ${typoScale.body} ${offerMetaGridFmt.className}`}
+                style={offerMetaGridFmt.style}
+              >
+                {!isFieldOmitted('issue_date', omittedFields) && (
+                  <div>
+                    <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Date</span>
+                    <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
+                  </div>
+                )}
+                {showValidity && quotation.valid_until && quotation.valid_until.trim() !== '' && (
+                  <div>
+                    <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Valid Until</span>
+                    <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
+                  </div>
+                )}
+                {showSalesRep && resolvedSalesRep && (
+                  <div>
+                    <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared By</span>
+                    <span className="font-semibold text-slate-800 truncate block">
+                      <EditableCanvasText
+                        value={resolvedSalesRep}
+                        fieldKey="prepared_by"
+                        canEdit={canEditCanvasInline && isQuoteMetaSelected}
+                        onCommit={onInlineFieldEdit}
+                      />
+                    </span>
+                  </div>
+                )}
+                {showEnquiryRef && enquiryRef && (
+                  <div>
+                    <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Enquiry Ref</span>
+                    <span className="font-semibold text-slate-800 font-mono truncate block">{enquiryRef}</span>
+                  </div>
+                )}
+                {customOfferRows.map((row) => (
+                  <div key={row.id}>
+                    <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>
+                      {renderResolvedQuotationText(row.label, tokenContext)}
+                    </span>
+                    <span className={`${row.valueBold ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'} truncate block`}>
+                      {renderResolvedQuotationText(row.value, tokenContext)}
+                    </span>
+                  </div>
+                ))}
+                {showStatusRow && (
+                  <div className="col-span-2 pt-0.5 flex items-center justify-between">
+                    <span className={`text-slate-400 ${typoScale.sub} uppercase`}>Status</span>
+                    <span className={`font-bold text-slate-700 uppercase tracking-wider ${typoScale.heading}`}>
+                      {offerStatusText}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -8056,11 +8334,22 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                             HSN/SAC: {item.hs_code}
                                           </span>
                                         )}
-                                        {(item.option || item.option_group) && !shouldSplitByOptionTables && (
-                                          <span className={`px-1.5 py-0.5 ${typoScale.micro} uppercase font-bold tracking-wider bg-blue-100 text-blue-900 rounded shrink-0`}>
-                                            {item.option || item.option_group}
-                                          </span>
-                                        )}
+                                        {(() => {
+                                          const rawOptLabel = String(item.option || item.option_group || '').trim();
+                                          const isDefaultBaselineOpt =
+                                            !rawOptLabel ||
+                                            /^(default\s*\/\s*included|baseline\s*\/\s*included|default|standard|included|baseline\s*\/\s*all|all)$/i.test(
+                                              rawOptLabel
+                                            );
+                                          if (!isDefaultBaselineOpt && !shouldSplitByOptionTables) {
+                                            return (
+                                              <span className={`px-1.5 py-0.5 ${typoScale.micro} uppercase font-bold tracking-wider bg-blue-100 text-blue-900 rounded shrink-0`}>
+                                                {rawOptLabel}
+                                              </span>
+                                            );
+                                          }
+                                          return null;
+                                        })()}
                                         {item.is_optional && !shouldSplitByOptionTables && (
                                           <span className={`px-1.5 py-0.5 ${typoScale.micro} uppercase font-bold tracking-wider bg-amber-200 text-amber-900 rounded shrink-0`}>
                                             Optional
@@ -8086,6 +8375,50 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                             {/* Technical Specifications & Attributes Block */}
                                             {(() => {
                                               if (!showItemAttributes) return null;
+                                              const canonicalAttrKey = (rawKey: string): string => {
+                                                const norm = rawKey
+                                                  .toLowerCase()
+                                                  .replace(/[^a-z0-9]+/g, ' ')
+                                                  .trim();
+                                                if (
+                                                  norm === 'brand' ||
+                                                  norm === 'make' ||
+                                                  norm === 'brand make' ||
+                                                  norm === 'make brand' ||
+                                                  norm === 'manufacturer' ||
+                                                  norm === 'brand manufacturer'
+                                                ) {
+                                                  return 'brand';
+                                                }
+                                                if (
+                                                  norm === 'model' ||
+                                                  norm === 'model no' ||
+                                                  norm === 'part no' ||
+                                                  norm === 'part' ||
+                                                  norm === 'model part' ||
+                                                  norm === 'model part no'
+                                                ) {
+                                                  return 'model';
+                                                }
+                                                if (
+                                                  norm === 'origin' ||
+                                                  norm === 'country' ||
+                                                  norm === 'country of origin' ||
+                                                  norm === 'origin country'
+                                                ) {
+                                                  return 'origin';
+                                                }
+                                                if (
+                                                  norm === 'delivery' ||
+                                                  norm === 'availability' ||
+                                                  norm === 'delivery availability' ||
+                                                  norm === 'lead time'
+                                                ) {
+                                                  return 'delivery';
+                                                }
+                                                return norm;
+                                              };
+
                                               const allAttrs: Array<{ key: string; value: string }> = [];
 
                                               if (showBrand && item.brand_make && item.brand_make.trim() && item.brand_make !== '—') {
@@ -8144,29 +8477,44 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                               }
 
                                               rawAttrs.forEach((attr) => {
-                                                const kLower = attr.key.toLowerCase();
-                                                if (!allAttrs.some((a) => a.key.toLowerCase() === kLower)) {
+                                                const cKey = canonicalAttrKey(attr.key);
+                                                const vNorm = attr.value.toLowerCase().trim();
+                                                if (cKey === 'brand' && !showBrand) return;
+                                                if (cKey === 'model' && !showModel) return;
+                                                if (cKey === 'origin' && !showOrigin) return;
+                                                if (cKey === 'delivery' && !showAvailability) return;
+                                                const alreadyExists = allAttrs.some(
+                                                  (a) =>
+                                                    canonicalAttrKey(a.key) === cKey ||
+                                                    (canonicalAttrKey(a.key) === cKey && a.value.toLowerCase().trim() === vNorm)
+                                                );
+                                                if (!alreadyExists) {
                                                   allAttrs.push(attr);
                                                 }
                                               });
 
                                               const itemVisibleKeys = Array.isArray(item.visible_attributes)
-                                                ? item.visible_attributes.map((k) => k.toLowerCase())
+                                                ? item.visible_attributes.map((k) => canonicalAttrKey(k))
                                                 : undefined;
                                               const itemHiddenKeys = Array.isArray(item.hidden_attributes)
-                                                ? item.hidden_attributes.map((k) => k.toLowerCase())
+                                                ? item.hidden_attributes.map((k) => canonicalAttrKey(k))
                                                 : undefined;
 
                                               const visibleAttrs = allAttrs.filter((attr) => {
                                                 const kLower = attr.key.toLowerCase();
-                                                if (hiddenAttributeKeys.some((k) => k.toLowerCase() === kLower)) {
+                                                const cKey = canonicalAttrKey(attr.key);
+                                                if (
+                                                  hiddenAttributeKeys.some(
+                                                    (k) => k.toLowerCase() === kLower || canonicalAttrKey(k) === cKey
+                                                  )
+                                                ) {
                                                   return false;
                                                 }
                                                 if (itemVisibleKeys !== undefined) {
-                                                  return itemVisibleKeys.includes(kLower);
+                                                  return itemVisibleKeys.includes(cKey) || item.visible_attributes!.some((k) => k.toLowerCase() === kLower);
                                                 }
                                                 if (itemHiddenKeys !== undefined) {
-                                                  return !itemHiddenKeys.includes(kLower);
+                                                  return !itemHiddenKeys.includes(cKey) && !item.hidden_attributes!.some((k) => k.toLowerCase() === kLower);
                                                 }
                                                 return true;
                                               });

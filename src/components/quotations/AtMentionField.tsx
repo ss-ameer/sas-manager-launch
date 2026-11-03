@@ -104,13 +104,14 @@ export function toggleInlineSelectionWrap(
 }
 
 export interface AtMentionInputProps
-  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> {
+  extends Omit<React.InputHTMLAttributes<HTMLInputElement | HTMLTextAreaElement>, 'value' | 'onChange'> {
   value: string;
   onChange: (newValue: string) => void;
   tokenContext: QuotationTokenContext;
   showQuickAtButton?: boolean;
   compact?: boolean;
-  inputRefProp?: (el: HTMLInputElement | null) => void;
+  inputRefProp?: (el: HTMLInputElement | HTMLTextAreaElement | null) => void;
+  allowNewlines?: boolean; // default true in Studio so Enter/Shift+Enter inserts line breaks
 }
 
 export const AtMentionInput: React.FC<AtMentionInputProps> = ({
@@ -120,12 +121,13 @@ export const AtMentionInput: React.FC<AtMentionInputProps> = ({
   showQuickAtButton = true,
   compact: _compact,
   inputRefProp,
+  allowNewlines = true,
   className = '',
   onKeyDown,
   onBlur,
   ...rest
 }) => {
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [trigger, setTrigger] = useState<TriggerState>({
     isOpen: false,
@@ -156,6 +158,19 @@ export const AtMentionInput: React.FC<AtMentionInputProps> = ({
   useEffect(() => {
     setActiveIndex(0);
   }, [trigger.query, trigger.isOpen]);
+
+  // Auto-adjust height when value contains newlines
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    const hasNewline = String(value ?? '').includes('\n');
+    if (!hasNewline) {
+      el.style.height = '';
+    } else {
+      el.style.height = 'auto';
+      el.style.height = `${Math.min(180, Math.max(28, el.scrollHeight))}px`;
+    }
+  }, [value]);
 
   useEffect(() => {
     if (!trigger.isOpen) return;
@@ -232,16 +247,18 @@ export const AtMentionInput: React.FC<AtMentionInputProps> = ({
     });
   };
 
+  const lineCount = Math.max(1, String(value ?? '').split('\n').length);
+
   return (
     <div className="relative w-full">
       <div className="relative flex items-center w-full">
-        <input
-          {...rest}
+        <textarea
+          {...(rest as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
+          rows={Math.min(5, lineCount)}
           ref={(el) => {
             inputRef.current = el;
             inputRefProp?.(el);
           }}
-          type="text"
           value={value ?? ''}
           onChange={(e) => {
             const nextVal = e.target.value;
@@ -250,7 +267,7 @@ export const AtMentionInput: React.FC<AtMentionInputProps> = ({
             setTrigger(detectAtTrigger(nextVal, sel));
           }}
           onClick={(e) => {
-            const sel = (e.target as HTMLInputElement).selectionStart;
+            const sel = (e.target as HTMLTextAreaElement).selectionStart;
             const det = detectAtTrigger(String(value ?? ''), sel);
             if (det.isOpen) setTrigger(det);
           }}
@@ -288,12 +305,16 @@ export const AtMentionInput: React.FC<AtMentionInputProps> = ({
                 return;
               }
             }
-            onKeyDown?.(e);
+            if (e.key === 'Enter' && allowNewlines) {
+              e.stopPropagation();
+              return;
+            }
+            onKeyDown?.(e as any);
           }}
           onBlur={(e) => {
-            onBlur?.(e);
+            onBlur?.(e as any);
           }}
-          className={`${className} ${showQuickAtButton ? 'pr-6' : ''}`}
+          className={`${className} resize-y min-h-[28px] leading-snug ${showQuickAtButton ? 'pr-6' : ''}`}
         />
         {showQuickAtButton && (
           <button
@@ -301,7 +322,7 @@ export const AtMentionInput: React.FC<AtMentionInputProps> = ({
             tabIndex={-1}
             onClick={handleOpenPickerButton}
             title="Insert @ data tag (or type @ anywhere)"
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
+            className="absolute right-1.5 top-2 p-0.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
           >
             <AtSign className="w-3 h-3" />
           </button>
@@ -516,6 +537,9 @@ export const AtMentionTextarea: React.FC<AtMentionTextareaProps> = ({
               setTrigger((prev) => ({ ...prev, isOpen: false }));
               return;
             }
+          }
+          if (e.key === 'Enter') {
+            e.stopPropagation();
           }
           onKeyDown?.(e);
         }}
