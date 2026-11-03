@@ -1424,6 +1424,7 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   pageMode?: QuotationPageMode;
   bank_accounts: DocumentProfileBankAccount[];
   saved_custom_blocks?: SavedCustomBlockTemplate[];
+  document_type_defaults?: Partial<Record<CommercialDocumentType, Partial<QuotationPreset>>>;
   is_default?: boolean;
   createdAt?: string;
   updatedAt?: string;
@@ -1680,6 +1681,7 @@ export interface QuotationFooterConfig {
   showSystemGeneratedNotice?: boolean;
   customDisclaimer?: string;
   showBankRemittance?: boolean; // default: true
+  showBankRemittanceOnPo?: boolean; // default: false (hidden on PO unless explicitly toggled)
   showCustomerAcceptance?: boolean; // default: true
   showSignatories?: boolean; // default: true
   footerLayoutMode?: 'split' | 'stacked' | 'seller_only'; // default: 'split'
@@ -1831,6 +1833,7 @@ export interface QuotationPreset extends SoftDeleteFields {
   id?: string;
   workspace_id?: string;
   workspaceId?: string;
+  document_type?: CommercialDocumentType;
   preset_name: string;
   header_profile_id?: string;
   visible_columns: QuotationPresetColumns;
@@ -1966,6 +1969,14 @@ export interface DeliveryNoteMetadata {
   goods_received_clause?: string;
   stock_deducted?: boolean;
   stock_deducted_at?: string;
+  show_badge?: boolean;
+  badge_text?: string;
+  left_card_heading?: string;
+  right_card_heading?: string;
+  signoff_left_heading?: string;
+  signoff_right_heading?: string;
+  show_receiving_stamp_box?: boolean;
+  prepared_by_override?: string;
 }
 
 export type PurchaseOrderVariant = 'supplier_po' | 'order_acknowledgment';
@@ -2018,6 +2029,10 @@ export interface PurchaseOrderMetadata {
   is_standalone_replenishment?: boolean;
   project_id?: string;
   project_number?: string;
+  show_badge?: boolean;
+  badge_text?: string;
+  left_card_heading?: string;
+  right_card_heading?: string;
 }
 
 export type ReceiptPaymentMethod =
@@ -2052,6 +2067,17 @@ export interface ReceiptVoucherMetadata {
   balance_due?: number;
   balance_remaining?: number;
   show_line_items_table?: boolean;
+  show_badge?: boolean;
+  badge_text?: string;
+  left_card_heading?: string;
+  right_card_heading?: string;
+  show_amount_banner?: boolean;
+  show_instrument_card?: boolean;
+  show_balance_card?: boolean;
+  amount_banner_heading?: string;
+  instrument_card_heading?: string;
+  balance_card_heading?: string;
+  narration_override?: string;
 }
 
 export interface PaymentVoucherAllocationRow {
@@ -2147,6 +2173,20 @@ export interface PaymentVoucherMetadata {
   show_line_items_table?: boolean;
   project_id?: string;
   project_number?: string;
+  show_badge?: boolean;
+  badge_text?: string;
+  left_card_heading?: string;
+  right_card_heading?: string;
+  show_amount_banner?: boolean;
+  show_allocation_table?: boolean;
+  show_treasury_card?: boolean;
+  show_beneficiary_card?: boolean;
+  show_approval_matrix?: boolean;
+  amount_banner_heading?: string;
+  allocation_table_heading?: string;
+  treasury_card_heading?: string;
+  beneficiary_card_heading?: string;
+  approval_columns?: Array<{ label: string; name: string; role: string; visible?: boolean }>;
 }
 
 export type VendorReturnReason =
@@ -2210,6 +2250,13 @@ export interface VendorReturnMetadata {
   return_notes?: string;
   project_id?: string;
   project_number?: string;
+  show_badge?: boolean;
+  badge_text?: string;
+  left_card_heading?: string;
+  right_card_heading?: string;
+  signoff_left_heading?: string;
+  signoff_right_heading?: string;
+  show_vendor_stamp_box?: boolean;
 }
 
 export interface SupplierBillLineItem {

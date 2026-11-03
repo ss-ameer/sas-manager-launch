@@ -4064,7 +4064,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           <div>
             {renderBlockSectionHeader(
               blockConfig,
-              'Bank Remittance Details',
+              isPurchaseOrder ? 'Vendor Invoicing & Delivery Instructions' : 'Bank Remittance Details',
               Landmark,
               blockConfig?.subtitleOverride
             )}
@@ -4562,12 +4562,27 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       const vis = blockConfig?.visibleFields || {};
       const labels = blockConfig?.fieldLabels || {};
       const defaultSlots = [
-        { key: 'signature', label: labels.signature || 'Authorized Signature', dotted: false, defaultOn: true },
+        {
+          key: 'signature',
+          label: labels.signature || (isPurchaseOrder ? 'Authorized Vendor Signature' : 'Authorized Signature'),
+          dotted: false,
+          defaultOn: true
+        },
         { key: 'name', label: labels.name || 'Signatory Name', dotted: false, defaultOn: true },
         { key: 'title', label: labels.title || 'Title / Designation', dotted: false, defaultOn: false },
-        { key: 'po_number', label: labels.po_number || 'PO Number', dotted: false, defaultOn: false },
+        {
+          key: 'po_number',
+          label: labels.po_number || (isPurchaseOrder ? 'Supplier SO / Ref #' : 'PO Number'),
+          dotted: false,
+          defaultOn: false
+        },
         { key: 'date', label: labels.date || 'Date', dotted: false, defaultOn: true },
-        { key: 'stamp', label: labels.stamp || 'Company Stamp', dotted: true, defaultOn: true }
+        {
+          key: 'stamp',
+          label: labels.stamp || (isPurchaseOrder ? 'Vendor Stamp' : 'Company Stamp'),
+          dotted: true,
+          defaultOn: true
+        }
       ];
 
       const activeSlots = defaultSlots.filter((slot) =>
@@ -4606,9 +4621,13 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           <div>
             {renderBlockSectionHeader(
               blockConfig,
-              'Customer Acceptance & Confirmation',
+              isPurchaseOrder
+                ? 'Supplier / Vendor Order Acknowledgment'
+                : 'Customer Acceptance & Confirmation',
               FileCheck,
-              'Sign & Return Copy with Purchase Order'
+              isPurchaseOrder
+                ? 'Sign & Return Copy to Confirm Order'
+                : 'Sign & Return Copy with Purchase Order'
             )}
             {vis.statement !== false && (
               <p className="text-[var(--block-base)] text-slate-600 my-1 leading-snug">
@@ -4618,6 +4637,14 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     blockConfig.acceptanceStatementOverride,
                     tokenContext
                   )
+                ) : isPurchaseOrder ? (
+                  <>
+                    We hereby acknowledge and accept Purchase Order{' '}
+                    <span className="font-semibold text-slate-800">
+                      #{poMeta?.po_ref || quotation.formatted_quote_ref || quotation.quote_number}
+                    </span>{' '}
+                    in accordance with the specified items, prices, delivery schedule, and terms.
+                  </>
                 ) : (
                   <>
                     We hereby accept and approve this commercial offer{' '}
@@ -5460,14 +5487,19 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           b.id === 'totals' ||
           bType === 'acceptance' ||
           b.id === 'acceptance' ||
+          bType === 'remittance' ||
+          b.id === 'remittance' ||
           (isPaymentVoucher &&
-            (bType === 'remittance' ||
-              b.id === 'remittance' ||
-              bType === 'signatory' ||
+            (bType === 'signatory' ||
               bType === 'signatories' ||
               b.id === 'signatory' ||
               b.id === 'signatories'))
         ) {
+          return false;
+        }
+      }
+      if (isPurchaseOrder && (bType === 'remittance' || b.id === 'remittance')) {
+        if (!resolvedFooterConfig.showBankRemittanceOnPo) {
           return false;
         }
       }
@@ -6883,7 +6915,11 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       const doRef =
         deliveryMeta?.delivery_ref || quotation.formatted_quote_ref || quotation.quote_number;
       const doDate = formatDate(deliveryMeta?.delivery_date || quotation.created_at);
-      const relatedQuote = deliveryMeta?.related_quote_ref || '—';
+      const relatedQuote = formatCleanDocumentEnquiryRef(
+        deliveryMeta?.related_quote_ref || quotation.quote_number || '—',
+        'delivery_note',
+        '—'
+      );
       const custPo = deliveryMeta?.customer_po_no || (enquiry as any)?.po_number || '—';
       const siteContact = deliveryMeta?.site_contact_name || clientContactPerson || 'Site / Receiving Officer';
       const sitePhone = deliveryMeta?.site_contact_phone || clientPhone || '';
@@ -6894,10 +6930,20 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         [deliveryMeta?.driver_name, deliveryMeta?.driver_phone].filter(Boolean).join(' • ') || '—';
       const dispatchedBy =
         deliveryMeta?.dispatched_by_name || resolvedSalesRep || senderEntityName;
+      const leftHeading =
+        (deliveryMeta?.left_card_heading || resolvedRecipientConfig.recipientHeadingOverride || '').trim() ||
+        'Consignee & Delivery Destination';
+      const rightHeading =
+        (deliveryMeta?.right_card_heading || resolvedRecipientConfig.offerHeadingOverride || '').trim() ||
+        'Delivery Note / Order';
+      const showDoBadge = deliveryMeta?.show_badge !== false && showRevBadge;
+      const doBadgeText =
+        (deliveryMeta?.badge_text || resolvedRecipientConfig.revisionBadgeTextOverride || '').trim() ||
+        (visibleColumns.showUnitPrice ? 'PRICED DISPATCH' : 'UNPRICED DISPATCH');
 
       return (
         <div
-          className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
+          className="w-full mb-2.5 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-2.5"
           style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
         >
           <div
@@ -6913,30 +6959,64 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             )}
             <div>
               <div
-                className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
-                style={{ color: themePalette.textAccent }}
+                onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_heading'); } : undefined}
+                className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1 ${recipientHeadingFmt.className}`}
+                style={{ color: themePalette.textAccent, ...recipientHeadingFmt.style }}
               >
-                Consignee &amp; Delivery Destination
+                {renderResolvedQuotationText(leftHeading, tokenContext)}
               </div>
-              <h3 className={`${typoScale.entityTitle} font-bold text-slate-900`}>
-                {clientEntityName}
-              </h3>
-              <p className={`${typoScale.body} text-slate-700 font-medium mt-0.5`}>
-                Site Contact: <span className="text-slate-900 font-semibold">{siteContact}</span>
-                {sitePhone ? ` • ${sitePhone}` : ''}
-              </p>
-              <p className={`${typoScale.body} text-slate-600 mt-1 whitespace-pre-line`}>
-                <span className="font-semibold text-slate-700">Delivery Address: </span>
-                {siteAddress}
-              </p>
+              {!isFieldOmitted('client_name', omittedFields) && (
+                <h3
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_entity_name'); } : undefined}
+                  className={`${typoScale.entityTitle} font-bold text-slate-900 ${recipientNameFmt.className}`}
+                  style={recipientNameFmt.style}
+                >
+                  {clientEntityName}
+                </h3>
+              )}
+              {showAttention && (
+                <p
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_attention'); } : undefined}
+                  className={`${typoScale.body} text-slate-700 font-medium mt-0.5 ${recipientAttnFmt.className}`}
+                  style={recipientAttnFmt.style}
+                >
+                  Site Contact: <span className="text-slate-900 font-semibold">{siteContact}</span>
+                  {sitePhone ? ` • ${sitePhone}` : ''}
+                </p>
+              )}
+              {showClientAddress && (
+                <p
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_address'); } : undefined}
+                  className={`${typoScale.body} text-slate-600 mt-1 whitespace-pre-line ${recipientAddrFmt.className}`}
+                  style={recipientAddrFmt.style}
+                >
+                  <span className="font-semibold text-slate-700">Delivery Address: </span>
+                  {siteAddress}
+                </p>
+              )}
+              {customRecipientRows.map((row) => {
+                const rowFmt = applyTextFormatStyle(row.textStyle);
+                return (
+                  <p key={row.id} className={`${typoScale.body} text-slate-700 mt-0.5 whitespace-pre-line ${rowFmt.className}`} style={rowFmt.style}>
+                    {row.label ? <span className="font-semibold text-slate-600">{renderResolvedQuotationText(row.label, tokenContext)}: </span> : null}
+                    <span className={row.valueBold ? 'font-bold text-slate-900' : ''}>
+                      {renderResolvedQuotationText(row.value, tokenContext)}
+                    </span>
+                  </p>
+                );
+              })}
             </div>
             <div className={`${typoScale.body} text-slate-600 pt-1.5 mt-1.5 border-t border-slate-200/60 flex items-center justify-between gap-2`}>
               <span>
                 <span className={`${typoScale.sub} text-slate-500 font-medium`}>Customer PO #: </span>
                 <span className="font-mono font-bold text-slate-800">{custPo}</span>
               </span>
-              {clientTrn && (
-                <span className={`${typoScale.sub} text-slate-500 font-mono`}>
+              {showClientTrn && clientTrn && (
+                <span
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_trn'); } : undefined}
+                  className={`${typoScale.sub} text-slate-500 font-mono ${recipientTrnFmt.className}`}
+                  style={recipientTrnFmt.style}
+                >
                   Tax ID: {clientTrn}
                 </span>
               )}
@@ -6957,30 +7037,46 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             <div>
               <div className="pb-1 border-b border-slate-200/60 flex items-center justify-between gap-2">
                 <span
-                  className={`${typoScale.heading} uppercase tracking-wider font-extrabold`}
-                  style={{ color: themePalette.textAccent }}
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_heading'); } : undefined}
+                  className={`${typoScale.heading} uppercase tracking-wider font-extrabold ${offerHeadingFmt.className}`}
+                  style={{ color: themePalette.textAccent, ...offerHeadingFmt.style }}
                 >
-                  Delivery Note / Order
+                  {renderResolvedQuotationText(rightHeading, tokenContext)}
                 </span>
-                <span className={`${typoScale.sub} font-mono font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200`}>
-                  UNPRICED DISPATCH
-                </span>
+                {showDoBadge && (
+                  <span className={`${typoScale.sub} font-mono font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200`}>
+                    {doBadgeText}
+                  </span>
+                )}
               </div>
-              <div className="py-1.5 text-center">
-                <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900`}>
-                  {doRef}
+              {!isFieldOmitted('quote_ref', omittedFields) && (
+                <div
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_quote_ref'); } : undefined}
+                  className="py-1 text-center"
+                >
+                  <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900 ${offerRefFmt.className}`} style={offerRefFmt.style}>
+                    {doRef}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
-            <div className={`grid grid-cols-2 gap-x-3 gap-y-1 pt-1.5 border-t border-slate-200/60 ${typoScale.body}`}>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Delivery Date</span>
-                <span className="font-semibold text-slate-800">{doDate}</span>
-              </div>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Quote Ref</span>
-                <span className="font-mono font-semibold text-slate-800 truncate block">{relatedQuote}</span>
-              </div>
+            <div
+              onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_meta_grid'); } : undefined}
+              className={`grid grid-cols-2 gap-x-3 gap-y-1 pt-1.5 border-t border-slate-200/60 ${typoScale.body} ${offerMetaGridFmt.className}`}
+              style={offerMetaGridFmt.style}
+            >
+              {!isFieldOmitted('issue_date', omittedFields) && (
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Delivery Date</span>
+                  <span className="font-semibold text-slate-800">{doDate}</span>
+                </div>
+              )}
+              {showEnquiryRef && (
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Quote Ref</span>
+                  <span className="font-mono font-semibold text-slate-800 truncate block">{relatedQuote}</span>
+                </div>
+              )}
               <div>
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Dispatch Mode</span>
                 <span className="font-semibold text-slate-800 truncate block">{dispatchMode}</span>
@@ -6993,10 +7089,22 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Driver Contact</span>
                 <span className="font-semibold text-slate-800 truncate block">{driverInfo}</span>
               </div>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Dispatched By</span>
-                <span className="font-semibold text-slate-800 truncate block">{dispatchedBy}</span>
-              </div>
+              {showSalesRep && (
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Dispatched By</span>
+                  <span className="font-semibold text-slate-800 truncate block">{dispatchedBy}</span>
+                </div>
+              )}
+              {customOfferRows.map((row) => (
+                <div key={row.id}>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>
+                    {renderResolvedQuotationText(row.label, tokenContext)}
+                  </span>
+                  <span className={`${row.valueBold ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'} truncate block`}>
+                    {renderResolvedQuotationText(row.value, tokenContext)}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -7026,22 +7134,32 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         .filter(Boolean)
         .join(' • ');
       const shipDestLabel =
-        poMeta?.shipping_destination === 'project_site'
+        poMeta?.shipping_destination === 'project_site' || poMeta?.shipping_destination === 'Direct Client Site'
           ? 'Direct to Project Site'
           : poMeta?.shipping_destination === 'custom'
           ? 'Designated Delivery Point'
           : 'Warehouse / Receiving Office';
       const shipAddress =
-        poMeta?.shipping_address || senderAddress || 'As per shipping instructions';
+        poMeta?.shipping_address || poMeta?.ship_to_address || senderAddress || 'As per shipping instructions';
       const cleanReqRef = formatCleanDocumentEnquiryRef(
         poMeta?.requisition_ref || enquiryRef,
         'purchase_order',
         'Stock Replenishment'
       );
+      const leftHeading =
+        (poMeta?.left_card_heading || resolvedRecipientConfig.recipientHeadingOverride || '').trim() ||
+        (isOrderAck ? 'Customer / Ordering Entity' : 'Vendor / Supplier Details');
+      const rightHeading =
+        (poMeta?.right_card_heading || resolvedRecipientConfig.offerHeadingOverride || '').trim() ||
+        (isOrderAck ? 'Order Acknowledgment' : 'Purchase Order');
+      const showPoBadge = poMeta?.show_badge !== false && showRevBadge;
+      const poBadgeText =
+        (poMeta?.badge_text || resolvedRecipientConfig.revisionBadgeTextOverride || '').trim() ||
+        `Rev ${quotation.revision_number || 1}`;
 
       return (
         <div
-          className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
+          className="w-full mb-2.5 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-2.5"
           style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
         >
           <div
@@ -7057,32 +7175,72 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             )}
             <div>
               <div
-                className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
-                style={{ color: themePalette.textAccent }}
+                onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_heading'); } : undefined}
+                className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1 ${recipientHeadingFmt.className}`}
+                style={{ color: themePalette.textAccent, ...recipientHeadingFmt.style }}
               >
-                {isOrderAck ? 'Customer / Ordering Entity' : 'Vendor / Supplier Details'}
+                {renderResolvedQuotationText(leftHeading, tokenContext)}
               </div>
-              <h3 className={`${typoScale.entityTitle} font-bold text-slate-900`}>
-                {vendorName}
-              </h3>
-              {vendorAttn && (
-                <p className={`${typoScale.body} text-slate-700 font-medium mt-0.5`}>
+              {!isFieldOmitted('client_name', omittedFields) && (
+                <h3
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_entity_name'); } : undefined}
+                  className={`${typoScale.entityTitle} font-bold text-slate-900 ${recipientNameFmt.className}`}
+                  style={recipientNameFmt.style}
+                >
+                  {vendorName}
+                </h3>
+              )}
+              {showAttention && vendorAttn && (
+                <p
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_attention'); } : undefined}
+                  className={`${typoScale.body} text-slate-700 font-medium mt-0.5 ${recipientAttnFmt.className}`}
+                  style={recipientAttnFmt.style}
+                >
                   Attn: <span className="text-slate-900 font-semibold">{vendorAttn}</span>
                 </p>
               )}
-              {vendorAddress && (
-                <p className={`${typoScale.body} text-slate-600 mt-0.5`}>{vendorAddress}</p>
+              {showClientAddress && vendorAddress && (
+                <p
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_address'); } : undefined}
+                  className={`${typoScale.body} text-slate-600 mt-0.5 whitespace-pre-line ${recipientAddrFmt.className}`}
+                  style={recipientAddrFmt.style}
+                >
+                  {vendorAddress}
+                </p>
               )}
-              {(vendorTrn || vendorContactLine) && (
+              {((showClientTrn && vendorTrn) || vendorContactLine) && (
                 <div className={`${typoScale.sub} text-slate-500 mt-1 space-y-0.5`}>
-                  {vendorTrn && (
-                    <div>
+                  {showClientTrn && vendorTrn && (
+                    <div
+                      onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_trn'); } : undefined}
+                      className={recipientTrnFmt.className}
+                      style={recipientTrnFmt.style}
+                    >
                       Tax ID / TRN: <span className="font-mono text-slate-700">{vendorTrn}</span>
                     </div>
                   )}
-                  {vendorContactLine && <div>{vendorContactLine}</div>}
+                  {vendorContactLine && (
+                    <div
+                      onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_contact'); } : undefined}
+                      className={recipientContactFmt.className}
+                      style={recipientContactFmt.style}
+                    >
+                      {vendorContactLine}
+                    </div>
+                  )}
                 </div>
               )}
+              {customRecipientRows.map((row) => {
+                const rowFmt = applyTextFormatStyle(row.textStyle);
+                return (
+                  <p key={row.id} className={`${typoScale.body} text-slate-700 mt-0.5 whitespace-pre-line ${rowFmt.className}`} style={rowFmt.style}>
+                    {row.label ? <span className="font-semibold text-slate-600">{renderResolvedQuotationText(row.label, tokenContext)}: </span> : null}
+                    <span className={row.valueBold ? 'font-bold text-slate-900' : ''}>
+                      {renderResolvedQuotationText(row.value, tokenContext)}
+                    </span>
+                  </p>
+                );
+              })}
             </div>
             <div className={`${typoScale.body} text-slate-700 pt-1.5 mt-1.5 border-t border-slate-200/70 space-y-1`}>
               {!isOrderAck &&
@@ -7134,32 +7292,48 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             <div>
               <div className="pb-1 border-b border-slate-200/60 flex items-center justify-between gap-2">
                 <span
-                  className={`${typoScale.heading} uppercase tracking-wider font-extrabold`}
-                  style={{ color: themePalette.textAccent }}
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_heading'); } : undefined}
+                  className={`${typoScale.heading} uppercase tracking-wider font-extrabold ${offerHeadingFmt.className}`}
+                  style={{ color: themePalette.textAccent, ...offerHeadingFmt.style }}
                 >
-                  {isOrderAck ? 'Order Acknowledgment' : 'Purchase Order'}
+                  {renderResolvedQuotationText(rightHeading, tokenContext)}
                 </span>
-                <span className={`${typoScale.sub} font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200`}>
-                  Rev {quotation.revision_number || 1}
-                </span>
+                {showPoBadge && (
+                  <span className={`${typoScale.sub} font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200`}>
+                    {poBadgeText}
+                  </span>
+                )}
               </div>
-              <div className="py-1.5 text-center">
-                <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900`}>
-                  {poRef}
+              {!isFieldOmitted('quote_ref', omittedFields) && (
+                <div
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_quote_ref'); } : undefined}
+                  className="py-1 text-center"
+                >
+                  <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900 ${offerRefFmt.className}`} style={offerRefFmt.style}>
+                    {poRef}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
-            <div className={`grid grid-cols-2 gap-x-3 gap-y-1 pt-1.5 border-t border-slate-200/60 ${typoScale.body}`}>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>PO Date</span>
-                <span className="font-semibold text-slate-800">{poDate}</span>
-              </div>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Requisition / Ref</span>
-                <span className="font-mono font-semibold text-slate-800 truncate block">
-                  {cleanReqRef}
-                </span>
-              </div>
+            <div
+              onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_meta_grid'); } : undefined}
+              className={`grid grid-cols-2 gap-x-3 gap-y-1 pt-1.5 border-t border-slate-200/60 ${typoScale.body} ${offerMetaGridFmt.className}`}
+              style={offerMetaGridFmt.style}
+            >
+              {!isFieldOmitted('issue_date', omittedFields) && (
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>PO Date</span>
+                  <span className="font-semibold text-slate-800">{poDate}</span>
+                </div>
+              )}
+              {showEnquiryRef && (
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Requisition / Ref</span>
+                  <span className="font-mono font-semibold text-slate-800 truncate block">
+                    {cleanReqRef}
+                  </span>
+                </div>
+              )}
               <div>
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Incoterms</span>
                 <span className="font-semibold text-slate-800 truncate block">
@@ -7172,20 +7346,34 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   {poMeta?.payment_terms || quotation.payment_terms || 'Standard'}
                 </span>
               </div>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Target Delivery</span>
-                <span className="font-semibold text-slate-800 truncate block">
-                  {poMeta?.expected_delivery_date
-                    ? formatDate(poMeta.expected_delivery_date)
-                    : 'Immediate / As Agreed'}
-                </span>
-              </div>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Issued By</span>
-                <span className="font-semibold text-slate-800 truncate block">
-                  {resolvedSalesRep || senderEntityName}
-                </span>
-              </div>
+              {showValidity && (
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Target Delivery</span>
+                  <span className="font-semibold text-slate-800 truncate block">
+                    {poMeta?.expected_delivery_date || poMeta?.target_delivery_date
+                      ? formatDate((poMeta.expected_delivery_date || poMeta.target_delivery_date)!)
+                      : 'Immediate / As Agreed'}
+                  </span>
+                </div>
+              )}
+              {showSalesRep && (
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Issued By</span>
+                  <span className="font-semibold text-slate-800 truncate block">
+                    {poMeta?.requisitioner_name || resolvedSalesRep || senderEntityName}
+                  </span>
+                </div>
+              )}
+              {customOfferRows.map((row) => (
+                <div key={row.id}>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>
+                    {renderResolvedQuotationText(row.label, tokenContext)}
+                  </span>
+                  <span className={`${row.valueBold ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'} truncate block`}>
+                    {renderResolvedQuotationText(row.value, tokenContext)}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -7203,11 +7391,21 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         quotation.quote_number || 'Direct Account Settlement'
       );
       const payMethod = receiptMeta?.payment_method || 'Bank Transfer';
-      const txnRef = receiptMeta?.transaction_ref || receiptMeta?.cheque_no || '—';
+      const txnRef = receiptMeta?.bank_txn_ref || receiptMeta?.transaction_ref || receiptMeta?.cheque_no || '—';
+      const leftHeading =
+        (receiptMeta?.left_card_heading || resolvedRecipientConfig.recipientHeadingOverride || '').trim() ||
+        'Received With Thanks From';
+      const rightHeading =
+        (receiptMeta?.right_card_heading || resolvedRecipientConfig.offerHeadingOverride || '').trim() ||
+        'Official Payment Receipt';
+      const showRecBadge = receiptMeta?.show_badge !== false && showRevBadge;
+      const recBadgeText =
+        (receiptMeta?.badge_text || resolvedRecipientConfig.revisionBadgeTextOverride || '').trim() ||
+        'RECEIPT VOUCHER';
 
       return (
         <div
-          className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
+          className="w-full mb-2.5 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-2.5"
           style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
         >
           <div
@@ -7223,27 +7421,69 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             )}
             <div>
               <div
-                className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
-                style={{ color: themePalette.textAccent }}
+                onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_heading'); } : undefined}
+                className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1 ${recipientHeadingFmt.className}`}
+                style={{ color: themePalette.textAccent, ...recipientHeadingFmt.style }}
               >
-                Received With Thanks From
+                {renderResolvedQuotationText(leftHeading, tokenContext)}
               </div>
-              <h3 className={`${typoScale.entityTitle} font-bold text-slate-900`}>
-                {payerName}
-              </h3>
-              {clientContactPerson && (
-                <p className={`${typoScale.body} text-slate-700 font-medium mt-0.5`}>
+              {!isFieldOmitted('client_name', omittedFields) && (
+                <h3
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_entity_name'); } : undefined}
+                  className={`${typoScale.entityTitle} font-bold text-slate-900 ${recipientNameFmt.className}`}
+                  style={recipientNameFmt.style}
+                >
+                  {payerName}
+                </h3>
+              )}
+              {showAttention && clientContactPerson && (
+                <p
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_attention'); } : undefined}
+                  className={`${typoScale.body} text-slate-700 font-medium mt-0.5 ${recipientAttnFmt.className}`}
+                  style={recipientAttnFmt.style}
+                >
                   Attn: <span className="text-slate-900 font-semibold">{clientContactPerson}</span>
                 </p>
               )}
-              {clientAddress && (
-                <p className={`${typoScale.body} text-slate-600 mt-0.5`}>{clientAddress}</p>
+              {showClientAddress && clientAddress && (
+                <p
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_address'); } : undefined}
+                  className={`${typoScale.body} text-slate-600 mt-0.5 whitespace-pre-line ${recipientAddrFmt.className}`}
+                  style={recipientAddrFmt.style}
+                >
+                  {clientAddress}
+                </p>
               )}
+              {customRecipientRows.map((row) => {
+                const rowFmt = applyTextFormatStyle(row.textStyle);
+                return (
+                  <p key={row.id} className={`${typoScale.body} text-slate-700 mt-0.5 whitespace-pre-line ${rowFmt.className}`} style={rowFmt.style}>
+                    {row.label ? <span className="font-semibold text-slate-600">{renderResolvedQuotationText(row.label, tokenContext)}: </span> : null}
+                    <span className={row.valueBold ? 'font-bold text-slate-900' : ''}>
+                      {renderResolvedQuotationText(row.value, tokenContext)}
+                    </span>
+                  </p>
+                );
+              })}
             </div>
-            {(clientTrn || clientPhone || clientEmail) && (
+            {((showClientTrn && clientTrn) || clientPhone || clientEmail) && (
               <div className={`${typoScale.sub} text-slate-500 pt-1.5 mt-1.5 border-t border-slate-200/60 flex items-center justify-between gap-2`}>
-                {clientTrn && <span className="font-mono">Tax ID / TRN: {clientTrn}</span>}
-                <span>{[clientPhone, clientEmail].filter(Boolean).join(' • ')}</span>
+                {showClientTrn && clientTrn && (
+                  <span
+                    onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_trn'); } : undefined}
+                    className={`font-mono ${recipientTrnFmt.className}`}
+                    style={recipientTrnFmt.style}
+                  >
+                    Tax ID / TRN: {clientTrn}
+                  </span>
+                )}
+                <span
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_contact'); } : undefined}
+                  className={recipientContactFmt.className}
+                  style={recipientContactFmt.style}
+                >
+                  {[clientPhone, clientEmail].filter(Boolean).join(' • ')}
+                </span>
               </div>
             )}
           </div>
@@ -7262,30 +7502,46 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             <div>
               <div className="pb-1 border-b border-slate-200/60 flex items-center justify-between gap-2">
                 <span
-                  className={`${typoScale.heading} uppercase tracking-wider font-extrabold`}
-                  style={{ color: themePalette.textAccent }}
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_heading'); } : undefined}
+                  className={`${typoScale.heading} uppercase tracking-wider font-extrabold ${offerHeadingFmt.className}`}
+                  style={{ color: themePalette.textAccent, ...offerHeadingFmt.style }}
                 >
-                  Official Payment Receipt
+                  {renderResolvedQuotationText(rightHeading, tokenContext)}
                 </span>
-                <span className={`${typoScale.sub} font-mono font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200`}>
-                  RECEIPT VOUCHER
-                </span>
+                {showRecBadge && (
+                  <span className={`${typoScale.sub} font-mono font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200`}>
+                    {recBadgeText}
+                  </span>
+                )}
               </div>
-              <div className="py-1.5 text-center">
-                <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900`}>
-                  {recRef}
+              {!isFieldOmitted('quote_ref', omittedFields) && (
+                <div
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_quote_ref'); } : undefined}
+                  className="py-1 text-center"
+                >
+                  <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900 ${offerRefFmt.className}`} style={offerRefFmt.style}>
+                    {recRef}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
-            <div className={`grid grid-cols-2 gap-x-3 gap-y-1 pt-1.5 border-t border-slate-200/60 ${typoScale.body}`}>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Receipt Date</span>
-                <span className="font-semibold text-slate-800">{recDate}</span>
-              </div>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Settlement Ref</span>
-                <span className="font-mono font-semibold text-slate-800 truncate block">{settlementFor}</span>
-              </div>
+            <div
+              onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_meta_grid'); } : undefined}
+              className={`grid grid-cols-2 gap-x-3 gap-y-1 pt-1.5 border-t border-slate-200/60 ${typoScale.body} ${offerMetaGridFmt.className}`}
+              style={offerMetaGridFmt.style}
+            >
+              {!isFieldOmitted('issue_date', omittedFields) && (
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Receipt Date</span>
+                  <span className="font-semibold text-slate-800">{recDate}</span>
+                </div>
+              )}
+              {showEnquiryRef && (
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Settlement Ref</span>
+                  <span className="font-mono font-semibold text-slate-800 truncate block">{settlementFor}</span>
+                </div>
+              )}
               <div>
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Payment Mode</span>
                 <span className="font-semibold text-slate-800 truncate block">{payMethod}</span>
@@ -7294,6 +7550,16 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Transaction / Ref</span>
                 <span className="font-mono font-semibold text-slate-800 truncate block">{txnRef}</span>
               </div>
+              {customOfferRows.map((row) => (
+                <div key={row.id}>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>
+                    {renderResolvedQuotationText(row.label, tokenContext)}
+                  </span>
+                  <span className={`${row.valueBold ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'} truncate block`}>
+                    {renderResolvedQuotationText(row.value, tokenContext)}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -7328,10 +7594,20 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         'payment_voucher',
         'Direct Vendor Settlement'
       );
+      const leftHeading =
+        (pvMeta?.left_card_heading || resolvedRecipientConfig.recipientHeadingOverride || '').trim() ||
+        'Paid To (Beneficiary / Vendor)';
+      const rightHeading =
+        (pvMeta?.right_card_heading || resolvedRecipientConfig.offerHeadingOverride || '').trim() ||
+        'Outbound Payment Voucher';
+      const showPvBadge = pvMeta?.show_badge !== false && showRevBadge;
+      const pvBadgeText =
+        (pvMeta?.badge_text || resolvedRecipientConfig.revisionBadgeTextOverride || '').trim() ||
+        'PAYMENT VOUCHER';
 
       return (
         <div
-          className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
+          className="w-full mb-2.5 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-2.5"
           style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
         >
           <div
@@ -7347,27 +7623,69 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             )}
             <div>
               <div
-                className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
-                style={{ color: themePalette.textAccent }}
+                onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_heading'); } : undefined}
+                className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1 ${recipientHeadingFmt.className}`}
+                style={{ color: themePalette.textAccent, ...recipientHeadingFmt.style }}
               >
-                Paid To (Beneficiary / Vendor)
+                {renderResolvedQuotationText(leftHeading, tokenContext)}
               </div>
-              <h3 className={`${typoScale.entityTitle} font-bold text-slate-900`}>
-                {payeeName}
-              </h3>
-              {payeeAttn && (
-                <p className={`${typoScale.body} text-slate-700 font-medium mt-0.5`}>
+              {!isFieldOmitted('client_name', omittedFields) && (
+                <h3
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_entity_name'); } : undefined}
+                  className={`${typoScale.entityTitle} font-bold text-slate-900 ${recipientNameFmt.className}`}
+                  style={recipientNameFmt.style}
+                >
+                  {payeeName}
+                </h3>
+              )}
+              {showAttention && payeeAttn && (
+                <p
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_attention'); } : undefined}
+                  className={`${typoScale.body} text-slate-700 font-medium mt-0.5 ${recipientAttnFmt.className}`}
+                  style={recipientAttnFmt.style}
+                >
                   Attn: <span className="text-slate-900 font-semibold">{payeeAttn}</span>
                 </p>
               )}
-              {payeeAddress && (
-                <p className={`${typoScale.body} text-slate-600 mt-0.5`}>{payeeAddress}</p>
+              {showClientAddress && payeeAddress && (
+                <p
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_address'); } : undefined}
+                  className={`${typoScale.body} text-slate-600 mt-0.5 whitespace-pre-line ${recipientAddrFmt.className}`}
+                  style={recipientAddrFmt.style}
+                >
+                  {payeeAddress}
+                </p>
               )}
+              {customRecipientRows.map((row) => {
+                const rowFmt = applyTextFormatStyle(row.textStyle);
+                return (
+                  <p key={row.id} className={`${typoScale.body} text-slate-700 mt-0.5 whitespace-pre-line ${rowFmt.className}`} style={rowFmt.style}>
+                    {row.label ? <span className="font-semibold text-slate-600">{renderResolvedQuotationText(row.label, tokenContext)}: </span> : null}
+                    <span className={row.valueBold ? 'font-bold text-slate-900' : ''}>
+                      {renderResolvedQuotationText(row.value, tokenContext)}
+                    </span>
+                  </p>
+                );
+              })}
             </div>
-            {(payeeTrn || pvMeta?.vendor_phone || pvMeta?.vendor_email) && (
+            {((showClientTrn && payeeTrn) || pvMeta?.vendor_phone || pvMeta?.vendor_email || clientPhone || clientEmail) && (
               <div className={`${typoScale.sub} text-slate-500 pt-1.5 mt-1.5 border-t border-slate-200/60 flex items-center justify-between gap-2`}>
-                {payeeTrn && <span className="font-mono">Tax ID / TRN: {payeeTrn}</span>}
-                <span>{[pvMeta?.vendor_phone || clientPhone, pvMeta?.vendor_email || clientEmail].filter(Boolean).join(' • ')}</span>
+                {showClientTrn && payeeTrn && (
+                  <span
+                    onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_trn'); } : undefined}
+                    className={`font-mono ${recipientTrnFmt.className}`}
+                    style={recipientTrnFmt.style}
+                  >
+                    Tax ID / TRN: {payeeTrn}
+                  </span>
+                )}
+                <span
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_contact'); } : undefined}
+                  className={recipientContactFmt.className}
+                  style={recipientContactFmt.style}
+                >
+                  {[pvMeta?.vendor_phone || clientPhone, pvMeta?.vendor_email || clientEmail].filter(Boolean).join(' • ')}
+                </span>
               </div>
             )}
           </div>
@@ -7386,30 +7704,46 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             <div>
               <div className="pb-1 border-b border-slate-200/60 flex items-center justify-between gap-2">
                 <span
-                  className={`${typoScale.heading} uppercase tracking-wider font-extrabold`}
-                  style={{ color: themePalette.textAccent }}
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_heading'); } : undefined}
+                  className={`${typoScale.heading} uppercase tracking-wider font-extrabold ${offerHeadingFmt.className}`}
+                  style={{ color: themePalette.textAccent, ...offerHeadingFmt.style }}
                 >
-                  Outbound Payment Voucher
+                  {renderResolvedQuotationText(rightHeading, tokenContext)}
                 </span>
-                <span className={`${typoScale.sub} font-mono font-bold text-indigo-800 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200`}>
-                  PAYMENT VOUCHER
-                </span>
+                {showPvBadge && (
+                  <span className={`${typoScale.sub} font-mono font-bold text-indigo-800 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200`}>
+                    {pvBadgeText}
+                  </span>
+                )}
               </div>
-              <div className="py-1.5 text-center">
-                <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900`}>
-                  {pvRef}
+              {!isFieldOmitted('quote_ref', omittedFields) && (
+                <div
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_quote_ref'); } : undefined}
+                  className="py-1 text-center"
+                >
+                  <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900 ${offerRefFmt.className}`} style={offerRefFmt.style}>
+                    {pvRef}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
-            <div className={`grid grid-cols-2 gap-x-3 gap-y-1 pt-1.5 border-t border-slate-200/60 ${typoScale.body}`}>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Voucher Date</span>
-                <span className="font-semibold text-slate-800">{pvDate}</span>
-              </div>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vendor Inv / PO Ref</span>
-                <span className="font-mono font-semibold text-slate-800 truncate block">{linkedRef}</span>
-              </div>
+            <div
+              onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_meta_grid'); } : undefined}
+              className={`grid grid-cols-2 gap-x-3 gap-y-1 pt-1.5 border-t border-slate-200/60 ${typoScale.body} ${offerMetaGridFmt.className}`}
+              style={offerMetaGridFmt.style}
+            >
+              {!isFieldOmitted('issue_date', omittedFields) && (
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Voucher Date</span>
+                  <span className="font-semibold text-slate-800">{pvDate}</span>
+                </div>
+              )}
+              {showEnquiryRef && (
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vendor Inv / PO Ref</span>
+                  <span className="font-mono font-semibold text-slate-800 truncate block">{linkedRef}</span>
+                </div>
+              )}
               <div>
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Disbursement Mode</span>
                 <span className="font-semibold text-slate-800 truncate block">{payMethod}</span>
@@ -7418,6 +7752,16 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>UTR / Cheque Ref</span>
                 <span className="font-mono font-semibold text-slate-800 truncate block">{txnRef}</span>
               </div>
+              {customOfferRows.map((row) => (
+                <div key={row.id}>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>
+                    {renderResolvedQuotationText(row.label, tokenContext)}
+                  </span>
+                  <span className={`${row.valueBold ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'} truncate block`}>
+                    {renderResolvedQuotationText(row.value, tokenContext)}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -7444,10 +7788,20 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       const origGrnOrInv = returnMeta?.vendor_invoice_no || returnMeta?.original_grn_ref || '—';
       const reason = returnMeta?.return_reason || 'Defective / Non-Conforming';
       const resolution = returnMeta?.resolution_type || (isDn ? 'Credit Note / Bill Deduction' : 'Replacement Dispatch');
+      const leftHeading =
+        (returnMeta?.left_card_heading || resolvedRecipientConfig.recipientHeadingOverride || '').trim() ||
+        (isDn ? 'Debit Note Issued To (Vendor)' : 'Material Returned To (Vendor)');
+      const rightHeading =
+        (returnMeta?.right_card_heading || resolvedRecipientConfig.offerHeadingOverride || '').trim() ||
+        (isDn ? 'Vendor Debit Note' : 'Material Return Note');
+      const showRetBadge = returnMeta?.show_badge !== false && showRevBadge;
+      const retBadgeText =
+        (returnMeta?.badge_text || resolvedRecipientConfig.revisionBadgeTextOverride || '').trim() ||
+        (isDn ? 'DEBIT NOTE (CLAIM)' : 'UNPRICED MRN');
 
       return (
         <div
-          className="w-full mb-3 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-3"
+          className="w-full mb-2.5 quotation-client-offer-grid grid grid-cols-2 gap-3 print:grid print:grid-cols-2 print:gap-3 items-stretch break-inside-avoid page-break-inside-avoid print:mb-2.5"
           style={{ width: '100%', maxWidth: '100%', breakInside: 'avoid', pageBreakInside: 'avoid' }}
         >
           <div
@@ -7463,28 +7817,64 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             )}
             <div>
               <div
-                className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1`}
-                style={{ color: themePalette.textAccent }}
+                onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_heading'); } : undefined}
+                className={`${typoScale.heading} uppercase tracking-wider font-extrabold mb-1 ${recipientHeadingFmt.className}`}
+                style={{ color: themePalette.textAccent, ...recipientHeadingFmt.style }}
               >
-                {isDn ? 'Debit Note Issued To (Vendor)' : 'Material Returned To (Vendor)'}
+                {renderResolvedQuotationText(leftHeading, tokenContext)}
               </div>
-              <h3 className={`${typoScale.entityTitle} font-bold text-slate-900`}>
-                {vendorName}
-              </h3>
-              {vendorAttn && (
-                <p className={`${typoScale.body} text-slate-700 font-medium mt-0.5`}>
+              {!isFieldOmitted('client_name', omittedFields) && (
+                <h3
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_entity_name'); } : undefined}
+                  className={`${typoScale.entityTitle} font-bold text-slate-900 ${recipientNameFmt.className}`}
+                  style={recipientNameFmt.style}
+                >
+                  {vendorName}
+                </h3>
+              )}
+              {showAttention && vendorAttn && (
+                <p
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_attention'); } : undefined}
+                  className={`${typoScale.body} text-slate-700 font-medium mt-0.5 ${recipientAttnFmt.className}`}
+                  style={recipientAttnFmt.style}
+                >
                   Attn: <span className="text-slate-900 font-semibold">{vendorAttn}</span>
                 </p>
               )}
-              {vendorAddress && (
-                <p className={`${typoScale.body} text-slate-600 mt-0.5`}>{vendorAddress}</p>
+              {showClientAddress && vendorAddress && (
+                <p
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_address'); } : undefined}
+                  className={`${typoScale.body} text-slate-600 mt-0.5 whitespace-pre-line ${recipientAddrFmt.className}`}
+                  style={recipientAddrFmt.style}
+                >
+                  {vendorAddress}
+                </p>
               )}
+              {customRecipientRows.map((row) => {
+                const rowFmt = applyTextFormatStyle(row.textStyle);
+                return (
+                  <p key={row.id} className={`${typoScale.body} text-slate-700 mt-0.5 whitespace-pre-line ${rowFmt.className}`} style={rowFmt.style}>
+                    {row.label ? <span className="font-semibold text-slate-600">{renderResolvedQuotationText(row.label, tokenContext)}: </span> : null}
+                    <span className={row.valueBold ? 'font-bold text-slate-900' : ''}>
+                      {renderResolvedQuotationText(row.value, tokenContext)}
+                    </span>
+                  </p>
+                );
+              })}
             </div>
             <div className={`${typoScale.sub} text-slate-600 pt-1.5 mt-1.5 border-t border-slate-200/60 flex items-center justify-between gap-2`}>
               <span>
                 Primary Reason: <strong className="text-rose-700">{reason}</strong>
               </span>
-              {vendorTrn && <span className="font-mono">TRN: {vendorTrn}</span>}
+              {showClientTrn && vendorTrn && (
+                <span
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('recipient_info', 'recipient_trn'); } : undefined}
+                  className={`font-mono ${recipientTrnFmt.className}`}
+                  style={recipientTrnFmt.style}
+                >
+                  TRN: {vendorTrn}
+                </span>
+              )}
             </div>
           </div>
 
@@ -7502,30 +7892,46 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             <div>
               <div className="pb-1 border-b border-slate-200/60 flex items-center justify-between gap-2">
                 <span
-                  className={`${typoScale.heading} uppercase tracking-wider font-extrabold`}
-                  style={{ color: themePalette.textAccent }}
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_heading'); } : undefined}
+                  className={`${typoScale.heading} uppercase tracking-wider font-extrabold ${offerHeadingFmt.className}`}
+                  style={{ color: themePalette.textAccent, ...offerHeadingFmt.style }}
                 >
-                  {isDn ? 'Vendor Debit Note' : 'Material Return Note'}
+                  {renderResolvedQuotationText(rightHeading, tokenContext)}
                 </span>
-                <span className={`${typoScale.sub} font-mono font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200`}>
-                  {isDn ? 'DEBIT NOTE (CLAIM)' : 'UNPRICED MRN'}
-                </span>
+                {showRetBadge && (
+                  <span className={`${typoScale.sub} font-mono font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200`}>
+                    {retBadgeText}
+                  </span>
+                )}
               </div>
-              <div className="py-1.5 text-center">
-                <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900`}>
-                  {retRef}
+              {!isFieldOmitted('quote_ref', omittedFields) && (
+                <div
+                  onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_quote_ref'); } : undefined}
+                  className="py-1 text-center"
+                >
+                  <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900 ${offerRefFmt.className}`} style={offerRefFmt.style}>
+                    {retRef}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
-            <div className={`grid grid-cols-2 gap-x-3 gap-y-1 pt-1.5 border-t border-slate-200/60 ${typoScale.body}`}>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Issue Date</span>
-                <span className="font-semibold text-slate-800">{retDate}</span>
-              </div>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Original PO Ref</span>
-                <span className="font-mono font-semibold text-slate-800 truncate block">{origPo}</span>
-              </div>
+            <div
+              onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_meta_grid'); } : undefined}
+              className={`grid grid-cols-2 gap-x-3 gap-y-1 pt-1.5 border-t border-slate-200/60 ${typoScale.body} ${offerMetaGridFmt.className}`}
+              style={offerMetaGridFmt.style}
+            >
+              {!isFieldOmitted('issue_date', omittedFields) && (
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Issue Date</span>
+                  <span className="font-semibold text-slate-800">{retDate}</span>
+                </div>
+              )}
+              {showEnquiryRef && (
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Original PO Ref</span>
+                  <span className="font-mono font-semibold text-slate-800 truncate block">{origPo}</span>
+                </div>
+              )}
               <div>
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vendor Inv / GRN</span>
                 <span className="font-mono font-semibold text-slate-800 truncate block">{origGrnOrInv}</span>
@@ -7534,6 +7940,16 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Resolution Mode</span>
                 <span className="font-semibold text-slate-800 truncate block">{resolution}</span>
               </div>
+              {customOfferRows.map((row) => (
+                <div key={row.id}>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>
+                    {renderResolvedQuotationText(row.label, tokenContext)}
+                  </span>
+                  <span className={`${row.valueBold ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'} truncate block`}>
+                    {renderResolvedQuotationText(row.value, tokenContext)}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -9065,44 +9481,71 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
   const renderDeliveryNoteSignOffBlock = () => {
     if (!isDeliveryNote) return null;
+    if (resolvedFooterConfig.showSignatories === false) return null;
     const radiusClass =
       (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp'
         ? 'rounded-none'
         : 'rounded-lg';
     const dispatchedBy =
-      deliveryMeta?.dispatched_by_name || resolvedSalesRep || resolvedSignatories[0]?.name || 'Authorized Officer';
+      deliveryMeta?.prepared_by_override ||
+      deliveryMeta?.dispatched_by_name ||
+      resolvedSalesRep ||
+      resolvedSignatories[0]?.name ||
+      'Authorized Officer';
     const receivedBy = deliveryMeta?.received_by_name || '';
     const receivedTitle = deliveryMeta?.received_by_title || 'Site / Receiving Officer';
     const goodsClause =
       deliveryMeta?.goods_received_clause?.trim() ||
       'Received the above items in good order and condition as per the specified quantities.';
+    const leftHeading =
+      (deliveryMeta?.signoff_left_heading || '').trim() ||
+      `Dispatched & Released By — ${senderEntityName}`;
+    const rightHeading =
+      (deliveryMeta?.signoff_right_heading || '').trim() ||
+      `Goods Received Acknowledgment — ${clientEntityName}`;
+    const showReceivingStampBox = deliveryMeta?.show_receiving_stamp_box !== false;
+    const isSigSelected =
+      activeSelectedSection === 'signatory' || activeSelectedSection === 'signatories';
 
     return (
       <section
-        className={`w-full mb-3 print:mb-2 grid grid-cols-2 gap-3 break-inside-avoid page-break-inside-avoid ${
-          isInteractive ? 'cursor-pointer hover:ring-1 hover:ring-blue-400 rounded-lg transition-all' : ''
+        className={`w-full mb-2 print:mb-1.5 grid grid-cols-2 gap-2.5 break-inside-avoid page-break-inside-avoid relative group ${
+          isInteractive
+            ? `cursor-pointer rounded-lg transition-all ${
+                isSigSelected
+                  ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0'
+                  : 'hover:ring-1 hover:ring-blue-400 print:ring-0'
+              }`
+            : ''
         }`}
         style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
         onClick={
           isInteractive
             ? (e) => {
                 e.stopPropagation();
-                onSelectSection?.('quote_meta');
-                onSelectBlock?.('quote_meta' as any);
+                onSelectSection?.('signatory');
+                onSelectBlock?.('signatory' as any);
               }
             : undefined
         }
       >
+        {isInteractive && (
+          <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+            isSigSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+          }`}>
+            Click to Customize Dispatch &amp; Receipt Sign-Off
+          </div>
+        )}
         {/* Left: Dispatched By (Our Company) */}
-        <div className={`p-3 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+        <div className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
           <div>
             <div
-              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-2 border-b border-slate-200`}
+              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
               style={{ color: themePalette.textAccent }}
             >
-              Dispatched &amp; Released By — {senderEntityName}
+              {leftHeading}
             </div>
-            <div className={`grid grid-cols-2 gap-2 ${typoScale.body} text-slate-700`}>
+            <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
               <div>
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared / Checked By</span>
                 <span className="font-semibold text-slate-900">{dispatchedBy}</span>
@@ -9129,7 +9572,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             </div>
           </div>
 
-          <div className="pt-4 mt-3 border-t border-slate-200/80 flex items-end justify-between gap-3">
+          <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
             {(() => {
               const doStampSigOverlay = resolveStampSignatureOverlayConfig(
                 resolvedFooterConfig,
@@ -9140,12 +9583,12 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               return (
                 <>
                   <div className="flex-1">
-                    <div className="h-10 flex items-end">
+                    <div className="h-8 flex items-end">
                       {doStampSigOverlay.activeSignatureUrl ? (
                         <img
                           src={doStampSigOverlay.activeSignatureUrl}
                           alt="Authorized Dispatch Signature"
-                          className="h-9 w-auto object-contain"
+                          className="h-7 w-auto object-contain"
                         />
                       ) : (
                         <span className="font-serif italic text-sm text-slate-700">{dispatchedBy}</span>
@@ -9161,15 +9604,15 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     </div>
                   </div>
                   {resolvedShowCompanySeal && (
-                    <div className="w-16 h-14 flex items-center justify-center shrink-0">
+                    <div className="w-14 h-12 flex items-center justify-center shrink-0">
                       {doCompanySealUrl ? (
                         <img
                           src={doCompanySealUrl}
                           alt="Official Seal"
-                          className="h-14 w-auto object-contain opacity-90"
+                          className="h-12 w-auto object-contain opacity-90"
                         />
                       ) : (
-                        <div className="h-12 w-12 rounded-full border border-dashed border-slate-300 flex items-center justify-center text-center p-1">
+                        <div className="h-11 w-11 rounded-full border border-dashed border-slate-300 flex items-center justify-center text-center p-1">
                           <span className="text-[7px] font-mono uppercase text-slate-400 leading-tight">
                             Dispatch Stamp
                           </span>
@@ -9184,18 +9627,18 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         </div>
 
         {/* Right: Received By (Client / Consignee) */}
-        <div className={`p-3 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+        <div className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
           <div>
             <div
-              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
+              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1 border-b border-slate-200`}
               style={{ color: themePalette.textAccent }}
             >
-              Goods Received Acknowledgment — {clientEntityName}
+              {rightHeading}
             </div>
-            <p className={`${typoScale.sub} text-slate-700 italic leading-snug mb-2`}>
+            <p className={`${typoScale.sub} text-slate-700 italic leading-snug mb-1.5`}>
               {goodsClause}
             </p>
-            <div className={`grid grid-cols-2 gap-2 ${typoScale.body} text-slate-700`}>
+            <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
               <div>
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Received By (Name)</span>
                 <span className="font-semibold text-slate-900">
@@ -9221,9 +9664,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             </div>
           </div>
 
-          <div className="pt-4 mt-3 border-t border-slate-200/80 flex items-end justify-between gap-3">
+          <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
             <div className="flex-1">
-              <div className="h-10" />
+              <div className="h-8" />
               <div className="border-t border-slate-300 pt-1 mt-1">
                 <div className={`${typoScale.sub} font-bold text-slate-800`}>
                   Receiver Signature
@@ -9233,11 +9676,13 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 </div>
               </div>
             </div>
-            <div className="w-20 h-14 rounded border border-dashed border-slate-300 flex items-center justify-center text-center p-1 shrink-0 bg-white/70">
-              <span className="text-[7.5px] font-mono uppercase text-slate-400 leading-tight">
-                Receiving Stamp
-              </span>
-            </div>
+            {showReceivingStampBox && (
+              <div className="w-18 h-12 rounded border border-dashed border-slate-300 flex items-center justify-center text-center p-1 shrink-0 bg-white/70">
+                <span className="text-[7px] font-mono uppercase text-slate-400 leading-tight">
+                  Receiving Stamp
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -9267,18 +9712,31 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       'receipt',
       quotation.quote_number || 'Direct Account Settlement'
     );
+    const rawProjectTitle =
+      receiptMeta?.project_title || receiptMeta?.payment_for || quotation.subject || enquiry?.subject || '';
     const projectTitle =
-      receiptMeta?.project_title || receiptMeta?.payment_for || quotation.subject || enquiry?.subject || 'Commercial Supply & Services';
+      rawProjectTitle && !rawProjectTitle.includes('_gap_') && !/^[A-Za-z0-9]{18,}$/.test(rawProjectTitle.trim())
+        ? rawProjectTitle
+        : quotation.subject || enquiry?.subject || 'Commercial Supply & Services';
     const depositAcct =
       receiptMeta?.deposit_account ||
       receiptMeta?.deposit_account_label ||
       (resolvedBank
         ? `${resolvedBank.bankName} — ${resolvedBank.iban || resolvedBank.accountNumber || resolvedBank.currency}`
         : 'Corporate Treasury Account');
+    const showAmountBanner = receiptMeta?.show_amount_banner !== false;
+    const showInstrumentCard = receiptMeta?.show_instrument_card !== false;
+    const showBalanceCard = receiptMeta?.show_balance_card !== false;
+    const bannerHeading =
+      (receiptMeta?.amount_banner_heading || '').trim() || `Amount Received (${currency})`;
+    const instrumentHeading =
+      (receiptMeta?.instrument_card_heading || '').trim() || 'Payment Instrument & Reference Details';
+    const balanceHeading =
+      (receiptMeta?.balance_card_heading || '').trim() || 'Account Settlement & Balance Statement';
 
     return (
       <section
-        className={`w-full mb-3 print:mb-2 space-y-3 break-inside-avoid page-break-inside-avoid ${
+        className={`w-full mb-2.5 print:mb-2 space-y-2.5 break-inside-avoid page-break-inside-avoid relative group ${
           isInteractive ? 'cursor-pointer hover:ring-1 hover:ring-blue-400 rounded-lg transition-all' : ''
         }`}
         onClick={
@@ -9291,137 +9749,156 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             : undefined
         }
       >
+        {isInteractive && (
+          <div className="quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100 transition-opacity print:hidden z-10">
+            Click to Customize Receipt Banner &amp; Statement
+          </div>
+        )}
         {/* Highlighted Amount Received Banner */}
-        <div
-          className={`p-3.5 border-2 ${radiusClass} flex flex-col gap-1.5`}
-          style={{
-            backgroundColor: themePalette.tintBg,
-            borderColor: themePalette.primaryHex
-          }}
-        >
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <span
-                className={`${typoScale.heading} font-extrabold uppercase tracking-wider block`}
+        {showAmountBanner && (
+          <div
+            className={`p-3 border-2 ${radiusClass} flex flex-col gap-1`}
+            style={{
+              backgroundColor: themePalette.tintBg,
+              borderColor: themePalette.primaryHex
+            }}
+          >
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <span
+                  className={`${typoScale.heading} font-extrabold uppercase tracking-wider block`}
+                  style={{ color: themePalette.textAccent }}
+                >
+                  {bannerHeading}
+                </span>
+                <span className={`${typoScale.sub} text-slate-600`}>
+                  {receiptMeta?.narration_override && receiptMeta.narration_override.trim() !== '' ? (
+                    renderResolvedQuotationText(receiptMeta.narration_override, tokenContext)
+                  ) : (
+                    <>
+                      In settlement of <span className="font-mono font-bold text-slate-800">{settlementFor}</span> — {projectTitle}
+                    </>
+                  )}
+                </span>
+              </div>
+              <div
+                className="font-mono tabular-nums font-extrabold text-xl sm:text-2xl px-3 py-1 rounded bg-white border border-slate-200 shadow-2xs shrink-0"
                 style={{ color: themePalette.textAccent }}
               >
-                Amount Received ({currency})
-              </span>
-              <span className={`${typoScale.sub} text-slate-600`}>
-                In settlement of <span className="font-mono font-bold text-slate-800">{settlementFor}</span> — {projectTitle}
-              </span>
+                {formatCurrency(amtReceived)}
+              </div>
             </div>
-            <div
-              className="font-mono tabular-nums font-extrabold text-xl sm:text-2xl px-3 py-1.5 rounded bg-white border border-slate-200 shadow-2xs shrink-0"
-              style={{ color: themePalette.textAccent }}
-            >
-              {formatCurrency(amtReceived)}
+            <div className={`pt-1 border-t border-slate-200/80 ${typoScale.body} text-slate-800`}>
+              <span className="font-bold text-slate-900">Amount in Words ({currency}): </span>
+              <span className="font-semibold italic">{amountToWords(amtReceived, currency)}</span>
             </div>
           </div>
-          <div className={`pt-1.5 border-t border-slate-200/80 ${typoScale.body} text-slate-800`}>
-            <span className="font-bold text-slate-900">Amount in Words ({currency}): </span>
-            <span className="font-semibold italic">{amountToWords(amtReceived, currency)}</span>
-          </div>
-        </div>
+        )}
 
         {/* 2-Column Payment Instrument & Settlement Balance Statement */}
-        <div className="grid grid-cols-2 gap-3 items-stretch">
-          <div className={`p-3 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
-            <div>
-              <div
-                className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-2 border-b border-slate-200`}
-                style={{ color: themePalette.textAccent }}
-              >
-                Payment Instrument &amp; Reference Details
-              </div>
-              <div className={`space-y-1.5 ${typoScale.body} text-slate-700`}>
-                <div className="flex justify-between gap-2">
-                  <span className="font-semibold text-slate-500">Payment Mode:</span>
-                  <span className="font-bold text-slate-900">{payMethod}</span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="font-semibold text-slate-500">Transaction / Bank Ref:</span>
-                  <span className="font-mono font-semibold text-slate-900">{txnRef}</span>
-                </div>
-                {payMethod === 'Cheque' && (
-                  <>
-                    <div className="flex justify-between gap-2">
-                      <span className="font-semibold text-slate-500">Cheque Number:</span>
-                      <span className="font-mono font-semibold text-slate-900">
-                        {receiptMeta?.cheque_no || '—'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between gap-2">
-                      <span className="font-semibold text-slate-500">Drawee Bank &amp; Date:</span>
-                      <span className="font-semibold text-slate-900">
-                        {[
-                          receiptMeta?.cheque_bank_name,
-                          receiptMeta?.cheque_date ? formatDate(receiptMeta.cheque_date) : ''
-                        ]
-                          .filter(Boolean)
-                          .join(' • ') || '—'}
-                      </span>
-                    </div>
-                  </>
-                )}
-                <div className="flex justify-between gap-2">
-                  <span className="font-semibold text-slate-500">Credited Account:</span>
-                  <span className="font-medium text-slate-800 text-right">{depositAcct}</span>
-                </div>
-                {receiptMeta?.receipt_notes && (
-                  <div className="pt-1.5 mt-1.5 border-t border-slate-200/70">
-                    <span className="font-semibold text-slate-500 block">Remarks / Allocation Notes:</span>
-                    <span className="text-slate-700 whitespace-pre-line">{receiptMeta.receipt_notes}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className={`p-3 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
-            <div>
-              <div
-                className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-2 border-b border-slate-200`}
-                style={{ color: themePalette.textAccent }}
-              >
-                Account Settlement &amp; Balance Statement
-              </div>
-              <div className={`space-y-1.5 ${typoScale.body}`}>
-                <div className="flex justify-between items-center text-slate-700">
-                  <span className="font-semibold text-slate-500">Total Order / Contract Value:</span>
-                  <span className="font-mono tabular-nums font-bold text-slate-900">
-                    {formatCurrency(totalOrderVal)}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center text-slate-700 border-t border-slate-200/60 pt-1">
-                  <span className="font-semibold text-slate-500">Less: Previously Received:</span>
-                  <span className="font-mono tabular-nums font-semibold text-slate-700">
-                    {formatCurrency(prevReceived)}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center text-emerald-800 bg-emerald-50/80 px-2 py-1 rounded border border-emerald-200">
-                  <span className="font-bold">Current Receipt Amount:</span>
-                  <span className="font-mono tabular-nums font-extrabold">
-                    {formatCurrency(amtReceived)}
-                  </span>
-                </div>
-                <div
-                  className="flex justify-between items-center pt-2 mt-1 border-t-2 font-extrabold"
-                  style={{ borderColor: themePalette.primaryHex }}
-                >
-                  <span className="uppercase tracking-tight text-slate-900">Balance Outstanding:</span>
-                  <span
-                    className={`font-mono tabular-nums text-base ${
-                      balanceDue > 0 ? 'text-amber-700' : 'text-emerald-700'
-                    }`}
+        {(showInstrumentCard || showBalanceCard) && (
+          <div className={`grid ${showInstrumentCard && showBalanceCard ? 'grid-cols-2' : 'grid-cols-1'} gap-2.5 items-stretch`}>
+            {showInstrumentCard && (
+              <div className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+                <div>
+                  <div
+                    className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
+                    style={{ color: themePalette.textAccent }}
                   >
-                    {formatCurrency(balanceDue)}
-                  </span>
+                    {instrumentHeading}
+                  </div>
+                  <div className={`space-y-1 ${typoScale.body} text-slate-700`}>
+                    <div className="flex justify-between gap-2">
+                      <span className="font-semibold text-slate-500">Payment Mode:</span>
+                      <span className="font-bold text-slate-900">{payMethod}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="font-semibold text-slate-500">Transaction / Bank Ref:</span>
+                      <span className="font-mono font-semibold text-slate-900">{txnRef}</span>
+                    </div>
+                    {payMethod === 'Cheque' && (
+                      <>
+                        <div className="flex justify-between gap-2">
+                          <span className="font-semibold text-slate-500">Cheque Number:</span>
+                          <span className="font-mono font-semibold text-slate-900">
+                            {receiptMeta?.cheque_no || '—'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <span className="font-semibold text-slate-500">Drawee Bank &amp; Date:</span>
+                          <span className="font-semibold text-slate-900">
+                            {[
+                              receiptMeta?.cheque_bank_name,
+                              receiptMeta?.cheque_date ? formatDate(receiptMeta.cheque_date) : ''
+                            ]
+                              .filter(Boolean)
+                              .join(' • ') || '—'}
+                          </span>
+                        </div>
+                      </>
+                    )}
+                    <div className="flex justify-between gap-2">
+                      <span className="font-semibold text-slate-500">Credited Account:</span>
+                      <span className="font-medium text-slate-800 text-right">{depositAcct}</span>
+                    </div>
+                    {receiptMeta?.receipt_notes && (
+                      <div className="pt-1 mt-1 border-t border-slate-200/70">
+                        <span className="font-semibold text-slate-500 block">Remarks / Allocation Notes:</span>
+                        <span className="text-slate-700 whitespace-pre-line">{receiptMeta.receipt_notes}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
+
+            {showBalanceCard && (
+              <div className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+                <div>
+                  <div
+                    className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
+                    style={{ color: themePalette.textAccent }}
+                  >
+                    {balanceHeading}
+                  </div>
+                  <div className={`space-y-1 ${typoScale.body}`}>
+                    <div className="flex justify-between items-center text-slate-700">
+                      <span className="font-semibold text-slate-500">Total Order / Contract Value:</span>
+                      <span className="font-mono tabular-nums font-bold text-slate-900">
+                        {formatCurrency(totalOrderVal)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-700 border-t border-slate-200/60 pt-1">
+                      <span className="font-semibold text-slate-500">Less: Previously Received:</span>
+                      <span className="font-mono tabular-nums font-semibold text-slate-700">
+                        {formatCurrency(prevReceived)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-emerald-800 bg-emerald-50/80 px-2 py-0.5 rounded border border-emerald-200">
+                      <span className="font-bold">Current Receipt Amount:</span>
+                      <span className="font-mono tabular-nums font-extrabold">
+                        {formatCurrency(amtReceived)}
+                      </span>
+                    </div>
+                    <div
+                      className="flex justify-between items-center pt-1.5 mt-1 border-t-2 font-extrabold"
+                      style={{ borderColor: themePalette.primaryHex }}
+                    >
+                      <span className="uppercase tracking-tight text-slate-900">Balance Outstanding:</span>
+                      <span
+                        className={`font-mono tabular-nums text-base ${
+                          balanceDue > 0 ? 'text-amber-700' : 'text-emerald-700'
+                        }`}
+                      >
+                        {formatCurrency(balanceDue)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
+        )}
       </section>
     );
   };
@@ -9464,13 +9941,17 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
     const payMethod = pvMeta?.payment_method || 'Bank Transfer / TT';
     const txnRef = pvMeta?.utr_or_cheque_no || pvMeta?.bank_txn_ref || pvMeta?.cheque_no || '—';
-    const narration =
+    const rawNarration =
       pvMeta?.payment_narration ||
       pvMeta?.being_payment_for ||
       quotation.subject ||
       (pvMeta?.vendor_invoice_no
         ? `Settlement against Vendor Invoice ${pvMeta.vendor_invoice_no}`
         : 'Outbound Supplier Account Settlement');
+    const narration =
+      rawNarration && !rawNarration.includes('_gap_')
+        ? rawNarration
+        : 'Outbound Supplier Account Settlement';
 
     const disbursingBankLabel =
       pvMeta?.disbursing_bank_name ||
@@ -9488,9 +9969,41 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     const receiverName =
       pvMeta?.received_by_payee || pvMeta?.received_by_vendor_name || pvMeta?.payee_name || pvMeta?.paid_to_vendor_name || clientEntityName;
 
+    const showAmountBanner = pvMeta?.show_amount_banner !== false;
+    const showAllocationTable = pvMeta?.show_allocation_table !== false;
+    const showTreasuryCard = pvMeta?.show_treasury_card !== false;
+    const showBeneficiaryCard = pvMeta?.show_beneficiary_card !== false;
+    const showApprovalMatrix = pvMeta?.show_approval_matrix !== false && resolvedFooterConfig.showSignatories !== false;
+
+    const bannerHeading =
+      (pvMeta?.amount_banner_heading || '').trim() || `Amount Disbursed / Paid (${currency})`;
+    const allocHeading =
+      (pvMeta?.allocation_table_heading || '').trim() || 'Outbound Bill Settlement & Allocation Schedule';
+    const treasuryHeading =
+      (pvMeta?.treasury_card_heading || '').trim() || 'Disbursing Treasury & Instrument Details';
+    const beneficiaryHeading =
+      (pvMeta?.beneficiary_card_heading || '').trim() || 'Vendor Beneficiary Bank Account';
+
+    const defaultApprovalCols = [
+      { label: 'Prepared By', name: preparedByName, role: 'Accounts / Procurement', visible: true },
+      { label: 'Reviewed / Verified By', name: reviewedByName, role: 'Finance Verification', visible: true },
+      { label: 'Approved By', name: approvedByName, role: 'Authorized Signatory', visible: true },
+      { label: 'Payee Receiver Signature', name: receiverName, role: 'Vendor Acknowledgment', visible: true }
+    ];
+    const approvalCols =
+      Array.isArray(pvMeta?.approval_columns) && pvMeta!.approval_columns!.length > 0
+        ? pvMeta!.approval_columns!.map((col, idx) => ({
+            label: col.label || defaultApprovalCols[idx]?.label || `Signatory ${idx + 1}`,
+            name: col.name || defaultApprovalCols[idx]?.name || '',
+            role: col.role || defaultApprovalCols[idx]?.role || '',
+            visible: col.visible !== false
+          }))
+        : defaultApprovalCols;
+    const visibleApprovalCols = approvalCols.filter((c) => c.visible !== false);
+
     return (
       <section
-        className={`w-full mb-3 print:mb-2 space-y-3 break-inside-avoid page-break-inside-avoid ${
+        className={`w-full mb-2 print:mb-1.5 space-y-2 break-inside-avoid page-break-inside-avoid ${
           isInteractive ? 'cursor-pointer hover:ring-1 hover:ring-blue-400 rounded-lg transition-all' : ''
         }`}
         onClick={
@@ -9504,260 +10017,289 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         }
       >
         {/* Highlighted Amount Paid Banner */}
-        <div
-          className={`p-3.5 border-2 ${radiusClass} flex flex-col gap-1.5`}
-          style={{
-            backgroundColor: themePalette.tintBg,
-            borderColor: themePalette.primaryHex
-          }}
-        >
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <span
-                className={`${typoScale.heading} font-extrabold uppercase tracking-wider block`}
-                style={{ color: themePalette.textAccent }}
-              >
-                Amount Disbursed / Paid ({currency})
-              </span>
-              <span className={`${typoScale.sub} text-slate-600`}>
-                {narration}
-              </span>
-            </div>
-            <div
-              className="font-mono tabular-nums font-extrabold text-xl sm:text-2xl px-3 py-1.5 rounded bg-white border border-slate-200 shadow-2xs shrink-0"
-              style={{ color: themePalette.textAccent }}
-            >
-              {formatCurrency(amtPaid)}
-            </div>
-          </div>
-          <div className={`pt-1.5 border-t border-slate-200/80 ${typoScale.body} text-slate-800`}>
-            <span className="font-bold text-slate-900">Amount in Words ({currency}): </span>
-            <span className="font-semibold italic">{amountToWords(amtPaid, currency)}</span>
-          </div>
-        </div>
-
-        {/* Outbound Settlement & Bill Allocation Table */}
-        <div className={`border border-slate-200 ${radiusClass} overflow-hidden bg-white`}>
+        {showAmountBanner && (
           <div
-            className={`px-3 py-1.5 border-b border-slate-200 flex items-center justify-between ${typoScale.heading} font-extrabold uppercase tracking-wider`}
+            className={`p-2.5 border-2 ${radiusClass} flex flex-col gap-1`}
             style={{
-              backgroundColor: themePalette.tintStrongBg,
-              color: themePalette.textAccent
+              backgroundColor: themePalette.tintBg,
+              borderColor: themePalette.primaryHex
             }}
           >
-            <span>Outbound Bill Settlement &amp; Allocation Schedule</span>
-            <span className={`${typoScale.micro} font-mono`}>
-              {pvMeta?.settlement_type === 'advance_payment'
-                ? 'VENDOR ADVANCE PAYMENT'
-                : pvMeta?.settlement_type === 'multi_bill' || allocations.length > 1
-                ? `MULTI-BILL ALLOCATION (${allocations.length})`
-                : 'BILL / PO SETTLEMENT'}
-            </span>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <span
+                  className={`${typoScale.heading} font-extrabold uppercase tracking-wider block`}
+                  style={{ color: themePalette.textAccent }}
+                >
+                  {bannerHeading}
+                </span>
+                <span className={`${typoScale.sub} text-slate-600`}>
+                  {narration}
+                </span>
+              </div>
+              <div
+                className="font-mono tabular-nums font-extrabold text-xl sm:text-2xl px-3 py-1 rounded bg-white border border-slate-200 shadow-2xs shrink-0"
+                style={{ color: themePalette.textAccent }}
+              >
+                {formatCurrency(amtPaid)}
+              </div>
+            </div>
+            <div className={`pt-1 border-t border-slate-200/80 ${typoScale.body} text-slate-800`}>
+              <span className="font-bold text-slate-900">Amount in Words ({currency}): </span>
+              <span className="font-semibold italic">{amountToWords(amtPaid, currency)}</span>
+            </div>
           </div>
-          <table className={`w-full border-collapse text-left ${tableFontSize}`}>
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase">
-                <th className="py-1.5 px-2.5">Bill / PO Ref</th>
-                <th className="py-1.5 px-2">Vendor Invoice #</th>
-                <th className="py-1.5 px-2 text-right font-mono">Bill Total</th>
-                <th className="py-1.5 px-2 text-right font-mono">Credits / DN</th>
-                <th className="py-1.5 px-2 text-right font-mono">Previously Paid</th>
-                <th className="py-1.5 px-2 text-right font-mono">Paid This Voucher</th>
-                <th className="py-1.5 px-2.5 text-right font-mono">Remaining Balance</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200/80">
-              {allocations.length > 0 ? (
-                allocations.map((row, rIdx) => (
-                  <tr key={row.bill_id || rIdx} className="hover:bg-slate-50/50">
+        )}
+
+        {/* Outbound Settlement & Bill Allocation Table */}
+        {showAllocationTable && (
+          <div className={`border border-slate-200 ${radiusClass} overflow-hidden bg-white`}>
+            <div
+              className={`px-2.5 py-1 border-b border-slate-200 flex items-center justify-between ${typoScale.heading} font-extrabold uppercase tracking-wider`}
+              style={{
+                backgroundColor: themePalette.tintStrongBg,
+                color: themePalette.textAccent
+              }}
+            >
+              <span>{allocHeading}</span>
+              <span className={`${typoScale.micro} font-mono`}>
+                {pvMeta?.settlement_type === 'advance_payment'
+                  ? 'VENDOR ADVANCE PAYMENT'
+                  : pvMeta?.settlement_type === 'multi_bill' || allocations.length > 1
+                  ? `MULTI-BILL ALLOCATION (${allocations.length})`
+                  : 'BILL / PO SETTLEMENT'}
+              </span>
+            </div>
+            <table className={`w-full border-collapse text-left ${tableFontSize}`}>
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase">
+                  <th className="py-1 px-2.5">Bill / PO Ref</th>
+                  <th className="py-1 px-2">Vendor Invoice #</th>
+                  <th className="py-1 px-2 text-right font-mono">Bill Total</th>
+                  <th className="py-1 px-2 text-right font-mono">Credits / DN</th>
+                  <th className="py-1 px-2 text-right font-mono">Previously Paid</th>
+                  <th className="py-1 px-2 text-right font-mono">Paid This Voucher</th>
+                  <th className="py-1 px-2.5 text-right font-mono">Remaining Balance</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200/80">
+                {allocations.length > 0 ? (
+                  allocations.map((row, rIdx) => (
+                    <tr key={row.bill_id || rIdx} className="hover:bg-slate-50/50">
+                      <td className="py-1 px-2.5 font-mono font-semibold text-slate-800">
+                        {formatCleanDocumentEnquiryRef(row.bill_ref || row.bill_number || row.po_ref, 'payment_voucher', '—')}
+                      </td>
+                      <td className="py-1 px-2 font-mono text-slate-700">
+                        {row.vendor_invoice_no || '—'}
+                      </td>
+                      <td className="py-1 px-2 text-right font-mono tabular-nums text-slate-800">
+                        {formatCurrency(row.bill_total)}
+                      </td>
+                      <td className="py-1 px-2 text-right font-mono tabular-nums text-rose-700">
+                        {Number(row.credits_applied) > 0 ? `-${formatCurrency(row.credits_applied)}` : '0.00'}
+                      </td>
+                      <td className="py-1 px-2 text-right font-mono tabular-nums text-slate-600">
+                        {formatCurrency(row.previously_paid)}
+                      </td>
+                      <td className="py-1 px-2 text-right font-mono tabular-nums font-bold text-indigo-900 bg-indigo-50/40">
+                        {formatCurrency(row.paid_this_voucher)}
+                      </td>
+                      <td className="py-1 px-2.5 text-right font-mono tabular-nums font-semibold text-slate-800">
+                        {formatCurrency(row.remaining_balance)}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
                     <td className="py-1.5 px-2.5 font-mono font-semibold text-slate-800">
-                      {row.bill_ref || row.bill_number || row.po_ref || '—'}
+                      {formatCleanDocumentEnquiryRef(pvMeta?.linked_po_ref || poMeta?.po_ref || quotation.quote_number, 'payment_voucher', 'Advance / PO')}
                     </td>
                     <td className="py-1.5 px-2 font-mono text-slate-700">
-                      {row.vendor_invoice_no || '—'}
+                      {pvMeta?.vendor_invoice_no || '—'}
                     </td>
                     <td className="py-1.5 px-2 text-right font-mono tabular-nums text-slate-800">
-                      {formatCurrency(row.bill_total)}
+                      {formatCurrency(totalPayable)}
                     </td>
-                    <td className="py-1.5 px-2 text-right font-mono tabular-nums text-rose-700">
-                      {Number(row.credits_applied) > 0 ? `-${formatCurrency(row.credits_applied)}` : '0.00'}
+                    <td className="py-1.5 px-2 text-right font-mono tabular-nums text-slate-500">
+                      0.00
                     </td>
                     <td className="py-1.5 px-2 text-right font-mono tabular-nums text-slate-600">
-                      {formatCurrency(row.previously_paid)}
+                      {formatCurrency(prevPaid)}
                     </td>
                     <td className="py-1.5 px-2 text-right font-mono tabular-nums font-bold text-indigo-900 bg-indigo-50/40">
-                      {formatCurrency(row.paid_this_voucher)}
+                      {formatCurrency(amtPaid)}
                     </td>
                     <td className="py-1.5 px-2.5 text-right font-mono tabular-nums font-semibold text-slate-800">
-                      {formatCurrency(row.remaining_balance)}
+                      {formatCurrency(balanceRemaining)}
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td className="py-2 px-2.5 font-mono font-semibold text-slate-800">
-                    {pvMeta?.linked_po_ref || poMeta?.po_ref || quotation.quote_number || 'Advance / PO'}
+                )}
+              </tbody>
+              <tfoot>
+                <tr className="bg-slate-100/90 border-t-2 border-slate-300 font-bold text-slate-900">
+                  <td colSpan={2} className="py-1 px-2.5 uppercase">
+                    Total Settlement Summary
                   </td>
-                  <td className="py-2 px-2 font-mono text-slate-700">
-                    {pvMeta?.vendor_invoice_no || '—'}
-                  </td>
-                  <td className="py-2 px-2 text-right font-mono tabular-nums text-slate-800">
+                  <td className="py-1 px-2 text-right font-mono tabular-nums">
                     {formatCurrency(totalPayable)}
                   </td>
-                  <td className="py-2 px-2 text-right font-mono tabular-nums text-slate-500">
-                    0.00
+                  <td className="py-1 px-2 text-right font-mono tabular-nums text-rose-700">
+                    {creditsApplied > 0 ? `-${formatCurrency(creditsApplied)}` : '0.00'}
                   </td>
-                  <td className="py-2 px-2 text-right font-mono tabular-nums text-slate-600">
+                  <td className="py-1 px-2 text-right font-mono tabular-nums">
                     {formatCurrency(prevPaid)}
                   </td>
-                  <td className="py-2 px-2 text-right font-mono tabular-nums font-bold text-indigo-900 bg-indigo-50/40">
+                  <td className="py-1 px-2 text-right font-mono tabular-nums text-indigo-900">
                     {formatCurrency(amtPaid)}
                   </td>
-                  <td className="py-2 px-2.5 text-right font-mono tabular-nums font-semibold text-slate-800">
+                  <td className="py-1 px-2.5 text-right font-mono tabular-nums">
                     {formatCurrency(balanceRemaining)}
                   </td>
                 </tr>
-              )}
-            </tbody>
-            <tfoot>
-              <tr className="bg-slate-100/90 border-t-2 border-slate-300 font-bold text-slate-900">
-                <td colSpan={2} className="py-1.5 px-2.5 uppercase">
-                  Total Settlement Summary
-                </td>
-                <td className="py-1.5 px-2 text-right font-mono tabular-nums">
-                  {formatCurrency(totalPayable)}
-                </td>
-                <td className="py-1.5 px-2 text-right font-mono tabular-nums text-rose-700">
-                  {creditsApplied > 0 ? `-${formatCurrency(creditsApplied)}` : '0.00'}
-                </td>
-                <td className="py-1.5 px-2 text-right font-mono tabular-nums">
-                  {formatCurrency(prevPaid)}
-                </td>
-                <td className="py-1.5 px-2 text-right font-mono tabular-nums text-indigo-900">
-                  {formatCurrency(amtPaid)}
-                </td>
-                <td className="py-1.5 px-2.5 text-right font-mono tabular-nums">
-                  {formatCurrency(balanceRemaining)}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+              </tfoot>
+            </table>
+          </div>
+        )}
 
         {/* 2-Column Disbursing Bank vs Beneficiary Bank Details */}
-        <div className="grid grid-cols-2 gap-3 items-stretch">
-          <div className={`p-3 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
-            <div>
-              <div
-                className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-2 border-b border-slate-200`}
-                style={{ color: themePalette.textAccent }}
-              >
-                Disbursing Treasury &amp; Instrument Details
-              </div>
-              <div className={`space-y-1.5 ${typoScale.body} text-slate-700`}>
-                <div className="flex justify-between gap-2">
-                  <span className="font-semibold text-slate-500">Payment Mode:</span>
-                  <span className="font-bold text-slate-900">{payMethod}</span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="font-semibold text-slate-500">Disbursing Account:</span>
-                  <span className="font-medium text-slate-800 text-right">{disbursingBankLabel}</span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="font-semibold text-slate-500">Bank Wire / UTR / Cheque #:</span>
-                  <span className="font-mono font-semibold text-slate-900">{txnRef}</span>
-                </div>
-                {payMethod === 'Cheque' && (
-                  <div className="flex justify-between gap-2">
-                    <span className="font-semibold text-slate-500">Cheque Bank &amp; Date:</span>
-                    <span className="font-semibold text-slate-900">
-                      {[pvMeta?.cheque_bank_name, pvMeta?.cheque_date ? formatDate(pvMeta.cheque_date) : '']
-                        .filter(Boolean)
-                        .join(' • ') || '—'}
-                    </span>
+        {(showTreasuryCard || showBeneficiaryCard) && (
+          <div className={`grid ${showTreasuryCard && showBeneficiaryCard ? 'grid-cols-2' : 'grid-cols-1'} gap-2.5 items-stretch`}>
+            {showTreasuryCard && (
+              <div className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+                <div>
+                  <div
+                    className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
+                    style={{ color: themePalette.textAccent }}
+                  >
+                    {treasuryHeading}
                   </div>
-                )}
+                  <div className={`space-y-1 ${typoScale.body} text-slate-700`}>
+                    <div className="flex justify-between gap-2">
+                      <span className="font-semibold text-slate-500">Payment Mode:</span>
+                      <span className="font-bold text-slate-900">{payMethod}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="font-semibold text-slate-500">Disbursing Account:</span>
+                      <span className="font-medium text-slate-800 text-right">{disbursingBankLabel}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="font-semibold text-slate-500">Bank Wire / UTR / Cheque #:</span>
+                      <span className="font-mono font-semibold text-slate-900">{txnRef}</span>
+                    </div>
+                    {payMethod === 'Cheque' && (
+                      <div className="flex justify-between gap-2">
+                        <span className="font-semibold text-slate-500">Cheque Bank &amp; Date:</span>
+                        <span className="font-semibold text-slate-900">
+                          {[pvMeta?.cheque_bank_name, pvMeta?.cheque_date ? formatDate(pvMeta.cheque_date) : '']
+                            .filter(Boolean)
+                            .join(' • ') || '—'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
+            )}
 
-          <div className={`p-3 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
-            <div>
-              <div
-                className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-2 border-b border-slate-200`}
-                style={{ color: themePalette.textAccent }}
-              >
-                Vendor Beneficiary Bank Account
-              </div>
-              <div className={`space-y-1.5 ${typoScale.body} text-slate-700`}>
-                <div className="flex justify-between gap-2">
-                  <span className="font-semibold text-slate-500">Beneficiary Name:</span>
-                  <span className="font-bold text-slate-900 text-right">
-                    {benBank.beneficiary_name || pvMeta?.payee_name || pvMeta?.paid_to_vendor_name || clientEntityName}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="font-semibold text-slate-500">Bank Name:</span>
-                  <span className="font-semibold text-slate-800 text-right">
-                    {benBank.bank_name || 'As per Vendor File'}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="font-semibold text-slate-500">IBAN / Account No:</span>
-                  <span className="font-mono font-semibold text-slate-900 text-right">
-                    {benBank.iban || benBank.account_number || '—'}
-                  </span>
-                </div>
-                {benBank.swift_code && (
-                  <div className="flex justify-between gap-2">
-                    <span className="font-semibold text-slate-500">SWIFT / BIC:</span>
-                    <span className="font-mono font-semibold text-slate-900">{benBank.swift_code}</span>
+            {showBeneficiaryCard && (
+              <div className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+                <div>
+                  <div
+                    className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
+                    style={{ color: themePalette.textAccent }}
+                  >
+                    {beneficiaryHeading}
                   </div>
-                )}
+                  <div className={`space-y-1 ${typoScale.body} text-slate-700`}>
+                    <div className="flex justify-between gap-2">
+                      <span className="font-semibold text-slate-500">Beneficiary Name:</span>
+                      <span className="font-bold text-slate-900 text-right">
+                        {benBank.beneficiary_name || pvMeta?.payee_name || pvMeta?.paid_to_vendor_name || clientEntityName}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="font-semibold text-slate-500">Bank Name:</span>
+                      <span className="font-semibold text-slate-800 text-right">
+                        {benBank.bank_name || 'As per Vendor File'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="font-semibold text-slate-500">IBAN / Account No:</span>
+                      <span className="font-mono font-semibold text-slate-900 text-right">
+                        {benBank.iban || benBank.account_number || '—'}
+                      </span>
+                    </div>
+                    {benBank.swift_code && (
+                      <div className="flex justify-between gap-2">
+                        <span className="font-semibold text-slate-500">SWIFT / BIC:</span>
+                        <span className="font-mono font-semibold text-slate-900">{benBank.swift_code}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
           </div>
-        </div>
+        )}
 
         {/* 4-Slot Outbound Payment Voucher Signatory & Payee Acknowledgment Block */}
-        <div className="grid grid-cols-4 gap-2.5 pt-1">
-          {[
-            { label: 'Prepared By', name: preparedByName, role: 'Accounts / Procurement' },
-            { label: 'Reviewed / Verified By', name: reviewedByName, role: 'Finance Verification' },
-            { label: 'Approved By', name: approvedByName, role: 'Authorized Signatory' },
-            { label: 'Payee Receiver Signature', name: receiverName, role: 'Vendor Acknowledgment' }
-          ].map((slot, sIdx) => (
-            <div
-              key={slot.label}
-              className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between min-h-[84px]`}
-            >
-              <span
-                className={`${typoScale.micro} font-extrabold uppercase tracking-wider text-slate-500 border-b border-slate-200 pb-1`}
+        {showApprovalMatrix && visibleApprovalCols.length > 0 && (
+          <div
+            onClick={
+              isInteractive
+                ? (e) => {
+                    e.stopPropagation();
+                    onSelectSection?.('signatory');
+                    onSelectBlock?.('signatory' as any);
+                  }
+                : undefined
+            }
+            className={`grid ${
+              visibleApprovalCols.length === 1
+                ? 'grid-cols-1'
+                : visibleApprovalCols.length === 2
+                ? 'grid-cols-2'
+                : visibleApprovalCols.length === 3
+                ? 'grid-cols-3'
+                : 'grid-cols-4'
+            } gap-2 pt-0.5 relative group/sig ${
+              isInteractive ? 'cursor-pointer hover:ring-1 hover:ring-blue-400 rounded-lg' : ''
+            }`}
+          >
+            {visibleApprovalCols.map((slot, sIdx) => (
+              <div
+                key={`${slot.label}-${sIdx}`}
+                className={`p-2 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between min-h-[70px]`}
               >
-                {slot.label}
-              </span>
-              <div className="h-8 flex items-end">
-                {sIdx === 2 && quotation.signature_image_url ? (
-                  <img
-                    src={quotation.signature_image_url}
-                    alt="Approved Signature"
-                    className="h-7 w-auto object-contain"
-                  />
-                ) : null}
+                <span
+                  className={`${typoScale.micro} font-extrabold uppercase tracking-wider text-slate-500 border-b border-slate-200 pb-0.5`}
+                >
+                  {slot.label}
+                </span>
+                <div className="h-6 flex items-end">
+                  {sIdx === 2 && quotation.signature_image_url ? (
+                    <img
+                      src={quotation.signature_image_url}
+                      alt="Approved Signature"
+                      className="h-6 w-auto object-contain"
+                    />
+                  ) : null}
+                </div>
+                <div className="border-t border-slate-300 pt-0.5">
+                  <div className={`${typoScale.sub} font-bold text-slate-900 truncate`}>{slot.name}</div>
+                  <div className={`${typoScale.micro} text-slate-500 truncate`}>{slot.role}</div>
+                </div>
               </div>
-              <div className="border-t border-slate-300 pt-1">
-                <div className={`${typoScale.sub} font-bold text-slate-900 truncate`}>{slot.name}</div>
-                <div className={`${typoScale.micro} text-slate-500 truncate`}>{slot.role}</div>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </section>
     );
   };
 
   const renderVendorReturnSignOffBlock = () => {
     if (!isMaterialReturnNote && !isDebitNote) return null;
+    if (resolvedFooterConfig.showSignatories === false) return null;
     const isDn = isDebitNote || returnMeta?.return_mode === 'debit_note';
     const radiusClass =
       (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp'
@@ -9769,32 +10311,54 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     const vendorAck = returnMeta?.received_by_vendor || returnMeta?.accepted_by_vendor_name || '';
     const vendorEntity =
       returnMeta?.supplier_name || returnMeta?.vendor_name || clientEntityName;
+    const leftHeading =
+      (returnMeta?.signoff_left_heading || '').trim() ||
+      (isDn ? `Debit Claim Issued By — ${senderEntityName}` : `Material Dispatched By — ${senderEntityName}`);
+    const rightHeading =
+      (returnMeta?.signoff_right_heading || '').trim() ||
+      `Vendor Return / Debit Acknowledgment — ${vendorEntity}`;
+    const showVendorStampBox = returnMeta?.show_vendor_stamp_box !== false;
+    const isSigSelected =
+      activeSelectedSection === 'signatory' || activeSelectedSection === 'signatories';
 
     return (
       <section
-        className={`w-full mb-3 print:mb-2 grid grid-cols-2 gap-3 break-inside-avoid page-break-inside-avoid ${
-          isInteractive ? 'cursor-pointer hover:ring-1 hover:ring-blue-400 rounded-lg transition-all' : ''
+        className={`w-full mb-2 print:mb-1.5 grid grid-cols-2 gap-2.5 break-inside-avoid page-break-inside-avoid relative group ${
+          isInteractive
+            ? `cursor-pointer rounded-lg transition-all ${
+                isSigSelected
+                  ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0'
+                  : 'hover:ring-1 hover:ring-blue-400 print:ring-0'
+              }`
+            : ''
         }`}
         style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
         onClick={
           isInteractive
             ? (e) => {
                 e.stopPropagation();
-                onSelectSection?.('quote_meta');
-                onSelectBlock?.('quote_meta' as any);
+                onSelectSection?.('signatory');
+                onSelectBlock?.('signatory' as any);
               }
             : undefined
         }
       >
-        <div className={`p-3 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+        {isInteractive && (
+          <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+            isSigSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+          }`}>
+            Click to Customize Return / Debit Sign-Off
+          </div>
+        )}
+        <div className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
           <div>
             <div
-              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-2 border-b border-slate-200`}
+              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
               style={{ color: themePalette.textAccent }}
             >
-              {isDn ? `Debit Claim Issued By — ${senderEntityName}` : `Material Dispatched By — ${senderEntityName}`}
+              {leftHeading}
             </div>
-            <div className={`grid grid-cols-2 gap-2 ${typoScale.body} text-slate-700`}>
+            <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
               <div>
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared / QA Officer</span>
                 <span className="font-semibold text-slate-900">{returnedBy}</span>
@@ -9819,30 +10383,61 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               </div>
             </div>
           </div>
-          <div className="pt-4 mt-3 border-t border-slate-200/80">
-            <div className="border-t border-slate-300 pt-1 mt-6">
-              <div className={`${typoScale.sub} font-bold text-slate-800`}>
-                Authorized Procurement / Warehouse Signature
-              </div>
-              <div className={`${typoScale.micro} text-slate-500`}>For {senderEntityName}</div>
-            </div>
+          <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
+            {(() => {
+              const retStampSigOverlay = resolveStampSignatureOverlayConfig(
+                resolvedFooterConfig,
+                quotation,
+                profile
+              );
+              return (
+                <>
+                  <div className="flex-1">
+                    <div className="h-7 flex items-end">
+                      {retStampSigOverlay.activeSignatureUrl ? (
+                        <img
+                          src={retStampSigOverlay.activeSignatureUrl}
+                          alt="Authorized Signature"
+                          className="h-6 w-auto object-contain"
+                        />
+                      ) : (
+                        <span className="font-serif italic text-sm text-slate-700">{returnedBy}</span>
+                      )}
+                    </div>
+                    <div className="border-t border-slate-300 pt-1 mt-1">
+                      <div className={`${typoScale.sub} font-bold text-slate-800`}>
+                        Authorized Procurement / Warehouse Signature
+                      </div>
+                      <div className={`${typoScale.micro} text-slate-500`}>For {senderEntityName}</div>
+                    </div>
+                  </div>
+                  {resolvedShowCompanySeal && retStampSigOverlay.activeSealUrl && (
+                    <img
+                      src={retStampSigOverlay.activeSealUrl}
+                      alt="Official Seal"
+                      className="h-11 w-auto object-contain opacity-90 shrink-0"
+                    />
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
 
-        <div className={`p-3 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+        <div className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
           <div>
             <div
-              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
+              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1 border-b border-slate-200`}
               style={{ color: themePalette.textAccent }}
             >
-              Vendor Return / Debit Acknowledgment — {vendorEntity}
+              {rightHeading}
             </div>
-            <p className={`${typoScale.sub} text-slate-700 italic leading-snug mb-2`}>
+            <p className={`${typoScale.sub} text-slate-700 italic leading-snug mb-1.5`}>
               {isDn
                 ? 'We acknowledge receipt of this Debit Note and confirm adjustment against our account / invoice balance.'
                 : 'Received the above returned material for inspection, replacement, or credit note issuance.'}
             </p>
-            <div className={`grid grid-cols-2 gap-2 ${typoScale.body} text-slate-700`}>
+            <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
               <div>
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Accepted By (Vendor Rep)</span>
                 <span className="font-semibold text-slate-900">
@@ -9857,15 +10452,23 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               </div>
             </div>
           </div>
-          <div className="pt-4 mt-3 border-t border-slate-200/80 flex items-end justify-between gap-3">
+          <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
             <div className="flex-1">
-              <div className="border-t border-slate-300 pt-1 mt-6">
+              <div className="h-7" />
+              <div className="border-t border-slate-300 pt-1 mt-1">
                 <div className={`${typoScale.sub} font-bold text-slate-800`}>
                   Vendor Representative Signature &amp; Stamp
                 </div>
                 <div className={`${typoScale.micro} text-slate-500`}>Date: ____ / ____ / 20____</div>
               </div>
             </div>
+            {showVendorStampBox && (
+              <div className="w-18 h-11 rounded border border-dashed border-slate-300 flex items-center justify-center text-center p-1 shrink-0 bg-white/70">
+                <span className="text-[7px] font-mono uppercase text-slate-400 leading-tight">
+                  Vendor Stamp
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </section>

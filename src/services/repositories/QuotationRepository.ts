@@ -1063,14 +1063,27 @@ export class QuotationRepository {
   /**
    * Deserializes and standardizes dual workspace fields for QuotationPreset entities.
    */
+  public static inferPresetDocumentType(data: any): CommercialDocumentType {
+    if (data?.document_type) return data.document_type as CommercialDocumentType;
+    const name = String(data?.preset_name || '').trim();
+    if (/(?:^|[\s\-_/(])PV(?:$|[\s\-_/)\]])|payment\s*voucher/i.test(name)) return 'payment_voucher';
+    if (/(?:^|[\s\-_/(])DO(?:$|[\s\-_/)\]])|delivery\s*note/i.test(name)) return 'delivery_note';
+    if (/(?:^|[\s\-_/(])PO(?:$|[\s\-_/)\]])|purchase\s*order/i.test(name)) return 'purchase_order';
+    if (/(?:^|[\s\-_/(])REC(?:$|[\s\-_/)\]])|receipt/i.test(name)) return 'receipt';
+    if (/(?:^|[\s\-_/(])MRN(?:$|[\s\-_/)\]])|material\s*return/i.test(name)) return 'material_return_note';
+    if (/(?:^|[\s\-_/(])DN(?:$|[\s\-_/)\]])|debit\s*note/i.test(name)) return 'debit_note';
+    return 'quotation';
+  }
+
   public static docToPreset(id: string, data: any): QuotationPreset {
-    if (!data) return { id } as QuotationPreset;
+    if (!data) return { id, document_type: 'quotation' } as QuotationPreset;
     const wsId = data.workspace_id || data.workspaceId || 'ws_default';
     return {
       ...data,
       id: id || data.id,
       workspace_id: wsId,
       workspaceId: wsId,
+      document_type: this.inferPresetDocumentType(data),
       is_default: Boolean(data.is_default),
       visible_columns: data.visible_columns || {},
       default_tax_mode: data.default_tax_mode || 'taxes_extra',
@@ -2403,6 +2416,7 @@ export class QuotationRepository {
       ...input,
       workspace_id: wsId,
       workspaceId: wsId,
+      document_type: this.inferPresetDocumentType(input),
       is_default: Boolean(input.is_default),
       visible_columns: normalizedColumns,
       layout_blocks: normalizedBlocks,
@@ -2454,6 +2468,7 @@ export class QuotationRepository {
     const serialized = this.serializePresetSnapshot(preset);
     return {
       presetId: preset.id || '',
+      documentType: serialized.document_type || 'quotation',
       isDefault: Boolean(preset.is_default),
       visibleColumns: { ...serialized.visible_columns },
       layoutBlocks: serialized.layout_blocks ? serialized.layout_blocks.map((b) => ({ ...b })) : [],
@@ -2508,16 +2523,24 @@ export class QuotationRepository {
   }
 
   /**
-   * Pure helper: marks `is_default: true` exclusively on `targetPresetId` while clearing `is_default` on sibling presets.
+   * Pure helper: marks `is_default: true` exclusively on `targetPresetId` while clearing `is_default` on sibling presets of the same document_type.
    */
   public static applyDefaultPresetInList(
     presets: QuotationPreset[],
     targetPresetId: string
   ): QuotationPreset[] {
-    return presets.map((p) => ({
-      ...p,
-      is_default: p.id === targetPresetId
-    }));
+    const targetPreset = presets.find((p) => p.id === targetPresetId);
+    const targetDocType = targetPreset ? this.inferPresetDocumentType(targetPreset) : 'quotation';
+    return presets.map((p) => {
+      const pDocType = this.inferPresetDocumentType(p);
+      if (pDocType !== targetDocType) {
+        return p;
+      }
+      return {
+        ...p,
+        is_default: p.id === targetPresetId
+      };
+    });
   }
 
   /**
@@ -2705,6 +2728,14 @@ export class QuotationRepository {
       ...(mergedHeaderConfig ? { header_config: mergedHeaderConfig } : {}),
       ...(mergedRecipientConfig ? { recipient_config: mergedRecipientConfig } : {}),
       ...(mergedFooterConfig ? { footer_config: mergedFooterConfig } : {}),
+      ...(existing?.document_type_defaults || incoming.document_type_defaults
+        ? {
+            document_type_defaults: {
+              ...(existing?.document_type_defaults || {}),
+              ...(incoming.document_type_defaults || {})
+            }
+          }
+        : {}),
       bank_accounts: normalizedBanks,
       is_default: incoming.is_default ?? existing?.is_default ?? true,
       createdAt: incoming.createdAt || existing?.createdAt || now,
@@ -2852,10 +2883,13 @@ export class QuotationRepository {
 
     // Sync to Local Store
     try {
+      const targetPreset = currentPresets.find((p) => p.id === presetId);
+      const targetDocType = targetPreset ? this.inferPresetDocumentType(targetPreset) : 'quotation';
       const allLocal = (await getFromLocalStore<QuotationPreset>(this.PRESETS_STORE)) || [];
       const updatedAllLocal = allLocal.map((p) => {
         const itemWs = p.workspace_id || p.workspaceId;
-        if (itemWs === wsId && !p.is_deleted) {
+        const pDocType = this.inferPresetDocumentType(p);
+        if (itemWs === wsId && !p.is_deleted && pDocType === targetDocType) {
           return {
             ...p,
             is_default: p.id === presetId,

@@ -3653,17 +3653,22 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       `QT-${new Date().getFullYear()}-${String(enquiry.sn || 1).padStart(4, '0')}`;
     const todayIso = new Date().toISOString().slice(0, 10);
 
+    const cleanBaseRef =
+      baseQuoteRef && !baseQuoteRef.includes('_gap_') && !/^[A-Za-z0-9]{15,}$/.test(baseQuoteRef)
+        ? baseQuoteRef
+        : `QT-${new Date().getFullYear()}-${String(enquiry.sn || 1).padStart(4, '0')}`;
+
     if (nextType === 'delivery_note') {
       handleEnterUnpricedSubmittalMode();
       const linkedDoRef =
         deliveryMetadata.delivery_ref ||
-        QuotationRepository.generateLinkedDocumentRef(baseQuoteRef, 'delivery_note', enquiryRevisions);
+        QuotationRepository.generateLinkedDocumentRef(cleanBaseRef, 'delivery_note', enquiryRevisions);
       setFormattedQuoteRefOverride(linkedDoRef);
       setDeliveryMetadata((prev) => ({
         ...prev,
         delivery_ref: prev.delivery_ref || linkedDoRef,
         delivery_date: prev.delivery_date || todayIso,
-        related_quote_ref: prev.related_quote_ref || baseQuoteRef,
+        related_quote_ref: prev.related_quote_ref || cleanBaseRef,
         site_contact_name:
           prev.site_contact_name ||
           clientContactPerson ||
@@ -3688,8 +3693,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       }
       const linkedPoRef =
         purchaseOrderMetadata.po_ref ||
-        QuotationRepository.generateLinkedDocumentRef(baseQuoteRef, 'purchase_order', enquiryRevisions);
+        QuotationRepository.generateLinkedDocumentRef(cleanBaseRef, 'purchase_order', enquiryRevisions);
       setFormattedQuoteRefOverride(linkedPoRef);
+      if (
+        !customNotes ||
+        customNotes.trim() === '' ||
+        customNotes.trim() === 'All prices are subject to availability at the time of firm order.'
+      ) {
+        setCustomNotes(
+          '1. Please quote our Purchase Order number on all Delivery Notes, Packing Lists, and Tax Invoices.\n2. Goods must strictly conform to the technical specifications and delivery schedule stated herein.\n3. Payment shall be processed against original Tax Invoice and signed Goods Received Note (3-Way Match).'
+        );
+      }
       setPurchaseOrderMetadata((prev) => ({
         ...prev,
         po_variant: prev.po_variant || 'supplier_po',
@@ -3702,7 +3716,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     } else if (nextType === 'receipt') {
       const linkedRecRef =
         receiptMetadata.receipt_ref ||
-        QuotationRepository.generateLinkedDocumentRef(baseQuoteRef, 'receipt', enquiryRevisions);
+        QuotationRepository.generateLinkedDocumentRef(cleanBaseRef, 'receipt', enquiryRevisions);
       setFormattedQuoteRefOverride(linkedRecRef);
       const priorReceiptsTotal = enquiryRevisions
         .filter((d) => d.document_type === 'receipt' && d.id !== activeQuotationId)
@@ -3720,6 +3734,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         receiptMetadata.amount_received !== undefined
           ? Number(receiptMetadata.amount_received)
           : Math.max(0, contractVal - prevPaid);
+      const cleanExistingPaymentFor =
+        receiptMetadata.payment_for &&
+        !receiptMetadata.payment_for.includes('_gap_') &&
+        !/[A-Za-z0-9]{15,}/.test(receiptMetadata.payment_for)
+          ? receiptMetadata.payment_for
+          : '';
       setReceiptMetadata((prev) => ({
         ...prev,
         receipt_ref: prev.receipt_ref || linkedRecRef,
@@ -3731,9 +3751,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           enquiry.client_company ||
           '',
         payment_for:
-          prev.payment_for ||
+          cleanExistingPaymentFor ||
           quotationSubject ||
-          `Settlement against Quotation ${baseQuoteRef}`,
+          `Settlement against Quotation ${cleanBaseRef}`,
         payment_method: prev.payment_method || 'Bank Transfer / TT',
         total_order_value: contractVal,
         previously_received: prevPaid,
@@ -3747,7 +3767,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       const linkedPvRef =
         paymentVoucherMetadata.pv_ref ||
         QuotationRepository.generateLinkedDocumentRef(
-          baseQuoteRef,
+          cleanBaseRef,
           'payment_voucher',
           enquiryRevisions
         );
@@ -3792,10 +3812,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       } else if (prevType === 'delivery_note' || prevType === 'material_return_note') {
         handleRestorePricedQuoteMode();
       }
+      const existingRetRef = (vendorReturnMetadata.return_ref || '').trim();
+      const swappedExistingRef = existingRetRef
+        ? nextType === 'debit_note'
+          ? existingRetRef.replace(/^MRN-/i, 'DN-')
+          : existingRetRef.replace(/^DN-/i, 'MRN-')
+        : '';
       const linkedRetRef =
-        vendorReturnMetadata.return_ref ||
+        swappedExistingRef ||
         QuotationRepository.generateLinkedDocumentRef(
-          baseQuoteRef,
+          cleanBaseRef,
           nextType,
           enquiryRevisions
         );
@@ -3803,8 +3829,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setVendorReturnMetadata((prev) => ({
         ...prev,
         return_mode: nextType,
-        return_ref:
-          prev.return_ref && prev.return_mode === nextType ? prev.return_ref : linkedRetRef,
+        return_ref: linkedRetRef,
         return_date: prev.return_date || todayIso,
         vendor_id: prev.vendor_id || purchaseOrderMetadata.supplier_id,
         vendor_name:
@@ -3829,9 +3854,20 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       if (prevType === 'delivery_note' || prevType === 'material_return_note') {
         handleRestorePricedQuoteMode();
       }
-      const cleanQuoteNumber = baseQuoteRef.replace(/-R\d+$/i, '');
+      const cleanQuoteNumber = cleanBaseRef.replace(/-R\d+$/i, '');
       const revNum = revisionNumber ?? editingQuotation?.revision_number ?? 1;
       setFormattedQuoteRefOverride(`${cleanQuoteNumber}-R${revNum}`);
+    }
+
+    // Automatically select the matching default preset for the target document type
+    const matchingPresets = presets.filter(
+      (p) => QuotationRepository.inferPresetDocumentType(p) === nextType
+    );
+    const matchingDefault = matchingPresets.find((p) => p.is_default) || matchingPresets[0];
+    if (matchingDefault) {
+      setSelectedPresetId(matchingDefault.id || '');
+    } else {
+      setSelectedPresetId('');
     }
   };
 
@@ -5196,6 +5232,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     return QuotationRepository.serializePresetSnapshot({
       workspace_id: activeWorkspaceId,
       workspaceId: activeWorkspaceId,
+      document_type: documentType || 'quotation',
       preset_name: presetName.trim(),
       is_default: Boolean(isDefault),
       header_profile_id: activeProfile?.id,
@@ -5287,6 +5324,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     });
   };
 
+  // Presets filtered specifically for the active documentType (QT, DO, REC, PO, PV, MRN, DN)
+  const filteredPresetsForDocType = useMemo(
+    () =>
+      presets.filter(
+        (p) => QuotationRepository.inferPresetDocumentType(p) === (documentType || 'quotation')
+      ),
+    [presets, documentType]
+  );
+
   // Handle Save as New Template Preset
   const handleSaveNewPreset = async () => {
     if (!newPresetName.trim()) {
@@ -5297,7 +5343,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     try {
       const presetData = buildCurrentPresetPayload(
         newPresetName.trim(),
-        presets.length === 0
+        filteredPresetsForDocType.length === 0
       );
 
       const saved = await QuotationRepository.savePreset(presetData);
@@ -5314,10 +5360,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     }
   };
 
-  // Selected custom preset object
+  // Selected custom preset object (only if it matches active document type)
   const selectedPreset = useMemo(
-    () => presets.find((p) => p.id === selectedPresetId),
-    [presets, selectedPresetId]
+    () => filteredPresetsForDocType.find((p) => p.id === selectedPresetId),
+    [filteredPresetsForDocType, selectedPresetId]
   );
 
   // Overwrite currently selected custom preset with all current studio settings
@@ -5456,6 +5502,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           showItemAttributes: visibleColumns.showItemAttributes !== false,
           showAmountInWords: amountInWordsEnabled
         },
+        document_type_defaults: {
+          ...(activeProfile?.document_type_defaults || {}),
+          [documentType || 'quotation']: buildCurrentPresetPayload(
+            `${(documentType || 'quotation').toUpperCase()} Default`,
+            true
+          )
+        },
         updated_at: new Date().toISOString()
       };
 
@@ -5464,9 +5517,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       );
       setWorkspaceProfile(savedProfile);
 
-      // Also update the active or default preset if one exists
+      // Also update the active or default preset for the current document type if one exists
       const targetPreset =
-        selectedPreset || presets.find((p) => p.is_default) || presets[0];
+        selectedPreset ||
+        filteredPresetsForDocType.find((p) => p.is_default) ||
+        filteredPresetsForDocType[0];
       let savedPreset: QuotationPreset | undefined = undefined;
       if (targetPreset && targetPreset.id) {
         const presetPayload = buildCurrentPresetPayload(
@@ -6119,20 +6174,36 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 </div>
                 <div className="flex gap-2">
                   <select
-                    value={selectedPresetId}
+                    value={selectedPreset ? selectedPresetId : ''}
                     onChange={(e) => {
                       const val = e.target.value;
                       if (!val) {
                         setSelectedPresetId('');
                         return;
                       }
-                      const found = presets.find((p) => p.id === val);
+                      const found = filteredPresetsForDocType.find((p) => p.id === val);
                       if (found) applyPreset(found);
                     }}
                     className="w-full text-xs font-medium rounded-lg border border-slate-300 p-2 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   >
-                    <option value="">Standard Default Template</option>
-                    {presets.map((p) => (
+                    <option value="">
+                      Standard{' '}
+                      {documentType === 'delivery_note'
+                        ? 'Delivery Note'
+                        : documentType === 'purchase_order'
+                        ? 'Purchase Order'
+                        : documentType === 'receipt'
+                        ? 'Payment Receipt'
+                        : documentType === 'payment_voucher'
+                        ? 'Payment Voucher'
+                        : documentType === 'material_return_note'
+                        ? 'Material Return'
+                        : documentType === 'debit_note'
+                        ? 'Debit Note'
+                        : 'Quotation'}{' '}
+                      Template
+                    </option>
+                    {filteredPresetsForDocType.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.preset_name}{p.is_default ? ' (★ Default)' : ''}
                       </option>
@@ -11544,6 +11615,374 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             />
                           </label>
                         </div>
+
+                        {/* Specialized Mode-Specific Left Card Fields */}
+                        {documentType === 'delivery_note' && (
+                          <div className="pt-2.5 mt-2 border-t border-emerald-200 space-y-2">
+                            <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block">
+                              Delivery Note Consignee Fields
+                            </span>
+                            <div>
+                              <label className="text-slate-500 text-[10px] uppercase font-bold block mb-1">
+                                Left Card Heading Override
+                              </label>
+                              <input
+                                type="text"
+                                value={deliveryMetadata.left_card_heading ?? ''}
+                                onChange={(e) =>
+                                  setDeliveryMetadata((prev) => ({
+                                    ...prev,
+                                    left_card_heading: e.target.value
+                                  }))
+                                }
+                                onFocus={() => setFocusedRecipientStyleTarget('recipient_heading')}
+                                placeholder="DELIVER TO / CONSIGNEE"
+                                className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              <div>
+                                <label className="text-slate-500 text-[10px] uppercase font-bold block mb-0.5">
+                                  Site Contact Person
+                                </label>
+                                <input
+                                  type="text"
+                                  value={deliveryMetadata.site_contact_name ?? ''}
+                                  onChange={(e) =>
+                                    setDeliveryMetadata((prev) => ({
+                                      ...prev,
+                                      site_contact_name: e.target.value
+                                    }))
+                                  }
+                                  onFocus={() => setFocusedRecipientStyleTarget('recipient_attention')}
+                                  placeholder="Site Contact"
+                                  className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-slate-500 text-[10px] uppercase font-bold block mb-0.5">
+                                  Site Contact Phone
+                                </label>
+                                <input
+                                  type="text"
+                                  value={deliveryMetadata.site_contact_phone ?? ''}
+                                  onChange={(e) =>
+                                    setDeliveryMetadata((prev) => ({
+                                      ...prev,
+                                      site_contact_phone: e.target.value
+                                    }))
+                                  }
+                                  onFocus={() => setFocusedRecipientStyleTarget('recipient_contact')}
+                                  placeholder="+971..."
+                                  className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800"
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="text-slate-500 text-[10px] uppercase font-bold block mb-0.5">
+                                Delivery Site Address
+                              </label>
+                              <input
+                                type="text"
+                                value={deliveryMetadata.delivery_address ?? ''}
+                                onChange={(e) =>
+                                  setDeliveryMetadata((prev) => ({
+                                    ...prev,
+                                    delivery_address: e.target.value
+                                  }))
+                                }
+                                onFocus={() => setFocusedRecipientStyleTarget('recipient_address')}
+                                placeholder="Project Site / Warehouse Location"
+                                className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-slate-500 text-[10px] uppercase font-bold block mb-0.5">
+                                Customer PO / LPO Number
+                              </label>
+                              <input
+                                type="text"
+                                value={deliveryMetadata.lpo_number ?? ''}
+                                onChange={(e) =>
+                                  setDeliveryMetadata((prev) => ({
+                                    ...prev,
+                                    lpo_number: e.target.value
+                                  }))
+                                }
+                                placeholder="Customer PO #"
+                                className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {documentType === 'purchase_order' && (
+                          <div className="pt-2.5 mt-2 border-t border-indigo-200 space-y-2">
+                            <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-800 block">
+                              Supplier / Vendor &amp; Ship-To Controls
+                            </span>
+                            <div>
+                              <label className="text-slate-500 text-[10px] uppercase font-bold block mb-0.5">
+                                Left Card Heading Override
+                              </label>
+                              <input
+                                type="text"
+                                value={purchaseOrderMetadata.left_card_heading ?? ''}
+                                onChange={(e) =>
+                                  setPurchaseOrderMetadata((prev) => ({
+                                    ...prev,
+                                    left_card_heading: e.target.value
+                                  }))
+                                }
+                                onFocus={() => setFocusedRecipientStyleTarget('recipient_heading')}
+                                placeholder="VENDOR / SUPPLIER (TO:)"
+                                className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-slate-500 text-[10px] uppercase font-bold block mb-0.5">
+                                Supplier / Vendor Name
+                              </label>
+                              <input
+                                type="text"
+                                value={purchaseOrderMetadata.supplier_name ?? ''}
+                                onChange={(e) =>
+                                  setPurchaseOrderMetadata((prev) => ({
+                                    ...prev,
+                                    supplier_name: e.target.value
+                                  }))
+                                }
+                                onFocus={() => setFocusedRecipientStyleTarget('recipient_entity_name')}
+                                placeholder="Supplier Legal Name"
+                                className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 font-semibold"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              <div>
+                                <label className="text-slate-500 text-[10px] uppercase font-bold block mb-0.5">
+                                  Supplier Attn / Contact
+                                </label>
+                                <input
+                                  type="text"
+                                  value={purchaseOrderMetadata.supplier_contact ?? ''}
+                                  onChange={(e) =>
+                                    setPurchaseOrderMetadata((prev) => ({
+                                      ...prev,
+                                      supplier_contact: e.target.value
+                                    }))
+                                  }
+                                  onFocus={() => setFocusedRecipientStyleTarget('recipient_attention')}
+                                  placeholder="Sales Rep"
+                                  className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-slate-500 text-[10px] uppercase font-bold block mb-0.5">
+                                  Supplier TRN
+                                </label>
+                                <input
+                                  type="text"
+                                  value={purchaseOrderMetadata.supplier_trn ?? ''}
+                                  onChange={(e) =>
+                                    setPurchaseOrderMetadata((prev) => ({
+                                      ...prev,
+                                      supplier_trn: e.target.value
+                                    }))
+                                  }
+                                  onFocus={() => setFocusedRecipientStyleTarget('recipient_trn')}
+                                  placeholder="Supplier TRN"
+                                  className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800"
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="text-slate-500 text-[10px] uppercase font-bold block mb-0.5">
+                                Ship-To / Delivery Address
+                              </label>
+                              <input
+                                type="text"
+                                value={purchaseOrderMetadata.ship_to_address ?? ''}
+                                onChange={(e) =>
+                                  setPurchaseOrderMetadata((prev) => ({
+                                    ...prev,
+                                    ship_to_address: e.target.value
+                                  }))
+                                }
+                                placeholder="Receiving Warehouse / Site Address"
+                                className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800"
+                              />
+                            </div>
+                            <label className="flex items-center justify-between p-2 rounded-lg border border-indigo-200 bg-indigo-50/50 cursor-pointer">
+                              <span className="text-[10.5px] font-semibold text-indigo-900">
+                                Show Bank / Invoicing Block on PO
+                              </span>
+                              <input
+                                type="checkbox"
+                                checked={Boolean(footerConfig.showBankRemittanceOnPo)}
+                                onChange={(e) =>
+                                  setFooterConfig((prev) => ({
+                                    ...prev,
+                                    showBankRemittanceOnPo: e.target.checked
+                                  }))
+                                }
+                                className="rounded border-indigo-300 text-indigo-600 cursor-pointer"
+                              />
+                            </label>
+                          </div>
+                        )}
+
+                        {documentType === 'receipt' && (
+                          <div className="pt-2.5 mt-2 border-t border-amber-200 space-y-2">
+                            <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-800 block">
+                              Receipt Payer Card Controls
+                            </span>
+                            <div>
+                              <label className="text-slate-500 text-[10px] uppercase font-bold block mb-0.5">
+                                Left Card Heading Override
+                              </label>
+                              <input
+                                type="text"
+                                value={receiptMetadata.left_card_heading ?? ''}
+                                onChange={(e) =>
+                                  setReceiptMetadata((prev) => ({
+                                    ...prev,
+                                    left_card_heading: e.target.value
+                                  }))
+                                }
+                                onFocus={() => setFocusedRecipientStyleTarget('recipient_heading')}
+                                placeholder="RECEIVED WITH THANKS FROM"
+                                className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-slate-500 text-[10px] uppercase font-bold block mb-0.5">
+                                Received From (Payer Entity)
+                              </label>
+                              <input
+                                type="text"
+                                value={receiptMetadata.received_from ?? ''}
+                                onChange={(e) =>
+                                  setReceiptMetadata((prev) => ({
+                                    ...prev,
+                                    received_from: e.target.value
+                                  }))
+                                }
+                                onFocus={() => setFocusedRecipientStyleTarget('recipient_entity_name')}
+                                placeholder="Client / Payer Name"
+                                className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 font-semibold"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {documentType === 'payment_voucher' && (
+                          <div className="pt-2.5 mt-2 border-t border-teal-200 space-y-2">
+                            <span className="text-[10px] font-extrabold uppercase tracking-wider text-teal-800 block">
+                              Payee / Beneficiary Card Controls
+                            </span>
+                            <div>
+                              <label className="text-slate-500 text-[10px] uppercase font-bold block mb-0.5">
+                                Left Card Heading Override
+                              </label>
+                              <input
+                                type="text"
+                                value={paymentVoucherMetadata.left_card_heading ?? ''}
+                                onChange={(e) =>
+                                  setPaymentVoucherMetadata((prev) => ({
+                                    ...prev,
+                                    left_card_heading: e.target.value
+                                  }))
+                                }
+                                onFocus={() => setFocusedRecipientStyleTarget('recipient_heading')}
+                                placeholder="PAID TO / BENEFICIARY (VENDOR)"
+                                className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-slate-500 text-[10px] uppercase font-bold block mb-0.5">
+                                Paid To (Vendor / Beneficiary Name)
+                              </label>
+                              <input
+                                type="text"
+                                value={paymentVoucherMetadata.paid_to_vendor_name ?? ''}
+                                onChange={(e) =>
+                                  setPaymentVoucherMetadata((prev) => ({
+                                    ...prev,
+                                    paid_to_vendor_name: e.target.value
+                                  }))
+                                }
+                                onFocus={() => setFocusedRecipientStyleTarget('recipient_entity_name')}
+                                placeholder="Beneficiary Legal Name"
+                                className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 font-semibold"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {(documentType === 'material_return_note' || documentType === 'debit_note') && (
+                          <div className="pt-2.5 mt-2 border-t border-rose-200 space-y-2">
+                            <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-800 block">
+                              Vendor Return / Debit Card Controls
+                            </span>
+                            <div>
+                              <label className="text-slate-500 text-[10px] uppercase font-bold block mb-0.5">
+                                Left Card Heading Override
+                              </label>
+                              <input
+                                type="text"
+                                value={vendorReturnMetadata.left_card_heading ?? ''}
+                                onChange={(e) =>
+                                  setVendorReturnMetadata((prev) => ({
+                                    ...prev,
+                                    left_card_heading: e.target.value
+                                  }))
+                                }
+                                onFocus={() => setFocusedRecipientStyleTarget('recipient_heading')}
+                                placeholder={
+                                  documentType === 'debit_note'
+                                    ? 'DEBITED TO VENDOR / SUPPLIER'
+                                    : 'RETURN TO VENDOR / SUPPLIER'
+                                }
+                                className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-slate-500 text-[10px] uppercase font-bold block mb-0.5">
+                                Vendor / Supplier Name
+                              </label>
+                              <input
+                                type="text"
+                                value={vendorReturnMetadata.vendor_name ?? ''}
+                                onChange={(e) =>
+                                  setVendorReturnMetadata((prev) => ({
+                                    ...prev,
+                                    vendor_name: e.target.value
+                                  }))
+                                }
+                                onFocus={() => setFocusedRecipientStyleTarget('recipient_entity_name')}
+                                placeholder="Vendor Name"
+                                className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 font-semibold"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-slate-500 text-[10px] uppercase font-bold block mb-0.5">
+                                Return Reason / Claim Basis
+                              </label>
+                              <input
+                                type="text"
+                                value={vendorReturnMetadata.return_reason ?? ''}
+                                onChange={(e) =>
+                                  setVendorReturnMetadata((prev) => ({
+                                    ...prev,
+                                    return_reason: e.target.value
+                                  }))
+                                }
+                                placeholder="Defective / Non-Conforming"
+                                className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800"
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -11713,6 +12152,496 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                     {/* Section Heading & Editable Reference Code + Revision Controls */}
                     <div className="space-y-2.5 pt-1 border-b border-slate-100 pb-3">
+                      {documentType !== 'quotation' && (
+                        <div className="p-2.5 rounded-xl border border-blue-200 bg-blue-50/50 space-y-2">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-800 block">
+                            Active Mode ({documentType.replace(/_/g, ' ')}) Card &amp; Body Controls
+                          </span>
+
+                          {documentType === 'delivery_note' && (
+                            <div className="space-y-2">
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <div>
+                                  <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
+                                    Right Card Heading
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={deliveryMetadata.right_card_heading ?? ''}
+                                    onChange={(e) =>
+                                      setDeliveryMetadata((prev) => ({
+                                        ...prev,
+                                        right_card_heading: e.target.value
+                                      }))
+                                    }
+                                    onFocus={() => setFocusedOfferStyleTarget('offer_heading')}
+                                    placeholder="DELIVERY NOTE / DISPATCH"
+                                    className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                                  />
+                                </div>
+                                <div>
+                                  <div className="flex items-center justify-between mb-0.5">
+                                    <label className="text-slate-600 text-[10px] font-bold">
+                                      Badge Text
+                                    </label>
+                                    <input
+                                      type="checkbox"
+                                      checked={deliveryMetadata.show_badge !== false}
+                                      onChange={(e) =>
+                                        setDeliveryMetadata((prev) => ({
+                                          ...prev,
+                                          show_badge: e.target.checked
+                                        }))
+                                      }
+                                      className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                    />
+                                  </div>
+                                  <input
+                                    type="text"
+                                    value={deliveryMetadata.badge_text ?? ''}
+                                    onChange={(e) =>
+                                      setDeliveryMetadata((prev) => ({
+                                        ...prev,
+                                        badge_text: e.target.value
+                                      }))
+                                    }
+                                    placeholder="GOODS DISPATCH"
+                                    className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                                  />
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <div>
+                                  <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
+                                    Delivery Date
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={deliveryMetadata.delivery_date ?? ''}
+                                    onChange={(e) =>
+                                      setDeliveryMetadata((prev) => ({
+                                        ...prev,
+                                        delivery_date: e.target.value
+                                      }))
+                                    }
+                                    className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
+                                    Dispatch Mode
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={deliveryMetadata.dispatch_mode ?? ''}
+                                    onChange={(e) =>
+                                      setDeliveryMetadata((prev) => ({
+                                        ...prev,
+                                        dispatch_mode: e.target.value
+                                      }))
+                                    }
+                                    placeholder="Company Transport"
+                                    className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {documentType === 'purchase_order' && (
+                            <div className="space-y-2">
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <div>
+                                  <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
+                                    Right Card Heading
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={purchaseOrderMetadata.right_card_heading ?? ''}
+                                    onChange={(e) =>
+                                      setPurchaseOrderMetadata((prev) => ({
+                                        ...prev,
+                                        right_card_heading: e.target.value
+                                      }))
+                                    }
+                                    onFocus={() => setFocusedOfferStyleTarget('offer_heading')}
+                                    placeholder="PURCHASE ORDER"
+                                    className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                                  />
+                                </div>
+                                <div>
+                                  <div className="flex items-center justify-between mb-0.5">
+                                    <label className="text-slate-600 text-[10px] font-bold">
+                                      Badge Text
+                                    </label>
+                                    <input
+                                      type="checkbox"
+                                      checked={purchaseOrderMetadata.show_badge !== false}
+                                      onChange={(e) =>
+                                        setPurchaseOrderMetadata((prev) => ({
+                                          ...prev,
+                                          show_badge: e.target.checked
+                                        }))
+                                      }
+                                      className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                    />
+                                  </div>
+                                  <input
+                                    type="text"
+                                    value={purchaseOrderMetadata.badge_text ?? ''}
+                                    onChange={(e) =>
+                                      setPurchaseOrderMetadata((prev) => ({
+                                        ...prev,
+                                        badge_text: e.target.value
+                                      }))
+                                    }
+                                    placeholder="OFFICIAL PO"
+                                    className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                                  />
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <div>
+                                  <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
+                                    PO Date
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={purchaseOrderMetadata.po_date ?? ''}
+                                    onChange={(e) =>
+                                      setPurchaseOrderMetadata((prev) => ({
+                                        ...prev,
+                                        po_date: e.target.value
+                                      }))
+                                    }
+                                    className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
+                                    Incoterms
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={purchaseOrderMetadata.incoterms ?? ''}
+                                    onChange={(e) =>
+                                      setPurchaseOrderMetadata((prev) => ({
+                                        ...prev,
+                                        incoterms: e.target.value
+                                      }))
+                                    }
+                                    placeholder="Ex-Works / DDP"
+                                    className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {documentType === 'receipt' && (
+                            <div className="space-y-2">
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <div>
+                                  <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
+                                    Right Card Heading
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={receiptMetadata.right_card_heading ?? ''}
+                                    onChange={(e) =>
+                                      setReceiptMetadata((prev) => ({
+                                        ...prev,
+                                        right_card_heading: e.target.value
+                                      }))
+                                    }
+                                    onFocus={() => setFocusedOfferStyleTarget('offer_heading')}
+                                    placeholder="PAYMENT RECEIPT"
+                                    className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                                  />
+                                </div>
+                                <div>
+                                  <div className="flex items-center justify-between mb-0.5">
+                                    <label className="text-slate-600 text-[10px] font-bold">
+                                      Badge Text
+                                    </label>
+                                    <input
+                                      type="checkbox"
+                                      checked={receiptMetadata.show_badge !== false}
+                                      onChange={(e) =>
+                                        setReceiptMetadata((prev) => ({
+                                          ...prev,
+                                          show_badge: e.target.checked
+                                        }))
+                                      }
+                                      className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                    />
+                                  </div>
+                                  <input
+                                    type="text"
+                                    value={receiptMetadata.badge_text ?? ''}
+                                    onChange={(e) =>
+                                      setReceiptMetadata((prev) => ({
+                                        ...prev,
+                                        badge_text: e.target.value
+                                      }))
+                                    }
+                                    placeholder="OFFICIAL VOUCHER"
+                                    className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                                  />
+                                </div>
+                              </div>
+                              <div>
+                                <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
+                                  In Settlement Of (Subtitle / Narration)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={receiptMetadata.payment_for ?? ''}
+                                  onChange={(e) =>
+                                    setReceiptMetadata((prev) => ({
+                                      ...prev,
+                                      payment_for: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Settlement against Quotation..."
+                                  className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                                />
+                              </div>
+                              <div className="grid grid-cols-3 gap-1 pt-1">
+                                <label className="flex items-center gap-1 p-1.5 rounded border border-slate-200 bg-white cursor-pointer text-[10px] font-semibold">
+                                  <input
+                                    type="checkbox"
+                                    checked={receiptMetadata.show_amount_banner !== false}
+                                    onChange={(e) =>
+                                      setReceiptMetadata((prev) => ({
+                                        ...prev,
+                                        show_amount_banner: e.target.checked
+                                      }))
+                                    }
+                                  />
+                                  <span>Amount Box</span>
+                                </label>
+                                <label className="flex items-center gap-1 p-1.5 rounded border border-slate-200 bg-white cursor-pointer text-[10px] font-semibold">
+                                  <input
+                                    type="checkbox"
+                                    checked={receiptMetadata.show_instrument_card !== false}
+                                    onChange={(e) =>
+                                      setReceiptMetadata((prev) => ({
+                                        ...prev,
+                                        show_instrument_card: e.target.checked
+                                      }))
+                                    }
+                                  />
+                                  <span>Instrument</span>
+                                </label>
+                                <label className="flex items-center gap-1 p-1.5 rounded border border-slate-200 bg-white cursor-pointer text-[10px] font-semibold">
+                                  <input
+                                    type="checkbox"
+                                    checked={receiptMetadata.show_balance_card !== false}
+                                    onChange={(e) =>
+                                      setReceiptMetadata((prev) => ({
+                                        ...prev,
+                                        show_balance_card: e.target.checked
+                                      }))
+                                    }
+                                  />
+                                  <span>Balance Box</span>
+                                </label>
+                              </div>
+                            </div>
+                          )}
+
+                          {documentType === 'payment_voucher' && (
+                            <div className="space-y-2">
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <div>
+                                  <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
+                                    Right Card Heading
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={paymentVoucherMetadata.right_card_heading ?? ''}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        right_card_heading: e.target.value
+                                      }))
+                                    }
+                                    onFocus={() => setFocusedOfferStyleTarget('offer_heading')}
+                                    placeholder="PAYMENT VOUCHER"
+                                    className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                                  />
+                                </div>
+                                <div>
+                                  <div className="flex items-center justify-between mb-0.5">
+                                    <label className="text-slate-600 text-[10px] font-bold">
+                                      Badge Text
+                                    </label>
+                                    <input
+                                      type="checkbox"
+                                      checked={paymentVoucherMetadata.show_badge !== false}
+                                      onChange={(e) =>
+                                        setPaymentVoucherMetadata((prev) => ({
+                                          ...prev,
+                                          show_badge: e.target.checked
+                                        }))
+                                      }
+                                      className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                    />
+                                  </div>
+                                  <input
+                                    type="text"
+                                    value={paymentVoucherMetadata.badge_text ?? ''}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        badge_text: e.target.value
+                                      }))
+                                    }
+                                    placeholder="BILL SETTLEMENT"
+                                    className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                                  />
+                                </div>
+                              </div>
+                              <div>
+                                <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
+                                  Payment Narration / Description
+                                </label>
+                                <input
+                                  type="text"
+                                  value={paymentVoucherMetadata.payment_narration ?? ''}
+                                  onChange={(e) =>
+                                    setPaymentVoucherMetadata((prev) => ({
+                                      ...prev,
+                                      payment_narration: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Being payment towards..."
+                                  className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                                />
+                              </div>
+                              <div className="grid grid-cols-2 gap-1 pt-1">
+                                <label className="flex items-center gap-1 p-1.5 rounded border border-slate-200 bg-white cursor-pointer text-[10px] font-semibold">
+                                  <input
+                                    type="checkbox"
+                                    checked={paymentVoucherMetadata.show_amount_banner !== false}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        show_amount_banner: e.target.checked
+                                      }))
+                                    }
+                                  />
+                                  <span>Disbursed Banner</span>
+                                </label>
+                                <label className="flex items-center gap-1 p-1.5 rounded border border-slate-200 bg-white cursor-pointer text-[10px] font-semibold">
+                                  <input
+                                    type="checkbox"
+                                    checked={paymentVoucherMetadata.show_allocation_table !== false}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        show_allocation_table: e.target.checked
+                                      }))
+                                    }
+                                  />
+                                  <span>Allocation Table</span>
+                                </label>
+                                <label className="flex items-center gap-1 p-1.5 rounded border border-slate-200 bg-white cursor-pointer text-[10px] font-semibold">
+                                  <input
+                                    type="checkbox"
+                                    checked={paymentVoucherMetadata.show_treasury_card !== false}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        show_treasury_card: e.target.checked
+                                      }))
+                                    }
+                                  />
+                                  <span>Treasury Card</span>
+                                </label>
+                                <label className="flex items-center gap-1 p-1.5 rounded border border-slate-200 bg-white cursor-pointer text-[10px] font-semibold">
+                                  <input
+                                    type="checkbox"
+                                    checked={paymentVoucherMetadata.show_beneficiary_card !== false}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        show_beneficiary_card: e.target.checked
+                                      }))
+                                    }
+                                  />
+                                  <span>Beneficiary Card</span>
+                                </label>
+                              </div>
+                            </div>
+                          )}
+
+                          {(documentType === 'material_return_note' || documentType === 'debit_note') && (
+                            <div className="space-y-2">
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <div>
+                                  <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
+                                    Right Card Heading
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={vendorReturnMetadata.right_card_heading ?? ''}
+                                    onChange={(e) =>
+                                      setVendorReturnMetadata((prev) => ({
+                                        ...prev,
+                                        right_card_heading: e.target.value
+                                      }))
+                                    }
+                                    onFocus={() => setFocusedOfferStyleTarget('offer_heading')}
+                                    placeholder={
+                                      documentType === 'debit_note'
+                                        ? 'COMMERCIAL DEBIT NOTE'
+                                        : 'MATERIAL RETURN NOTE'
+                                    }
+                                    className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                                  />
+                                </div>
+                                <div>
+                                  <div className="flex items-center justify-between mb-0.5">
+                                    <label className="text-slate-600 text-[10px] font-bold">
+                                      Badge Text
+                                    </label>
+                                    <input
+                                      type="checkbox"
+                                      checked={vendorReturnMetadata.show_badge !== false}
+                                      onChange={(e) =>
+                                        setVendorReturnMetadata((prev) => ({
+                                          ...prev,
+                                          show_badge: e.target.checked
+                                        }))
+                                      }
+                                      className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                    />
+                                  </div>
+                                  <input
+                                    type="text"
+                                    value={vendorReturnMetadata.badge_text ?? ''}
+                                    onChange={(e) =>
+                                      setVendorReturnMetadata((prev) => ({
+                                        ...prev,
+                                        badge_text: e.target.value
+                                      }))
+                                    }
+                                    placeholder={
+                                      documentType === 'debit_note'
+                                        ? 'FINANCIAL CLAIM'
+                                        : 'OUTWARD DISPATCH'
+                                    }
+                                    className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       <div>
                         <label className="text-slate-700 font-semibold text-[11px] block mb-1">
                           Offer Card Heading Label
@@ -16216,6 +17145,236 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   </div>
                                 )}
                               </div>
+
+                              {/* Mode-Specific Sign-Off & Acknowledgment Customization */}
+                              {documentType === 'delivery_note' && (
+                                <div className="p-2.5 rounded-lg bg-emerald-50/70 border border-emerald-200 space-y-2">
+                                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block">
+                                    Delivery Note Dispatch &amp; Receiver Sign-Off
+                                  </span>
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <div>
+                                      <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                        Left Card Heading
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={deliveryMetadata.signoff_left_heading ?? ''}
+                                        onChange={(e) =>
+                                          setDeliveryMetadata((prev) => ({
+                                            ...prev,
+                                            signoff_left_heading: e.target.value
+                                          }))
+                                        }
+                                        placeholder="Dispatched & Authorized By"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                        Right Card Heading
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={deliveryMetadata.signoff_right_heading ?? ''}
+                                        onChange={(e) =>
+                                          setDeliveryMetadata((prev) => ({
+                                            ...prev,
+                                            signoff_right_heading: e.target.value
+                                          }))
+                                        }
+                                        placeholder="Receiver's Acknowledgment"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                      Goods Received Declaration Clause
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={deliveryMetadata.goods_received_clause ?? ''}
+                                      onChange={(e) =>
+                                        setDeliveryMetadata((prev) => ({
+                                          ...prev,
+                                          goods_received_clause: e.target.value
+                                        }))
+                                      }
+                                      placeholder="Received the above items in good order and condition."
+                                      className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                    />
+                                  </div>
+                                  <label className="flex items-center justify-between pt-1 cursor-pointer">
+                                    <span className="text-[10.5px] font-semibold text-emerald-900">
+                                      Show Receiver Stamp Box
+                                    </span>
+                                    <input
+                                      type="checkbox"
+                                      checked={deliveryMetadata.show_receiving_stamp_box !== false}
+                                      onChange={(e) =>
+                                        setDeliveryMetadata((prev) => ({
+                                          ...prev,
+                                          show_receiving_stamp_box: e.target.checked
+                                        }))
+                                      }
+                                      className="rounded border-emerald-300 text-emerald-600"
+                                    />
+                                  </label>
+                                </div>
+                              )}
+
+                              {documentType === 'payment_voucher' && (
+                                <div className="p-2.5 rounded-lg bg-teal-50/70 border border-teal-200 space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-teal-800">
+                                      PV 4-Column Approval Matrix
+                                    </span>
+                                    <input
+                                      type="checkbox"
+                                      checked={paymentVoucherMetadata.show_approval_matrix !== false}
+                                      onChange={(e) =>
+                                        setPaymentVoucherMetadata((prev) => ({
+                                          ...prev,
+                                          show_approval_matrix: e.target.checked
+                                        }))
+                                      }
+                                      className="rounded border-teal-300 text-teal-600 cursor-pointer"
+                                    />
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <div>
+                                      <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                        Prepared By
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={paymentVoucherMetadata.prepared_by_name ?? ''}
+                                        onChange={(e) =>
+                                          setPaymentVoucherMetadata((prev) => ({
+                                            ...prev,
+                                            prepared_by_name: e.target.value
+                                          }))
+                                        }
+                                        placeholder="Accounts Executive"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                        Verified By
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={paymentVoucherMetadata.verified_by_name ?? ''}
+                                        onChange={(e) =>
+                                          setPaymentVoucherMetadata((prev) => ({
+                                            ...prev,
+                                            verified_by_name: e.target.value
+                                          }))
+                                        }
+                                        placeholder="Finance Manager"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                        Approved By
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={paymentVoucherMetadata.approved_by_name ?? ''}
+                                        onChange={(e) =>
+                                          setPaymentVoucherMetadata((prev) => ({
+                                            ...prev,
+                                            approved_by_name: e.target.value
+                                          }))
+                                        }
+                                        placeholder="Authorized Director"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                        Received By (Payee)
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={paymentVoucherMetadata.received_by_name ?? ''}
+                                        onChange={(e) =>
+                                          setPaymentVoucherMetadata((prev) => ({
+                                            ...prev,
+                                            received_by_name: e.target.value
+                                          }))
+                                        }
+                                        placeholder="Beneficiary Rep"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {(documentType === 'material_return_note' ||
+                                documentType === 'debit_note') && (
+                                <div className="p-2.5 rounded-lg bg-rose-50/70 border border-rose-200 space-y-2">
+                                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-800 block">
+                                    Return / Debit Note Sign-Off Controls
+                                  </span>
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <div>
+                                      <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                        Left Card Heading
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={vendorReturnMetadata.signoff_left_heading ?? ''}
+                                        onChange={(e) =>
+                                          setVendorReturnMetadata((prev) => ({
+                                            ...prev,
+                                            signoff_left_heading: e.target.value
+                                          }))
+                                        }
+                                        placeholder="Issued & Authorized By"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                        Right Card Heading
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={vendorReturnMetadata.signoff_right_heading ?? ''}
+                                        onChange={(e) =>
+                                          setVendorReturnMetadata((prev) => ({
+                                            ...prev,
+                                            signoff_right_heading: e.target.value
+                                          }))
+                                        }
+                                        placeholder="Vendor / Supplier Acknowledgment"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                      />
+                                    </div>
+                                  </div>
+                                  <label className="flex items-center justify-between pt-1 cursor-pointer">
+                                    <span className="text-[10.5px] font-semibold text-rose-900">
+                                      Show Vendor Stamp Box
+                                    </span>
+                                    <input
+                                      type="checkbox"
+                                      checked={vendorReturnMetadata.show_vendor_stamp_box !== false}
+                                      onChange={(e) =>
+                                        setVendorReturnMetadata((prev) => ({
+                                          ...prev,
+                                          show_vendor_stamp_box: e.target.checked
+                                        }))
+                                      }
+                                      className="rounded border-rose-300 text-rose-600"
+                                    />
+                                  </label>
+                                </div>
+                              )}
 
                               <div className="flex items-center justify-between">
                                 <div>
