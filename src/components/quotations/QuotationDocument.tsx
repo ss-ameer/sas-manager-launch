@@ -2553,6 +2553,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
   // Determine active columns & technical attributes config
   const columnConfig: QuotationPresetColumns = propColumnConfig || propVisibleColumns || quotation.visible_columns || {};
+  const visibleColumns: QuotationPresetColumns = columnConfig;
   const showBrand = columnConfig.brand ?? true;
   const showModel = columnConfig.model ?? true;
   const showOrigin = columnConfig.origin ?? true;
@@ -6937,7 +6938,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       const showDoBadge = deliveryMeta?.show_badge !== false && showRevBadge;
       const doBadgeText =
         (deliveryMeta?.badge_text || resolvedRecipientConfig.revisionBadgeTextOverride || '').trim() ||
-        (visibleColumns.showUnitPrice ? 'PRICED DISPATCH' : 'UNPRICED DISPATCH');
+        (columnConfig.showUnitPrice ? 'PRICED DISPATCH' : 'UNPRICED DISPATCH');
 
       return (
         <div
