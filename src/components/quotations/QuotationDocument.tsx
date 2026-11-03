@@ -3254,6 +3254,193 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     );
   };
 
+  const applyTextFormatStyle = (
+    fmt?: QuotationTextFormatStyle
+  ): { className: string; style: React.CSSProperties } => {
+    if (!fmt) {
+      return { className: 'text-[var(--block-base)] text-slate-800 leading-snug', style: {} };
+    }
+    const cls: string[] = [];
+    const st: React.CSSProperties = {};
+
+    if (fmt.fontSize === 'xs') cls.push('text-[calc(var(--block-base,10px)*0.84)]');
+    else if (fmt.fontSize === 'sm') cls.push('text-[calc(var(--block-base,10px)*0.93)]');
+    else if (fmt.fontSize === 'lg') cls.push('text-[calc(var(--block-base,10px)*1.12)]');
+    else if (fmt.fontSize === 'xl') cls.push('text-[calc(var(--block-base,10px)*1.28)]');
+    else if (fmt.fontSize === '2xl') cls.push('text-[calc(var(--block-base,10px)*1.48)]');
+    else if (fmt.fontSize === 'base') cls.push('text-[var(--block-base,10px)]');
+
+    if (fmt.fontWeight === 'bold') cls.push('font-bold');
+    else if (fmt.fontWeight === 'semibold') cls.push('font-semibold');
+    else if (fmt.fontWeight === 'medium') cls.push('font-medium');
+    else if (fmt.fontWeight === 'normal') cls.push('font-normal');
+
+    if (fmt.italic) cls.push('italic');
+    if (fmt.underline) cls.push('underline underline-offset-2');
+    if (fmt.uppercase) cls.push('uppercase tracking-wider');
+
+    if (fmt.textAlign === 'center') cls.push('text-center');
+    else if (fmt.textAlign === 'right') cls.push('text-right');
+    else if (fmt.textAlign === 'justify') cls.push('text-justify');
+    else if (fmt.textAlign === 'left') cls.push('text-left');
+
+    if (fmt.textColor === 'muted') {
+      cls.push('text-slate-500');
+    } else if (fmt.textColor === 'accent') {
+      st.color = themePalette.textAccent;
+    } else if (fmt.textColor === 'emerald') {
+      cls.push('text-emerald-700');
+    } else if (fmt.textColor === 'amber') {
+      cls.push('text-amber-700');
+    } else if (fmt.textColor === 'rose') {
+      cls.push('text-rose-700');
+    } else if (fmt.textColor === 'custom' && fmt.customColorHex) {
+      st.color = fmt.customColorHex;
+    } else if (fmt.textColor === 'default') {
+      cls.push('text-slate-900');
+    }
+
+    if (fmt.highlightBg === 'SoftYellow') cls.push('bg-amber-100/80 px-1.5 py-0.5 rounded');
+    else if (fmt.highlightBg === 'SoftBlue') cls.push('bg-blue-100/80 px-1.5 py-0.5 rounded');
+    else if (fmt.highlightBg === 'SoftEmerald') cls.push('bg-emerald-100/80 px-1.5 py-0.5 rounded');
+    else if (fmt.highlightBg === 'SoftRose') cls.push('bg-rose-100/80 px-1.5 py-0.5 rounded');
+    else if (fmt.highlightBg === 'ThemeTint') {
+      cls.push('px-1.5 py-0.5 rounded');
+      st.backgroundColor = themePalette.tintBg;
+    }
+
+    if (fmt.lineHeight === 'tight') cls.push('leading-tight');
+    else if (fmt.lineHeight === 'relaxed') cls.push('leading-relaxed');
+    else if (fmt.lineHeight === 'normal') cls.push('leading-snug');
+
+    if (fmt.letterSpacing === 'wide') cls.push('tracking-wide');
+    else if (fmt.letterSpacing === 'uppercase_tracked') cls.push('uppercase tracking-wider');
+
+    if (fmt.showAccentBar) {
+      cls.push('pl-2 border-l-2');
+      st.borderLeftColor = themePalette.primaryHex;
+    }
+
+    return { className: cls.join(' '), style: st };
+  };
+
+  const renderFormattedInlineSegment = (raw: string): React.ReactNode => {
+    if (!raw) return null;
+    const tokenPattern = /(\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*)/g;
+    const parts = raw.split(tokenPattern);
+    if (parts.length === 1) {
+      return renderResolvedQuotationText(raw, tokenContext);
+    }
+    return parts.map((part, idx) => {
+      if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+        return (
+          <strong key={idx} className="font-bold">
+            {renderResolvedQuotationText(part.slice(2, -2), tokenContext)}
+          </strong>
+        );
+      }
+      if (part.startsWith('__') && part.endsWith('__') && part.length > 4) {
+        return (
+          <span key={idx} className="underline underline-offset-2">
+            {renderResolvedQuotationText(part.slice(2, -2), tokenContext)}
+          </span>
+        );
+      }
+      if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+        return (
+          <em key={idx} className="italic">
+            {renderResolvedQuotationText(part.slice(1, -1), tokenContext)}
+          </em>
+        );
+      }
+      return <React.Fragment key={idx}>{renderResolvedQuotationText(part, tokenContext)}</React.Fragment>;
+    });
+  };
+
+  const renderOfflineQrCodeSvg = (payload: string, sizePx: number = 72) => {
+    const normalized = (payload || 'QT').trim() || 'QT';
+    const gridSize = 21;
+    const matrix: boolean[][] = Array.from({ length: gridSize }, () =>
+      Array(gridSize).fill(false)
+    );
+    const reserved: boolean[][] = Array.from({ length: gridSize }, () =>
+      Array(gridSize).fill(false)
+    );
+
+    const drawFinder = (r0: number, c0: number) => {
+      for (let r = -1; r <= 7; r++) {
+        for (let c = -1; c <= 7; c++) {
+          const rr = r0 + r;
+          const cc = c0 + c;
+          if (rr >= 0 && rr < gridSize && cc >= 0 && cc < gridSize) {
+            reserved[rr][cc] = true;
+            const inOuter = r >= 0 && r <= 6 && c >= 0 && c <= 6;
+            const onBorder = r === 0 || r === 6 || c === 0 || c === 6;
+            const inInner = r >= 2 && r <= 4 && c >= 2 && c <= 4;
+            matrix[rr][cc] = inOuter && (onBorder || inInner);
+          }
+        }
+      }
+    };
+
+    drawFinder(0, 0);
+    drawFinder(0, gridSize - 7);
+    drawFinder(gridSize - 7, 0);
+
+    for (let i = 8; i < gridSize - 8; i++) {
+      reserved[6][i] = true;
+      reserved[i][6] = true;
+      matrix[6][i] = i % 2 === 0;
+      matrix[i][6] = i % 2 === 0;
+    }
+
+    let hash = 2166136261;
+    const bytes: number[] = [];
+    for (let i = 0; i < normalized.length; i++) {
+      const code = normalized.charCodeAt(i) & 0xff;
+      bytes.push(code);
+      hash ^= code;
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    if (bytes.length === 0) bytes.push(81);
+
+    let bitIdx = 0;
+    for (let r = 0; r < gridSize; r++) {
+      for (let c = 0; c < gridSize; c++) {
+        if (reserved[r][c]) continue;
+        const byteVal = bytes[bitIdx % bytes.length];
+        const shift = bitIdx % 8;
+        const bitA = (byteVal >> shift) & 1;
+        const bitB = ((hash >> ((r * 7 + c * 13 + bitIdx) % 24)) & 1);
+        matrix[r][c] = (bitA ^ bitB ^ ((r + c) % 2)) === 1;
+        bitIdx++;
+      }
+    }
+
+    const cells: React.ReactNode[] = [];
+    for (let r = 0; r < gridSize; r++) {
+      for (let c = 0; c < gridSize; c++) {
+        if (matrix[r][c]) {
+          cells.push(<rect key={`${r}_${c}`} x={c + 1} y={r + 1} width={1} height={1} fill="#0f172a" />);
+        }
+      }
+    }
+
+    return (
+      <svg
+        width={sizePx}
+        height={sizePx}
+        viewBox={`0 0 ${gridSize + 2} ${gridSize + 2}`}
+        shapeRendering="crispEdges"
+        className="border border-slate-200 rounded bg-white p-0.5 shrink-0"
+        aria-label={`QR Code: ${normalized}`}
+      >
+        <rect x={0} y={0} width={gridSize + 2} height={gridSize + 2} fill="#ffffff" />
+        {cells}
+      </svg>
+    );
+  };
+
   // ========================================================
   // MODULAR DOCUMENT BLOCKS GRID (CSS GRID ROW-SLOT ENGINE)
   // ========================================================
@@ -4675,195 +4862,6 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             </div>
           )}
         </div>
-      );
-    };
-
-    const applyTextFormatStyle = (
-      fmt?: QuotationTextFormatStyle
-    ): { className: string; style: React.CSSProperties } => {
-      if (!fmt) {
-        return { className: 'text-[var(--block-base)] text-slate-800 leading-snug', style: {} };
-      }
-      const cls: string[] = [];
-      const st: React.CSSProperties = {};
-
-      if (fmt.fontSize === 'xs') cls.push('text-[calc(var(--block-base)*0.84)]');
-      else if (fmt.fontSize === 'sm') cls.push('text-[calc(var(--block-base)*0.93)]');
-      else if (fmt.fontSize === 'lg') cls.push('text-[calc(var(--block-base)*1.12)]');
-      else if (fmt.fontSize === 'xl') cls.push('text-[calc(var(--block-base)*1.28)]');
-      else if (fmt.fontSize === '2xl') cls.push('text-[calc(var(--block-base)*1.48)]');
-      else cls.push('text-[var(--block-base)]');
-
-      if (fmt.fontWeight === 'bold') cls.push('font-bold');
-      else if (fmt.fontWeight === 'semibold') cls.push('font-semibold');
-      else if (fmt.fontWeight === 'medium') cls.push('font-medium');
-      else if (fmt.fontWeight === 'normal') cls.push('font-normal');
-
-      if (fmt.italic) cls.push('italic');
-      if (fmt.underline) cls.push('underline underline-offset-2');
-      if (fmt.uppercase) cls.push('uppercase tracking-wider');
-
-      if (fmt.textAlign === 'center') cls.push('text-center');
-      else if (fmt.textAlign === 'right') cls.push('text-right');
-      else if (fmt.textAlign === 'justify') cls.push('text-justify');
-      else if (fmt.textAlign === 'left') cls.push('text-left');
-
-      if (fmt.textColor === 'muted') {
-        cls.push('text-slate-500');
-      } else if (fmt.textColor === 'accent') {
-        st.color = themePalette.textAccent;
-      } else if (fmt.textColor === 'emerald') {
-        cls.push('text-emerald-700');
-      } else if (fmt.textColor === 'amber') {
-        cls.push('text-amber-700');
-      } else if (fmt.textColor === 'rose') {
-        cls.push('text-rose-700');
-      } else if (fmt.textColor === 'custom' && fmt.customColorHex) {
-        st.color = fmt.customColorHex;
-      } else if (fmt.textColor === 'default') {
-        cls.push('text-slate-900');
-      }
-
-      if (fmt.highlightBg === 'SoftYellow') cls.push('bg-amber-100/80 px-1.5 py-0.5 rounded');
-      else if (fmt.highlightBg === 'SoftBlue') cls.push('bg-blue-100/80 px-1.5 py-0.5 rounded');
-      else if (fmt.highlightBg === 'SoftEmerald') cls.push('bg-emerald-100/80 px-1.5 py-0.5 rounded');
-      else if (fmt.highlightBg === 'SoftRose') cls.push('bg-rose-100/80 px-1.5 py-0.5 rounded');
-      else if (fmt.highlightBg === 'ThemeTint') {
-        cls.push('px-1.5 py-0.5 rounded');
-        st.backgroundColor = themePalette.tintBg;
-      }
-
-      if (fmt.lineHeight === 'tight') cls.push('leading-tight');
-      else if (fmt.lineHeight === 'relaxed') cls.push('leading-relaxed');
-      else if (fmt.lineHeight === 'normal') cls.push('leading-snug');
-
-      if (fmt.letterSpacing === 'wide') cls.push('tracking-wide');
-      else if (fmt.letterSpacing === 'uppercase_tracked') cls.push('uppercase tracking-wider');
-
-      if (fmt.showAccentBar) {
-        cls.push('pl-2 border-l-2');
-        st.borderLeftColor = themePalette.primaryHex;
-      }
-
-      return { className: cls.join(' '), style: st };
-    };
-
-    const renderFormattedInlineSegment = (raw: string): React.ReactNode => {
-      if (!raw) return null;
-      // Parse inline **bold**, __underline__, and *italic* while preserving @tag resolution
-      const tokenPattern = /(\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*)/g;
-      const parts = raw.split(tokenPattern);
-      if (parts.length === 1) {
-        return renderResolvedQuotationText(raw, tokenContext);
-      }
-      return parts.map((part, idx) => {
-        if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
-          return (
-            <strong key={idx} className="font-bold">
-              {renderResolvedQuotationText(part.slice(2, -2), tokenContext)}
-            </strong>
-          );
-        }
-        if (part.startsWith('__') && part.endsWith('__') && part.length > 4) {
-          return (
-            <span key={idx} className="underline underline-offset-2">
-              {renderResolvedQuotationText(part.slice(2, -2), tokenContext)}
-            </span>
-          );
-        }
-        if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
-          return (
-            <em key={idx} className="italic">
-              {renderResolvedQuotationText(part.slice(1, -1), tokenContext)}
-            </em>
-          );
-        }
-        return <React.Fragment key={idx}>{renderResolvedQuotationText(part, tokenContext)}</React.Fragment>;
-      });
-    };
-
-    const renderOfflineQrCodeSvg = (payload: string, sizePx: number = 72) => {
-      const normalized = (payload || 'QT').trim() || 'QT';
-      const gridSize = 21;
-      const matrix: boolean[][] = Array.from({ length: gridSize }, () =>
-        Array(gridSize).fill(false)
-      );
-      const reserved: boolean[][] = Array.from({ length: gridSize }, () =>
-        Array(gridSize).fill(false)
-      );
-
-      const drawFinder = (r0: number, c0: number) => {
-        for (let r = -1; r <= 7; r++) {
-          for (let c = -1; c <= 7; c++) {
-            const rr = r0 + r;
-            const cc = c0 + c;
-            if (rr >= 0 && rr < gridSize && cc >= 0 && cc < gridSize) {
-              reserved[rr][cc] = true;
-              const inOuter = r >= 0 && r <= 6 && c >= 0 && c <= 6;
-              const onBorder = r === 0 || r === 6 || c === 0 || c === 6;
-              const inInner = r >= 2 && r <= 4 && c >= 2 && c <= 4;
-              matrix[rr][cc] = inOuter && (onBorder || inInner);
-            }
-          }
-        }
-      };
-
-      drawFinder(0, 0);
-      drawFinder(0, gridSize - 7);
-      drawFinder(gridSize - 7, 0);
-
-      for (let i = 8; i < gridSize - 8; i++) {
-        reserved[6][i] = true;
-        reserved[i][6] = true;
-        matrix[6][i] = i % 2 === 0;
-        matrix[i][6] = i % 2 === 0;
-      }
-
-      // Deterministic bit stream from UTF-8 payload bytes + FNV-1a Rolling Hash
-      let hash = 2166136261;
-      const bytes: number[] = [];
-      for (let i = 0; i < normalized.length; i++) {
-        const code = normalized.charCodeAt(i) & 0xff;
-        bytes.push(code);
-        hash ^= code;
-        hash = Math.imul(hash, 16777619) >>> 0;
-      }
-      if (bytes.length === 0) bytes.push(81);
-
-      let bitIdx = 0;
-      for (let r = 0; r < gridSize; r++) {
-        for (let c = 0; c < gridSize; c++) {
-          if (reserved[r][c]) continue;
-          const byteVal = bytes[bitIdx % bytes.length];
-          const shift = bitIdx % 8;
-          const bitA = (byteVal >> shift) & 1;
-          const bitB = ((hash >> ((r * 7 + c * 13 + bitIdx) % 24)) & 1);
-          matrix[r][c] = (bitA ^ bitB ^ ((r + c) % 2)) === 1;
-          bitIdx++;
-        }
-      }
-
-      const cells: React.ReactNode[] = [];
-      for (let r = 0; r < gridSize; r++) {
-        for (let c = 0; c < gridSize; c++) {
-          if (matrix[r][c]) {
-            cells.push(<rect key={`${r}_${c}`} x={c + 1} y={r + 1} width={1} height={1} fill="#0f172a" />);
-          }
-        }
-      }
-
-      return (
-        <svg
-          width={sizePx}
-          height={sizePx}
-          viewBox={`0 0 ${gridSize + 2} ${gridSize + 2}`}
-          shapeRendering="crispEdges"
-          className="border border-slate-200 rounded bg-white p-0.5 shrink-0"
-          aria-label={`QR Code: ${normalized}`}
-        >
-          <rect x={0} y={0} width={gridSize + 2} height={gridSize + 2} fill="#ffffff" />
-          {cells}
-        </svg>
       );
     };
 
