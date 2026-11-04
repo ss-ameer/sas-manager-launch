@@ -2564,8 +2564,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       if (!previewScrollRef.current) return;
       const containerWidth = previewScrollRef.current.clientWidth;
       if (containerWidth <= 0) return;
-      const availableWidth = Math.max(280, containerWidth - 48);
-      const maxHorizontalScale = Number(Math.min(1.0, Math.max(0.42, availableWidth / 794)).toFixed(2));
+      const availableWidth = Math.max(240, containerWidth - 40);
+      const maxHorizontalScale = Number(Math.min(1.0, Math.max(0.40, availableWidth / 794)).toFixed(2));
       setZoomScale((prev) => {
         if (prev > maxHorizontalScale) {
           return maxHorizontalScale;
@@ -10061,7 +10061,20 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                       />
                       <span className="text-slate-700 font-medium text-[11px]">
-                        Show Attached Files List on Quote
+                        Show Attached Files on{' '}
+                        {documentType === 'delivery_note'
+                          ? 'Delivery Note'
+                          : documentType === 'receipt'
+                          ? 'Receipt'
+                          : documentType === 'purchase_order'
+                          ? 'Purchase Order'
+                          : documentType === 'payment_voucher'
+                          ? 'Payment Voucher'
+                          : documentType === 'material_return'
+                          ? 'Material Return Note'
+                          : documentType === 'debit_note'
+                          ? 'Debit Note'
+                          : 'Quotation'}
                       </span>
                     </label>
 
@@ -10206,7 +10219,21 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     {
                                       id: 'annex_after' as const,
                                       label: '📄 Annex Sheet',
-                                      sub: 'After Quote'
+                                      sub: `After ${
+                                        documentType === 'delivery_note'
+                                          ? 'Delivery Note'
+                                          : documentType === 'receipt'
+                                          ? 'Receipt'
+                                          : documentType === 'purchase_order'
+                                          ? 'PO'
+                                          : documentType === 'payment_voucher'
+                                          ? 'Voucher'
+                                          : documentType === 'material_return'
+                                          ? 'MRN'
+                                          : documentType === 'debit_note'
+                                          ? 'Debit Note'
+                                          : 'Quote'
+                                      }`
                                     },
                                     {
                                       id: 'index_only' as const,
@@ -10411,13 +10438,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               {/* Scaled Preview Canvas */}
               <div
                 ref={previewScrollRef}
-                className="flex-1 min-w-0 overflow-auto w-full h-full relative p-4 sm:p-6 flex justify-center items-start print:hidden"
+                className="flex-1 min-w-0 w-full h-full relative p-4 sm:p-6 flex justify-center items-start overflow-y-auto overflow-x-hidden print:hidden"
               >
                 <div
                   style={{
                     width: `${Math.round(794 * zoomScale)}px`
                   }}
-                  className="mx-auto flex justify-center shrink-0 overflow-visible"
+                  className="mx-auto flex justify-center shrink-0 overflow-visible max-w-full"
                 >
                   <div
                     style={{
@@ -10425,7 +10452,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       transformOrigin: 'top center',
                       transition: 'transform 0.1s ease-out'
                     }}
-                    className="preview-canvas-wrapper inline-block origin-top text-center shrink-0 flex-shrink-0 w-[210mm] min-w-[210mm] max-w-[210mm] print:hidden text-left"
+                    className="preview-canvas-wrapper inline-block origin-top shrink-0 flex-shrink-0 w-[210mm] max-w-[210mm] print:hidden text-left"
                   >
                     <QuotationDocument
                       quotation={liveQuotation}
@@ -16384,31 +16411,6 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       {/* STANDARD & CUSTOM LEGO BLOCK CONTROLS */}
                       {selectedBlockType !== 'page_break' && selectedBlockType !== 'spacer' && (
                         <>
-                          {/* Convert Built-In Legacy Block to Full Custom Block Button */}
-                          {['terms', 'remittance', 'totals', 'acceptance', 'signatory', 'signatories'].includes(
-                            selectedBlock.id
-                          ) &&
-                            selectedBlockType !== 'custom' &&
-                            !Array.isArray(selectedBlock.pieces) && (
-                              <div className="p-2.5 rounded-xl bg-indigo-50/70 border border-indigo-200 flex items-center justify-between gap-2">
-                                <div className="min-w-0">
-                                  <p className="text-[11px] font-bold text-indigo-950">
-                                    Want 100% Lego Customization?
-                                  </p>
-                                  <p className="text-[9.5px] text-indigo-700 leading-tight">
-                                    Hides this legacy block &amp; inserts an editable Custom Block clone in its place.
-                                  </p>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => handleConvertLegacyBlockToCustom(selectedBlock)}
-                                  className="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] shrink-0 transition cursor-pointer shadow-2xs"
-                                >
-                                  ✨ Convert to Custom
-                                </button>
-                              </div>
-                            )}
-
                           {/* Position Zone (Above Items Table vs Below Items Table) */}
                           <div>
                             <div className="flex items-center justify-between mb-1.5 text-[11px]">

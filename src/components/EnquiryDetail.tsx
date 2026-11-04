@@ -85,7 +85,8 @@ import {
   Save,
   DollarSign,
   FileCheck,
-  RefreshCw
+  RefreshCw,
+  MoreHorizontal
 } from 'lucide-react';
 
 interface EnquiryDetailProps {
@@ -2631,6 +2632,7 @@ export default function EnquiryDetail({
   const [isCreateCompanyModalOpen, setIsCreateCompanyModalOpen] = useState(false);
   const [isPairCompanyDropdownOpen, setIsPairCompanyDropdownOpen] = useState(false);
   const [companySearchTerm, setCompanySearchTerm] = useState('');
+  const [isMoreActionsOpen, setIsMoreActionsOpen] = useState(false);
 
   // Unpaired company duplicate match check
   const unpairedCompanyName = currentEnquiry.company_name || (currentEnquiry as any)?.company || enquiry.company_name || '';
@@ -3270,98 +3272,24 @@ export default function EnquiryDetail({
             </div>
           </div>
 
-          {/* Tier 2: Dedicated Action Toolbar Row */}
+          {/* Tier 2: Dedicated Action Toolbar Row (3 Primary Actions + More Actions Menu) */}
           <div className="px-4 py-2 sm:px-6 bg-slate-50/80 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* 1. Primary Studio Button: [ Document Studio ] with count badge */}
               <button
                 type="button"
                 onClick={() => setIsQuotationStudioOpen(true)}
-                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
-                title="Open Quotation Studio to generate or customize formal commercial offer"
+                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
+                title="Open Document Studio to generate or customize Quotations, Delivery Notes, POs, Receipts & Vouchers"
               >
                 <FileText className="w-3.5 h-3.5" />
-                <span>
-                  {quotations && quotations.length > 0 ? `Quotation Studio (${quotations.length})` : 'Create Quotation'}
+                <span>Document Studio</span>
+                <span className="px-1.5 py-0.5 rounded-full bg-white/20 text-white text-[10px] font-mono font-bold leading-none">
+                  {unifiedHubDocuments.length || quotations.length || 1}
                 </span>
               </button>
 
-              <button
-                type="button"
-                onClick={(e) => {
-                  handleInitiate({
-                    companyId: matchedCompany?.id || enquiry.company_id,
-                    companyName: matchedCompany?.display_name,
-                    company: matchedCompany,
-                    contactId: matchedContact?.id || enquiry.contact_id,
-                    contactName: matchedContact?.full_name,
-                    contact: matchedContact,
-                    enquiryId: enquiry.id || enquiry.quote_ref_no || String(enquiry.sn),
-                    e
-                  });
-                }}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
-                title="Log Quick Activity (Call, WhatsApp, Meeting, Site Visit)"
-              >
-                <Phone className="w-3.5 h-3.5" />
-                <span>Log Activity</span>
-              </button>
-
-              {canEditEnquiry(user, activeWorkspace, enquiry) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('items');
-                    setIsInlineEditingItems(true);
-                  }}
-                  className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
-                  title="Quick-edit line items, quantities, cost & margins inline"
-                >
-                  <ListOrdered className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Manage Items</span>
-                </button>
-              )}
-
-              {canEditEnquiry(user, activeWorkspace, enquiry) && (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleCreateRevision}
-                    className="px-3 py-1.5 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
-                    title="Create next Proposal Revision (-R2, -R3) on this same Enquiry S/N and log in Commercial Documents Hub"
-                  >
-                    <GitFork className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Create Revision</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDuplicateAsNewEnquiry}
-                    className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
-                    title="Duplicate line items & account into a brand-new Enquiry with the next S/N, fresh reference code, and today's date"
-                  >
-                    <Copy className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Duplicate as New Enquiry</span>
-                  </button>
-                </>
-              )}
-
-              <button
-                type="button"
-                onClick={() => setIsShareModalOpen(true)}
-                className="px-2.5 py-1.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
-                title="Share Enquiry & Manage Collaborators"
-              >
-                <Users className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Share</span>
-                {totalCollaboratorsCount > 0 && (
-                  <span className="px-1.5 py-0.2 rounded-full bg-indigo-600 text-white text-[10px] font-mono font-bold">
-                    {totalCollaboratorsCount}
-                  </span>
-                )}
-              </button>
-            </div>
-
-            {/* Secondary Record Actions: Full Modal Edit & Delete */}
-            <div className="flex items-center gap-1.5 shrink-0">
+              {/* 2. Primary Edit Button: [ Edit Form ] */}
               {canEditEnquiry(user, activeWorkspace, enquiry) && (
                 <button
                   type="button"
@@ -3369,63 +3297,180 @@ export default function EnquiryDetail({
                     onEditEnquiry(currentEnquiry);
                     onClose();
                   }}
-                  className="px-2.5 py-1.5 bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 hover:border-blue-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shrink-0 cursor-pointer whitespace-nowrap"
+                  className="px-3 py-1.5 bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 hover:border-blue-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition shrink-0 cursor-pointer whitespace-nowrap"
                   title="Open full Edit Enquiry Modal"
                 >
-                  <Edit2 className="w-3.5 h-3.5" />
+                  <Edit2 className="w-3.5 h-3.5 text-blue-600" />
                   <span>Edit Form</span>
                 </button>
               )}
-              {canDeleteEnquiry(user, activeWorkspace, enquiry) && (
+
+              {/* 3. Primary Revision Button: [ Create Revision ] */}
+              {canEditEnquiry(user, activeWorkspace, enquiry) && (
                 <button
                   type="button"
-                  onClick={async () => {
-                    const targetId = enquiry.id || (enquiry as any)._id;
-                    if (!targetId) {
-                      alert('Error: Enquiry ID is missing. Cannot delete.');
-                      return;
-                    }
-
-                    const linkedProjId = enquiry.project_id || linkedProject?.id;
-                    if (linkedProjId) {
-                      let activeProj = linkedProject;
-                      if (!activeProj && enquiry.id) {
-                        try {
-                          activeProj = await getProjectForEnquiry(enquiry.id);
-                        } catch (e) {
-                          console.warn('Failed to fetch project for deletion guard:', e);
-                        }
-                      }
-                      if (activeProj && activeProj.status !== 'Cancelled') {
-                        const guardMsg = 'Cannot delete this proposal because an active project is linked. Please cancel the operational project before deleting this enquiry.';
-                        if (triggerToast) {
-                          triggerToast(guardMsg, 'error');
-                        } else {
-                          alert(guardMsg);
-                        }
-                        return;
-                      }
-                    }
-
-                    setConfirmDialog({
-                      isOpen: true,
-                      title: 'Move to Recycle Bin',
-                      message: `Are you sure you want to move Enquiry #${enquiry.sn} to the Recycle Bin? You can restore it anytime from the sidebar.`,
-                      confirmText: 'Move to Bin',
-                      cancelText: 'Cancel',
-                      variant: 'warning',
-                      isDestructive: false,
-                      onConfirm: () => {
-                        onDeleteEnquiry(targetId);
-                        onClose();
-                      }
-                    });
-                  }}
-                  className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-transparent hover:border-rose-200 rounded-xl transition shrink-0 cursor-pointer"
-                  title="Delete Enquiry"
+                  onClick={handleCreateRevision}
+                  className="px-3 py-1.5 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
+                  title="Create next Proposal Revision (-R2, -R3) on this same Enquiry S/N and log in Commercial Documents Hub"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <GitFork className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Create Revision</span>
                 </button>
+              )}
+            </div>
+
+            {/* Secondary Actions Dropdown: [ ··· More Actions ] */}
+            <div className="relative flex items-center shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsMoreActionsOpen((prev) => !prev)}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shadow-2xs ${
+                  isMoreActionsOpen
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                }`}
+                title="More Enquiry Actions"
+              >
+                <MoreHorizontal className="w-4 h-4" />
+                <span>More Actions</span>
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isMoreActionsOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {isMoreActionsOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-30"
+                    onClick={() => setIsMoreActionsOpen(false)}
+                  />
+                  <div className="absolute right-0 top-full mt-1.5 w-60 rounded-xl bg-white border border-slate-200 shadow-xl py-1.5 z-40 divide-y divide-slate-100">
+                    <div className="py-1">
+                      {canEditEnquiry(user, activeWorkspace, enquiry) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMoreActionsOpen(false);
+                            handleDuplicateAsNewEnquiry();
+                          }}
+                          className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer transition"
+                        >
+                          <Copy className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                          <span>Duplicate as New Enquiry</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          setIsMoreActionsOpen(false);
+                          handleInitiate({
+                            companyId: matchedCompany?.id || enquiry.company_id,
+                            companyName: matchedCompany?.display_name,
+                            company: matchedCompany,
+                            contactId: matchedContact?.id || enquiry.contact_id,
+                            contactName: matchedContact?.full_name,
+                            contact: matchedContact,
+                            enquiryId: enquiry.id || enquiry.quote_ref_no || String(enquiry.sn),
+                            e
+                          });
+                        }}
+                        className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2.5 cursor-pointer transition"
+                      >
+                        <Phone className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span>Log Activity</span>
+                      </button>
+
+                      {canEditEnquiry(user, activeWorkspace, enquiry) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMoreActionsOpen(false);
+                            setActiveTab('items');
+                            setIsInlineEditingItems(true);
+                          }}
+                          className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer transition"
+                        >
+                          <ListOrdered className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                          <span>Manage Line Items</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsMoreActionsOpen(false);
+                          setIsShareModalOpen(true);
+                        }}
+                        className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 flex items-center justify-between gap-2 cursor-pointer transition"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <Users className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                          <span>Share Link &amp; Collaborators</span>
+                        </span>
+                        {totalCollaboratorsCount > 0 && (
+                          <span className="px-1.5 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-mono font-bold leading-none">
+                            {totalCollaboratorsCount}
+                          </span>
+                        )}
+                      </button>
+                    </div>
+
+                    {canDeleteEnquiry(user, activeWorkspace, enquiry) && (
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setIsMoreActionsOpen(false);
+                            const targetId = enquiry.id || (enquiry as any)._id;
+                            if (!targetId) {
+                              alert('Error: Enquiry ID is missing. Cannot delete.');
+                              return;
+                            }
+
+                            const linkedProjId = enquiry.project_id || linkedProject?.id;
+                            if (linkedProjId) {
+                              let activeProj = linkedProject;
+                              if (!activeProj && enquiry.id) {
+                                try {
+                                  activeProj = await getProjectForEnquiry(enquiry.id);
+                                } catch (e) {
+                                  console.warn('Failed to fetch project for deletion guard:', e);
+                                }
+                              }
+                              if (activeProj && activeProj.status !== 'Cancelled') {
+                                const guardMsg =
+                                  'Cannot delete this proposal because an active project is linked. Please cancel the operational project before deleting this enquiry.';
+                                if (triggerToast) {
+                                  triggerToast(guardMsg, 'error');
+                                } else {
+                                  alert(guardMsg);
+                                }
+                                return;
+                              }
+                            }
+
+                            setConfirmDialog({
+                              isOpen: true,
+                              title: 'Move to Recycle Bin',
+                              message: `Are you sure you want to move Enquiry #${enquiry.sn} to the Recycle Bin? You can restore it anytime from the sidebar.`,
+                              confirmText: 'Move to Bin',
+                              cancelText: 'Cancel',
+                              variant: 'warning',
+                              isDestructive: false,
+                              onConfirm: () => {
+                                onDeleteEnquiry(targetId);
+                                onClose();
+                              }
+                            });
+                          }}
+                          className="w-full px-3.5 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center gap-2.5 cursor-pointer transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                          <span>Delete Enquiry</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           </div>

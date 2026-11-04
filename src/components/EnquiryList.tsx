@@ -1534,6 +1534,28 @@ export default function EnquiryList({
     return (sortedEnquiries || []).slice(startIndex, startIndex + pageSize);
   }, [sortedEnquiries, currentPage, itemsPerPage, pageSize]);
 
+  const [isSnGapBannerDismissed, setIsSnGapBannerDismissed] = useState(false);
+
+  // Check whether inline sequence gap rows are already actively rendered in the current filtered/paginated table view
+  const hasInlineGapRowsInCurrentView = React.useMemo(() => {
+    if (sortField !== 'sn' || paginatedEnquiries.length < 2) return false;
+    for (let i = 1; i < paginatedEnquiries.length; i++) {
+      const prevSn = typeof paginatedEnquiries[i - 1]?.sn === 'number' ? paginatedEnquiries[i - 1].sn : null;
+      const curSn = typeof paginatedEnquiries[i]?.sn === 'number' ? paginatedEnquiries[i].sn : null;
+      if (prevSn !== null && curSn !== null) {
+        const diff = sortAsc ? curSn - prevSn : prevSn - curSn;
+        if (diff > 1 && diff <= 50) {
+          const minSn = Math.min(prevSn, curSn);
+          const maxSn = Math.max(prevSn, curSn);
+          for (let m = minSn + 1; m < maxSn; m++) {
+            if (!occupiedWorkspaceSns?.has(m)) return true;
+          }
+        }
+      }
+    }
+    return false;
+  }, [sortField, sortAsc, paginatedEnquiries, occupiedWorkspaceSns]);
+
   // Export Enquiries (Audited Section with Scope Selection, RFC 4180 Sanitization & Feedback)
   const handleExportCSV = () => {
     if (!canExportData(user, activeWorkspace)) {
@@ -2361,13 +2383,13 @@ export default function EnquiryList({
           }
         />
 
-        {/* Persistent Missing S/N Sequence Gap Indicator (visible even when sorted by Date, Value, or Client) */}
-        {detectedWorkspaceSnGaps.length > 0 && (
-          <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-amber-50/90 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 text-xs">
-            <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200 font-medium">
+        {/* Compact, Dismissible Missing S/N Sequence Gap Indicator (hidden when inline gap rows are already rendered in current table view) */}
+        {detectedWorkspaceSnGaps.length > 0 && !hasInlineGapRowsInCurrentView && !isSnGapBannerDismissed && (
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/60 text-[11px]">
+            <div className="flex items-center gap-1.5 text-amber-900 dark:text-amber-200 font-medium min-w-0">
               <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-              <span>
-                <strong className="font-bold">Missing S/N Gaps Detected ({detectedWorkspaceSnGaps.length}):</strong>{' '}
+              <span className="truncate">
+                <strong className="font-bold">Missing S/N Gaps ({detectedWorkspaceSnGaps.length}):</strong>{' '}
                 {detectedWorkspaceSnGaps
                   .slice(0, 6)
                   .map((sn) => `#${sn}`)
@@ -2375,12 +2397,12 @@ export default function EnquiryList({
                 {detectedWorkspaceSnGaps.length > 6 ? ` +${detectedWorkspaceSnGaps.length - 6} more` : ''}
               </span>
               {sortField !== 'sn' && (
-                <span className="text-[11px] text-amber-700 dark:text-amber-300/80 hidden sm:inline">
-                  (Inline gap rows hidden while sorted by {sortField === 'enquiry_date' ? 'Date' : 'Value'})
+                <span className="text-[10.5px] text-amber-700 dark:text-amber-300/80 hidden md:inline shrink-0">
+                  (Sorted by {sortField === 'enquiry_date' ? 'Date' : 'Value'})
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 shrink-0">
               {sortField !== 'sn' && (
                 <button
                   type="button"
@@ -2388,9 +2410,9 @@ export default function EnquiryList({
                     setSortField('sn');
                     setSortAsc(false);
                   }}
-                  className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 font-semibold hover:bg-amber-100/60 transition text-[11px]"
+                  className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 font-semibold hover:bg-amber-100/60 transition text-[10.5px] cursor-pointer"
                 >
-                  Sort by S/N to Inspect
+                  Sort by S/N
                 </button>
               )}
               {isEditable && (
@@ -2398,13 +2420,21 @@ export default function EnquiryList({
                   type="button"
                   disabled={isReservingGap === detectedWorkspaceSnGaps[0]}
                   onClick={() => handleFillGap(detectedWorkspaceSnGaps[0])}
-                  className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold transition text-[11px] disabled:opacity-50"
+                  className="px-2 py-0.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold transition text-[10.5px] disabled:opacity-50 cursor-pointer"
                 >
                   {isReservingGap === detectedWorkspaceSnGaps[0]
                     ? 'Reserving...'
-                    : `Reserve Gap #${detectedWorkspaceSnGaps[0]}`}
+                    : `Reserve #${detectedWorkspaceSnGaps[0]}`}
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => setIsSnGapBannerDismissed(true)}
+                className="p-0.5 rounded-md text-amber-700/70 hover:text-amber-950 hover:bg-amber-200/60 transition cursor-pointer"
+                title="Dismiss S/N Gap Notice"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
         )}
