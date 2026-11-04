@@ -1153,7 +1153,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
   // Auto-calculate suggested Quote Ref using workspace pattern or standard DDMMYY (only if not custom/extracted by AI)
   useEffect(() => {
-    if (enquiryDate && sn && !enquiryToEdit && !isQuoteRefCustom) {
+    const isExistingRecord = Boolean(enquiryToEdit && (enquiryToEdit.id || (enquiryToEdit as any)._id));
+    const hasPresetQuoteRef = Boolean(enquiryToEdit?.quote_ref_no && enquiryToEdit.quote_ref_no.trim());
+    if (enquiryDate && sn && !isExistingRecord && !hasPresetQuoteRef && !isQuoteRefCustom) {
       if (activeWorkspace?.id) {
         const selectedSp = salespersons.find(
           (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
@@ -1184,9 +1186,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     }
   }, [enquiryDate, sn, enquiryToEdit, isQuoteRefCustom, activeWorkspace?.id, salesPerson, salespersons, enquiries]);
 
-  // Live Next Sequence Resolution: On mount for new enquiries, fetch fresh counters from Firestore
+  // Live Next Sequence Resolution: On mount for new enquiries (including Duplicated deals without an ID or preset ref), fetch fresh counters from Firestore
   useEffect(() => {
-    if (!enquiryToEdit && activeWorkspace?.id) {
+    const isExistingRecord = Boolean(enquiryToEdit && (enquiryToEdit.id || (enquiryToEdit as any)._id));
+    const hasPresetQuoteRef = Boolean(enquiryToEdit?.quote_ref_no && enquiryToEdit.quote_ref_no.trim());
+    if (!isExistingRecord && !hasPresetQuoteRef && activeWorkspace?.id) {
       let isMounted = true;
       getWorkspaceSequenceCounters(activeWorkspace.id)
         .then((counters) => {

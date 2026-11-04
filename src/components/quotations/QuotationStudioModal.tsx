@@ -7625,9 +7625,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2.5">
+                      <div className="grid grid-cols-1 gap-2.5">
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Delivery Note #
                           </label>
                           <input
@@ -7641,7 +7641,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Dispatch Date
                           </label>
                           <input
@@ -7657,7 +7657,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Customer PO #
                           </label>
                           <input
@@ -7671,7 +7671,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Dispatch Mode
                           </label>
                           <select
@@ -7690,8 +7690,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           </select>
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
-                            Site Contact Person
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
+                            Site Contact Person (Receiving Contact Name)
                           </label>
                           <input
                             type="text"
@@ -7707,7 +7707,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Site Contact Phone
                           </label>
                           <input
@@ -7724,7 +7724,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Vehicle Plate / AWB #
                           </label>
                           <input
@@ -7741,7 +7741,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Driver Name &amp; Phone
                           </label>
                           <input
@@ -7777,9 +7777,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2.5">
+                      <div className="grid grid-cols-1 gap-2.5">
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Dispatched By (Storekeeper)
                           </label>
                           <input
@@ -7795,7 +7795,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Received By (Optional Pre-fill)
                           </label>
                           <input
@@ -7933,9 +7933,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         </div>
                       )}
 
-                      <div className="grid grid-cols-2 gap-2.5">
+                      <div className="grid grid-cols-1 gap-2.5">
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             PO Reference #
                           </label>
                           <input
@@ -7949,7 +7949,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             PO Date
                           </label>
                           <input
@@ -7965,7 +7965,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Supplier / Vendor Name
                           </label>
                           <input
@@ -7982,7 +7982,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Supplier Contact Person
                           </label>
                           <input
@@ -7999,7 +7999,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Supplier Email
                           </label>
                           <input
@@ -8016,7 +8016,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Supplier Phone
                           </label>
                           <input
@@ -8033,7 +8033,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Supplier Tax ID / TRN
                           </label>
                           <input
@@ -8050,7 +8050,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Incoterms
                           </label>
                           <select
@@ -8071,7 +8071,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           </select>
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Ship To Destination
                           </label>
                           <select
@@ -8090,7 +8090,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           </select>
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Expected Delivery Date
                           </label>
                           <input
@@ -8140,7 +8140,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           <span className="block text-[10.5px] font-bold uppercase tracking-wider text-indigo-800">
                             Supplier Beneficiary Bank Details (Printed on PO)
                           </span>
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-1 gap-2">
                             <input
                               type="text"
                               value={purchaseOrderMetadata.beneficiary_bank_details?.beneficiary_name || ''}
@@ -8225,9 +8225,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2.5">
+                      <div className="grid grid-cols-1 gap-2.5">
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Receipt Voucher #
                           </label>
                           <input
@@ -8241,7 +8241,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Receipt Date
                           </label>
                           <input
@@ -8257,7 +8257,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Payment Mode
                           </label>
                           <select
@@ -8278,7 +8278,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           </select>
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Cheque / Transfer Ref #
                           </label>
                           <input
@@ -8292,7 +8292,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Total Contract Value
                           </label>
                           <input
@@ -8317,7 +8317,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Previously Received
                           </label>
                           <input
@@ -8342,9 +8342,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2.5">
+                      <div className="grid grid-cols-1 gap-2.5">
                         <div className="min-w-0">
-                          <label className="block text-emerald-800 font-bold text-[11px] mb-1 truncate">
+                          <label className="block text-emerald-800 font-bold text-[11px] mb-1">
                             Amount Received Now ({liveQuotation.currency})
                           </label>
                           <input
@@ -8372,7 +8372,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Received From (Payer)
                           </label>
                           <input
@@ -8642,9 +8642,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         </div>
                       )}
 
-                      <div className="grid grid-cols-2 gap-2.5">
+                      <div className="grid grid-cols-1 gap-2.5">
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Payment Voucher #
                           </label>
                           <input
@@ -8666,7 +8666,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Payment Date
                           </label>
                           <input
@@ -8689,7 +8689,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Payee / Supplier Name
                           </label>
                           <input
@@ -8711,7 +8711,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Vendor Invoice #
                           </label>
                           <input
@@ -8725,7 +8725,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Payment Mode
                           </label>
                           <select
@@ -8747,7 +8747,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           </select>
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             UTR / Swift / Cheque #
                           </label>
                           <input
@@ -8769,7 +8769,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Total Bill / PO Value
                           </label>
                           <input
@@ -8791,7 +8791,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-amber-900 font-bold text-[11px] mb-1 truncate">
+                          <label className="block text-amber-900 font-bold text-[11px] mb-1">
                             Amount Paid This Voucher ({liveQuotation.currency})
                           </label>
                           <input
@@ -8818,7 +8818,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       </div>
 
                       {/* Disbursing & Beneficiary Bank Details */}
-                      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-amber-200/70">
+                      <div className="grid grid-cols-1 gap-2 pt-2 border-t border-amber-200/70">
                         <input
                           type="text"
                           value={paymentVoucherMetadata.disbursing_bank_name || ''}
@@ -8879,7 +8879,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       </div>
 
                       {/* 4-Slot Signatory Override */}
-                      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-amber-200/70">
+                      <div className="grid grid-cols-1 gap-2 pt-2 border-t border-amber-200/70">
                         <input
                           type="text"
                           value={paymentVoucherMetadata.prepared_by_name ?? preparedBy}
@@ -8960,9 +8960,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         })}
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2.5">
+                      <div className="grid grid-cols-1 gap-2.5">
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             {documentType === 'material_return_note' ? 'MRN Reference #' : 'Debit Note #'}
                           </label>
                           <input
@@ -8976,7 +8976,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Return Date
                           </label>
                           <input
@@ -8991,8 +8991,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             className="w-full rounded-lg border border-slate-300 p-2 bg-white font-mono text-xs text-slate-800"
                           />
                         </div>
-                        <div className="min-w-0 col-span-2">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                        <div className="min-w-0">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Vendor Directory Picker (or type Supplier Name below)
                           </label>
                           <select
@@ -9049,7 +9049,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           </select>
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Vendor / Supplier Name
                           </label>
                           <input
@@ -9071,7 +9071,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Original PO Ref #
                           </label>
                           <input
@@ -9085,7 +9085,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Apply Credit Against Supplier Bill
                           </label>
                           <select
@@ -9111,7 +9111,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           </select>
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Return Reason
                           </label>
                           <select
@@ -9132,7 +9132,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           </select>
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Requested Resolution
                           </label>
                           <select
@@ -9151,7 +9151,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           </select>
                         </div>
                         <div className="min-w-0">
-                          <label className="block text-slate-500 font-medium text-[11px] mb-1 truncate">
+                          <label className="block text-slate-500 font-medium text-[11px] mb-1">
                             Carrier / Vehicle Plate #
                           </label>
                           <input
@@ -9374,7 +9374,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       Tax &amp; Financial Adjustments
                     </span>
 
-                    <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="grid grid-cols-1 gap-2.5 text-xs">
                       <div>
                         <label className="block text-slate-500 font-medium mb-1">Tax Calculation</label>
                         <select
@@ -9496,7 +9496,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       Signatory &amp; Remittance Account Data
                     </span>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-2.5">
                       <div>
                         <label className="block text-slate-500 font-medium mb-1">Signatory Count</label>
                         <select
@@ -9529,7 +9529,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                     <div className="pt-2 border-t border-slate-100">
                       <span className="text-[11px] font-bold text-slate-700 block mb-1.5">Primary Signatory</span>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 gap-2">
                         <div>
                           <label className="block text-slate-400 text-[10px] mb-0.5">Full Name</label>
                           <input
@@ -9556,7 +9556,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     {signatoryType === 'dual' && (
                       <div className="pt-2 border-t border-slate-100">
                         <span className="text-[11px] font-bold text-slate-700 block mb-1.5">Secondary Signatory</span>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-1 gap-2">
                           <div>
                             <label className="block text-slate-400 text-[10px] mb-0.5">Full Name</label>
                             <input
@@ -9712,7 +9712,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               Reset to Registry
                             </button>
                           </div>
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-1 gap-2">
                             <div>
                               <label className="block text-slate-400 text-[10px] mb-0.5">Bank Name</label>
                               <input
@@ -9773,7 +9773,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-mono bg-white text-slate-800"
                               />
                             </div>
-                            <div className="col-span-2">
+                            <div>
                               <label className="block text-slate-400 text-[10px] mb-0.5">IBAN</label>
                               <input
                                 type="text"
@@ -11640,7 +11640,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800"
                               />
                             </div>
-                            <div className="grid grid-cols-2 gap-1.5">
+                            <div className="grid grid-cols-1 gap-2">
                               <div>
                                 <label className="text-slate-500 text-[10px] uppercase font-bold block mb-0.5">
                                   Site Contact Person
@@ -11757,7 +11757,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 font-semibold"
                               />
                             </div>
-                            <div className="grid grid-cols-2 gap-1.5">
+                            <div className="grid grid-cols-1 gap-2">
                               <div>
                                 <label className="text-slate-500 text-[10px] uppercase font-bold block mb-0.5">
                                   Supplier Attn / Contact
@@ -12160,7 +12160,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                           {documentType === 'delivery_note' && (
                             <div className="space-y-2">
-                              <div className="grid grid-cols-2 gap-1.5">
+                              <div className="grid grid-cols-1 gap-2">
                                 <div>
                                   <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
                                     Right Card Heading
@@ -12210,7 +12210,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   />
                                 </div>
                               </div>
-                              <div className="grid grid-cols-2 gap-1.5">
+                              <div className="grid grid-cols-1 gap-2">
                                 <div>
                                   <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
                                     Delivery Date
@@ -12250,7 +12250,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                           {documentType === 'purchase_order' && (
                             <div className="space-y-2">
-                              <div className="grid grid-cols-2 gap-1.5">
+                              <div className="grid grid-cols-1 gap-2">
                                 <div>
                                   <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
                                     Right Card Heading
@@ -12300,7 +12300,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   />
                                 </div>
                               </div>
-                              <div className="grid grid-cols-2 gap-1.5">
+                              <div className="grid grid-cols-1 gap-2">
                                 <div>
                                   <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
                                     PO Date
@@ -12340,7 +12340,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                           {documentType === 'receipt' && (
                             <div className="space-y-2">
-                              <div className="grid grid-cols-2 gap-1.5">
+                              <div className="grid grid-cols-1 gap-2">
                                 <div>
                                   <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
                                     Right Card Heading
@@ -12453,7 +12453,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                           {documentType === 'payment_voucher' && (
                             <div className="space-y-2">
-                              <div className="grid grid-cols-2 gap-1.5">
+                              <div className="grid grid-cols-1 gap-2">
                                 <div>
                                   <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
                                     Right Card Heading
@@ -12579,7 +12579,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                           {(documentType === 'material_return_note' || documentType === 'debit_note') && (
                             <div className="space-y-2">
-                              <div className="grid grid-cols-2 gap-1.5">
+                              <div className="grid grid-cols-1 gap-2">
                                 <div>
                                   <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
                                     Right Card Heading
@@ -17089,7 +17089,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-1.5">
+                                <div className="grid grid-cols-1 gap-2">
                                   <div>
                                     <label className="block text-[9.5px] font-semibold text-slate-500 mb-0.5">
                                       Primary Signatory Name
@@ -17117,7 +17117,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 </div>
 
                                 {signatoryType === 'dual' && (
-                                  <div className="grid grid-cols-2 gap-1.5 pt-1.5 border-t border-slate-100">
+                                  <div className="grid grid-cols-1 gap-2 pt-1.5 border-t border-slate-100">
                                     <div>
                                       <label className="block text-[9.5px] font-semibold text-slate-500 mb-0.5">
                                         Secondary Signatory Name
@@ -17152,7 +17152,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block">
                                     Delivery Note Dispatch &amp; Receiver Sign-Off
                                   </span>
-                                  <div className="grid grid-cols-2 gap-1.5">
+                                  <div className="grid grid-cols-1 gap-2">
                                     <div>
                                       <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
                                         Left Card Heading
@@ -17242,7 +17242,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       className="rounded border-teal-300 text-teal-600 cursor-pointer"
                                     />
                                   </div>
-                                  <div className="grid grid-cols-2 gap-1.5">
+                                  <div className="grid grid-cols-1 gap-2">
                                     <div>
                                       <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
                                         Prepared By
@@ -17321,7 +17321,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-800 block">
                                     Return / Debit Note Sign-Off Controls
                                   </span>
-                                  <div className="grid grid-cols-2 gap-1.5">
+                                  <div className="grid grid-cols-1 gap-2">
                                     <div>
                                       <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
                                         Left Card Heading

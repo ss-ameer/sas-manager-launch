@@ -740,48 +740,13 @@ export default function EnquiryDetail({
     workspaceSupplierBills
   ]);
 
-  // Derived sorted quotations: pin approved quotation at top, then sort descending by creation / revision
-  const sortedQuotations = useMemo(() => {
-    return [...quotations].sort((a, b) => {
-      if (a.status === 'Approved' && b.status !== 'Approved') return -1;
-      if (b.status === 'Approved' && a.status !== 'Approved') return 1;
-      const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
-      const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
-      if (timeB !== timeA) return timeB - timeA;
-      return (b.revision_number ?? 0) - (a.revision_number ?? 0);
-    });
-  }, [quotations]);
-
-  const filteredHubDocuments = useMemo(() => {
-    if (docHubFilter === 'all') return sortedQuotations;
-    return sortedQuotations.filter((q) => (q.document_type || 'quotation') === docHubFilter);
-  }, [sortedQuotations, docHubFilter]);
-
-  const hasApprovedQuotation = useMemo(() => {
-    return quotations.some(
-      (q) => (q.document_type || 'quotation') === 'quotation' && q.status === 'Approved'
-    );
-  }, [quotations]);
-
-  // Helper to get the primary source Quotation for 1-click DO / PO / REC conversions
-  const getPrimarySourceQuotation = (): Quotation | null => {
-    const stdQuotes = sortedQuotations.filter(
-      (q) => (q.document_type || 'quotation') === 'quotation' && q.status !== 'Declined'
-    );
-    return (
-      stdQuotes.find((q) => q.status === 'Approved') ||
-      stdQuotes.find((q) => q.status === 'Sent') ||
-      stdQuotes[0] ||
-      null
-    );
-  };
-
-  // Helper to build QuotationLineItems from enquiry when no formal quotation exists yet
-  const buildBaseLineItemsFromSource = (sourceQuote?: Quotation | null): QuotationLineItem[] => {
+  // Helper to build QuotationLineItems from an enquiry or source quotation
+  const buildBaseLineItemsFromSource = (sourceQuote?: Quotation | null, sourceEnquiry?: Enquiry): QuotationLineItem[] => {
     if (sourceQuote?.line_items && sourceQuote.line_items.length > 0) {
       return sourceQuote.line_items.map((it) => ({ ...it }));
     }
-    return (currentEnquiry.line_items || []).map((li, idx) => {
+    const targetEnq = sourceEnquiry || currentEnquiry;
+    return (targetEnq.line_items || []).map((li, idx) => {
       const qty = Number(li.quantity) || 1;
       const rate = Number(li.unit_price) || 0;
       return {
@@ -810,6 +775,176 @@ export default function EnquiryDetail({
         package_pricing_mode: li.package_pricing_mode
       };
     });
+  };
+
+  // Helper to synthesize a Quotation representation from an Enquiry record (baseline proposal or linked sheet revision)
+  const buildSynthesizedQuotationFromEnquiry = (targetEnq: Enquiry, revNumOverride?: number): Quotation => {
+    const revNum = revNumOverride ?? Math.max(1, Number(targetEnq.revision_number) || 1);
+    const rawRef = (
+      targetEnq.quote_ref_no ||
+      `QT-${new Date().getFullYear()}-${String(targetEnq.sn || 1).padStart(4, '0')}`
+    ).trim();
+    const baseRef = rawRef.replace(/-R\d+$/i, '');
+    const formattedRef = /-R\d+$/i.test(rawRef) ? rawRef : `${baseRef}-R${revNum}`;
+    const comp = companies.find((c) => c.id === targetEnq.company_id);
+    const cont = contacts.find((c) => c.id === targetEnq.contact_id);
+    const synthItems = buildBaseLineItemsFromSource(null, targetEnq);
+    const calcTotals = QuotationRepository.calculateTotals(synthItems, 0, 'taxes_extra', 5);
+    const hasItems = synthItems.length > 0 && !targetEnq.is_lump_sum;
+    const rawValAed = Number(targetEnq.value_aed || 0);
+    const isUSD = targetEnq.currency === 'USD';
+    const fallbackSub = isUSD ? Math.round((rawValAed / 3.6725) * 100) / 100 : rawValAed;
+    const subTotal = hasItems ? calcTotals.subtotal : fallbackSub;
+    const taxAmt = hasItems ? calcTotals.tax_amount : Math.round(subTotal * 0.05 * 100) / 100;
+    const grandTotal = hasItems ? calcTotals.grand_total : Math.round((subTotal + taxAmt) * 100) / 100;
+    const derivedStatus: Quotation['status'] = isWonStatus(targetEnq.status)
+      ? 'Approved'
+      : isLostOrCancelledStatus(targetEnq.status)
+      ? 'Declined'
+      : targetEnq.status === 'Sent'
+      ? 'Sent'
+      : 'Draft';
+
+    const synth: Quotation = {
+      id: `baseline_${targetEnq.id || targetEnq.sn || 'current'}_r${revNum}`,
+      workspace_id: targetEnq.workspace_id || activeWorkspaceId || 'ws_default',
+      enquiry_id: targetEnq.id || currentEnquiry.id || '',
+      document_type: 'quotation',
+      quote_number: baseRef,
+      revision_number: revNum,
+      formatted_quote_ref: formattedRef,
+      status: derivedStatus,
+      created_at: targetEnq.enquiry_date || targetEnq.createdAt || new Date().toISOString(),
+      valid_until: new Date(Date.now() + 30 * 86400000).toISOString(),
+      sender_snapshot: {
+        legal_name: documentProfile?.legal_name || activeWorkspace?.name || 'Aventura Components FZE',
+        tagline: documentProfile?.tagline || '',
+        address: documentProfile?.address || '',
+        trn: documentProfile?.trn || '',
+        phone: documentProfile?.phone || '',
+        email: documentProfile?.email || '',
+        website: documentProfile?.website || '',
+        logo_url: documentProfile?.logo_url || ''
+      },
+      client_snapshot: {
+        company_id: comp?.id || targetEnq.company_id,
+        entity_name: comp?.display_name || targetEnq.company_name || 'Valued Client',
+        contact_person: cont?.full_name || targetEnq.contact_name || '',
+        address: [comp?.address, comp?.city || targetEnq.project_location, comp?.country || targetEnq.country]
+          .filter(Boolean)
+          .join(', '),
+        trn: comp?.tax_registration_no || '',
+        phone: cont?.mobile || cont?.phone || comp?.general_phone || '',
+        email: cont?.email || comp?.general_email || ''
+      },
+      subject: targetEnq.subject || `Commercial Proposal — Ref ${formattedRef}`,
+      currency: (targetEnq.currency as 'AED' | 'USD') || 'AED',
+      line_items: synthItems,
+      subtotal: subTotal,
+      freight_amount: 0,
+      tax_mode: 'taxes_extra',
+      tax_rate_percent: 5,
+      tax_amount: taxAmt,
+      grand_total: grandTotal,
+      payment_terms: '100% Advance / As Agreed',
+      price_basis: 'Ex-Works Warehouse',
+      validity_days: 30,
+      prepared_by: resolveSalespersonName(targetEnq) || user?.full_name || user?.username || ''
+    };
+    (synth as any)._isBaselineEnquiryProposal = true;
+    (synth as any)._linkedEnquiryId = targetEnq.id;
+    return synth;
+  };
+
+  // Unified Commercial Documents Hub list: merges saved formal documents (QT, DO, PO, REC, PV, MRN, DN)
+  // with the baseline proposal (and any linked enquiry revisions) so the Hub is never split or empty.
+  const unifiedHubDocuments = useMemo(() => {
+    const activeSaved = quotations.filter((q) => !q.is_deleted);
+    const savedQuoteDocs = activeSaved.filter((q) => (q.document_type || 'quotation') === 'quotation');
+
+    // Collect linked enquiry records (root + any legacy cloned revisions)
+    const rootId = currentEnquiry.parent_id || currentEnquiry.id;
+    const linkedEnquiries =
+      enquiries && enquiries.length > 0 && rootId
+        ? enquiries.filter((e) => !e.is_deleted && (e.id === rootId || e.parent_id === rootId))
+        : [currentEnquiry];
+    const chainList = linkedEnquiries.length > 0 ? linkedEnquiries : [currentEnquiry];
+
+    const synthesizedQuotes: Quotation[] = [];
+    chainList.forEach((enqItem, idx) => {
+      const effectiveEnq = enqItem.id === currentEnquiry.id ? currentEnquiry : enqItem;
+      const revNum = Math.max(1, Number(effectiveEnq.revision_number) || idx + 1);
+      const rawRef = (effectiveEnq.quote_ref_no || '').trim();
+      const baseRef = rawRef.replace(/-R\d+$/i, '');
+      const expectedFormattedRef = rawRef
+        ? /-R\d+$/i.test(rawRef)
+          ? rawRef
+          : `${baseRef}-R${revNum}`
+        : '';
+
+      const alreadyInSaved = savedQuoteDocs.some(
+        (sq) =>
+          (expectedFormattedRef &&
+            (sq.formatted_quote_ref === expectedFormattedRef || sq.formatted_quote_ref === rawRef)) ||
+          (sq.enquiry_id === effectiveEnq.id && (sq.revision_number || 1) === revNum) ||
+          (effectiveEnq.id === currentEnquiry.id && savedQuoteDocs.length > 0 && chainList.length === 1)
+      );
+
+      if (!alreadyInSaved) {
+        synthesizedQuotes.push(buildSynthesizedQuotationFromEnquiry(effectiveEnq, revNum));
+      }
+    });
+
+    const combined = [...activeSaved, ...synthesizedQuotes];
+    return combined.sort((a, b) => {
+      if (a.status === 'Approved' && b.status !== 'Approved') return -1;
+      if (b.status === 'Approved' && a.status !== 'Approved') return 1;
+      const aIsQuote = (a.document_type || 'quotation') === 'quotation';
+      const bIsQuote = (b.document_type || 'quotation') === 'quotation';
+      if (aIsQuote && bIsQuote && (b.revision_number ?? 1) !== (a.revision_number ?? 1)) {
+        return (b.revision_number ?? 1) - (a.revision_number ?? 1);
+      }
+      const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return timeB - timeA;
+    });
+  }, [
+    quotations,
+    currentEnquiry,
+    enquiries,
+    companies,
+    contacts,
+    documentProfile,
+    activeWorkspace,
+    activeWorkspaceId,
+    user
+  ]);
+
+  // Derived sorted quotations: pin approved quotation at top, then sort descending by creation / revision
+  const sortedQuotations = unifiedHubDocuments;
+
+  const filteredHubDocuments = useMemo(() => {
+    if (docHubFilter === 'all') return unifiedHubDocuments;
+    return unifiedHubDocuments.filter((q) => (q.document_type || 'quotation') === docHubFilter);
+  }, [unifiedHubDocuments, docHubFilter]);
+
+  const hasApprovedQuotation = useMemo(() => {
+    return unifiedHubDocuments.some(
+      (q) => (q.document_type || 'quotation') === 'quotation' && q.status === 'Approved'
+    );
+  }, [unifiedHubDocuments]);
+
+  // Helper to get the primary source Quotation for 1-click DO / PO / REC conversions
+  const getPrimarySourceQuotation = (): Quotation | null => {
+    const stdQuotes = unifiedHubDocuments.filter(
+      (q) => (q.document_type || 'quotation') === 'quotation' && q.status !== 'Declined'
+    );
+    return (
+      stdQuotes.find((q) => q.status === 'Approved') ||
+      stdQuotes.find((q) => q.status === 'Sent') ||
+      stdQuotes[0] ||
+      null
+    );
   };
 
   // 1-Click Conversion: Issue Delivery Note (DO) with automatic partial-delivery balance tracking
@@ -2543,10 +2678,12 @@ export default function EnquiryDetail({
     });
   }, [enquiries, enquiry, currentEnquiry]);
 
-  const handleCreateRevision = () => {
+  // WORKFLOW 1: "Create Revision" — Retains the SAME Enquiry ID and S/N (#26), increments proposal revision (-R1 -> -R2),
+  // and logs the revision in the Commercial Documents Hub history.
+  const handleCreateRevision = async () => {
     const currentWsId = activeWorkspaceId || activeWorkspace?.id;
     if (!currentWsId) {
-      if (triggerToast) triggerToast('Active workspace context lost. Cannot clone enquiry.', 'error');
+      if (triggerToast) triggerToast('Active workspace context lost. Cannot create revision.', 'error');
       return;
     }
     const userRole = getUserWorkspaceRole(user, currentWsId, activeWorkspace);
@@ -2555,36 +2692,110 @@ export default function EnquiryDetail({
       return;
     }
 
-    const rootId = currentEnquiry.parent_id || currentEnquiry.id || (currentEnquiry as any)._id;
-    if (!rootId) {
-      if (triggerToast) triggerToast('Cannot create revision: Original enquiry ID missing.', 'error');
+    const enquiryId = currentEnquiry.id || (currentEnquiry as any)._id;
+    if (!enquiryId) {
+      if (triggerToast) triggerToast('Cannot create revision: Enquiry ID missing.', 'error');
       return;
     }
 
-    // Find all linked non-deleted revisions
-    const linked = (enquiries || []).filter(
-      (e) => !e.is_deleted && (e.id === rootId || e.parent_id === rootId)
-    );
+    try {
+      const existingClientQuotes = quotations
+        .filter((q) => !q.is_deleted && (q.document_type || 'quotation') === 'quotation')
+        .sort((a, b) => (b.revision_number || 1) - (a.revision_number || 1));
 
-    // Calculate next revision number
-    const maxExistingRev = linked.reduce(
-      (max, e) => Math.max(max, e.revision_number || 0),
-      currentEnquiry.revision_number || 0
-    );
-    const nextRevNumber = maxExistingRev + 1;
+      let nextRevQuote: Quotation;
 
-    // Clean base quote ref
-    const baseQuoteRef = (currentEnquiry.quote_ref_no || '').replace(/-R\d+$/i, '');
-    const revisionQuoteRef = `${baseQuoteRef}-R${nextRevNumber}`;
+      if (existingClientQuotes.length > 0 && existingClientQuotes[0].id) {
+        // Fork the latest saved quotation revision (marks previous as Superseded and creates R(n+1))
+        nextRevQuote = await QuotationRepository.createRevision(existingClientQuotes[0].id);
+        setQuotations((prev) => [
+          nextRevQuote,
+          ...prev.map((item) =>
+            item.id === existingClientQuotes[0].id ? { ...item, status: 'Superseded' as const } : item
+          )
+        ]);
+      } else {
+        // Materialize baseline R1 as Superseded in QuotationRepository, then fork R2 as Draft
+        const currentRevNum = Math.max(1, Number(currentEnquiry.revision_number) || 1);
+        const baselineSynth = buildSynthesizedQuotationFromEnquiry(currentEnquiry, currentRevNum);
+        const {
+          _isBaselineEnquiryProposal,
+          _linkedEnquiryId,
+          ...cleanBaselineQuote
+        } = baselineSynth as any;
+        const r1ToSave: Quotation = {
+          ...cleanBaselineQuote,
+          id: `qt_${Date.now()}_r${currentRevNum}`,
+          status: 'Superseded',
+          revision_number: currentRevNum
+        };
+        const savedR1 = await QuotationRepository.saveQuotation(r1ToSave);
+        nextRevQuote = await QuotationRepository.createRevision(savedR1.id!);
+        setQuotations((prev) => [nextRevQuote, { ...savedR1, status: 'Superseded' as const }, ...prev]);
+      }
 
-    // Find next SN across enquiries
-    const maxSn = (enquiries || []).reduce((max, e) => Math.max(max, e.sn || 0), currentEnquiry.sn || 0);
+      const nowIso = new Date().toISOString();
+      const updatedPatch: Partial<Enquiry> = {
+        revision_number: nextRevQuote.revision_number,
+        quote_ref_no: nextRevQuote.formatted_quote_ref,
+        latest_quote_ref: nextRevQuote.formatted_quote_ref,
+        latest_revision_number: nextRevQuote.revision_number,
+        active_quotation_id: nextRevQuote.id,
+        updatedAt: nowIso
+      };
+
+      await safeUpdateDoc('enquiries', enquiryId, updatedPatch);
+      const updatedEnquiryRecord: Enquiry = {
+        ...currentEnquiry,
+        ...updatedPatch,
+        sn: currentEnquiry.sn // Explicitly retain the exact same S/N (#26)
+      };
+      await EnquiryRepository.save(updatedEnquiryRecord).catch(() => {});
+      setCurrentEnquiry(updatedEnquiryRecord);
+      if (onUpdateEnquiry) onUpdateEnquiry(updatedEnquiryRecord);
+      if (setEnquiries) {
+        setEnquiries((prev) => prev.map((e) => (e.id === enquiryId ? updatedEnquiryRecord : e)));
+      }
+
+      if (triggerToast) {
+        triggerToast(
+          `Created Proposal Revision R${nextRevQuote.revision_number} (${nextRevQuote.formatted_quote_ref}) on Enquiry #${currentEnquiry.sn}`,
+          'success'
+        );
+      }
+    } catch (err: any) {
+      console.error('Failed to create proposal revision:', err);
+      if (triggerToast) {
+        triggerToast(err?.message || 'Failed to create proposal revision', 'error');
+      }
+    }
+  };
+
+  // WORKFLOW 2: "Duplicate as New Enquiry" — Explicitly creates a NEW Enquiry record with the next S/N (#27),
+  // generates a fresh base reference code (never copying the old -R1 ref), and resets customer dates.
+  const handleDuplicateAsNewEnquiry = () => {
+    const currentWsId = activeWorkspaceId || activeWorkspace?.id;
+    if (!currentWsId) {
+      if (triggerToast) triggerToast('Active workspace context lost. Cannot duplicate enquiry.', 'error');
+      return;
+    }
+    const userRole = getUserWorkspaceRole(user, currentWsId, activeWorkspace);
+    if (userRole === 'Viewer') {
+      if (triggerToast) triggerToast('Access Denied: Viewers do not have permission to duplicate enquiries.', 'error');
+      return;
+    }
+
+    // Find next S/N across non-deleted workspace enquiries
+    const maxSn = (enquiries || [])
+      .filter((e) => !e.is_deleted)
+      .reduce((max, e) => Math.max(max, Number(e.sn) || 0), Number(currentEnquiry.sn) || 0);
     const nextSn = maxSn + 1;
+    const todayIso = new Date().toISOString().split('T')[0];
 
-    // Clone payload without ID and reset lifecycle/fulfillment fields so EnquiryForm creates a clean NEW enquiry record
     const {
       id,
       _id,
+      parent_id,
       createdAt,
       updatedAt,
       stock_reserved,
@@ -2599,24 +2810,33 @@ export default function EnquiryDetail({
       lostAt,
       sentAt,
       statusHistory,
+      invoice_po_no,
+      payment_status,
       ...clonedData
     } = currentEnquiry as any;
 
-    const revisionPayload: Enquiry = {
+    const duplicatePayload: Enquiry = {
       ...clonedData,
       workspace_id: currentWsId,
       id: undefined,
-      parent_id: rootId,
-      revision_number: nextRevNumber,
-      quote_ref_no: revisionQuoteRef,
+      parent_id: undefined,
+      revision_number: 0,
+      sn: nextSn,
+      quote_ref_no: '', // Empty so EnquiryForm auto-generates a fresh base reference code for the new S/N
+      enquiry_date: todayIso,
+      logged_date: todayIso,
+      projected_order_date: '',
+      next_followup_date: '',
       status: 'Active',
       stock_reserved: false,
-      sn: nextSn,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
-    onEditEnquiry(revisionPayload);
+    if (triggerToast) {
+      triggerToast(`Duplicating deal as New Enquiry #${nextSn} with fresh reference code & reset dates...`, 'info');
+    }
+    onEditEnquiry(duplicatePayload);
     onClose();
   };
 
@@ -3061,15 +3281,26 @@ export default function EnquiryDetail({
               )}
 
               {canEditEnquiry(user, activeWorkspace, enquiry) && (
-                <button
-                  type="button"
-                  onClick={handleCreateRevision}
-                  className="px-3 py-1.5 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
-                  title="Clone Enquiry to create a revision (clones line items, links, currency & value)"
-                >
-                  <GitFork className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Clone Enquiry</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={handleCreateRevision}
+                    className="px-3 py-1.5 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
+                    title="Create next Proposal Revision (-R2, -R3) on this same Enquiry S/N and log in Commercial Documents Hub"
+                  >
+                    <GitFork className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Create Revision</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDuplicateAsNewEnquiry}
+                    className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
+                    title="Duplicate line items & account into a brand-new Enquiry with the next S/N, fresh reference code, and today's date"
+                  >
+                    <Copy className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Duplicate as New Enquiry</span>
+                  </button>
+                </>
               )}
 
               <button
@@ -3164,7 +3395,7 @@ export default function EnquiryDetail({
           {([
             { id: 'details', label: 'Details', count: null },
             { id: 'items', label: 'Line Items', count: (currentEnquiry.line_items || []).length },
-            { id: 'revisions', label: 'Quotes & Revisions', count: quotations.length + (revisionChain.length > 1 ? revisionChain.length : 0) },
+            { id: 'revisions', label: 'Commercial Documents', count: unifiedHubDocuments.length },
             { id: 'history', label: 'History', count: recordLogs.length }
           ] as const).map((t) => (
             <button
@@ -3204,29 +3435,6 @@ export default function EnquiryDetail({
 
           {activeTab === 'details' && (
             <div className="space-y-6">
-              {/* Creator-Only Visibility Banner & 1-Click Ownership Hand Over */}
-              {isCreatorOnly && (
-                <div className="p-3.5 rounded-xl bg-amber-50/90 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
-                      <Shield className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span>Logged by You — Assigned to {resolveSalespersonName(currentEnquiry) || resolveSalespersonIdentifier(currentEnquiry) || 'Another Representative'}</span>
-                    </div>
-                    <p className="text-[11px] text-amber-800/90 leading-relaxed">
-                      This enquiry is currently visible in your list because you created it. Once your entry work is complete, you can hand over exclusive visibility to the assigned salesperson.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleReleaseCreatorAccess}
-                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0 shadow-2xs"
-                    title="Release creator-only visibility on this enquiry and its linked call logs so only the assigned rep (and Admins) see it"
-                  >
-                    Hand Over to Assigned Rep
-                  </button>
-                </div>
-              )}
-
               {/* Status and Value Header Card */}
               <div className="grid grid-cols-2 gap-4">
                 <div className={`p-4 rounded-xl border flex flex-col justify-between ${getStatusStyle(currentEnquiry.status)}`}>
@@ -3417,79 +3625,40 @@ export default function EnquiryDetail({
                 </div>
               )}
 
-              {/* Revision History Chain Card */}
-              {revisionChain.length > 0 && (
-                <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <GitFork className="w-4 h-4 text-blue-600" />
-                      <span className="text-xs font-mono text-slate-500 uppercase tracking-widest font-bold">
-                        Proposal Revision Chain ({revisionChain.length})
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('revisions')}
-                      className="text-[11px] text-blue-600 hover:text-blue-800 font-sans font-semibold hover:underline cursor-pointer"
-                    >
-                      View Detailed Chain →
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {revisionChain.map((rev, idx) => {
-                      const isCurrent = rev.id === enquiry.id;
-                      const revLabel = rev.revision_number ? `Rev ${rev.revision_number}` : (idx === 0 ? 'Original' : `Rev ${idx}`);
-                      return (
-                        <button
-                          key={rev.id || idx}
-                          type="button"
-                          onClick={() => {
-                            if (!isCurrent && onSelectEnquiry && rev.id) {
-                              onSelectEnquiry(rev.id);
-                            }
-                          }}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center space-x-1.5 transition cursor-pointer ${
-                            isCurrent
-                              ? 'bg-blue-600 text-white shadow-xs ring-2 ring-blue-300'
-                              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
-                          }`}
-                        >
-                          <span>{rev.quote_ref_no || `Ref #${rev.sn}`}</span>
-                          <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                            isCurrent ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600'
-                          }`}>
-                            {revLabel}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Commercial Documents & Quotes Hub */}
+              {/* Unified Commercial Documents Hub */}
               <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-3.5">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center space-x-2">
                     <div className="w-6 h-6 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
                       <FileText className="w-3.5 h-3.5" />
                     </div>
-                    <span className="text-xs font-mono text-slate-500 uppercase tracking-widest font-bold">
-                      Commercial Documents &amp; Quotes Hub ({quotations.length})
+                    <span className="text-xs font-mono text-slate-700 uppercase tracking-widest font-bold">
+                      Commercial Documents Hub ({unifiedHubDocuments.length})
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <button
                       type="button"
                       onClick={() => {
-                        setEditingQuotation(null);
+                        setEditingQuotation(getPrimarySourceQuotation());
                         setIsQuotationStudioOpen(true);
                       }}
                       className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer transition shadow-2xs"
                     >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>New Quotation</span>
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Open Studio</span>
                     </button>
+                    {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
+                      <button
+                        type="button"
+                        onClick={handleCreateRevision}
+                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                        title="Create next Proposal Revision (-R2, -R3) on this Enquiry S/N"
+                      >
+                        <GitFork className="w-3.5 h-3.5" />
+                        <span>Create Revision</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => handleIssueDeliveryNote()}
@@ -3497,7 +3666,7 @@ export default function EnquiryDetail({
                       title="Generate an unpriced Delivery Note (DO) from the active quotation or line items"
                     >
                       <Truck className="w-3.5 h-3.5" />
-                      <span>Issue Delivery Note</span>
+                      <span>Issue DO</span>
                     </button>
                     <button
                       type="button"
@@ -3506,7 +3675,7 @@ export default function EnquiryDetail({
                       title="Generate an Outbound Supplier PO (using cost prices) or Order Acknowledgment"
                     >
                       <Package className="w-3.5 h-3.5" />
-                      <span>Issue Supplier PO</span>
+                      <span>Issue PO</span>
                     </button>
                     <button
                       type="button"
@@ -3515,7 +3684,7 @@ export default function EnquiryDetail({
                       title="Generate a Payment Receipt Voucher (REC) with automatic balance tracking"
                     >
                       <DollarSign className="w-3.5 h-3.5" />
-                      <span>Issue Payment Receipt</span>
+                      <span>Issue Receipt</span>
                     </button>
                   </div>
                 </div>
@@ -3591,37 +3760,37 @@ export default function EnquiryDetail({
                   </div>
                 )}
 
-                {/* Document Type Filter Pill Bar */}
-                {quotations.length > 0 && (
+                {/* Document Type Filter Bar */}
+                {unifiedHubDocuments.length > 0 && (
                   <div className="flex items-center gap-1 flex-wrap pt-0.5">
                     {(
                       [
-                        { id: 'all' as const, label: `All (${quotations.length})` },
+                        { id: 'all' as const, label: `All (${unifiedHubDocuments.length})` },
                         {
                           id: 'quotation' as const,
-                          label: `Quotations (${quotations.filter((q) => (q.document_type || 'quotation') === 'quotation').length})`
+                          label: `Proposals & Revisions (${unifiedHubDocuments.filter((q) => (q.document_type || 'quotation') === 'quotation').length})`
                         },
                         {
                           id: 'delivery_note' as const,
-                          label: `Delivery Notes (${quotations.filter((q) => q.document_type === 'delivery_note').length})`
+                          label: `Delivery Notes (${unifiedHubDocuments.filter((q) => q.document_type === 'delivery_note').length})`
                         },
                         {
                           id: 'purchase_order' as const,
-                          label: `Purchase Orders (${quotations.filter((q) => q.document_type === 'purchase_order').length})`
+                          label: `Purchase Orders (${unifiedHubDocuments.filter((q) => q.document_type === 'purchase_order').length})`
                         },
                         {
                           id: 'receipt' as const,
-                          label: `Receipts (${quotations.filter((q) => q.document_type === 'receipt').length})`
+                          label: `Receipts (${unifiedHubDocuments.filter((q) => q.document_type === 'receipt').length})`
                         },
-                        ...(quotations.some((q) => q.document_type === 'payment_voucher')
+                        ...(unifiedHubDocuments.some((q) => q.document_type === 'payment_voucher')
                           ? [
                               {
                                 id: 'payment_voucher' as const,
-                                label: `Payment Vouchers (${quotations.filter((q) => q.document_type === 'payment_voucher').length})`
+                                label: `Payment Vouchers (${unifiedHubDocuments.filter((q) => q.document_type === 'payment_voucher').length})`
                               }
                             ]
                           : []),
-                        ...(quotations.some(
+                        ...(unifiedHubDocuments.some(
                           (q) =>
                             q.document_type === 'material_return_note' ||
                             q.document_type === 'debit_note'
@@ -3629,11 +3798,11 @@ export default function EnquiryDetail({
                           ? [
                               {
                                 id: 'material_return_note' as const,
-                                label: `Returns (${quotations.filter((q) => q.document_type === 'material_return_note').length})`
+                                label: `Returns (${unifiedHubDocuments.filter((q) => q.document_type === 'material_return_note').length})`
                               },
                               {
                                 id: 'debit_note' as const,
-                                label: `Debit Notes (${quotations.filter((q) => q.document_type === 'debit_note').length})`
+                                label: `Debit Notes (${unifiedHubDocuments.filter((q) => q.document_type === 'debit_note').length})`
                               }
                             ]
                           : [])
@@ -3658,302 +3827,274 @@ export default function EnquiryDetail({
                   </div>
                 )}
 
-                {/* Linked Procurement & Net Margin Summary Strip */}
-                {!isMaskedForBasic &&
-                  quotations.some(
-                    (q) =>
-                      !q.is_deleted &&
-                      q.document_type === 'purchase_order' &&
-                      q.purchase_order_metadata?.po_variant !== 'order_acknowledgment'
-                  ) && (() => {
-                    const activePos = quotations.filter(
-                      (q) =>
-                        !q.is_deleted &&
-                        q.document_type === 'purchase_order' &&
-                        q.purchase_order_metadata?.po_variant !== 'order_acknowledgment'
-                    );
-                    const totalCommittedPoCost = activePos.reduce(
-                      (sum, po) => sum + Number(po.grand_total || 0),
-                      0
-                    );
-                    const primaryQt = getPrimarySourceQuotation();
-                    const clientContractVal =
-                      Number(primaryQt?.grand_total) || Number(currentEnquiry.value_aed) || 0;
-                    const netMarginVal = clientContractVal - totalCommittedPoCost;
-                    const netMarginPct =
-                      clientContractVal > 0 ? (netMarginVal / clientContractVal) * 100 : null;
-                    const curr = currentEnquiry.currency || 'AED';
-
-                    return (
-                      <div className="p-3 rounded-xl bg-indigo-50/70 border border-indigo-200/80 flex flex-wrap items-center justify-between gap-3 text-xs">
-                        <div className="flex items-center gap-2">
-                          <span className="px-2 py-0.5 rounded bg-indigo-600 text-white font-mono text-[10px] font-bold uppercase">
-                            Procurement Linked ({activePos.length} PO{activePos.length === 1 ? '' : 's'})
-                          </span>
-                          <span className="text-slate-700 font-medium">
-                            Committed Supplier PO Total:{' '}
-                            <strong className="font-mono text-slate-900">
-                              {curr} {totalCommittedPoCost.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                            </strong>
-                          </span>
-                        </div>
-                        {clientContractVal > 0 && (
-                          <div className="flex items-center gap-2 font-mono">
-                            <span className="text-slate-600">
-                              Client Offer: <strong>{curr} {clientContractVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
-                            </span>
-                            <span
-                              className={`px-2 py-0.5 rounded font-bold text-[11px] border ${
-                                (netMarginPct ?? 0) >= 15
-                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                  : (netMarginPct ?? 0) >= 0
-                                  ? 'bg-amber-100 text-amber-800 border-amber-300'
-                                  : 'bg-rose-100 text-rose-800 border-rose-300'
-                              }`}
-                            >
-                              Net Margin: {curr} {netMarginVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}{' '}
-                              {netMarginPct !== null ? `(${netMarginPct.toFixed(1)}%)` : ''}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-
+                {/* Unified Commercial Documents Hub Table */}
                 {filteredHubDocuments.length > 0 ? (
-                  <div className="space-y-2 pt-1">
-                    {filteredHubDocuments.map((q) => {
-                      const docType = q.document_type || 'quotation';
-                      const isQuoteDoc = docType === 'quotation';
-                      const isSuperseded = q.status === 'Superseded';
-                      const isApproved = q.status === 'Approved';
-                      const isDeclined = q.status === 'Declined';
-                      const isSent = q.status === 'Sent';
-                      const isDraft = q.status === 'Draft' || !q.status;
+                  <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-100/80 border-b border-slate-200 text-[10px] font-mono uppercase tracking-wider text-slate-500">
+                            <th className="py-2.5 px-3 font-bold">Type</th>
+                            <th className="py-2.5 px-3 font-bold">Reference Code</th>
+                            <th className="py-2.5 px-3 font-bold">Rev #</th>
+                            <th className="py-2.5 px-3 font-bold">Created Date</th>
+                            <th className="py-2.5 px-3 font-bold text-right">Total Amount</th>
+                            <th className="py-2.5 px-3 font-bold">Status</th>
+                            <th className="py-2.5 px-3 font-bold text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {filteredHubDocuments.map((q) => {
+                            const docType = q.document_type || 'quotation';
+                            const isQuoteDoc = docType === 'quotation';
+                            const isBaselineVirtual = Boolean((q as any)._isBaselineEnquiryProposal);
+                            const linkedEnqId = (q as any)._linkedEnquiryId as string | undefined;
+                            const isSuperseded = q.status === 'Superseded';
+                            const isApproved = q.status === 'Approved';
+                            const isDeclined = q.status === 'Declined';
+                            const isSent = q.status === 'Sent';
+                            const isDraft = q.status === 'Draft' || !q.status;
 
-                      const badgeLabel =
-                        docType === 'delivery_note'
-                          ? 'DO'
-                          : docType === 'purchase_order'
-                          ? 'PO'
-                          : docType === 'receipt'
-                          ? 'REC'
-                          : docType === 'payment_voucher'
-                          ? 'PV'
-                          : docType === 'material_return_note'
-                          ? 'MRN'
-                          : docType === 'debit_note'
-                          ? 'DN'
-                          : `QT R${q.revision_number || 1}`;
+                            const badgeLabel =
+                              docType === 'delivery_note'
+                                ? 'DO'
+                                : docType === 'purchase_order'
+                                ? 'PO'
+                                : docType === 'receipt'
+                                ? 'REC'
+                                : docType === 'payment_voucher'
+                                ? 'PV'
+                                : docType === 'material_return_note'
+                                ? 'MRN'
+                                : docType === 'debit_note'
+                                ? 'DN'
+                                : 'QT';
 
-                      const badgeClass =
-                        docType === 'delivery_note'
-                          ? 'bg-blue-100 text-blue-800 border border-blue-200'
-                          : docType === 'purchase_order'
-                          ? 'bg-purple-100 text-purple-800 border border-purple-200'
-                          : docType === 'receipt'
-                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                          : docType === 'payment_voucher'
-                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                          : docType === 'material_return_note' || docType === 'debit_note'
-                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                          : isApproved
-                          ? 'bg-emerald-200 text-emerald-900 font-extrabold'
-                          : isDeclined
-                          ? 'bg-rose-100 text-rose-800'
-                          : isSuperseded
-                          ? 'bg-slate-200 text-slate-600'
-                          : isSent
-                          ? 'bg-indigo-100 text-indigo-800'
-                          : 'bg-amber-100 text-amber-800';
+                            const badgeClass =
+                              docType === 'delivery_note'
+                                ? 'bg-blue-100 text-blue-800 border-blue-200'
+                                : docType === 'purchase_order'
+                                ? 'bg-purple-100 text-purple-800 border-purple-200'
+                                : docType === 'receipt'
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                : docType === 'payment_voucher'
+                                ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                : docType === 'material_return_note' || docType === 'debit_note'
+                                ? 'bg-rose-100 text-rose-800 border-rose-200'
+                                : 'bg-indigo-100 text-indigo-800 border-indigo-200';
 
-                      return (
-                        <div
-                          key={q.id || q.formatted_quote_ref}
-                          className={`p-3 rounded-xl border transition flex items-center justify-between gap-3 flex-wrap ${
-                            isApproved && isQuoteDoc
-                              ? 'bg-emerald-50/70 border-emerald-300 ring-1 ring-emerald-400/40 shadow-2xs'
-                              : isDeclined
-                              ? 'bg-rose-50/40 border-rose-200 text-slate-700 opacity-90'
-                              : isSuperseded
-                              ? 'bg-slate-100/70 border-slate-200 text-slate-500 opacity-80'
-                              : 'bg-white border-slate-200 hover:border-indigo-300 shadow-2xs'
-                          }`}
-                        >
-                          <div className="flex items-center space-x-3 min-w-0">
-                            <span
-                              className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-bold shrink-0 ${badgeClass}`}
-                            >
-                              {badgeLabel}
-                            </span>
-                            <div className="min-w-0">
-                              <div className="flex items-center space-x-2 flex-wrap">
-                                <span className="font-mono font-bold text-xs text-slate-900 truncate">
-                                  {q.formatted_quote_ref}
-                                </span>
-                                {isApproved && isQuoteDoc ? (
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-emerald-100 text-emerald-800 border-emerald-300 shadow-2xs">
-                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                    Approved / Won
-                                  </span>
-                                ) : isDeclined ? (
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-rose-50 text-rose-700 border-rose-200 shadow-2xs">
-                                    <XCircle className="w-3 h-3 text-rose-600" />
-                                    Declined
-                                  </span>
-                                ) : (
+                            const formattedDate = q.created_at
+                              ? new Date(q.created_at).toLocaleDateString('en-GB', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric'
+                                })
+                              : '—';
+
+                            return (
+                              <tr
+                                key={q.id || q.formatted_quote_ref}
+                                className={`transition hover:bg-slate-50/90 ${
+                                  isApproved && isQuoteDoc
+                                    ? 'bg-emerald-50/40'
+                                    : isDeclined
+                                    ? 'bg-rose-50/30 opacity-85'
+                                    : isSuperseded
+                                    ? 'bg-slate-50/60 text-slate-500 opacity-80'
+                                    : ''
+                                }`}
+                              >
+                                {/* 1. Document Type Badge */}
+                                <td className="py-2.5 px-3 whitespace-nowrap">
                                   <span
-                                    className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
-                                      isSent
-                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                        : isSuperseded
-                                        ? 'bg-slate-100 text-slate-500 border-slate-200 opacity-80'
-                                        : 'bg-amber-50 text-amber-700 border-amber-200'
-                                    }`}
+                                    className={`inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-mono font-bold ${badgeClass}`}
                                   >
-                                    {q.status || 'Draft'}
+                                    {badgeLabel}
                                   </span>
-                                )}
-                              </div>
-                              <p className="text-[11px] text-slate-400 mt-0.5">
-                                Issued: {new Date(q.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                {docType === 'delivery_note' && (
-                                  <span>
-                                    {' '}• Dispatch: {q.delivery_metadata?.dispatch_mode || 'Company Transport'}
-                                    {q.delivery_metadata?.vehicle_plate_no
-                                      ? ` (${q.delivery_metadata.vehicle_plate_no})`
-                                      : ''}
-                                  </span>
-                                )}
-                                {docType === 'purchase_order' && (
-                                  <span>
-                                    {' '}• Supplier: {q.purchase_order_metadata?.supplier_name || 'Vendor'}
-                                  </span>
-                                )}
-                                {docType === 'receipt' && (
-                                  <span>
-                                    {' '}• Mode: {q.receipt_metadata?.payment_method || 'Bank Transfer'} • Rem. Bal:{' '}
-                                    {q.currency || 'AED'}{' '}
-                                    {Number(q.receipt_metadata?.balance_remaining ?? 0).toLocaleString('en-US', {
-                                      minimumFractionDigits: 2
-                                    })}
-                                  </span>
-                                )}
-                                {isQuoteDoc && q.valid_until && ` • Valid: ${new Date(q.valid_until).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`}
-                                {isDeclined && q.decline_reason && (
-                                  <span className="text-rose-600 font-medium"> • Loss Reason: {q.decline_reason}</span>
-                                )}
-                              </p>
-                            </div>
-                          </div>
+                                </td>
 
-                          <div className="flex items-center space-x-2 shrink-0 flex-wrap">
-                            {docType === 'delivery_note' ? (
-                              <span className="font-mono font-semibold text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 mr-1">
-                                Unpriced • {(q.line_items || []).length} item(s)
-                              </span>
-                            ) : docType === 'receipt' ? (
-                              <span className="font-mono font-bold text-xs text-emerald-800 mr-1">
-                                Paid: {q.currency || 'AED'}{' '}
-                                {Number(
-                                  q.receipt_metadata?.amount_received ?? q.grand_total ?? 0
-                                ).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                              </span>
-                            ) : (
-                              <span className="font-mono font-bold text-xs text-slate-800 mr-1">
-                                {q.currency || 'AED'}{' '}
-                                {Number(q.grand_total || 0).toLocaleString('en-US', {
-                                  minimumFractionDigits: 2
-                                })}
-                              </span>
-                            )}
+                                {/* 2. Reference Code */}
+                                <td className="py-2.5 px-3">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="font-mono font-bold text-slate-900">
+                                      {q.formatted_quote_ref}
+                                    </span>
+                                    {isBaselineVirtual && (
+                                      <span className="text-[9.5px] font-mono px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                                        Baseline Proposal
+                                      </span>
+                                    )}
+                                  </div>
+                                  {docType === 'purchase_order' && q.purchase_order_metadata?.supplier_name && (
+                                    <span className="text-[10px] text-slate-400 block">
+                                      Vendor: {q.purchase_order_metadata.supplier_name}
+                                    </span>
+                                  )}
+                                  {docType === 'delivery_note' && q.delivery_metadata?.dispatch_mode && (
+                                    <span className="text-[10px] text-slate-400 block">
+                                      Dispatch: {q.delivery_metadata.dispatch_mode}
+                                    </span>
+                                  )}
+                                </td>
 
-                            {!isSuperseded && !isDeclined && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingQuotation(q);
-                                  setIsQuotationStudioOpen(true);
-                                }}
-                                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1 shadow-2xs"
-                                title="Open in Studio"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                                <span>Edit</span>
-                              </button>
-                            )}
+                                {/* 3. Revision # */}
+                                <td className="py-2.5 px-3 whitespace-nowrap font-mono">
+                                  {isQuoteDoc ? (
+                                    <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[10.5px] font-bold">
+                                      R{q.revision_number || 1}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400">—</span>
+                                  )}
+                                </td>
 
-                            {isQuoteDoc && isSent && !isSuperseded && !isDeclined && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => promptAcceptQuotation(q)}
-                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition cursor-pointer flex items-center gap-1 shadow-2xs"
-                                  title={`Mark ${q.formatted_quote_ref} as Client Accepted & Win Enquiry`}
-                                >
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
-                                  <span>Accept / Won</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => openDeclineModal(q)}
-                                  className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1 shadow-2xs"
-                                  title={`Mark ${q.formatted_quote_ref} as Declined / Lost`}
-                                >
-                                  <XCircle className="w-3.5 h-3.5" />
-                                  <span>Decline</span>
-                                </button>
-                              </>
-                            )}
+                                {/* 4. Created Date */}
+                                <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[11px] text-slate-600">
+                                  {formattedDate}
+                                </td>
 
-                            <button
-                              type="button"
-                              onClick={() => setViewingQuotation(q)}
-                              className="px-2.5 py-1 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
-                              title="Preview Commercial Document"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                              <span>View</span>
-                            </button>
+                                {/* 5. Total Amount */}
+                                <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono">
+                                  {docType === 'delivery_note' || docType === 'material_return_note' ? (
+                                    <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                                      Unpriced • {(q.line_items || []).length} item(s)
+                                    </span>
+                                  ) : docType === 'receipt' ? (
+                                    <span className="font-bold text-emerald-800">
+                                      {q.currency || 'AED'}{' '}
+                                      {Number(
+                                        q.receipt_metadata?.amount_received ?? q.grand_total ?? 0
+                                      ).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                    </span>
+                                  ) : (
+                                    <span className="font-bold text-slate-900">
+                                      {isMaskedForBasic
+                                        ? 'AED ***'
+                                        : `${q.currency || 'AED'} ${Number(q.grand_total || 0).toLocaleString(
+                                            'en-US',
+                                            { minimumFractionDigits: 2 }
+                                          )}`}
+                                    </span>
+                                  )}
+                                </td>
 
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setViewingQuotation(q);
-                                setTimeout(() => window.print(), 150);
-                              }}
-                              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
-                              title="Direct Print or Save as PDF"
-                            >
-                              <Printer className="w-3.5 h-3.5 text-slate-500" />
-                              <span>Print</span>
-                            </button>
+                                {/* 6. Status */}
+                                <td className="py-2.5 px-3 whitespace-nowrap">
+                                  {isApproved && isQuoteDoc ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-emerald-100 text-emerald-800 border-emerald-300">
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                      Approved
+                                    </span>
+                                  ) : isDeclined ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-rose-50 text-rose-700 border-rose-200">
+                                      <XCircle className="w-3 h-3 text-rose-600" />
+                                      Declined
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className={`inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                                        isSent
+                                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                          : isSuperseded
+                                          ? 'bg-slate-100 text-slate-500 border-slate-200'
+                                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                                      }`}
+                                    >
+                                      {q.status || 'Draft'}
+                                    </span>
+                                  )}
+                                </td>
 
-                            {isQuoteDoc && !isSuperseded && !isDeclined && (isApproved || (isSent && !hasApprovedQuotation)) && (
-                              <button
-                                type="button"
-                                onClick={() => handleCreateQuotationRevision(q)}
-                                className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-lg transition cursor-pointer flex items-center gap-1 shadow-2xs"
-                                title="Fork this quote into new revision (R1, R2...)"
-                              >
-                                <GitFork className="w-3.5 h-3.5" />
-                                <span>Revise</span>
-                              </button>
-                            )}
+                                {/* 7. Actions: Direct Open in Studio & Print + Lifecycle */}
+                                <td className="py-2.5 px-3 whitespace-nowrap text-right">
+                                  <div className="inline-flex items-center justify-end gap-1.5">
+                                    {linkedEnqId && linkedEnqId !== currentEnquiry.id && onSelectEnquiry ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => onSelectEnquiry(linkedEnqId)}
+                                        className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[11px] font-semibold rounded-lg transition cursor-pointer"
+                                      >
+                                        Switch Sheet
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingQuotation(isBaselineVirtual ? null : q);
+                                          setIsQuotationStudioOpen(true);
+                                        }}
+                                        className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
+                                        title="Open in Quotation Studio"
+                                      >
+                                        <Edit2 className="w-3 h-3" />
+                                        <span>Open in Studio</span>
+                                      </button>
+                                    )}
 
-                            {/* Discard Draft / Delete Document */}
-                            <button
-                              type="button"
-                              onClick={() => promptDeleteQuotation(q)}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                              title={isDraft ? 'Discard Draft Document' : 'Move Document to Recycle Bin'}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setViewingQuotation(q);
+                                        setTimeout(() => window.print(), 150);
+                                      }}
+                                      className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
+                                      title="Print or Save as PDF"
+                                    >
+                                      <Printer className="w-3 h-3 text-slate-500" />
+                                      <span>Print</span>
+                                    </button>
+
+                                    {!isBaselineVirtual && isQuoteDoc && !isSuperseded && !isDeclined && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCreateQuotationRevision(q)}
+                                        className="px-2 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
+                                        title={`Fork Revision R${(q.revision_number || 1) + 1}`}
+                                      >
+                                        <GitFork className="w-3 h-3" />
+                                        <span>+Rev</span>
+                                      </button>
+                                    )}
+
+                                    {!isBaselineVirtual && isQuoteDoc && isSent && !isSuperseded && !isDeclined && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => promptAcceptQuotation(q)}
+                                          className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg transition cursor-pointer"
+                                          title="Accept Commercial Offer & Win Enquiry"
+                                        >
+                                          Accept
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => openDeclineModal(q)}
+                                          className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-semibold rounded-lg transition cursor-pointer"
+                                          title="Mark Quotation as Declined"
+                                        >
+                                          Decline
+                                        </button>
+                                      </>
+                                    )}
+
+                                    {!isBaselineVirtual && (
+                                      <button
+                                        type="button"
+                                        onClick={() => promptDeleteQuotation(q)}
+                                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                                        title={isDraft ? 'Discard Draft Document' : 'Move Document to Recycle Bin'}
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 ) : (
                   <div className="p-4 bg-white border border-dashed border-slate-200 rounded-xl text-center space-y-1.5">
@@ -3969,7 +4110,7 @@ export default function EnquiryDetail({
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition cursor-pointer"
                     >
                       <FileText className="w-3.5 h-3.5" />
-                      <span>Launch Commercial Document Studio</span>
+                      <span>Open Quotation Studio</span>
                     </button>
                   </div>
                 )}
@@ -4368,43 +4509,66 @@ export default function EnquiryDetail({
                 </div>
 
                 <div className="space-y-2.5">
-                  {/* Primary Deal Owner */}
-                  <div className="flex items-center justify-between p-2.5 bg-amber-50/80 border border-amber-200/80 rounded-xl">
-                    <div className="flex items-center space-x-2.5">
-                      <div className="w-7 h-7 rounded-full bg-amber-200 text-amber-800 font-mono font-bold text-xs flex items-center justify-center">
-                        {(() => {
-                          const sp = salespersons.find(
-                            (s) =>
-                              s.id === currentEnquiry.salesperson_id ||
-                              s.id === currentEnquiry.sales_person_id ||
-                              s.initials === currentEnquiry.sales_person ||
-                              s.full_name === currentEnquiry.salesperson
-                          );
-                          return sp?.initials || (currentEnquiry.salesperson || currentEnquiry.sales_person || 'REP').slice(0, 2).toUpperCase();
-                        })()}
-                      </div>
-                      <div>
-                        <div className="flex items-center space-x-1.5">
-                          <span className="text-xs font-bold text-slate-800 font-sans">
-                            {(() => {
-                              const sp = salespersons.find(
-                                (s) =>
-                                  s.id === currentEnquiry.salesperson_id ||
-                                  s.id === currentEnquiry.sales_person_id ||
-                                  s.initials === currentEnquiry.sales_person ||
-                                  s.full_name === currentEnquiry.salesperson
-                              );
-                              return sp ? sp.full_name : (currentEnquiry.salesperson || currentEnquiry.sales_person || 'Assigned Representative');
-                            })()}
-                          </span>
-                          <span className="text-[10px] font-semibold bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded-md font-mono">
-                            Primary Owner
-                          </span>
+                  {/* Primary Deal Owner & Creator Handover Controls */}
+                  <div className="flex flex-col gap-2.5 p-3 bg-amber-50/80 border border-amber-200/80 rounded-xl">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2.5">
+                        <div className="w-7 h-7 rounded-full bg-amber-200 text-amber-800 font-mono font-bold text-xs flex items-center justify-center">
+                          {(() => {
+                            const sp = salespersons.find(
+                              (s) =>
+                                s.id === currentEnquiry.salesperson_id ||
+                                s.id === currentEnquiry.sales_person_id ||
+                                s.initials === currentEnquiry.sales_person ||
+                                s.full_name === currentEnquiry.salesperson
+                            );
+                            return sp?.initials || (currentEnquiry.salesperson || currentEnquiry.sales_person || 'REP').slice(0, 2).toUpperCase();
+                          })()}
                         </div>
-                        <span className="text-[10px] text-slate-500">Universal record management & primary attribution</span>
+                        <div>
+                          <div className="flex items-center space-x-1.5 flex-wrap">
+                            <span className="text-xs font-bold text-slate-800 font-sans">
+                              {(() => {
+                                const sp = salespersons.find(
+                                  (s) =>
+                                    s.id === currentEnquiry.salesperson_id ||
+                                    s.id === currentEnquiry.sales_person_id ||
+                                    s.initials === currentEnquiry.sales_person ||
+                                    s.full_name === currentEnquiry.salesperson
+                                );
+                                return sp ? sp.full_name : (currentEnquiry.salesperson || currentEnquiry.sales_person || 'Assigned Representative');
+                              })()}
+                            </span>
+                            <span className="text-[10px] font-semibold bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded-md font-mono">
+                              Primary Owner
+                            </span>
+                            {isCreatorOnly && (
+                              <span className="text-[10px] font-semibold bg-white text-amber-800 border border-amber-300 px-1.5 py-0.2 rounded-md font-sans">
+                                Logged by You
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-500">Universal record management &amp; primary attribution</span>
+                        </div>
                       </div>
+                      <Shield className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                     </div>
-                    <Shield className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+
+                    {isCreatorOnly && (
+                      <div className="pt-2 border-t border-amber-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <p className="text-[11px] text-amber-900/90 leading-snug">
+                          Visible in your list because you created it. Hand over exclusive access to the assigned rep when ready.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={handleReleaseCreatorAccess}
+                          className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold transition cursor-pointer whitespace-nowrap shrink-0 shadow-2xs"
+                          title="Release creator-only visibility on this enquiry so only the assigned rep (and Admins) see it"
+                        >
+                          Hand Over to Assigned Rep
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Collaborator chips */}
@@ -6319,245 +6483,155 @@ export default function EnquiryDetail({
           })()}
 
           {activeTab === 'revisions' && (
-            <div className="space-y-6">
-              {/* Section 1: Formal Quotations & Offer Revisions (R1, R2, ...) */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                  <div className="flex items-center space-x-2 text-xs text-slate-500 font-mono">
-                    <FileText className="w-4 h-4 text-indigo-600" />
-                    <span className="font-bold uppercase tracking-wider text-slate-700">
-                      Formal Commercial Quotations ({quotations.length})
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingQuotation(quotations[0] || null);
-                      setIsQuotationStudioOpen(true);
-                    }}
-                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition cursor-pointer flex items-center gap-1.5"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>{quotations.length > 0 ? 'Open Quotation Studio' : 'Create First Quotation (R1)'}</span>
-                  </button>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 flex-wrap gap-2">
+                <div className="flex items-center space-x-2 text-xs text-slate-500 font-mono">
+                  <FileText className="w-4 h-4 text-indigo-600" />
+                  <span className="font-bold uppercase tracking-wider text-slate-700">
+                    Commercial Documents Hub ({unifiedHubDocuments.length})
+                  </span>
                 </div>
-
-                {quotations.length > 0 ? (
-                  <div className="space-y-2.5">
-                    {quotations.map((q) => {
-                      const isApproved = q.status === 'Approved';
-                      const isDeclined = q.status === 'Declined';
-                      const isSuperseded = q.status === 'Superseded';
-                      return (
-                        <div
-                          key={q.id || q.formatted_quote_ref}
-                          className={`border rounded-xl p-4 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                            isApproved
-                              ? 'bg-emerald-50/40 border-emerald-200'
-                              : isDeclined
-                              ? 'bg-rose-50/30 border-rose-200'
-                              : isSuperseded
-                              ? 'bg-slate-50 border-slate-200 opacity-75'
-                              : 'bg-white border-slate-200 hover:border-indigo-300 shadow-2xs'
-                          }`}
-                        >
-                          <div className="space-y-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-mono text-sm font-bold text-slate-900">
-                                {q.formatted_quote_ref}
-                              </span>
-                              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                Rev R{q.revision_number || 1}
-                              </span>
-                              <span
-                                className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${
-                                  isApproved
-                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                                    : isDeclined
-                                    ? 'bg-rose-100 text-rose-800 border-rose-200'
-                                    : isSuperseded
-                                    ? 'bg-slate-100 text-slate-600 border-slate-200'
-                                    : 'bg-blue-50 text-blue-700 border-blue-200'
-                                }`}
-                              >
-                                {q.status || 'Draft'}
-                              </span>
-                            </div>
-                            <div className="text-xs font-mono tabular-nums text-slate-500 flex items-center gap-2 flex-wrap">
-                              <span className="font-bold text-slate-800">
-                                {q.currency || 'AED'} {Number(q.grand_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </span>
-                              <span>·</span>
-                              <span>{(q.line_items || []).length} items</span>
-                              {q.created_at && (
-                                <>
-                                  <span>·</span>
-                                  <span>{new Date(q.created_at).toLocaleDateString()}</span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-1.5 flex-wrap shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingQuotation(q);
-                                setIsQuotationStudioOpen(true);
-                              }}
-                              className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold transition cursor-pointer"
-                            >
-                              Edit in Studio
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleCreateQuotationRevision(q)}
-                              className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1"
-                              title="Fork next quotation revision"
-                            >
-                              <GitFork className="w-3 h-3" />
-                              <span>Fork R{(q.revision_number || 1) + 1}</span>
-                            </button>
-                            {!isApproved && !isDeclined && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => promptAcceptQuotation(q)}
-                                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition cursor-pointer"
-                                >
-                                  Accept
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => openDeclineModal(q)}
-                                  className="px-2.5 py-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-lg text-xs font-semibold transition cursor-pointer"
-                                >
-                                  Decline
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="bg-slate-50 border border-dashed border-slate-200 rounded-xl p-6 text-center text-xs text-slate-500">
-                    No formal quotations generated yet. Click <strong>Create First Quotation (R1)</strong> to launch Quotation Studio.
-                  </div>
-                )}
-              </div>
-
-              {/* Section 2: Cloned Enquiry Sheet Revisions Chain */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                  <div className="flex items-center space-x-2 text-xs text-slate-500 font-mono">
-                    <GitFork className="w-4 h-4 text-blue-500" />
-                    <span className="font-bold uppercase tracking-wider text-slate-700">
-                      Linked Enquiry Sheet Revisions ({revisionChain.length})
-                    </span>
-                  </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
                   {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
                     <button
                       type="button"
                       onClick={handleCreateRevision}
                       className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
                     >
-                      <GitFork className="w-3 h-3" />
-                      <span>Clone Sheet Revision</span>
+                      <GitFork className="w-3.5 h-3.5" />
+                      <span>Create Revision</span>
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingQuotation(getPrimarySourceQuotation());
+                      setIsQuotationStudioOpen(true);
+                    }}
+                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition cursor-pointer flex items-center gap-1.5"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Open Quotation Studio</span>
+                  </button>
                 </div>
+              </div>
 
-                {revisionChain.length > 0 ? (
-                  <div className="relative border-l border-slate-200 ml-3.5 pl-5 space-y-4 py-1">
-                    {revisionChain.map((rev, index) => {
-                      const isCurrent = rev.id === enquiry.id;
-                      const revCompany = companies.find((c) => c.id === rev.company_id);
-                      const revDate = rev.enquiry_date;
-                      const itemsCount = rev.line_items?.length || (rev as any).items?.length || 0;
-                      const revLabel = typeof rev.revision_number === 'number' ? (rev.revision_number === 0 ? 'Original' : `Rev ${rev.revision_number}`) : (index === 0 ? 'Original' : `Rev ${index}`);
+              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-100/80 border-b border-slate-200 text-[10px] font-mono uppercase tracking-wider text-slate-500">
+                        <th className="py-2.5 px-3 font-bold">Type</th>
+                        <th className="py-2.5 px-3 font-bold">Reference Code</th>
+                        <th className="py-2.5 px-3 font-bold">Rev #</th>
+                        <th className="py-2.5 px-3 font-bold">Created Date</th>
+                        <th className="py-2.5 px-3 font-bold text-right">Total Amount</th>
+                        <th className="py-2.5 px-3 font-bold">Status</th>
+                        <th className="py-2.5 px-3 font-bold text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {unifiedHubDocuments.map((q) => {
+                        const docType = q.document_type || 'quotation';
+                        const isQuoteDoc = docType === 'quotation';
+                        const isBaselineVirtual = Boolean((q as any)._isBaselineEnquiryProposal);
+                        const isSuperseded = q.status === 'Superseded';
+                        const isApproved = q.status === 'Approved';
+                        const isDeclined = q.status === 'Declined';
+                        const isSent = q.status === 'Sent';
 
-                      return (
-                        <div key={rev.id || index} className="relative group">
-                          <div className={`absolute -left-[27px] top-1.5 w-3.5 h-3.5 rounded-full border-2 bg-white transition-all ${
-                            isCurrent
-                              ? 'border-blue-600 ring-4 ring-blue-100 scale-110 z-10'
-                              : 'border-slate-300 group-hover:border-slate-400'
-                          }`} />
+                        const badgeLabel =
+                          docType === 'delivery_note'
+                            ? 'DO'
+                            : docType === 'purchase_order'
+                            ? 'PO'
+                            : docType === 'receipt'
+                            ? 'REC'
+                            : docType === 'payment_voucher'
+                            ? 'PV'
+                            : docType === 'material_return_note'
+                            ? 'MRN'
+                            : docType === 'debit_note'
+                            ? 'DN'
+                            : 'QT';
 
-                          <div
-                            onClick={() => {
-                              if (!isCurrent && onSelectEnquiry && rev.id) {
-                                onSelectEnquiry(rev.id);
-                              }
-                            }}
-                            className={`border rounded-xl p-4 transition-all text-left ${
-                              isCurrent
-                                ? 'bg-blue-50/50 border-blue-200 shadow-xs'
-                                : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-xs cursor-pointer'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-xs font-mono font-bold text-slate-800 flex items-center space-x-1.5">
-                                <span>Quote Ref: {rev.quote_ref_no || `#${rev.sn}`}</span>
-                                <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono font-bold">
-                                  {revLabel}
-                                </span>
+                        return (
+                          <tr key={q.id || q.formatted_quote_ref} className="hover:bg-slate-50/90 transition">
+                            <td className="py-2.5 px-3 whitespace-nowrap">
+                              <span className="px-2 py-0.5 rounded border text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border-indigo-200">
+                                {badgeLabel}
                               </span>
-                              <div className="flex items-center space-x-2">
-                                {isCurrent && (
-                                  <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider font-sans">
-                                    Viewing
-                                  </span>
-                                )}
-                                <span className="text-[10px] text-slate-400 font-mono">
-                                  S/N: #{rev.sn}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-xs font-sans mb-3 text-slate-600">
-                              <div>
-                                <span className="text-[10px] uppercase font-mono text-slate-400 block tracking-wider">Proposal Date</span>
-                                <span className="font-medium text-slate-800 font-mono">{revDate}</span>
-                              </div>
-                              <div>
-                                <span className="text-[10px] uppercase font-mono text-slate-400 block tracking-wider">Package Value</span>
-                                <span className="font-bold text-blue-600 font-mono tabular-nums">{formatCurrency(rev.value_aed)}</span>
-                              </div>
-                              <div>
-                                <span className="text-[10px] uppercase font-mono text-slate-400 block tracking-wider">Company</span>
-                                <span className="font-medium truncate block max-w-[150px] text-slate-800">
-                                  {revCompany?.display_name || rev.company_name || 'Unknown Company'}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-[10px] uppercase font-mono text-slate-400 block tracking-wider">Line Items</span>
-                                <span className="font-medium text-slate-800">
-                                  {itemsCount} {itemsCount === 1 ? 'item' : 'items'}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center justify-between text-[10px] border-t border-slate-100 pt-2 text-slate-400 font-mono">
-                              <span>
-                                {rev.updatedByUsername ? `Updated by ${rev.updatedByUsername}` : 'Initial revision'}
+                            </td>
+                            <td className="py-2.5 px-3 font-mono font-bold text-slate-900">
+                              {q.formatted_quote_ref}
+                            </td>
+                            <td className="py-2.5 px-3 font-mono">
+                              {isQuoteDoc ? `R${q.revision_number || 1}` : '—'}
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-[11px] text-slate-600">
+                              {q.created_at
+                                ? new Date(q.created_at).toLocaleDateString('en-GB', {
+                                    day: '2-digit',
+                                    month: 'short',
+                                    year: 'numeric'
+                                  })
+                                : '—'}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
+                              {docType === 'delivery_note' || docType === 'material_return_note'
+                                ? `Unpriced • ${(q.line_items || []).length} item(s)`
+                                : `${q.currency || 'AED'} ${Number(q.grand_total || 0).toLocaleString('en-US', {
+                                    minimumFractionDigits: 2
+                                  })}`}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span
+                                className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
+                                  isApproved
+                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                    : isDeclined
+                                    ? 'bg-rose-100 text-rose-800 border-rose-200'
+                                    : isSuperseded
+                                    ? 'bg-slate-100 text-slate-500 border-slate-200'
+                                    : isSent
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : 'bg-amber-50 text-amber-700 border-amber-200'
+                                }`}
+                              >
+                                {q.status || 'Draft'}
                               </span>
-                              <span>
-                                {rev.updatedAt ? new Date(rev.updatedAt).toLocaleDateString() : ''}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="py-6 text-center text-slate-400 font-sans text-xs">
-                    No linked sheet revisions are available for this record.
-                  </div>
-                )}
+                            </td>
+                            <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingQuotation(isBaselineVirtual ? null : q);
+                                    setIsQuotationStudioOpen(true);
+                                  }}
+                                  className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-semibold transition cursor-pointer"
+                                >
+                                  Open in Studio
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setViewingQuotation(q);
+                                    setTimeout(() => window.print(), 150);
+                                  }}
+                                  className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-semibold transition cursor-pointer flex items-center gap-1"
+                                >
+                                  <Printer className="w-3 h-3 text-slate-500" />
+                                  <span>Print</span>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
