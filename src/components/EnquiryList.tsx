@@ -477,38 +477,42 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           />
         </td>
       )}
-      <td className="py-2.5 px-2.5 font-mono text-xs text-slate-500 font-semibold whitespace-nowrap text-center">
+      <td className="py-2.5 px-2 font-mono text-xs text-slate-500 font-semibold whitespace-nowrap text-center overflow-hidden">
         #{e.sn}
       </td>
-      <td className="py-2.5 px-2.5 font-semibold text-slate-900 min-w-[150px] max-w-[210px]">
+      <td className="py-2.5 px-2.5 font-semibold text-slate-900 overflow-hidden" title={companyName}>
         {isGapReserved ? (
-          <div className="flex flex-col gap-0.5">
-            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-400 font-mono">
+          <div className="flex flex-col gap-0.5 min-w-0 overflow-hidden">
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-400 font-mono truncate">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-              <span>Reserved Sequence #{e.sn}</span>
+              <span className="truncate">Reserved Sequence #{e.sn}</span>
             </span>
-            <span className="text-[11px] font-normal text-slate-500 truncate">
+            <span
+              className="text-[11px] font-normal text-slate-500 truncate overflow-hidden text-ellipsis whitespace-nowrap"
+              title={cleanGapMemo || 'Unassigned sequence placeholder'}
+            >
               {cleanGapMemo || 'Unassigned sequence placeholder'}
             </span>
           </div>
         ) : (
-          <div className="flex flex-col gap-1 min-w-0">
-            <div className="flex items-center space-x-1.5 min-w-0">
-              <HoverScrollText
-                text={companyName}
-                className={`text-sm font-semibold flex-1 ${
-                  isClickable
-                    ? 'text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer'
-                    : 'text-slate-700 dark:text-slate-300'
-                }`}
+          <div className="flex flex-col gap-1 min-w-0 overflow-hidden">
+            <div className="flex items-center space-x-1.5 min-w-0 overflow-hidden">
+              <span
                 onClick={(evt) => {
                   if (isClickable) {
                     evt.stopPropagation();
                     onCompanyClick(e);
                   }
                 }}
-                title={isClickable ? `View 360° profile for ${companyName}` : companyName}
-              />
+                title={companyName}
+                className={`text-sm font-semibold flex-1 min-w-0 truncate overflow-hidden text-ellipsis whitespace-nowrap ${
+                  isClickable
+                    ? 'text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer'
+                    : 'text-slate-700 dark:text-slate-300'
+                }`}
+              >
+                {companyName}
+              </span>
               {companyName && companyName !== 'Unknown Client' && (
                 <div className="shrink-0" onClick={(evt) => evt.stopPropagation()}>
                   <GoogleSearchButton
@@ -545,8 +549,8 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           </div>
         )}
       </td>
-      <td className="py-2.5 px-2.5 whitespace-nowrap">
-        <div className="flex flex-col items-start gap-1">
+      <td className="py-2.5 px-2 whitespace-nowrap overflow-hidden">
+        <div className="flex flex-col items-start gap-1 min-w-0 max-w-full overflow-hidden">
           {(() => {
             // Find issued formal quotation attachment reference if present
             const quoteDoc = e.attachments?.find((att) =>
@@ -594,9 +598,9 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                 : 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60';
 
               return (
-                <div className="flex flex-col items-start gap-0.5">
+                <div className="flex flex-col items-start gap-0.5 min-w-0 max-w-full overflow-hidden">
                   <span
-                    className={`inline-flex items-center gap-1.5 font-mono text-[11px] font-bold px-2 py-0.5 rounded border transition-colors ${badgeColorClass}`}
+                    className={`inline-flex items-center gap-1.5 font-mono text-[11px] font-bold px-2 py-0.5 rounded border transition-colors max-w-full overflow-hidden ${badgeColorClass}`}
                     title={`Formal Quotation (${quoteStatus}): ${formalRef}${formattedVal ? ` • ${formattedVal}` : ''}`}
                   >
                     <FileText
@@ -608,7 +612,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                           : 'text-indigo-600 dark:text-indigo-400'
                       }`}
                     />
-                    <span>
+                    <span className="truncate overflow-hidden text-ellipsis whitespace-nowrap">
                       {formalRef}
                       {formattedVal ? ` • ${formattedVal}` : ''}
                     </span>
@@ -616,7 +620,10 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                   {e.quote_ref_no &&
                     e.quote_ref_no !== formalRef &&
                     !formalRef.includes(e.quote_ref_no) && (
-                      <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 pl-0.5">
+                      <span
+                        className="text-[10px] font-mono text-slate-400 dark:text-slate-500 pl-0.5 truncate max-w-full"
+                        title={e.quote_ref_no}
+                      >
                         Ref: {e.quote_ref_no}
                       </span>
                     )}
@@ -625,14 +632,17 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
             }
 
             return (
-              <span className="font-mono text-xs font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 inline-block">
+              <span
+                className="font-mono text-xs font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 inline-block max-w-full truncate overflow-hidden text-ellipsis whitespace-nowrap"
+                title={e.quote_ref_no || '—'}
+              >
                 {e.quote_ref_no || '—'}
               </span>
             );
           })()}
         </div>
       </td>
-      <td className="py-2.5 px-2.5 whitespace-nowrap">
+      <td className="py-2.5 px-1.5 whitespace-nowrap overflow-hidden">
         <div className="flex flex-col items-start gap-0.5">
           <span
             className="font-mono text-xs font-semibold text-slate-600 bg-slate-100/80 px-2 py-0.5 rounded border border-slate-200/60"
@@ -650,14 +660,14 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           )}
         </div>
       </td>
-      <td className="py-2.5 px-2.5 whitespace-nowrap">
-        <span className="font-mono text-xs text-slate-600 font-medium">
+      <td className="py-2.5 px-2 whitespace-nowrap overflow-hidden">
+        <span className="font-mono text-xs text-slate-600 font-medium truncate block">
           {formatEnquiryDate(e.enquiry_date)}
         </span>
       </td>
-      <td className="py-2.5 px-2.5 whitespace-nowrap" onClick={(evt) => evt.stopPropagation()}>
-        <div className="flex flex-col items-start gap-1">
-          <div className="relative inline-flex items-center">
+      <td className="py-2.5 px-2 whitespace-nowrap overflow-hidden" onClick={(evt) => evt.stopPropagation()}>
+        <div className="flex flex-col items-start gap-1 max-w-full overflow-hidden">
+          <div className="relative inline-flex items-center max-w-full">
             <select
               value={normalizeEnquiryStatus(e.status)}
               onClick={(evt) => evt.stopPropagation()}
@@ -666,7 +676,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                 onStatusChange(e, evt.target.value);
               }}
               title={tooltipTitle}
-              className={`appearance-none cursor-pointer pr-6 pl-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wider transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/40 shadow-2xs hover:brightness-95 ${getStatusBadgeClass(e.status)}`}
+              className={`appearance-none cursor-pointer pr-5 pl-2 py-0.5 rounded-full text-[10.5px] font-semibold uppercase tracking-wider transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/40 shadow-2xs hover:brightness-95 max-w-full truncate ${getStatusBadgeClass(e.status)}`}
             >
               {PIPELINE_STATUS_GROUPS.map((group) => (
                 <optgroup
@@ -2441,12 +2451,12 @@ export default function EnquiryList({
               </div>
             </div>
 
-            <div className="w-full overflow-x-auto max-h-[calc(100vh-270px)] overflow-y-auto relative border-b border-slate-200 dark:border-slate-800">
-            <table className="w-full text-left border-collapse">
+            <div className="w-full overflow-x-hidden max-h-[calc(100vh-270px)] overflow-y-auto relative border-b border-slate-200 dark:border-slate-800">
+            <table className="w-full table-fixed text-left border-collapse">
               <thead className="bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 sticky top-0 z-10 shadow-2xs select-none">
                 <tr>
                   {isMarkingMode && (
-                    <th className="py-2.5 px-2.5 w-9 text-center">
+                    <th className="py-2.5 px-2 w-9 text-center">
                       <input
                         type="checkbox"
                         checked={paginatedEnquiries.length > 0 && paginatedEnquiries.every((e) => selectedEnquiryIds.includes(e.id!))}
@@ -2469,29 +2479,29 @@ export default function EnquiryList({
                       />
                     </th>
                   )}
-                  <th onClick={() => handleSort('sn')} className="py-2.5 px-2.5 w-14 text-center cursor-pointer hover:text-slate-800 transition">
+                  <th onClick={() => handleSort('sn')} className="py-2.5 px-2 w-[6%] text-center cursor-pointer hover:text-slate-800 transition">
                     <div className="flex items-center space-x-1 justify-center">
                       <span>S/N</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-2.5 min-w-[150px] max-w-[210px]">Company Account</th>
-                  <th className="py-2.5 px-2.5">Quote Ref No</th>
-                  <th className="py-2.5 px-2.5">Rep</th>
-                  <th onClick={() => handleSort('enquiry_date')} className="py-2.5 px-2.5 cursor-pointer hover:text-slate-800 transition">
+                  <th className="py-2.5 px-2.5 w-[23%] truncate">Company Account</th>
+                  <th className="py-2.5 px-2 w-[20%] truncate">Quote Ref No</th>
+                  <th className="py-2.5 px-1.5 w-[6%] truncate">Rep</th>
+                  <th onClick={() => handleSort('enquiry_date')} className="py-2.5 px-2 w-[10%] cursor-pointer hover:text-slate-800 transition truncate">
                     <div className="flex items-center space-x-1">
-                      <span>Received Date</span>
+                      <span className="truncate">Received Date</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-2.5">Status</th>
-                  <th onClick={() => handleSort('value_aed')} className="py-2.5 px-2.5 cursor-pointer hover:text-slate-800 transition text-right">
+                  <th className="py-2.5 px-2 w-[13%] truncate">Status</th>
+                  <th onClick={() => handleSort('value_aed')} className="py-2.5 px-2 w-[11%] cursor-pointer hover:text-slate-800 transition text-right truncate">
                     <div className="flex items-center space-x-1 justify-end">
-                      <span>Enquiry Value</span>
+                      <span className="truncate">Enquiry Value</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 pl-2 pr-3 w-36 text-right">Actions</th>
+                  <th className="py-2.5 pl-1 pr-3 w-[11%] text-right truncate">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 font-sans">

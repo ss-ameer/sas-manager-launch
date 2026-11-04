@@ -1651,41 +1651,52 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     };
   }, [inspectorSubTarget, selectedSection]);
 
-  const handleCanvasSelectSection = (section: StudioSelectedSection, subTarget?: string) => {
-    const isNonQuoteMode = (documentType || 'quotation') !== 'quotation';
-    if (
-      isNonQuoteMode &&
-      (section === 'recipient_info' ||
-        section === 'quote_meta' ||
-        section === 'recipient_meta' ||
-        section === 'remittance' ||
-        section === 'signatories' ||
-        section === 'signatory' ||
-        section === 'acceptance' ||
-        (section === 'items_table' &&
-          (documentType === 'payment_voucher' || documentType === 'receipt')))
-    ) {
-      setIsLeftDrawerOpen(true);
-      setActiveLeftTab('content');
-      setHighlightDocMetaCard(true);
-      window.setTimeout(() => {
-        const metaEl = document.getElementById('studio-doc-meta-editor');
-        if (metaEl && typeof metaEl.scrollIntoView === 'function') {
-          metaEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      }, 60);
-      window.setTimeout(() => {
-        setHighlightDocMetaCard(false);
-      }, 2200);
-      return;
-    }
+  const [focusedBlockStyleTarget, setFocusedBlockStyleTarget] = useState<string>('block:acceptance');
 
-    setSelectedSection(section);
+  const handleCanvasSelectSection = (section: StudioSelectedSection, subTarget?: string) => {
+    const normalizedSection: StudioSelectedSection =
+      section === 'signatories'
+        ? 'signatory'
+        : section === 'recipient_meta'
+        ? 'recipient_info'
+        : section;
+
     if (subTarget) {
+      if (normalizedSection === 'recipient_info' && subTarget.startsWith('recipient_')) {
+        setFocusedRecipientStyleTarget(subTarget);
+      } else if (
+        normalizedSection === 'quote_meta' &&
+        (subTarget.startsWith('offer_') ||
+          subTarget.startsWith('receipt_') ||
+          subTarget.startsWith('pv_'))
+      ) {
+        setFocusedOfferStyleTarget(subTarget);
+      } else if (
+        subTarget.startsWith('block:') ||
+        subTarget.startsWith('do_signoff_') ||
+        subTarget === 'pv_approval_matrix' ||
+        subTarget.startsWith('return_signoff_')
+      ) {
+        setFocusedBlockStyleTarget(subTarget);
+      }
       setInspectorSubTarget(`${subTarget}::${Date.now()}`);
     } else {
+      if (
+        normalizedSection &&
+        normalizedSection !== 'header' &&
+        normalizedSection !== 'recipient_info' &&
+        normalizedSection !== 'quote_meta' &&
+        normalizedSection !== 'subject' &&
+        normalizedSection !== 'items_table' &&
+        normalizedSection !== 'footer' &&
+        normalizedSection !== 'style'
+      ) {
+        setFocusedBlockStyleTarget(`block:${normalizedSection}`);
+      }
       setInspectorSubTarget(null);
     }
+
+    setSelectedSection(normalizedSection);
   };
 
   const selectedBlockId =
@@ -5916,10 +5927,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             </div>
           </div>
 
-          {/* Row 2: Independent Drawer Toggles, Document Type Suite Switcher & Status Lifecycle */}
-          <div className="px-5 py-2 bg-slate-50/90 flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* Independent Left Controls Drawer Toggle */}
+          {/* Row 2: Strict 3-Zone Non-Wrapping Workspace Toolbar (Left Controls | Compact Doc Switcher | Status & Right Inspector) */}
+          <div className="px-4 py-1.5 bg-slate-50/95 flex items-center justify-between w-full gap-2 overflow-x-auto scrollbar-none flex-nowrap">
+            {/* Left Zone: Independent Left Controls Drawer Toggle */}
+            <div className="flex items-center gap-1.5 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsLeftDrawerOpen((prev) => !prev)}
@@ -5931,16 +5942,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 title={isLeftDrawerOpen ? 'Hide Left Controls Drawer' : 'Show Left Controls Drawer'}
               >
                 {isLeftDrawerOpen ? (
-                  <PanelLeftClose className="w-3.5 h-3.5" />
+                  <PanelLeftClose className="w-3.5 h-3.5 shrink-0" />
                 ) : (
-                  <PanelLeft className="w-3.5 h-3.5 text-blue-600" />
+                  <PanelLeft className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                 )}
-                <span>Left Controls</span>
+                <span className="whitespace-nowrap">Left Controls</span>
               </button>
+            </div>
 
-              <div className="h-4 w-px bg-slate-200 hidden sm:block" />
-
-              {/* Commercial Document Suite Mode Switcher: Separated Client vs Vendor Groups */}
+            {/* Center Zone: Compact Document Type Switcher grouped into Client (QT, DO, REC) and Vendor (PO, PV, MRN, DN) */}
+            <div className="flex items-center justify-center gap-1.5 shrink-0 flex-nowrap">
               {(() => {
                 const isVendorDocMode =
                   documentType === 'purchase_order' ||
@@ -5952,24 +5963,24 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   /^standalone_qdoc_/i.test(String(enquiry.id)) ||
                   /^sandbox_/i.test(String(enquiry.id));
                 const clientModes = [
-                  { id: 'quotation' as const, label: 'Quotation (QT)' },
-                  { id: 'delivery_note' as const, label: 'Delivery Note (DO)' },
-                  { id: 'receipt' as const, label: 'Receipt (REC)' }
+                  { id: 'quotation' as const, label: 'QT', title: 'Quotation (QT)' },
+                  { id: 'delivery_note' as const, label: 'DO', title: 'Delivery Note (DO)' },
+                  { id: 'receipt' as const, label: 'REC', title: 'Payment Receipt (REC)' }
                 ];
                 const vendorModes = [
-                  { id: 'purchase_order' as const, label: 'Purchase Order (PO)' },
-                  { id: 'payment_voucher' as const, label: 'Payment Voucher (PV)' },
-                  { id: 'material_return_note' as const, label: 'Material Return (MRN)' },
-                  { id: 'debit_note' as const, label: 'Debit Note (DN)' }
+                  { id: 'purchase_order' as const, label: 'PO', title: 'Purchase Order (PO)' },
+                  { id: 'payment_voucher' as const, label: 'PV', title: 'Payment Voucher (PV)' },
+                  { id: 'material_return_note' as const, label: 'MRN', title: 'Material Return Note (MRN)' },
+                  { id: 'debit_note' as const, label: 'DN', title: 'Debit Note (DN)' }
                 ];
                 const showClientGroup = !isStandaloneRecord || !isVendorDocMode;
                 const showVendorGroup = !isStandaloneRecord || isVendorDocMode;
 
                 return (
-                  <div className="inline-flex items-center gap-1.5 flex-wrap">
+                  <div className="inline-flex items-center gap-1.5 flex-nowrap shrink-0">
                     {showClientGroup && (
-                      <div className="inline-flex items-center gap-0.5 bg-white border border-slate-200 rounded-lg p-0.5 shadow-2xs">
-                        <span className="px-1.5 text-[9.5px] font-mono font-bold uppercase tracking-wider text-slate-400 select-none">
+                      <div className="inline-flex items-center gap-0.5 bg-white border border-slate-200 rounded-lg p-0.5 shadow-2xs shrink-0 flex-nowrap">
+                        <span className="px-1.5 text-[9.5px] font-mono font-bold uppercase tracking-wider text-slate-400 select-none whitespace-nowrap shrink-0">
                           Client:
                         </span>
                         {clientModes.map((docOpt) => {
@@ -5978,8 +5989,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             <button
                               key={docOpt.id}
                               type="button"
+                              title={docOpt.title}
                               onClick={() => handleSwitchDocumentType(docOpt.id)}
-                              className={`px-2 py-0.5 text-[10.5px] font-semibold rounded-md transition cursor-pointer whitespace-nowrap ${
+                              className={`px-2 py-1 text-xs font-semibold rounded-md transition cursor-pointer whitespace-nowrap shrink-0 ${
                                 isActive
                                   ? 'bg-blue-600 text-white shadow-2xs'
                                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -5992,8 +6004,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     )}
                     {showVendorGroup && (
-                      <div className="inline-flex items-center gap-0.5 bg-indigo-50/70 border border-indigo-200/80 rounded-lg p-0.5 shadow-2xs">
-                        <span className="px-1.5 text-[9.5px] font-mono font-bold uppercase tracking-wider text-indigo-500 select-none">
+                      <div className="inline-flex items-center gap-0.5 bg-indigo-50/70 border border-indigo-200/80 rounded-lg p-0.5 shadow-2xs shrink-0 flex-nowrap">
+                        <span className="px-1.5 text-[9.5px] font-mono font-bold uppercase tracking-wider text-indigo-500 select-none whitespace-nowrap shrink-0">
                           Vendor:
                         </span>
                         {vendorModes.map((docOpt) => {
@@ -6002,8 +6014,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             <button
                               key={docOpt.id}
                               type="button"
+                              title={docOpt.title}
                               onClick={() => handleSwitchDocumentType(docOpt.id)}
-                              className={`px-2 py-0.5 text-[10.5px] font-semibold rounded-md transition cursor-pointer whitespace-nowrap ${
+                              className={`px-2 py-1 text-xs font-semibold rounded-md transition cursor-pointer whitespace-nowrap shrink-0 ${
                                 isActive
                                   ? 'bg-indigo-600 text-white shadow-2xs'
                                   : 'text-slate-600 hover:text-slate-900 hover:bg-white/80'
@@ -6020,10 +6033,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               })()}
             </div>
 
-            <div className="flex items-center gap-2 shrink-0 ml-auto">
-              {/* Interactive Quotation Status Lifecycle Selector Pill */}
-              <div className="inline-flex items-center gap-0.5 bg-white border border-slate-200 rounded-lg p-0.5 shadow-2xs">
-                <span className="px-1.5 text-[9.5px] font-mono font-bold uppercase tracking-wider text-slate-400 select-none hidden md:inline">
+            {/* Right Zone: Compact Status Lifecycle Picker + Right Inspector Toggle */}
+            <div className="flex items-center gap-1.5 shrink-0 flex-nowrap">
+              <div className="inline-flex items-center gap-0.5 bg-white border border-slate-200 rounded-lg p-0.5 shadow-2xs shrink-0 flex-nowrap">
+                <span className="px-1.5 text-[9.5px] font-mono font-bold uppercase tracking-wider text-slate-400 select-none hidden xl:inline whitespace-nowrap shrink-0">
                   Status:
                 </span>
                 {(
@@ -6051,7 +6064,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       key={st.id}
                       type="button"
                       onClick={() => setQuotationStatus(st.id)}
-                      className={`px-2 py-0.5 text-[10.5px] font-semibold rounded-md transition cursor-pointer whitespace-nowrap ${
+                      className={`px-2 py-1 text-xs font-semibold rounded-md transition cursor-pointer whitespace-nowrap shrink-0 ${
                         isActive
                           ? activeColor
                           : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -6063,7 +6076,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 })}
               </div>
 
-              <div className="h-4 w-px bg-slate-200 hidden sm:block" />
+              <div className="h-4 w-px bg-slate-200 shrink-0" />
 
               {/* Independent Right Contextual Inspector Drawer Toggle */}
               <button
@@ -6087,11 +6100,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 }
               >
                 {selectedSection !== null ? (
-                  <PanelRightClose className="w-3.5 h-3.5" />
+                  <PanelRightClose className="w-3.5 h-3.5 shrink-0" />
                 ) : (
-                  <PanelRight className="w-3.5 h-3.5 text-blue-600" />
+                  <PanelRight className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                 )}
-                <span>Right Inspector</span>
+                <span className="whitespace-nowrap">Right Inspector</span>
               </button>
             </div>
           </div>
@@ -6179,6 +6192,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       const val = e.target.value;
                       if (!val) {
                         setSelectedPresetId('');
+                        const docTypeDefault =
+                          activeProfile?.document_type_defaults?.[documentType || 'quotation'];
+                        if (docTypeDefault) {
+                          applyPreset({
+                            ...docTypeDefault,
+                            id: ''
+                          } as QuotationPreset);
+                        }
                         return;
                       }
                       const found = filteredPresetsForDocType.find((p) => p.id === val);
@@ -12145,7 +12166,22 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       [
                         { id: 'offer_heading', label: 'Section Heading' },
                         { id: 'offer_quote_ref', label: 'Document Reference Code' },
-                        { id: 'offer_meta_grid', label: 'Metadata Values Grid' }
+                        { id: 'offer_meta_grid', label: 'Metadata Values Grid' },
+                        ...(documentType === 'receipt'
+                          ? [
+                              { id: 'receipt_amount_banner', label: 'Amount Received Banner' },
+                              { id: 'receipt_instrument_card', label: 'Payment Instrument Card' },
+                              { id: 'receipt_balance_card', label: 'Balance Statement Card' }
+                            ]
+                          : []),
+                        ...(documentType === 'payment_voucher'
+                          ? [
+                              { id: 'pv_amount_banner', label: 'Amount Disbursed Banner' },
+                              { id: 'pv_allocation_table', label: 'Bill Allocation Schedule' },
+                              { id: 'pv_treasury_card', label: 'Disbursing Treasury Card' },
+                              { id: 'pv_beneficiary_card', label: 'Vendor Beneficiary Card' }
+                            ]
+                          : [])
                       ],
                       setFocusedOfferStyleTarget
                     )}
@@ -12153,7 +12189,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     {/* Section Heading & Editable Reference Code + Revision Controls */}
                     <div className="space-y-2.5 pt-1 border-b border-slate-100 pb-3">
                       {documentType !== 'quotation' && (
-                        <div className="p-2.5 rounded-xl border border-blue-200 bg-blue-50/50 space-y-2">
+                        <div className="p-2.5 rounded-xl border border-blue-200 bg-blue-50/50 space-y-2.5">
                           <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-800 block">
                             Active Mode ({documentType.replace(/_/g, ' ')}) Card &amp; Body Controls
                           </span>
@@ -12163,7 +12199,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               <div className="grid grid-cols-1 gap-2">
                                 <div>
                                   <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
-                                    Right Card Heading
+                                    Right Card Heading (Delivery Note / Order Meta)
                                   </label>
                                   <input
                                     type="text"
@@ -12210,7 +12246,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   />
                                 </div>
                               </div>
-                              <div className="grid grid-cols-1 gap-2">
+                              <div className="grid grid-cols-2 gap-2">
                                 <div>
                                   <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
                                     Delivery Date
@@ -12245,6 +12281,40 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   />
                                 </div>
                               </div>
+                              <div className="pt-1 border-t border-blue-200/60 space-y-1">
+                                <span className="text-[9.5px] font-bold uppercase text-slate-500 block">
+                                  Sub-Field Visibility
+                                </span>
+                                <div className="grid grid-cols-2 gap-1">
+                                  {(
+                                    [
+                                      { key: 'show_delivery_date', label: 'Delivery Date' },
+                                      { key: 'show_dispatch_mode', label: 'Dispatch Mode' },
+                                      { key: 'show_lpo_ref', label: 'Customer PO / LPO' },
+                                      { key: 'show_related_quote', label: 'Quote Ref' },
+                                      { key: 'show_vehicle_driver', label: 'Vehicle / Driver' }
+                                    ] as const
+                                  ).map((f) => (
+                                    <label
+                                      key={f.key}
+                                      className="flex items-center gap-1.5 p-1 rounded bg-white border border-slate-200 text-[10px] font-medium cursor-pointer"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={(deliveryMetadata as any)[f.key] !== false}
+                                        onChange={(e) =>
+                                          setDeliveryMetadata((prev) => ({
+                                            ...prev,
+                                            [f.key]: e.target.checked
+                                          }))
+                                        }
+                                        className="rounded border-slate-300 text-blue-600"
+                                      />
+                                      <span className="truncate">{f.label}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
                             </div>
                           )}
 
@@ -12253,7 +12323,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               <div className="grid grid-cols-1 gap-2">
                                 <div>
                                   <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
-                                    Right Card Heading
+                                    Right Card Heading (PO Meta)
                                   </label>
                                   <input
                                     type="text"
@@ -12300,7 +12370,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   />
                                 </div>
                               </div>
-                              <div className="grid grid-cols-1 gap-2">
+                              <div className="grid grid-cols-2 gap-2">
                                 <div>
                                   <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
                                     PO Date
@@ -12335,11 +12405,46 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   />
                                 </div>
                               </div>
+                              <div className="pt-1 border-t border-blue-200/60 space-y-1">
+                                <span className="text-[9.5px] font-bold uppercase text-slate-500 block">
+                                  PO Meta Sub-Field Visibility
+                                </span>
+                                <div className="grid grid-cols-2 gap-1">
+                                  {(
+                                    [
+                                      { key: 'show_po_date', label: 'PO Date' },
+                                      { key: 'show_delivery_date', label: 'Required Delivery' },
+                                      { key: 'show_incoterms', label: 'Incoterms' },
+                                      { key: 'show_payment_terms', label: 'Payment Terms' },
+                                      { key: 'show_requisitioner', label: 'Requisitioner' },
+                                      { key: 'show_client_quote_ref', label: 'Vendor Quote Ref' }
+                                    ] as const
+                                  ).map((f) => (
+                                    <label
+                                      key={f.key}
+                                      className="flex items-center gap-1.5 p-1 rounded bg-white border border-slate-200 text-[10px] font-medium cursor-pointer"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={(purchaseOrderMetadata as any)[f.key] !== false}
+                                        onChange={(e) =>
+                                          setPurchaseOrderMetadata((prev) => ({
+                                            ...prev,
+                                            [f.key]: e.target.checked
+                                          }))
+                                        }
+                                        className="rounded border-slate-300 text-blue-600"
+                                      />
+                                      <span className="truncate">{f.label}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
                             </div>
                           )}
 
                           {documentType === 'receipt' && (
-                            <div className="space-y-2">
+                            <div className="space-y-2.5">
                               <div className="grid grid-cols-1 gap-2">
                                 <div>
                                   <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
@@ -12390,10 +12495,60 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   />
                                 </div>
                               </div>
-                              <div>
-                                <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
-                                  In Settlement Of (Subtitle / Narration)
-                                </label>
+
+                              {/* 1. Amount Received Banner Controls */}
+                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <button
+                                    type="button"
+                                    onClick={() => setFocusedOfferStyleTarget('receipt_amount_banner')}
+                                    className="text-[10px] font-bold text-blue-800 hover:underline cursor-pointer"
+                                  >
+                                    1. Amount Received Banner
+                                  </button>
+                                  <input
+                                    type="checkbox"
+                                    checked={receiptMetadata.show_amount_banner !== false}
+                                    onChange={(e) =>
+                                      setReceiptMetadata((prev) => ({
+                                        ...prev,
+                                        show_amount_banner: e.target.checked
+                                      }))
+                                    }
+                                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                  />
+                                </div>
+                                <input
+                                  type="text"
+                                  value={receiptMetadata.amount_banner_heading ?? ''}
+                                  onFocus={() => setFocusedOfferStyleTarget('receipt_amount_banner')}
+                                  onChange={(e) =>
+                                    setReceiptMetadata((prev) => ({
+                                      ...prev,
+                                      amount_banner_heading: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Amount Received (OFFICIAL RECEIPT VOUCHER)"
+                                  className="w-full px-2 py-1 text-[11px] bg-slate-50 border border-slate-200 rounded"
+                                />
+                                <div className="flex items-center justify-between pt-0.5">
+                                  <label className="text-[9.5px] font-semibold text-slate-600">
+                                    Narration / Settlement Text
+                                  </label>
+                                  <label className="flex items-center gap-1 text-[9.5px] text-slate-500 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={receiptMetadata.show_narration !== false}
+                                      onChange={(e) =>
+                                        setReceiptMetadata((prev) => ({
+                                          ...prev,
+                                          show_narration: e.target.checked
+                                        }))
+                                      }
+                                    />
+                                    <span>Show</span>
+                                  </label>
+                                </div>
                                 <input
                                   type="text"
                                   value={receiptMetadata.payment_for ?? ''}
@@ -12404,24 +12559,20 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     }))
                                   }
                                   placeholder="Settlement against Quotation..."
-                                  className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                                  className="w-full px-2 py-1 text-[11px] bg-slate-50 border border-slate-200 rounded"
                                 />
                               </div>
-                              <div className="grid grid-cols-3 gap-1 pt-1">
-                                <label className="flex items-center gap-1 p-1.5 rounded border border-slate-200 bg-white cursor-pointer text-[10px] font-semibold">
-                                  <input
-                                    type="checkbox"
-                                    checked={receiptMetadata.show_amount_banner !== false}
-                                    onChange={(e) =>
-                                      setReceiptMetadata((prev) => ({
-                                        ...prev,
-                                        show_amount_banner: e.target.checked
-                                      }))
-                                    }
-                                  />
-                                  <span>Amount Box</span>
-                                </label>
-                                <label className="flex items-center gap-1 p-1.5 rounded border border-slate-200 bg-white cursor-pointer text-[10px] font-semibold">
+
+                              {/* 2. Payment Instrument & Reference Details Card */}
+                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <button
+                                    type="button"
+                                    onClick={() => setFocusedOfferStyleTarget('receipt_instrument_card')}
+                                    className="text-[10px] font-bold text-blue-800 hover:underline cursor-pointer"
+                                  >
+                                    2. Payment Instrument &amp; Reference Details
+                                  </button>
                                   <input
                                     type="checkbox"
                                     checked={receiptMetadata.show_instrument_card !== false}
@@ -12431,10 +12582,60 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         show_instrument_card: e.target.checked
                                       }))
                                     }
+                                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
                                   />
-                                  <span>Instrument</span>
-                                </label>
-                                <label className="flex items-center gap-1 p-1.5 rounded border border-slate-200 bg-white cursor-pointer text-[10px] font-semibold">
+                                </div>
+                                <input
+                                  type="text"
+                                  value={receiptMetadata.instrument_card_heading ?? ''}
+                                  onFocus={() => setFocusedOfferStyleTarget('receipt_instrument_card')}
+                                  onChange={(e) =>
+                                    setReceiptMetadata((prev) => ({
+                                      ...prev,
+                                      instrument_card_heading: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Payment Instrument & Reference Details"
+                                  className="w-full px-2 py-1 text-[11px] bg-slate-50 border border-slate-200 rounded"
+                                />
+                                <div className="grid grid-cols-3 gap-1">
+                                  {(
+                                    [
+                                      { key: 'show_payment_mode', label: 'Mode' },
+                                      { key: 'show_txn_ref', label: 'Txn / Cheque' },
+                                      { key: 'show_credited_account', label: 'Bank Account' }
+                                    ] as const
+                                  ).map((f) => (
+                                    <label
+                                      key={f.key}
+                                      className="flex items-center gap-1 p-1 rounded border border-slate-200 bg-slate-50 text-[9.5px] font-medium cursor-pointer"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={(receiptMetadata as any)[f.key] !== false}
+                                        onChange={(e) =>
+                                          setReceiptMetadata((prev) => ({
+                                            ...prev,
+                                            [f.key]: e.target.checked
+                                          }))
+                                        }
+                                      />
+                                      <span className="truncate">{f.label}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* 3. Account Settlement & Balance Statement Card */}
+                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <button
+                                    type="button"
+                                    onClick={() => setFocusedOfferStyleTarget('receipt_balance_card')}
+                                    className="text-[10px] font-bold text-blue-800 hover:underline cursor-pointer"
+                                  >
+                                    3. Account Settlement &amp; Balance Statement
+                                  </button>
                                   <input
                                     type="checkbox"
                                     checked={receiptMetadata.show_balance_card !== false}
@@ -12444,15 +12645,54 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         show_balance_card: e.target.checked
                                       }))
                                     }
+                                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
                                   />
-                                  <span>Balance Box</span>
-                                </label>
+                                </div>
+                                <input
+                                  type="text"
+                                  value={receiptMetadata.balance_card_heading ?? ''}
+                                  onFocus={() => setFocusedOfferStyleTarget('receipt_balance_card')}
+                                  onChange={(e) =>
+                                    setReceiptMetadata((prev) => ({
+                                      ...prev,
+                                      balance_card_heading: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Account Settlement & Balance Statement"
+                                  className="w-full px-2 py-1 text-[11px] bg-slate-50 border border-slate-200 rounded"
+                                />
+                                <div className="grid grid-cols-3 gap-1">
+                                  {(
+                                    [
+                                      { key: 'show_contract_value', label: 'Order Value' },
+                                      { key: 'show_previously_received', label: 'Prev. Paid' },
+                                      { key: 'show_balance_due', label: 'Balance Due' }
+                                    ] as const
+                                  ).map((f) => (
+                                    <label
+                                      key={f.key}
+                                      className="flex items-center gap-1 p-1 rounded border border-slate-200 bg-slate-50 text-[9.5px] font-medium cursor-pointer"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={(receiptMetadata as any)[f.key] !== false}
+                                        onChange={(e) =>
+                                          setReceiptMetadata((prev) => ({
+                                            ...prev,
+                                            [f.key]: e.target.checked
+                                          }))
+                                        }
+                                      />
+                                      <span className="truncate">{f.label}</span>
+                                    </label>
+                                  ))}
+                                </div>
                               </div>
                             </div>
                           )}
 
                           {documentType === 'payment_voucher' && (
-                            <div className="space-y-2">
+                            <div className="space-y-2.5">
                               <div className="grid grid-cols-1 gap-2">
                                 <div>
                                   <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
@@ -12503,10 +12743,42 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   />
                                 </div>
                               </div>
-                              <div>
-                                <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
-                                  Payment Narration / Description
-                                </label>
+
+                              {/* 1. Amount Disbursed Banner & Allocation Schedule */}
+                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <button
+                                    type="button"
+                                    onClick={() => setFocusedOfferStyleTarget('pv_amount_banner')}
+                                    className="text-[10px] font-bold text-blue-800 hover:underline cursor-pointer"
+                                  >
+                                    1. Amount Disbursed Banner
+                                  </button>
+                                  <input
+                                    type="checkbox"
+                                    checked={paymentVoucherMetadata.show_amount_banner !== false}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        show_amount_banner: e.target.checked
+                                      }))
+                                    }
+                                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                  />
+                                </div>
+                                <input
+                                  type="text"
+                                  value={paymentVoucherMetadata.amount_banner_heading ?? ''}
+                                  onFocus={() => setFocusedOfferStyleTarget('pv_amount_banner')}
+                                  onChange={(e) =>
+                                    setPaymentVoucherMetadata((prev) => ({
+                                      ...prev,
+                                      amount_banner_heading: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Amount Disbursed (OFFICIAL PAYMENT VOUCHER)"
+                                  className="w-full px-2 py-1 text-[11px] bg-slate-50 border border-slate-200 rounded"
+                                />
                                 <input
                                   type="text"
                                   value={paymentVoucherMetadata.payment_narration ?? ''}
@@ -12517,24 +12789,110 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     }))
                                   }
                                   placeholder="Being payment towards..."
-                                  className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                                  className="w-full px-2 py-1 text-[11px] bg-slate-50 border border-slate-200 rounded"
                                 />
                               </div>
-                              <div className="grid grid-cols-2 gap-1 pt-1">
-                                <label className="flex items-center gap-1 p-1.5 rounded border border-slate-200 bg-white cursor-pointer text-[10px] font-semibold">
+
+                              {/* 2. Disbursing Treasury Details Card */}
+                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <button
+                                    type="button"
+                                    onClick={() => setFocusedOfferStyleTarget('pv_treasury_card')}
+                                    className="text-[10px] font-bold text-blue-800 hover:underline cursor-pointer"
+                                  >
+                                    2. Disbursing Treasury Details
+                                  </button>
                                   <input
                                     type="checkbox"
-                                    checked={paymentVoucherMetadata.show_amount_banner !== false}
+                                    checked={paymentVoucherMetadata.show_treasury_card !== false}
                                     onChange={(e) =>
                                       setPaymentVoucherMetadata((prev) => ({
                                         ...prev,
-                                        show_amount_banner: e.target.checked
+                                        show_treasury_card: e.target.checked
                                       }))
                                     }
+                                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
                                   />
-                                  <span>Disbursed Banner</span>
-                                </label>
-                                <label className="flex items-center gap-1 p-1.5 rounded border border-slate-200 bg-white cursor-pointer text-[10px] font-semibold">
+                                </div>
+                                <input
+                                  type="text"
+                                  value={paymentVoucherMetadata.treasury_card_heading ?? ''}
+                                  onFocus={() => setFocusedOfferStyleTarget('pv_treasury_card')}
+                                  onChange={(e) =>
+                                    setPaymentVoucherMetadata((prev) => ({
+                                      ...prev,
+                                      treasury_card_heading: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Disbursing Treasury Details"
+                                  className="w-full px-2 py-1 text-[11px] bg-slate-50 border border-slate-200 rounded"
+                                />
+                                <div className="grid grid-cols-3 gap-1">
+                                  {(
+                                    [
+                                      { key: 'show_payment_mode', label: 'Mode' },
+                                      { key: 'show_disbursing_account', label: 'Bank Account' },
+                                      { key: 'show_utr_ref', label: 'UTR / Cheque' }
+                                    ] as const
+                                  ).map((f) => (
+                                    <label
+                                      key={f.key}
+                                      className="flex items-center gap-1 p-1 rounded border border-slate-200 bg-slate-50 text-[9.5px] font-medium cursor-pointer"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={(paymentVoucherMetadata as any)[f.key] !== false}
+                                        onChange={(e) =>
+                                          setPaymentVoucherMetadata((prev) => ({
+                                            ...prev,
+                                            [f.key]: e.target.checked
+                                          }))
+                                        }
+                                      />
+                                      <span className="truncate">{f.label}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* 3. Vendor Beneficiary Account Card */}
+                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <button
+                                    type="button"
+                                    onClick={() => setFocusedOfferStyleTarget('pv_beneficiary_card')}
+                                    className="text-[10px] font-bold text-blue-800 hover:underline cursor-pointer"
+                                  >
+                                    3. Vendor Beneficiary Account
+                                  </button>
+                                  <input
+                                    type="checkbox"
+                                    checked={paymentVoucherMetadata.show_beneficiary_card !== false}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        show_beneficiary_card: e.target.checked
+                                      }))
+                                    }
+                                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                  />
+                                </div>
+                                <input
+                                  type="text"
+                                  value={paymentVoucherMetadata.beneficiary_card_heading ?? ''}
+                                  onFocus={() => setFocusedOfferStyleTarget('pv_beneficiary_card')}
+                                  onChange={(e) =>
+                                    setPaymentVoucherMetadata((prev) => ({
+                                      ...prev,
+                                      beneficiary_card_heading: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Vendor Beneficiary Account"
+                                  className="w-full px-2 py-1 text-[11px] bg-slate-50 border border-slate-200 rounded"
+                                />
+                                <label className="flex items-center justify-between pt-0.5 text-[10px] font-medium text-slate-600 cursor-pointer">
+                                  <span>Show Bill Allocation Schedule Table</span>
                                   <input
                                     type="checkbox"
                                     checked={paymentVoucherMetadata.show_allocation_table !== false}
@@ -12545,33 +12903,6 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       }))
                                     }
                                   />
-                                  <span>Allocation Table</span>
-                                </label>
-                                <label className="flex items-center gap-1 p-1.5 rounded border border-slate-200 bg-white cursor-pointer text-[10px] font-semibold">
-                                  <input
-                                    type="checkbox"
-                                    checked={paymentVoucherMetadata.show_treasury_card !== false}
-                                    onChange={(e) =>
-                                      setPaymentVoucherMetadata((prev) => ({
-                                        ...prev,
-                                        show_treasury_card: e.target.checked
-                                      }))
-                                    }
-                                  />
-                                  <span>Treasury Card</span>
-                                </label>
-                                <label className="flex items-center gap-1 p-1.5 rounded border border-slate-200 bg-white cursor-pointer text-[10px] font-semibold">
-                                  <input
-                                    type="checkbox"
-                                    checked={paymentVoucherMetadata.show_beneficiary_card !== false}
-                                    onChange={(e) =>
-                                      setPaymentVoucherMetadata((prev) => ({
-                                        ...prev,
-                                        show_beneficiary_card: e.target.checked
-                                      }))
-                                    }
-                                  />
-                                  <span>Beneficiary Card</span>
                                 </label>
                               </div>
                             </div>
@@ -12582,7 +12913,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               <div className="grid grid-cols-1 gap-2">
                                 <div>
                                   <label className="text-slate-600 text-[10px] font-bold block mb-0.5">
-                                    Right Card Heading
+                                    Right Card Heading (Return Meta)
                                   </label>
                                   <input
                                     type="text"
@@ -12635,6 +12966,40 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     }
                                     className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
                                   />
+                                </div>
+                              </div>
+                              <div className="pt-1 border-t border-blue-200/60 space-y-1">
+                                <span className="text-[9.5px] font-bold uppercase text-slate-500 block">
+                                  Return Meta Sub-Field Visibility
+                                </span>
+                                <div className="grid grid-cols-2 gap-1">
+                                  {(
+                                    [
+                                      { key: 'show_return_date', label: 'Return Date' },
+                                      { key: 'show_return_reason', label: 'Return Reason' },
+                                      { key: 'show_resolution', label: 'Resolution Requested' },
+                                      { key: 'show_po_grn_ref', label: 'PO / GRN Ref' },
+                                      { key: 'show_bill_invoice_ref', label: 'Supplier Bill Ref' }
+                                    ] as const
+                                  ).map((f) => (
+                                    <label
+                                      key={f.key}
+                                      className="flex items-center gap-1.5 p-1 rounded bg-white border border-slate-200 text-[10px] font-medium cursor-pointer"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={(vendorReturnMetadata as any)[f.key] !== false}
+                                        onChange={(e) =>
+                                          setVendorReturnMetadata((prev) => ({
+                                            ...prev,
+                                            [f.key]: e.target.checked
+                                          }))
+                                        }
+                                        className="rounded border-slate-300 text-blue-600"
+                                      />
+                                      <span className="truncate">{f.label}</span>
+                                    </label>
+                                  ))}
                                 </div>
                               </div>
                             </div>
@@ -15281,6 +15646,40 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                     {/* Drawer Content */}
                     <div className="p-4 space-y-4 text-xs">
+                      {/* Sticky Unified Text & Element Style Bar for Block & Specialized Sign-Off Cards */}
+                      {selectedBlockType !== 'page_break' &&
+                        selectedBlockType !== 'spacer' &&
+                        renderUnifiedElementStyleBar(
+                          focusedBlockStyleTarget || `block:${selectedBlock.id}`,
+                          meta.label,
+                          [
+                            {
+                              id: `block:${selectedBlock.id}`,
+                              label:
+                                selectedBlock.id === 'acceptance' && documentType === 'purchase_order'
+                                  ? 'Vendor Order Acknowledgment Block'
+                                  : `${meta.label} Block`
+                            },
+                            ...(selectedBlock.id === 'signatory' && documentType === 'delivery_note'
+                              ? [
+                                  { id: 'do_signoff_left', label: 'Dispatched & Released By Card' },
+                                  { id: 'do_signoff_right', label: 'Goods Received Acknowledgment Card' }
+                                ]
+                              : []),
+                            ...(selectedBlock.id === 'signatory' && documentType === 'payment_voucher'
+                              ? [{ id: 'pv_approval_matrix', label: '4-Column Approval Matrix' }]
+                              : []),
+                            ...(selectedBlock.id === 'signatory' &&
+                            (documentType === 'material_return_note' || documentType === 'debit_note')
+                              ? [
+                                  { id: 'return_signoff_left', label: 'Issued & Authorized By Card' },
+                                  { id: 'return_signoff_right', label: 'Debit Claim / Acknowledgment Card' }
+                                ]
+                              : [])
+                          ],
+                          setFocusedBlockStyleTarget
+                        )}
+
                       {/* Unified Commercial Summary & Totals Hub (Top of Totals Inspector) */}
                       {selectedBlock.id === 'totals' && (
                         <div className="space-y-3.5 pb-2 border-b border-slate-200">
@@ -17148,50 +17547,108 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                               {/* Mode-Specific Sign-Off & Acknowledgment Customization */}
                               {documentType === 'delivery_note' && (
-                                <div className="p-2.5 rounded-lg bg-emerald-50/70 border border-emerald-200 space-y-2">
-                                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 block">
-                                    Delivery Note Dispatch &amp; Receiver Sign-Off
-                                  </span>
+                                <div className="p-2.5 rounded-lg bg-emerald-50/70 border border-emerald-200 space-y-2.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800">
+                                      Delivery Note Dispatch &amp; Receiver Sign-Off
+                                    </span>
+                                    <input
+                                      type="checkbox"
+                                      checked={deliveryMetadata.show_signoff_block !== false}
+                                      onChange={(e) =>
+                                        setDeliveryMetadata((prev) => ({
+                                          ...prev,
+                                          show_signoff_block: e.target.checked
+                                        }))
+                                      }
+                                      className="rounded border-emerald-300 text-emerald-600 cursor-pointer"
+                                    />
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <label className="flex items-center gap-1.5 p-1.5 rounded bg-white border border-emerald-200 text-[10px] font-semibold text-emerald-950 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={deliveryMetadata.show_dispatch_signoff_card !== false}
+                                        onChange={(e) =>
+                                          setDeliveryMetadata((prev) => ({
+                                            ...prev,
+                                            show_dispatch_signoff_card: e.target.checked
+                                          }))
+                                        }
+                                      />
+                                      <span className="truncate">Left: Dispatched By</span>
+                                    </label>
+                                    <label className="flex items-center gap-1.5 p-1.5 rounded bg-white border border-emerald-200 text-[10px] font-semibold text-emerald-950 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={deliveryMetadata.show_receiver_signoff_card !== false}
+                                        onChange={(e) =>
+                                          setDeliveryMetadata((prev) => ({
+                                            ...prev,
+                                            show_receiver_signoff_card: e.target.checked
+                                          }))
+                                        }
+                                      />
+                                      <span className="truncate">Right: Receiver Ack</span>
+                                    </label>
+                                  </div>
+
                                   <div className="grid grid-cols-1 gap-2">
                                     <div>
                                       <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
-                                        Left Card Heading
+                                        Left Card Heading (Dispatched &amp; Released By)
                                       </label>
                                       <input
                                         type="text"
                                         value={deliveryMetadata.signoff_left_heading ?? ''}
+                                        onFocus={() => setFocusedBlockStyleTarget('do_signoff_left')}
                                         onChange={(e) =>
                                           setDeliveryMetadata((prev) => ({
                                             ...prev,
                                             signoff_left_heading: e.target.value
                                           }))
                                         }
-                                        placeholder="Dispatched & Authorized By"
+                                        placeholder="Dispatched & Released By"
                                         className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
                                       />
                                     </div>
                                     <div>
                                       <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
-                                        Right Card Heading
+                                        Right Card Heading (Goods Received Acknowledgment)
                                       </label>
                                       <input
                                         type="text"
                                         value={deliveryMetadata.signoff_right_heading ?? ''}
+                                        onFocus={() => setFocusedBlockStyleTarget('do_signoff_right')}
                                         onChange={(e) =>
                                           setDeliveryMetadata((prev) => ({
                                             ...prev,
                                             signoff_right_heading: e.target.value
                                           }))
                                         }
-                                        placeholder="Receiver's Acknowledgment"
+                                        placeholder="Goods Received Acknowledgment"
                                         className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
                                       />
                                     </div>
                                   </div>
+
                                   <div>
-                                    <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
-                                      Goods Received Declaration Clause
-                                    </label>
+                                    <div className="flex items-center justify-between mb-0.5">
+                                      <label className="text-[9.5px] font-semibold text-slate-600">
+                                        Goods Received Declaration Clause
+                                      </label>
+                                      <input
+                                        type="checkbox"
+                                        checked={deliveryMetadata.show_goods_clause !== false}
+                                        onChange={(e) =>
+                                          setDeliveryMetadata((prev) => ({
+                                            ...prev,
+                                            show_goods_clause: e.target.checked
+                                          }))
+                                        }
+                                      />
+                                    </div>
                                     <input
                                       type="text"
                                       value={deliveryMetadata.goods_received_clause ?? ''}
@@ -17205,31 +17662,48 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
                                     />
                                   </div>
-                                  <label className="flex items-center justify-between pt-1 cursor-pointer">
-                                    <span className="text-[10.5px] font-semibold text-emerald-900">
-                                      Show Receiver Stamp Box
-                                    </span>
-                                    <input
-                                      type="checkbox"
-                                      checked={deliveryMetadata.show_receiving_stamp_box !== false}
-                                      onChange={(e) =>
-                                        setDeliveryMetadata((prev) => ({
-                                          ...prev,
-                                          show_receiving_stamp_box: e.target.checked
-                                        }))
-                                      }
-                                      className="rounded border-emerald-300 text-emerald-600"
-                                    />
-                                  </label>
+
+                                  <div className="grid grid-cols-2 gap-1 pt-0.5">
+                                    {(
+                                      [
+                                        { key: 'show_signoff_prepared', label: 'Prepared By' },
+                                        { key: 'show_signoff_mode', label: 'Dispatch Mode' },
+                                        { key: 'show_signoff_vehicle', label: 'Vehicle / Plate' },
+                                        { key: 'show_signoff_driver', label: 'Driver Name' },
+                                        { key: 'show_receiving_stamp_box', label: 'Receiver Stamp Box' }
+                                      ] as const
+                                    ).map((f) => (
+                                      <label
+                                        key={f.key}
+                                        className="flex items-center gap-1 p-1 rounded bg-white border border-emerald-200/80 text-[9.5px] font-medium text-emerald-950 cursor-pointer"
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={(deliveryMetadata as any)[f.key] !== false}
+                                          onChange={(e) =>
+                                            setDeliveryMetadata((prev) => ({
+                                              ...prev,
+                                              [f.key]: e.target.checked
+                                            }))
+                                          }
+                                        />
+                                        <span className="truncate">{f.label}</span>
+                                      </label>
+                                    ))}
+                                  </div>
                                 </div>
                               )}
 
                               {documentType === 'payment_voucher' && (
-                                <div className="p-2.5 rounded-lg bg-teal-50/70 border border-teal-200 space-y-2">
+                                <div className="p-2.5 rounded-lg bg-teal-50/70 border border-teal-200 space-y-2.5">
                                   <div className="flex items-center justify-between">
-                                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-teal-800">
+                                    <button
+                                      type="button"
+                                      onClick={() => setFocusedBlockStyleTarget('pv_approval_matrix')}
+                                      className="text-[10px] font-extrabold uppercase tracking-wider text-teal-800 hover:underline cursor-pointer"
+                                    >
                                       PV 4-Column Approval Matrix
-                                    </span>
+                                    </button>
                                     <input
                                       type="checkbox"
                                       checked={paymentVoucherMetadata.show_approval_matrix !== false}
@@ -17242,11 +17716,22 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       className="rounded border-teal-300 text-teal-600 cursor-pointer"
                                     />
                                   </div>
-                                  <div className="grid grid-cols-1 gap-2">
+                                  <div className="grid grid-cols-2 gap-1.5">
                                     <div>
-                                      <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
-                                        Prepared By
+                                      <label className="block text-[9px] font-semibold text-slate-600 mb-0.5">
+                                        Col 1 Header &amp; Name
                                       </label>
+                                      <input
+                                        type="text"
+                                        value={paymentVoucherMetadata.col1_heading ?? 'Prepared By'}
+                                        onChange={(e) =>
+                                          setPaymentVoucherMetadata((prev) => ({
+                                            ...prev,
+                                            col1_heading: e.target.value
+                                          }))
+                                        }
+                                        className="w-full px-1.5 py-0.5 mb-1 rounded border border-slate-200 text-[10px] font-bold bg-white"
+                                      />
                                       <input
                                         type="text"
                                         value={paymentVoucherMetadata.prepared_by_name ?? ''}
@@ -17257,13 +17742,24 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                           }))
                                         }
                                         placeholder="Accounts Executive"
-                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                        className="w-full px-1.5 py-0.5 rounded border border-slate-300 text-[10.5px] bg-white"
                                       />
                                     </div>
                                     <div>
-                                      <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
-                                        Verified By
+                                      <label className="block text-[9px] font-semibold text-slate-600 mb-0.5">
+                                        Col 2 Header &amp; Name
                                       </label>
+                                      <input
+                                        type="text"
+                                        value={paymentVoucherMetadata.col2_heading ?? 'Verified By'}
+                                        onChange={(e) =>
+                                          setPaymentVoucherMetadata((prev) => ({
+                                            ...prev,
+                                            col2_heading: e.target.value
+                                          }))
+                                        }
+                                        className="w-full px-1.5 py-0.5 mb-1 rounded border border-slate-200 text-[10px] font-bold bg-white"
+                                      />
                                       <input
                                         type="text"
                                         value={paymentVoucherMetadata.verified_by_name ?? ''}
@@ -17274,13 +17770,24 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                           }))
                                         }
                                         placeholder="Finance Manager"
-                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                        className="w-full px-1.5 py-0.5 rounded border border-slate-300 text-[10.5px] bg-white"
                                       />
                                     </div>
                                     <div>
-                                      <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
-                                        Approved By
+                                      <label className="block text-[9px] font-semibold text-slate-600 mb-0.5">
+                                        Col 3 Header &amp; Name
                                       </label>
+                                      <input
+                                        type="text"
+                                        value={paymentVoucherMetadata.col3_heading ?? 'Approved By'}
+                                        onChange={(e) =>
+                                          setPaymentVoucherMetadata((prev) => ({
+                                            ...prev,
+                                            col3_heading: e.target.value
+                                          }))
+                                        }
+                                        className="w-full px-1.5 py-0.5 mb-1 rounded border border-slate-200 text-[10px] font-bold bg-white"
+                                      />
                                       <input
                                         type="text"
                                         value={paymentVoucherMetadata.approved_by_name ?? ''}
@@ -17291,13 +17798,24 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                           }))
                                         }
                                         placeholder="Authorized Director"
-                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                        className="w-full px-1.5 py-0.5 rounded border border-slate-300 text-[10.5px] bg-white"
                                       />
                                     </div>
                                     <div>
-                                      <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
-                                        Received By (Payee)
+                                      <label className="block text-[9px] font-semibold text-slate-600 mb-0.5">
+                                        Col 4 Header &amp; Name
                                       </label>
+                                      <input
+                                        type="text"
+                                        value={paymentVoucherMetadata.col4_heading ?? 'Received By'}
+                                        onChange={(e) =>
+                                          setPaymentVoucherMetadata((prev) => ({
+                                            ...prev,
+                                            col4_heading: e.target.value
+                                          }))
+                                        }
+                                        className="w-full px-1.5 py-0.5 mb-1 rounded border border-slate-200 text-[10px] font-bold bg-white"
+                                      />
                                       <input
                                         type="text"
                                         value={paymentVoucherMetadata.received_by_name ?? ''}
@@ -17308,7 +17826,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                           }))
                                         }
                                         placeholder="Beneficiary Rep"
-                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                        className="w-full px-1.5 py-0.5 rounded border border-slate-300 text-[10.5px] bg-white"
                                       />
                                     </div>
                                   </div>
@@ -17317,18 +17835,62 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                               {(documentType === 'material_return_note' ||
                                 documentType === 'debit_note') && (
-                                <div className="p-2.5 rounded-lg bg-rose-50/70 border border-rose-200 space-y-2">
-                                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-800 block">
-                                    Return / Debit Note Sign-Off Controls
-                                  </span>
+                                <div className="p-2.5 rounded-lg bg-rose-50/70 border border-rose-200 space-y-2.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-800">
+                                      Return / Debit Note Sign-Off Controls
+                                    </span>
+                                    <input
+                                      type="checkbox"
+                                      checked={vendorReturnMetadata.show_signoff_block !== false}
+                                      onChange={(e) =>
+                                        setVendorReturnMetadata((prev) => ({
+                                          ...prev,
+                                          show_signoff_block: e.target.checked
+                                        }))
+                                      }
+                                      className="rounded border-rose-300 text-rose-600 cursor-pointer"
+                                    />
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <label className="flex items-center gap-1.5 p-1.5 rounded bg-white border border-rose-200 text-[10px] font-semibold text-rose-950 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={vendorReturnMetadata.show_issuer_signoff_card !== false}
+                                        onChange={(e) =>
+                                          setVendorReturnMetadata((prev) => ({
+                                            ...prev,
+                                            show_issuer_signoff_card: e.target.checked
+                                          }))
+                                        }
+                                      />
+                                      <span className="truncate">Left: Issued By</span>
+                                    </label>
+                                    <label className="flex items-center gap-1.5 p-1.5 rounded bg-white border border-rose-200 text-[10px] font-semibold text-rose-950 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={vendorReturnMetadata.show_vendor_ack_card !== false}
+                                        onChange={(e) =>
+                                          setVendorReturnMetadata((prev) => ({
+                                            ...prev,
+                                            show_vendor_ack_card: e.target.checked
+                                          }))
+                                        }
+                                      />
+                                      <span className="truncate">Right: Debit / Ack</span>
+                                    </label>
+                                  </div>
+
                                   <div className="grid grid-cols-1 gap-2">
                                     <div>
                                       <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
-                                        Left Card Heading
+                                        Left Card Heading (Issued &amp; Authorized By)
                                       </label>
                                       <input
                                         type="text"
                                         value={vendorReturnMetadata.signoff_left_heading ?? ''}
+                                        onFocus={() => setFocusedBlockStyleTarget('return_signoff_left')}
                                         onChange={(e) =>
                                           setVendorReturnMetadata((prev) => ({
                                             ...prev,
@@ -17341,11 +17903,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     </div>
                                     <div>
                                       <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
-                                        Right Card Heading
+                                        Right Card Heading (Debit Claim / Acknowledgment)
                                       </label>
                                       <input
                                         type="text"
                                         value={vendorReturnMetadata.signoff_right_heading ?? ''}
+                                        onFocus={() => setFocusedBlockStyleTarget('return_signoff_right')}
                                         onChange={(e) =>
                                           setVendorReturnMetadata((prev) => ({
                                             ...prev,
@@ -17357,6 +17920,41 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       />
                                     </div>
                                   </div>
+
+                                  <div>
+                                    <div className="flex items-center justify-between mb-0.5">
+                                      <label className="text-[9.5px] font-semibold text-slate-600">
+                                        Debit Claim / Acknowledgment Clause
+                                      </label>
+                                      <input
+                                        type="checkbox"
+                                        checked={vendorReturnMetadata.show_ack_clause !== false}
+                                        onChange={(e) =>
+                                          setVendorReturnMetadata((prev) => ({
+                                            ...prev,
+                                            show_ack_clause: e.target.checked
+                                          }))
+                                        }
+                                      />
+                                    </div>
+                                    <input
+                                      type="text"
+                                      value={vendorReturnMetadata.acknowledgment_clause ?? ''}
+                                      onChange={(e) =>
+                                        setVendorReturnMetadata((prev) => ({
+                                          ...prev,
+                                          acknowledgment_clause: e.target.value
+                                        }))
+                                      }
+                                      placeholder={
+                                        documentType === 'debit_note'
+                                          ? 'Commercial debit note acknowledged for account adjustment / credit note issuance.'
+                                          : 'Returned materials received back for inspection / replacement / credit.'
+                                      }
+                                      className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                    />
+                                  </div>
+
                                   <label className="flex items-center justify-between pt-1 cursor-pointer">
                                     <span className="text-[10.5px] font-semibold text-rose-900">
                                       Show Vendor Stamp Box

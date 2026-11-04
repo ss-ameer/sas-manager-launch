@@ -5705,6 +5705,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     ? 'quotation-block-allow-split'
                     : 'break-inside-avoid page-break-inside-avoid';
 
+                  const blockElemFmt = applyTextFormatStyle(
+                    resolvedRecipientConfig.elementStyles?.[`block:${b.id}`]
+                  );
+
                   return (
                     <div
                       key={b.id}
@@ -5719,8 +5723,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                       }}
                     >
                       <div
-                        className={`${cardStyleClass} ${avoidBreakCls}`}
-                        onClick={isInteractive ? () => (onSelectSection ? onSelectSection(b.id) : onSelectBlock?.(b.id)) : undefined}
+                        className={`${cardStyleClass} ${avoidBreakCls} ${blockElemFmt.className} relative group`}
+                        onClick={isInteractive ? () => (onSelectSection ? onSelectSection(b.id, `block:${b.id}`) : onSelectBlock?.(b.id)) : undefined}
                         style={{
                           ...(allowSplit ? {} : { breakInside: 'avoid', pageBreakInside: 'avoid' }),
                           ...(borderOverride === 'left_accent'
@@ -5729,9 +5733,19 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                             ? { backgroundColor: themePalette.tintBg, borderColor: themePalette.primaryHex }
                             : {}),
                           ['--block-base' as any]: baseFontSize,
-                          fontSize: 'var(--block-base)'
+                          fontSize: 'var(--block-base)',
+                          ...blockElemFmt.style
                         }}
                       >
+                        {isInteractive && (
+                          <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
+                            isSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
+                          }`}>
+                            {bType === 'acceptance' && isPurchaseOrder
+                              ? 'Click to Customize Vendor Order Acknowledgment'
+                              : 'Click to Inspect & Customize'}
+                          </div>
+                        )}
                         {isCustomBlock ? (
                           renderCustomBlock(b)
                         ) : (
@@ -9481,6 +9495,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   const renderDeliveryNoteSignOffBlock = () => {
     if (!isDeliveryNote) return null;
     if (resolvedFooterConfig.showSignatories === false) return null;
+    if ((deliveryMeta as any)?.show_signoff_block === false) return null;
     const radiusClass =
       (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp'
         ? 'rounded-none'
@@ -9503,12 +9518,25 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       (deliveryMeta?.signoff_right_heading || '').trim() ||
       `Goods Received Acknowledgment — ${clientEntityName}`;
     const showReceivingStampBox = deliveryMeta?.show_receiving_stamp_box !== false;
+    const showDispatchCard = (deliveryMeta as any)?.show_dispatch_signoff_card !== false;
+    const showReceiverCard = (deliveryMeta as any)?.show_receiver_signoff_card !== false;
+    if (!showDispatchCard && !showReceiverCard) return null;
     const isSigSelected =
       activeSelectedSection === 'signatory' || activeSelectedSection === 'signatories';
+    const doLeftFmt = applyTextFormatStyle(
+      resolvedRecipientConfig.elementStyles?.['do_signoff_left'] ||
+        resolvedRecipientConfig.elementStyles?.['block:signatory']
+    );
+    const doRightFmt = applyTextFormatStyle(
+      resolvedRecipientConfig.elementStyles?.['do_signoff_right'] ||
+        resolvedRecipientConfig.elementStyles?.['block:signatory']
+    );
 
     return (
       <section
-        className={`w-full mb-2 print:mb-1.5 grid grid-cols-2 gap-2.5 break-inside-avoid page-break-inside-avoid relative group ${
+        className={`w-full mb-2 print:mb-1.5 grid ${
+          showDispatchCard && showReceiverCard ? 'grid-cols-2' : 'grid-cols-1'
+        } gap-2.5 break-inside-avoid page-break-inside-avoid relative group ${
           isInteractive
             ? `cursor-pointer rounded-lg transition-all ${
                 isSigSelected
@@ -9522,7 +9550,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           isInteractive
             ? (e) => {
                 e.stopPropagation();
-                onSelectSection?.('signatory');
+                onSelectSection?.('signatory', 'do_signoff_left');
                 onSelectBlock?.('signatory' as any);
               }
             : undefined
@@ -9536,154 +9564,192 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           </div>
         )}
         {/* Left: Dispatched By (Our Company) */}
-        <div className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
-          <div>
-            <div
-              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
-              style={{ color: themePalette.textAccent }}
-            >
-              {leftHeading}
-            </div>
-            <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared / Checked By</span>
-                <span className="font-semibold text-slate-900">{dispatchedBy}</span>
+        {showDispatchCard && (
+          <div
+            onClick={
+              isInteractive
+                ? (e) => {
+                    e.stopPropagation();
+                    onSelectSection?.('signatory', 'do_signoff_left');
+                    onSelectBlock?.('signatory' as any);
+                  }
+                : undefined
+            }
+            className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between ${doLeftFmt.className}`}
+            style={doLeftFmt.style}
+          >
+            <div>
+              <div
+                className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
+                style={{ color: themePalette.textAccent, ...doLeftFmt.style }}
+              >
+                {leftHeading}
               </div>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Dispatch Mode</span>
-                <span className="font-semibold text-slate-900">
-                  {deliveryMeta?.dispatch_mode || 'Company Transport'}
-                </span>
-              </div>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vehicle / Plate #</span>
-                <span className="font-mono font-semibold text-slate-900">
-                  {deliveryMeta?.vehicle_plate_no || '__________________'}
-                </span>
-              </div>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Driver Name &amp; Tel</span>
-                <span className="font-semibold text-slate-900">
-                  {[deliveryMeta?.driver_name, deliveryMeta?.driver_phone].filter(Boolean).join(' • ') ||
-                    '__________________'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
-            {(() => {
-              const doStampSigOverlay = resolveStampSignatureOverlayConfig(
-                resolvedFooterConfig,
-                quotation,
-                profile
-              );
-              const doCompanySealUrl = doStampSigOverlay.activeSealUrl;
-              return (
-                <>
-                  <div className="flex-1">
-                    <div className="h-8 flex items-end">
-                      {doStampSigOverlay.activeSignatureUrl ? (
-                        <img
-                          src={doStampSigOverlay.activeSignatureUrl}
-                          alt="Authorized Dispatch Signature"
-                          className="h-7 w-auto object-contain"
-                        />
-                      ) : (
-                        <span className="font-serif italic text-sm text-slate-700">{dispatchedBy}</span>
-                      )}
-                    </div>
-                    <div className="border-t border-slate-300 pt-1 mt-1">
-                      <div className={`${typoScale.sub} font-bold text-slate-800`}>
-                        Authorized Dispatch Signature
-                      </div>
-                      <div className={`${typoScale.micro} text-slate-500`}>
-                        For {senderEntityName}
-                      </div>
-                    </div>
+              <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
+                {(deliveryMeta as any)?.show_signoff_prepared !== false && (
+                  <div>
+                    <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared / Checked By</span>
+                    <span className="font-semibold text-slate-900">{dispatchedBy}</span>
                   </div>
-                  {resolvedShowCompanySeal && (
-                    <div className="w-14 h-12 flex items-center justify-center shrink-0">
-                      {doCompanySealUrl ? (
-                        <img
-                          src={doCompanySealUrl}
-                          alt="Official Seal"
-                          className="h-12 w-auto object-contain opacity-90"
-                        />
-                      ) : (
-                        <div className="h-11 w-11 rounded-full border border-dashed border-slate-300 flex items-center justify-center text-center p-1">
-                          <span className="text-[7px] font-mono uppercase text-slate-400 leading-tight">
-                            Dispatch Stamp
-                          </span>
+                )}
+                {(deliveryMeta as any)?.show_signoff_mode !== false && (
+                  <div>
+                    <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Dispatch Mode</span>
+                    <span className="font-semibold text-slate-900">
+                      {deliveryMeta?.dispatch_mode || 'Company Transport'}
+                    </span>
+                  </div>
+                )}
+                {(deliveryMeta as any)?.show_signoff_vehicle !== false && (
+                  <div>
+                    <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vehicle / Plate #</span>
+                    <span className="font-mono font-semibold text-slate-900">
+                      {deliveryMeta?.vehicle_plate_no || '__________________'}
+                    </span>
+                  </div>
+                )}
+                {(deliveryMeta as any)?.show_signoff_driver !== false && (
+                  <div>
+                    <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Driver Name &amp; Tel</span>
+                    <span className="font-semibold text-slate-900">
+                      {[deliveryMeta?.driver_name, deliveryMeta?.driver_phone].filter(Boolean).join(' • ') ||
+                        '__________________'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
+              {(() => {
+                const doStampSigOverlay = resolveStampSignatureOverlayConfig(
+                  resolvedFooterConfig,
+                  quotation,
+                  profile
+                );
+                const doCompanySealUrl = doStampSigOverlay.activeSealUrl;
+                return (
+                  <>
+                    <div className="flex-1">
+                      <div className="h-8 flex items-end">
+                        {doStampSigOverlay.activeSignatureUrl ? (
+                          <img
+                            src={doStampSigOverlay.activeSignatureUrl}
+                            alt="Authorized Dispatch Signature"
+                            className="h-7 w-auto object-contain"
+                          />
+                        ) : (
+                          <span className="font-serif italic text-sm text-slate-700">{dispatchedBy}</span>
+                        )}
+                      </div>
+                      <div className="border-t border-slate-300 pt-1 mt-1">
+                        <div className={`${typoScale.sub} font-bold text-slate-800`}>
+                          Authorized Dispatch Signature
                         </div>
-                      )}
+                        <div className={`${typoScale.micro} text-slate-500`}>
+                          For {senderEntityName}
+                        </div>
+                      </div>
                     </div>
-                  )}
-                </>
-              );
-            })()}
+                    {resolvedShowCompanySeal && (
+                      <div className="w-14 h-12 flex items-center justify-center shrink-0">
+                        {doCompanySealUrl ? (
+                          <img
+                            src={doCompanySealUrl}
+                            alt="Official Seal"
+                            className="h-12 w-auto object-contain opacity-90"
+                          />
+                        ) : (
+                          <div className="h-11 w-11 rounded-full border border-dashed border-slate-300 flex items-center justify-center text-center p-1">
+                            <span className="text-[7px] font-mono uppercase text-slate-400 leading-tight">
+                              Dispatch Stamp
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Right: Received By (Client / Consignee) */}
-        <div className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
-          <div>
-            <div
-              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1 border-b border-slate-200`}
-              style={{ color: themePalette.textAccent }}
-            >
-              {rightHeading}
+        {showReceiverCard && (
+          <div
+            onClick={
+              isInteractive
+                ? (e) => {
+                    e.stopPropagation();
+                    onSelectSection?.('signatory', 'do_signoff_right');
+                    onSelectBlock?.('signatory' as any);
+                  }
+                : undefined
+            }
+            className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between ${doRightFmt.className}`}
+            style={doRightFmt.style}
+          >
+            <div>
+              <div
+                className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1 border-b border-slate-200`}
+                style={{ color: themePalette.textAccent, ...doRightFmt.style }}
+              >
+                {rightHeading}
+              </div>
+              {(deliveryMeta as any)?.show_goods_clause !== false && (
+                <p className={`${typoScale.sub} text-slate-700 italic leading-snug mb-1.5`}>
+                  {goodsClause}
+                </p>
+              )}
+              <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Received By (Name)</span>
+                  <span className="font-semibold text-slate-900">
+                    {receivedBy || '______________________'}
+                  </span>
+                </div>
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Designation / ID</span>
+                  <span className="font-semibold text-slate-900">
+                    {receivedBy ? receivedTitle : '______________________'}
+                  </span>
+                </div>
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Date &amp; Time Received</span>
+                  <span className="font-mono text-slate-800">____ / ____ / 20____</span>
+                </div>
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Contact / Mobile</span>
+                  <span className="font-mono text-slate-800">
+                    {deliveryMeta?.site_contact_phone || '______________________'}
+                  </span>
+                </div>
+              </div>
             </div>
-            <p className={`${typoScale.sub} text-slate-700 italic leading-snug mb-1.5`}>
-              {goodsClause}
-            </p>
-            <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Received By (Name)</span>
-                <span className="font-semibold text-slate-900">
-                  {receivedBy || '______________________'}
-                </span>
-              </div>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Designation / ID</span>
-                <span className="font-semibold text-slate-900">
-                  {receivedBy ? receivedTitle : '______________________'}
-                </span>
-              </div>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Date &amp; Time Received</span>
-                <span className="font-mono text-slate-800">____ / ____ / 20____</span>
-              </div>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Contact / Mobile</span>
-                <span className="font-mono text-slate-800">
-                  {deliveryMeta?.site_contact_phone || '______________________'}
-                </span>
-              </div>
-            </div>
-          </div>
 
-          <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
-            <div className="flex-1">
-              <div className="h-8" />
-              <div className="border-t border-slate-300 pt-1 mt-1">
-                <div className={`${typoScale.sub} font-bold text-slate-800`}>
-                  Receiver Signature
-                </div>
-                <div className={`${typoScale.micro} text-slate-500`}>
-                  Consignee / Site Representative
+            <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
+              <div className="flex-1">
+                <div className="h-8" />
+                <div className="border-t border-slate-300 pt-1 mt-1">
+                  <div className={`${typoScale.sub} font-bold text-slate-800`}>
+                    Receiver Signature
+                  </div>
+                  <div className={`${typoScale.micro} text-slate-500`}>
+                    Consignee / Site Representative
+                  </div>
                 </div>
               </div>
+              {showReceivingStampBox && (
+                <div className="w-18 h-12 rounded border border-dashed border-slate-300 flex items-center justify-center text-center p-1 shrink-0 bg-white/70">
+                  <span className="text-[7px] font-mono uppercase text-slate-400 leading-tight">
+                    Receiving Stamp
+                  </span>
+                </div>
+              )}
             </div>
-            {showReceivingStampBox && (
-              <div className="w-18 h-12 rounded border border-dashed border-slate-300 flex items-center justify-center text-center p-1 shrink-0 bg-white/70">
-                <span className="text-[7px] font-mono uppercase text-slate-400 leading-tight">
-                  Receiving Stamp
-                </span>
-              </div>
-            )}
           </div>
-        </div>
+        )}
       </section>
     );
   };
@@ -9733,6 +9799,16 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     const balanceHeading =
       (receiptMeta?.balance_card_heading || '').trim() || 'Account Settlement & Balance Statement';
 
+    const recBannerFmt = applyTextFormatStyle(
+      resolvedRecipientConfig.elementStyles?.['receipt_amount_banner']
+    );
+    const recInstFmt = applyTextFormatStyle(
+      resolvedRecipientConfig.elementStyles?.['receipt_instrument_card']
+    );
+    const recBalFmt = applyTextFormatStyle(
+      resolvedRecipientConfig.elementStyles?.['receipt_balance_card']
+    );
+
     return (
       <section
         className={`w-full mb-2.5 print:mb-2 space-y-2.5 break-inside-avoid page-break-inside-avoid relative group ${
@@ -9742,7 +9818,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           isInteractive
             ? (e) => {
                 e.stopPropagation();
-                onSelectSection?.('quote_meta');
+                onSelectSection?.('quote_meta', 'receipt_amount_banner');
                 onSelectBlock?.('quote_meta' as any);
               }
             : undefined
@@ -9756,29 +9832,41 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         {/* Highlighted Amount Received Banner */}
         {showAmountBanner && (
           <div
-            className={`p-3 border-2 ${radiusClass} flex flex-col gap-1`}
+            onClick={
+              isInteractive
+                ? (e) => {
+                    e.stopPropagation();
+                    onSelectSection?.('quote_meta', 'receipt_amount_banner');
+                    onSelectBlock?.('quote_meta' as any);
+                  }
+                : undefined
+            }
+            className={`p-3 border-2 ${radiusClass} flex flex-col gap-1 ${recBannerFmt.className}`}
             style={{
               backgroundColor: themePalette.tintBg,
-              borderColor: themePalette.primaryHex
+              borderColor: themePalette.primaryHex,
+              ...recBannerFmt.style
             }}
           >
             <div className="flex items-center justify-between gap-4">
               <div>
                 <span
                   className={`${typoScale.heading} font-extrabold uppercase tracking-wider block`}
-                  style={{ color: themePalette.textAccent }}
+                  style={{ color: themePalette.textAccent, ...recBannerFmt.style }}
                 >
                   {bannerHeading}
                 </span>
-                <span className={`${typoScale.sub} text-slate-600`}>
-                  {receiptMeta?.narration_override && receiptMeta.narration_override.trim() !== '' ? (
-                    renderResolvedQuotationText(receiptMeta.narration_override, tokenContext)
-                  ) : (
-                    <>
-                      In settlement of <span className="font-mono font-bold text-slate-800">{settlementFor}</span> — {projectTitle}
-                    </>
-                  )}
-                </span>
+                {(receiptMeta as any)?.show_narration !== false && (
+                  <span className={`${typoScale.sub} text-slate-600`}>
+                    {receiptMeta?.narration_override && receiptMeta.narration_override.trim() !== '' ? (
+                      renderResolvedQuotationText(receiptMeta.narration_override, tokenContext)
+                    ) : (
+                      <>
+                        In settlement of <span className="font-mono font-bold text-slate-800">{settlementFor}</span> — {projectTitle}
+                      </>
+                    )}
+                  </span>
+                )}
               </div>
               <div
                 className="font-mono tabular-nums font-extrabold text-xl sm:text-2xl px-3 py-1 rounded bg-white border border-slate-200 shadow-2xs shrink-0"
@@ -9787,10 +9875,12 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 {formatCurrency(amtReceived)}
               </div>
             </div>
-            <div className={`pt-1 border-t border-slate-200/80 ${typoScale.body} text-slate-800`}>
-              <span className="font-bold text-slate-900">Amount in Words ({currency}): </span>
-              <span className="font-semibold italic">{amountToWords(amtReceived, currency)}</span>
-            </div>
+            {amountInWordsEnabled && (
+              <div className={`pt-1 border-t border-slate-200/80 ${typoScale.body} text-slate-800`}>
+                <span className="font-bold text-slate-900">Amount in Words ({currency}): </span>
+                <span className="font-semibold italic">{amountToWords(amtReceived, currency)}</span>
+              </div>
+            )}
           </div>
         )}
 
@@ -9798,23 +9888,39 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         {(showInstrumentCard || showBalanceCard) && (
           <div className={`grid ${showInstrumentCard && showBalanceCard ? 'grid-cols-2' : 'grid-cols-1'} gap-2.5 items-stretch`}>
             {showInstrumentCard && (
-              <div className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+              <div
+                onClick={
+                  isInteractive
+                    ? (e) => {
+                        e.stopPropagation();
+                        onSelectSection?.('quote_meta', 'receipt_instrument_card');
+                        onSelectBlock?.('quote_meta' as any);
+                      }
+                    : undefined
+                }
+                className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between ${recInstFmt.className}`}
+                style={recInstFmt.style}
+              >
                 <div>
                   <div
                     className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
-                    style={{ color: themePalette.textAccent }}
+                    style={{ color: themePalette.textAccent, ...recInstFmt.style }}
                   >
                     {instrumentHeading}
                   </div>
                   <div className={`space-y-1 ${typoScale.body} text-slate-700`}>
-                    <div className="flex justify-between gap-2">
-                      <span className="font-semibold text-slate-500">Payment Mode:</span>
-                      <span className="font-bold text-slate-900">{payMethod}</span>
-                    </div>
-                    <div className="flex justify-between gap-2">
-                      <span className="font-semibold text-slate-500">Transaction / Bank Ref:</span>
-                      <span className="font-mono font-semibold text-slate-900">{txnRef}</span>
-                    </div>
+                    {(receiptMeta as any)?.show_payment_mode !== false && (
+                      <div className="flex justify-between gap-2">
+                        <span className="font-semibold text-slate-500">Payment Mode:</span>
+                        <span className="font-bold text-slate-900">{payMethod}</span>
+                      </div>
+                    )}
+                    {(receiptMeta as any)?.show_txn_ref !== false && (
+                      <div className="flex justify-between gap-2">
+                        <span className="font-semibold text-slate-500">Transaction / Bank Ref:</span>
+                        <span className="font-mono font-semibold text-slate-900">{txnRef}</span>
+                      </div>
+                    )}
                     {payMethod === 'Cheque' && (
                       <>
                         <div className="flex justify-between gap-2">
@@ -9836,10 +9942,12 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                         </div>
                       </>
                     )}
-                    <div className="flex justify-between gap-2">
-                      <span className="font-semibold text-slate-500">Credited Account:</span>
-                      <span className="font-medium text-slate-800 text-right">{depositAcct}</span>
-                    </div>
+                    {(receiptMeta as any)?.show_credited_account !== false && (
+                      <div className="flex justify-between gap-2">
+                        <span className="font-semibold text-slate-500">Credited Account:</span>
+                        <span className="font-medium text-slate-800 text-right">{depositAcct}</span>
+                      </div>
+                    )}
                     {receiptMeta?.receipt_notes && (
                       <div className="pt-1 mt-1 border-t border-slate-200/70">
                         <span className="font-semibold text-slate-500 block">Remarks / Allocation Notes:</span>
@@ -9852,46 +9960,64 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             )}
 
             {showBalanceCard && (
-              <div className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+              <div
+                onClick={
+                  isInteractive
+                    ? (e) => {
+                        e.stopPropagation();
+                        onSelectSection?.('quote_meta', 'receipt_balance_card');
+                        onSelectBlock?.('quote_meta' as any);
+                      }
+                    : undefined
+                }
+                className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between ${recBalFmt.className}`}
+                style={recBalFmt.style}
+              >
                 <div>
                   <div
                     className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
-                    style={{ color: themePalette.textAccent }}
+                    style={{ color: themePalette.textAccent, ...recBalFmt.style }}
                   >
                     {balanceHeading}
                   </div>
                   <div className={`space-y-1 ${typoScale.body}`}>
-                    <div className="flex justify-between items-center text-slate-700">
-                      <span className="font-semibold text-slate-500">Total Order / Contract Value:</span>
-                      <span className="font-mono tabular-nums font-bold text-slate-900">
-                        {formatCurrency(totalOrderVal)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-slate-700 border-t border-slate-200/60 pt-1">
-                      <span className="font-semibold text-slate-500">Less: Previously Received:</span>
-                      <span className="font-mono tabular-nums font-semibold text-slate-700">
-                        {formatCurrency(prevReceived)}
-                      </span>
-                    </div>
+                    {(receiptMeta as any)?.show_contract_value !== false && (
+                      <div className="flex justify-between items-center text-slate-700">
+                        <span className="font-semibold text-slate-500">Total Order / Contract Value:</span>
+                        <span className="font-mono tabular-nums font-bold text-slate-900">
+                          {formatCurrency(totalOrderVal)}
+                        </span>
+                      </div>
+                    )}
+                    {(receiptMeta as any)?.show_previously_received !== false && (
+                      <div className="flex justify-between items-center text-slate-700 border-t border-slate-200/60 pt-1">
+                        <span className="font-semibold text-slate-500">Less: Previously Received:</span>
+                        <span className="font-mono tabular-nums font-semibold text-slate-700">
+                          {formatCurrency(prevReceived)}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-between items-center text-emerald-800 bg-emerald-50/80 px-2 py-0.5 rounded border border-emerald-200">
                       <span className="font-bold">Current Receipt Amount:</span>
                       <span className="font-mono tabular-nums font-extrabold">
                         {formatCurrency(amtReceived)}
                       </span>
                     </div>
-                    <div
-                      className="flex justify-between items-center pt-1.5 mt-1 border-t-2 font-extrabold"
-                      style={{ borderColor: themePalette.primaryHex }}
-                    >
-                      <span className="uppercase tracking-tight text-slate-900">Balance Outstanding:</span>
-                      <span
-                        className={`font-mono tabular-nums text-base ${
-                          balanceDue > 0 ? 'text-amber-700' : 'text-emerald-700'
-                        }`}
+                    {(receiptMeta as any)?.show_balance_due !== false && (
+                      <div
+                        className="flex justify-between items-center pt-1.5 mt-1 border-t-2 font-extrabold"
+                        style={{ borderColor: themePalette.primaryHex }}
                       >
-                        {formatCurrency(balanceDue)}
-                      </span>
-                    </div>
+                        <span className="uppercase tracking-tight text-slate-900">Balance Outstanding:</span>
+                        <span
+                          className={`font-mono tabular-nums text-base ${
+                            balanceDue > 0 ? 'text-amber-700' : 'text-emerald-700'
+                          }`}
+                        >
+                          {formatCurrency(balanceDue)}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -10000,41 +10126,75 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         : defaultApprovalCols;
     const visibleApprovalCols = approvalCols.filter((c) => c.visible !== false);
 
+    const pvBannerFmt = applyTextFormatStyle(
+      resolvedRecipientConfig.elementStyles?.['pv_amount_banner']
+    );
+    const pvAllocFmt = applyTextFormatStyle(
+      resolvedRecipientConfig.elementStyles?.['pv_allocation_table']
+    );
+    const pvTreasuryFmt = applyTextFormatStyle(
+      resolvedRecipientConfig.elementStyles?.['pv_treasury_card']
+    );
+    const pvBenFmt = applyTextFormatStyle(
+      resolvedRecipientConfig.elementStyles?.['pv_beneficiary_card']
+    );
+    const pvMatrixFmt = applyTextFormatStyle(
+      resolvedRecipientConfig.elementStyles?.['pv_approval_matrix'] ||
+        resolvedRecipientConfig.elementStyles?.['block:signatory']
+    );
+
     return (
       <section
-        className={`w-full mb-2 print:mb-1.5 space-y-2 break-inside-avoid page-break-inside-avoid ${
+        className={`w-full mb-2 print:mb-1.5 space-y-2 break-inside-avoid page-break-inside-avoid relative group ${
           isInteractive ? 'cursor-pointer hover:ring-1 hover:ring-blue-400 rounded-lg transition-all' : ''
         }`}
         onClick={
           isInteractive
             ? (e) => {
                 e.stopPropagation();
-                onSelectSection?.('quote_meta');
+                onSelectSection?.('quote_meta', 'pv_amount_banner');
                 onSelectBlock?.('quote_meta' as any);
               }
             : undefined
         }
       >
+        {isInteractive && (
+          <div className="quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100 transition-opacity print:hidden z-10">
+            Click Any Card to Customize Payment Voucher Blocks
+          </div>
+        )}
         {/* Highlighted Amount Paid Banner */}
         {showAmountBanner && (
           <div
-            className={`p-2.5 border-2 ${radiusClass} flex flex-col gap-1`}
+            onClick={
+              isInteractive
+                ? (e) => {
+                    e.stopPropagation();
+                    onSelectSection?.('quote_meta', 'pv_amount_banner');
+                    onSelectBlock?.('quote_meta' as any);
+                  }
+                : undefined
+            }
+            className={`p-2.5 border-2 ${radiusClass} flex flex-col gap-1 ${pvBannerFmt.className}`}
             style={{
               backgroundColor: themePalette.tintBg,
-              borderColor: themePalette.primaryHex
+              borderColor: themePalette.primaryHex,
+              ...pvBannerFmt.style
             }}
           >
             <div className="flex items-center justify-between gap-4">
               <div>
                 <span
                   className={`${typoScale.heading} font-extrabold uppercase tracking-wider block`}
-                  style={{ color: themePalette.textAccent }}
+                  style={{ color: themePalette.textAccent, ...pvBannerFmt.style }}
                 >
                   {bannerHeading}
                 </span>
-                <span className={`${typoScale.sub} text-slate-600`}>
-                  {narration}
-                </span>
+                {(pvMeta as any)?.show_narration !== false && (
+                  <span className={`${typoScale.sub} text-slate-600`}>
+                    {narration}
+                  </span>
+                )}
               </div>
               <div
                 className="font-mono tabular-nums font-extrabold text-xl sm:text-2xl px-3 py-1 rounded bg-white border border-slate-200 shadow-2xs shrink-0"
@@ -10043,21 +10203,36 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 {formatCurrency(amtPaid)}
               </div>
             </div>
-            <div className={`pt-1 border-t border-slate-200/80 ${typoScale.body} text-slate-800`}>
-              <span className="font-bold text-slate-900">Amount in Words ({currency}): </span>
-              <span className="font-semibold italic">{amountToWords(amtPaid, currency)}</span>
-            </div>
+            {amountInWordsEnabled && (
+              <div className={`pt-1 border-t border-slate-200/80 ${typoScale.body} text-slate-800`}>
+                <span className="font-bold text-slate-900">Amount in Words ({currency}): </span>
+                <span className="font-semibold italic">{amountToWords(amtPaid, currency)}</span>
+              </div>
+            )}
           </div>
         )}
 
         {/* Outbound Settlement & Bill Allocation Table */}
         {showAllocationTable && (
-          <div className={`border border-slate-200 ${radiusClass} overflow-hidden bg-white`}>
+          <div
+            onClick={
+              isInteractive
+                ? (e) => {
+                    e.stopPropagation();
+                    onSelectSection?.('quote_meta', 'pv_allocation_table');
+                    onSelectBlock?.('quote_meta' as any);
+                  }
+                : undefined
+            }
+            className={`border border-slate-200 ${radiusClass} overflow-hidden bg-white ${pvAllocFmt.className}`}
+            style={pvAllocFmt.style}
+          >
             <div
               className={`px-2.5 py-1 border-b border-slate-200 flex items-center justify-between ${typoScale.heading} font-extrabold uppercase tracking-wider`}
               style={{
                 backgroundColor: themePalette.tintStrongBg,
-                color: themePalette.textAccent
+                color: themePalette.textAccent,
+                ...pvAllocFmt.style
               }}
             >
               <span>{allocHeading}</span>
@@ -10164,27 +10339,45 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         {(showTreasuryCard || showBeneficiaryCard) && (
           <div className={`grid ${showTreasuryCard && showBeneficiaryCard ? 'grid-cols-2' : 'grid-cols-1'} gap-2.5 items-stretch`}>
             {showTreasuryCard && (
-              <div className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+              <div
+                onClick={
+                  isInteractive
+                    ? (e) => {
+                        e.stopPropagation();
+                        onSelectSection?.('quote_meta', 'pv_treasury_card');
+                        onSelectBlock?.('quote_meta' as any);
+                      }
+                    : undefined
+                }
+                className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between ${pvTreasuryFmt.className}`}
+                style={pvTreasuryFmt.style}
+              >
                 <div>
                   <div
                     className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
-                    style={{ color: themePalette.textAccent }}
+                    style={{ color: themePalette.textAccent, ...pvTreasuryFmt.style }}
                   >
                     {treasuryHeading}
                   </div>
                   <div className={`space-y-1 ${typoScale.body} text-slate-700`}>
-                    <div className="flex justify-between gap-2">
-                      <span className="font-semibold text-slate-500">Payment Mode:</span>
-                      <span className="font-bold text-slate-900">{payMethod}</span>
-                    </div>
-                    <div className="flex justify-between gap-2">
-                      <span className="font-semibold text-slate-500">Disbursing Account:</span>
-                      <span className="font-medium text-slate-800 text-right">{disbursingBankLabel}</span>
-                    </div>
-                    <div className="flex justify-between gap-2">
-                      <span className="font-semibold text-slate-500">Bank Wire / UTR / Cheque #:</span>
-                      <span className="font-mono font-semibold text-slate-900">{txnRef}</span>
-                    </div>
+                    {(pvMeta as any)?.show_payment_mode !== false && (
+                      <div className="flex justify-between gap-2">
+                        <span className="font-semibold text-slate-500">Payment Mode:</span>
+                        <span className="font-bold text-slate-900">{payMethod}</span>
+                      </div>
+                    )}
+                    {(pvMeta as any)?.show_disbursing_account !== false && (
+                      <div className="flex justify-between gap-2">
+                        <span className="font-semibold text-slate-500">Disbursing Account:</span>
+                        <span className="font-medium text-slate-800 text-right">{disbursingBankLabel}</span>
+                      </div>
+                    )}
+                    {(pvMeta as any)?.show_utr_ref !== false && (
+                      <div className="flex justify-between gap-2">
+                        <span className="font-semibold text-slate-500">Bank Wire / UTR / Cheque #:</span>
+                        <span className="font-mono font-semibold text-slate-900">{txnRef}</span>
+                      </div>
+                    )}
                     {payMethod === 'Cheque' && (
                       <div className="flex justify-between gap-2">
                         <span className="font-semibold text-slate-500">Cheque Bank &amp; Date:</span>
@@ -10201,11 +10394,23 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             )}
 
             {showBeneficiaryCard && (
-              <div className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
+              <div
+                onClick={
+                  isInteractive
+                    ? (e) => {
+                        e.stopPropagation();
+                        onSelectSection?.('quote_meta', 'pv_beneficiary_card');
+                        onSelectBlock?.('quote_meta' as any);
+                      }
+                    : undefined
+                }
+                className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between ${pvBenFmt.className}`}
+                style={pvBenFmt.style}
+              >
                 <div>
                   <div
                     className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
-                    style={{ color: themePalette.textAccent }}
+                    style={{ color: themePalette.textAccent, ...pvBenFmt.style }}
                   >
                     {beneficiaryHeading}
                   </div>
@@ -10248,7 +10453,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               isInteractive
                 ? (e) => {
                     e.stopPropagation();
-                    onSelectSection?.('signatory');
+                    onSelectSection?.('signatory', 'pv_approval_matrix');
                     onSelectBlock?.('signatory' as any);
                   }
                 : undefined
@@ -10263,7 +10468,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 : 'grid-cols-4'
             } gap-2 pt-0.5 relative group/sig ${
               isInteractive ? 'cursor-pointer hover:ring-1 hover:ring-blue-400 rounded-lg' : ''
-            }`}
+            } ${pvMatrixFmt.className}`}
+            style={pvMatrixFmt.style}
           >
             {visibleApprovalCols.map((slot, sIdx) => (
               <div
@@ -10299,6 +10505,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   const renderVendorReturnSignOffBlock = () => {
     if (!isMaterialReturnNote && !isDebitNote) return null;
     if (resolvedFooterConfig.showSignatories === false) return null;
+    if ((returnMeta as any)?.show_signoff_block === false) return null;
     const isDn = isDebitNote || returnMeta?.return_mode === 'debit_note';
     const radiusClass =
       (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp'
@@ -10316,13 +10523,31 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     const rightHeading =
       (returnMeta?.signoff_right_heading || '').trim() ||
       `Vendor Return / Debit Acknowledgment — ${vendorEntity}`;
+    const ackClause =
+      ((returnMeta as any)?.acknowledgment_clause || '').trim() ||
+      (isDn
+        ? 'We acknowledge receipt of this Debit Note and confirm adjustment against our account / invoice balance.'
+        : 'Received the above returned material for inspection, replacement, or credit note issuance.');
     const showVendorStampBox = returnMeta?.show_vendor_stamp_box !== false;
+    const showIssuerCard = (returnMeta as any)?.show_issuer_signoff_card !== false;
+    const showVendorAckCard = (returnMeta as any)?.show_vendor_ack_card !== false;
+    if (!showIssuerCard && !showVendorAckCard) return null;
     const isSigSelected =
       activeSelectedSection === 'signatory' || activeSelectedSection === 'signatories';
+    const retLeftFmt = applyTextFormatStyle(
+      resolvedRecipientConfig.elementStyles?.['return_signoff_left'] ||
+        resolvedRecipientConfig.elementStyles?.['block:signatory']
+    );
+    const retRightFmt = applyTextFormatStyle(
+      resolvedRecipientConfig.elementStyles?.['return_signoff_right'] ||
+        resolvedRecipientConfig.elementStyles?.['block:signatory']
+    );
 
     return (
       <section
-        className={`w-full mb-2 print:mb-1.5 grid grid-cols-2 gap-2.5 break-inside-avoid page-break-inside-avoid relative group ${
+        className={`w-full mb-2 print:mb-1.5 grid ${
+          showIssuerCard && showVendorAckCard ? 'grid-cols-2' : 'grid-cols-1'
+        } gap-2.5 break-inside-avoid page-break-inside-avoid relative group ${
           isInteractive
             ? `cursor-pointer rounded-lg transition-all ${
                 isSigSelected
@@ -10336,7 +10561,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           isInteractive
             ? (e) => {
                 e.stopPropagation();
-                onSelectSection?.('signatory');
+                onSelectSection?.('signatory', 'return_signoff_left');
                 onSelectBlock?.('signatory' as any);
               }
             : undefined
@@ -10349,127 +10574,155 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             Click to Customize Return / Debit Sign-Off
           </div>
         )}
-        <div className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
-          <div>
-            <div
-              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
-              style={{ color: themePalette.textAccent }}
-            >
-              {leftHeading}
-            </div>
-            <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared / QA Officer</span>
-                <span className="font-semibold text-slate-900">{returnedBy}</span>
+        {showIssuerCard && (
+          <div
+            onClick={
+              isInteractive
+                ? (e) => {
+                    e.stopPropagation();
+                    onSelectSection?.('signatory', 'return_signoff_left');
+                    onSelectBlock?.('signatory' as any);
+                  }
+                : undefined
+            }
+            className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between ${retLeftFmt.className}`}
+            style={retLeftFmt.style}
+          >
+            <div>
+              <div
+                className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
+                style={{ color: themePalette.textAccent, ...retLeftFmt.style }}
+              >
+                {leftHeading}
               </div>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Return Reason</span>
-                <span className="font-semibold text-rose-700">
-                  {returnMeta?.return_reason || 'Defective / Non-Conforming'}
-                </span>
-              </div>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Requested Resolution</span>
-                <span className="font-semibold text-slate-900">
-                  {returnMeta?.resolution_type || (isDn ? 'Credit Note / Bill Deduction' : 'Replacement Dispatch')}
-                </span>
-              </div>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Carrier / Vehicle</span>
-                <span className="font-mono font-semibold text-slate-900">
-                  {returnMeta?.carrier_or_vehicle || returnMeta?.vehicle_or_courier || '__________________'}
-                </span>
-              </div>
-            </div>
-          </div>
-          <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
-            {(() => {
-              const retStampSigOverlay = resolveStampSignatureOverlayConfig(
-                resolvedFooterConfig,
-                quotation,
-                profile
-              );
-              return (
-                <>
-                  <div className="flex-1">
-                    <div className="h-7 flex items-end">
-                      {retStampSigOverlay.activeSignatureUrl ? (
-                        <img
-                          src={retStampSigOverlay.activeSignatureUrl}
-                          alt="Authorized Signature"
-                          className="h-6 w-auto object-contain"
-                        />
-                      ) : (
-                        <span className="font-serif italic text-sm text-slate-700">{returnedBy}</span>
-                      )}
-                    </div>
-                    <div className="border-t border-slate-300 pt-1 mt-1">
-                      <div className={`${typoScale.sub} font-bold text-slate-800`}>
-                        Authorized Procurement / Warehouse Signature
-                      </div>
-                      <div className={`${typoScale.micro} text-slate-500`}>For {senderEntityName}</div>
-                    </div>
-                  </div>
-                  {resolvedShowCompanySeal && retStampSigOverlay.activeSealUrl && (
-                    <img
-                      src={retStampSigOverlay.activeSealUrl}
-                      alt="Official Seal"
-                      className="h-11 w-auto object-contain opacity-90 shrink-0"
-                    />
-                  )}
-                </>
-              );
-            })()}
-          </div>
-        </div>
-
-        <div className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between`}>
-          <div>
-            <div
-              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1 border-b border-slate-200`}
-              style={{ color: themePalette.textAccent }}
-            >
-              {rightHeading}
-            </div>
-            <p className={`${typoScale.sub} text-slate-700 italic leading-snug mb-1.5`}>
-              {isDn
-                ? 'We acknowledge receipt of this Debit Note and confirm adjustment against our account / invoice balance.'
-                : 'Received the above returned material for inspection, replacement, or credit note issuance.'}
-            </p>
-            <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Accepted By (Vendor Rep)</span>
-                <span className="font-semibold text-slate-900">
-                  {vendorAck || '______________________'}
-                </span>
-              </div>
-              <div>
-                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vendor Credit Note #</span>
-                <span className="font-mono text-slate-800">
-                  {returnMeta?.vendor_credit_note_no || '______________________'}
-                </span>
-              </div>
-            </div>
-          </div>
-          <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
-            <div className="flex-1">
-              <div className="h-7" />
-              <div className="border-t border-slate-300 pt-1 mt-1">
-                <div className={`${typoScale.sub} font-bold text-slate-800`}>
-                  Vendor Representative Signature &amp; Stamp
+              <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared / QA Officer</span>
+                  <span className="font-semibold text-slate-900">{returnedBy}</span>
                 </div>
-                <div className={`${typoScale.micro} text-slate-500`}>Date: ____ / ____ / 20____</div>
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Return Reason</span>
+                  <span className="font-semibold text-rose-700">
+                    {returnMeta?.return_reason || 'Defective / Non-Conforming'}
+                  </span>
+                </div>
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Requested Resolution</span>
+                  <span className="font-semibold text-slate-900">
+                    {returnMeta?.resolution_type || (isDn ? 'Credit Note / Bill Deduction' : 'Replacement Dispatch')}
+                  </span>
+                </div>
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Carrier / Vehicle</span>
+                  <span className="font-mono font-semibold text-slate-900">
+                    {returnMeta?.carrier_or_vehicle || returnMeta?.vehicle_or_courier || '__________________'}
+                  </span>
+                </div>
               </div>
             </div>
-            {showVendorStampBox && (
-              <div className="w-18 h-11 rounded border border-dashed border-slate-300 flex items-center justify-center text-center p-1 shrink-0 bg-white/70">
-                <span className="text-[7px] font-mono uppercase text-slate-400 leading-tight">
-                  Vendor Stamp
-                </span>
-              </div>
-            )}
+            <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
+              {(() => {
+                const retStampSigOverlay = resolveStampSignatureOverlayConfig(
+                  resolvedFooterConfig,
+                  quotation,
+                  profile
+                );
+                return (
+                  <>
+                    <div className="flex-1">
+                      <div className="h-7 flex items-end">
+                        {retStampSigOverlay.activeSignatureUrl ? (
+                          <img
+                            src={retStampSigOverlay.activeSignatureUrl}
+                            alt="Authorized Signature"
+                            className="h-6 w-auto object-contain"
+                          />
+                        ) : (
+                          <span className="font-serif italic text-sm text-slate-700">{returnedBy}</span>
+                        )}
+                      </div>
+                      <div className="border-t border-slate-300 pt-1 mt-1">
+                        <div className={`${typoScale.sub} font-bold text-slate-800`}>
+                          Authorized Procurement / Warehouse Signature
+                        </div>
+                        <div className={`${typoScale.micro} text-slate-500`}>For {senderEntityName}</div>
+                      </div>
+                    </div>
+                    {resolvedShowCompanySeal && retStampSigOverlay.activeSealUrl && (
+                      <img
+                        src={retStampSigOverlay.activeSealUrl}
+                        alt="Official Seal"
+                        className="h-11 w-auto object-contain opacity-90 shrink-0"
+                      />
+                    )}
+                  </>
+                );
+              })()}
+            </div>
           </div>
-        </div>
+        )}
+
+        {showVendorAckCard && (
+          <div
+            onClick={
+              isInteractive
+                ? (e) => {
+                    e.stopPropagation();
+                    onSelectSection?.('signatory', 'return_signoff_right');
+                    onSelectBlock?.('signatory' as any);
+                  }
+                : undefined
+            }
+            className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between ${retRightFmt.className}`}
+            style={retRightFmt.style}
+          >
+            <div>
+              <div
+                className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1 border-b border-slate-200`}
+                style={{ color: themePalette.textAccent, ...retRightFmt.style }}
+              >
+                {rightHeading}
+              </div>
+              {(returnMeta as any)?.show_ack_clause !== false && (
+                <p className={`${typoScale.sub} text-slate-700 italic leading-snug mb-1.5`}>
+                  {ackClause}
+                </p>
+              )}
+              <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Accepted By (Vendor Rep)</span>
+                  <span className="font-semibold text-slate-900">
+                    {vendorAck || '______________________'}
+                  </span>
+                </div>
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vendor Credit Note #</span>
+                  <span className="font-mono text-slate-800">
+                    {returnMeta?.vendor_credit_note_no || '______________________'}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
+              <div className="flex-1">
+                <div className="h-7" />
+                <div className="border-t border-slate-300 pt-1 mt-1">
+                  <div className={`${typoScale.sub} font-bold text-slate-800`}>
+                    Vendor Representative Signature &amp; Stamp
+                  </div>
+                  <div className={`${typoScale.micro} text-slate-500`}>Date: ____ / ____ / 20____</div>
+                </div>
+              </div>
+              {showVendorStampBox && (
+                <div className="w-18 h-11 rounded border border-dashed border-slate-300 flex items-center justify-center text-center p-1 shrink-0 bg-white/70">
+                  <span className="text-[7px] font-mono uppercase text-slate-400 leading-tight">
+                    Vendor Stamp
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </section>
     );
   };
