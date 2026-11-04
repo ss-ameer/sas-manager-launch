@@ -66,7 +66,7 @@ import SaveToCatalogModal, {
 import CompositePackageEditor from './CompositePackageEditor';
 import LineItemImageOptionsPopover from '../common/LineItemImageOptionsPopover';
 import { formatProductVariantSelectorLabel } from '../../utils/productVariantFormat';
-import { db, safeUpdateDoc } from '../../firebase';
+import { db, safeAddDoc, safeUpdateDoc } from '../../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import {
   QuotationDocument,
@@ -3918,9 +3918,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     );
   };
 
-  // Optional 1-click stock deduction when issuing a Delivery Note
+  // Optional 1-click stock deduction when issuing a Delivery Note (works for both standalone Enquiry and Project-linked DOs)
   const handleDeductDeliveredStock = async () => {
-    if (isDeductingStock || stockDeductedForDoc) return;
+    if (isDeductingStock || stockDeductedForDoc || deliveryMetadata.stock_deducted) return;
     const trackedItems = quotationLineItems
       .map((item) => {
         const matchedProd = workspaceProducts.find(
@@ -3944,22 +3944,61 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
     setIsDeductingStock(true);
     try {
+      const nowIso = new Date().toISOString();
+      const doRef =
+        deliveryMetadata.delivery_ref ||
+        liveQuotation.formatted_quote_ref ||
+        liveQuotation.quote_number ||
+        'DO';
+      const userName =
+        user?.full_name || (user as any)?.username || user?.email || 'Warehouse Operator';
       let updatedCount = 0;
-      for (const { matchedProd, deliveredQty } of trackedItems) {
+
+      for (const { item, matchedProd, deliveredQty } of trackedItems) {
         if (!matchedProd?.id) continue;
         const currentStock = Number(matchedProd.stock_on_hand ?? matchedProd.current_stock ?? 0);
+        const currentReserved = Number(matchedProd.stock_reserved ?? 0);
         const nextStock = Math.max(0, currentStock - deliveredQty);
+        const nextReserved = enquiry?.stock_reserved
+          ? Math.max(0, currentReserved - deliveredQty)
+          : currentReserved;
         const patch: Partial<Product> = {
           stock_on_hand: nextStock,
           current_stock: nextStock,
+          stock_reserved: nextReserved,
           is_inventoried: true,
-          updatedAt: new Date().toISOString()
+          updatedAt: nowIso
         };
         await safeUpdateDoc('products', matchedProd.id, patch);
+
+        // Append immutable STOCK_OUT ledger audit entry
+        await safeAddDoc('stock_movements', {
+          workspace_id: activeWorkspaceId || 'ws_default',
+          product_id: matchedProd.id,
+          product_name: item.item_name || matchedProd.name || matchedProd.description || 'Delivered Item',
+          movement_type: 'STOCK_OUT',
+          quantity: deliveredQty,
+          previous_on_hand: currentStock,
+          new_on_hand: nextStock,
+          reference_type: 'DELIVERY_NOTE',
+          reference_id: liveQuotation.id || enquiry?.id,
+          reference_number: doRef,
+          reason_notes: `Delivery Note Dispatch (${doRef}) — Client: ${
+            liveQuotation.client_snapshot?.entity_name || enquiry?.company_name || 'Client'
+          }`,
+          created_at: nowIso,
+          created_by_uid: user?.uid || 'system',
+          created_by_name: userName
+        });
+
         const updatedProduct: Product = { ...matchedProd, ...patch };
-        setWorkspaceProducts((prev) =>
-          prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p))
-        );
+        setWorkspaceProducts((prev) => {
+          const next = prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p));
+          try {
+            localStorage.setItem('omni_products', JSON.stringify(next));
+          } catch (_) {}
+          return next;
+        });
         if (propSetProducts) {
           propSetProducts((prev) =>
             prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p))
@@ -3968,6 +4007,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         updatedCount++;
       }
       setStockDeductedForDoc(true);
+      setDeliveryMetadata((prev) => ({
+        ...prev,
+        stock_deducted: true,
+        stock_deducted_at: nowIso
+      }));
       triggerToast?.(
         `Deducted delivered quantities from warehouse stock for ${updatedCount} catalog item(s).`,
         'success'
@@ -7636,14 +7680,31 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   >
                   {documentType === 'delivery_note' && (
                     <div className="border border-blue-200 rounded-xl p-4 bg-blue-50/40 space-y-3 text-xs shadow-2xs">
-                      <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
                         <span className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
                           <Truck className="w-3.5 h-3.5 text-blue-600" />
                           Delivery Note &amp; Dispatch Details (DO)
                         </span>
-                        <span className="px-2 py-0.5 rounded-full bg-white border border-blue-200 text-[10px] font-mono font-bold text-blue-700 whitespace-nowrap">
-                          Unpriced Dispatch
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {deliveryMetadata.stock_deducted || stockDeductedForDoc ? (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-100 border border-emerald-300 text-[10px] font-bold text-emerald-800 whitespace-nowrap">
+                              Stock Deducted
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={isDeductingStock}
+                              onClick={handleDeductDeliveredStock}
+                              className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[10px] transition cursor-pointer whitespace-nowrap disabled:opacity-50"
+                              title="Deduct delivered quantities from warehouse stock and log STOCK_OUT movement"
+                            >
+                              {isDeductingStock ? 'Deducting...' : 'Deduct Delivered Qty'}
+                            </button>
+                          )}
+                          <span className="px-2 py-0.5 rounded-full bg-white border border-blue-200 text-[10px] font-mono font-bold text-blue-700 whitespace-nowrap">
+                            Unpriced Dispatch
+                          </span>
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-1 gap-2.5">
@@ -8932,12 +8993,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     </div>
                   )}
 
-                  {(documentType === 'material_return_note' || documentType === 'debit_note') && (
+                  {(documentType === 'material_return_note' ||
+                    (documentType as string) === 'material_return' ||
+                    documentType === 'debit_note') && (
                     <div className="border border-rose-200 rounded-xl p-4 bg-rose-50/40 space-y-3 text-xs shadow-2xs">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
                           <Truck className="w-3.5 h-3.5 text-rose-600" />
-                          {documentType === 'material_return_note'
+                          {documentType === 'material_return_note' || (documentType as string) === 'material_return'
                             ? 'Material Return Note (MRN — Unpriced Dispatch)'
                             : 'Vendor Debit Note (DN — Priced Credit Claim)'}
                         </span>
@@ -9242,13 +9305,28 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     const pid = e.target.value;
                                     const prod = workspaceProducts.find((p) => p.id === pid);
                                     const currentList = customStudioLineItems ?? quotationLineItems;
-                                    const rate = Number(
-                                      prod?.cost_price ||
-                                        prod?.last_landed_cost ||
-                                        (prod as any)?.selling_price ||
-                                        (prod as any)?.unit_price ||
-                                        li.unit_price ||
-                                        0
+                                    const isVendorCostDoc =
+                                      documentType === 'purchase_order' ||
+                                      documentType === 'material_return_note' ||
+                                      (documentType as string) === 'material_return' ||
+                                      documentType === 'debit_note';
+                                    const rate = isVendorCostDoc
+                                      ? Number(
+                                          prod?.cost_price ??
+                                            prod?.last_landed_cost ??
+                                            prod?.unit_price ??
+                                            (prod as any)?.selling_price ??
+                                            li.unit_price ??
+                                            0
+                                        )
+                                      : Number(
+                                          prod?.unit_price ??
+                                            (prod as any)?.selling_price ??
+                                            li.unit_price ??
+                                            0
+                                        );
+                                    const resolvedCost = Number(
+                                      prod?.cost_price ?? prod?.last_landed_cost ?? li.cost_price ?? 0
                                     );
                                     const qty = Number(li.quantity) || 1;
                                     setCustomStudioLineItems(
@@ -9263,6 +9341,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                               brand_make: prod?.brand_make || row.brand_make,
                                               unit: prod?.unit || row.unit || 'Nos',
                                               unit_price: rate,
+                                              cost_price: isVendorCostDoc ? rate : resolvedCost,
                                               total_price: QuotationRepository.roundCurrency(qty * rate)
                                             }
                                           : row
@@ -9353,7 +9432,26 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-[10px] text-slate-400">Unit Rate</label>
+                                  <label className="flex items-center justify-between text-[10px] text-slate-400">
+                                    <span>Unit Rate</span>
+                                    <span
+                                      className={`px-1 rounded text-[8.5px] font-bold ${
+                                        documentType === 'purchase_order' ||
+                                        documentType === 'material_return_note' ||
+                                        (documentType as string) === 'material_return' ||
+                                        documentType === 'debit_note'
+                                          ? 'bg-indigo-50 text-indigo-700'
+                                          : 'bg-emerald-50 text-emerald-700'
+                                      }`}
+                                    >
+                                      {documentType === 'purchase_order' ||
+                                      documentType === 'material_return_note' ||
+                                      (documentType as string) === 'material_return' ||
+                                      documentType === 'debit_note'
+                                        ? 'Supplier Cost'
+                                        : 'Selling Price'}
+                                    </span>
+                                  </label>
                                   <input
                                     type="number"
                                     step="0.01"
@@ -9361,6 +9459,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     placeholder="0.00"
                                     onChange={(e) => {
                                       const r = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
+                                      const isVendorCostDoc =
+                                        documentType === 'purchase_order' ||
+                                        documentType === 'material_return_note' ||
+                                        (documentType as string) === 'material_return' ||
+                                        documentType === 'debit_note';
                                       const currentList = customStudioLineItems ?? quotationLineItems;
                                       setCustomStudioLineItems(
                                         currentList.map((row, rIdx) =>
@@ -9368,7 +9471,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                             ? {
                                                 ...row,
                                                 unit_price: r,
-                                                cost_price: r,
+                                                ...(isVendorCostDoc ? { cost_price: r } : {}),
                                                 total_price: QuotationRepository.roundCurrency(
                                                   (Number(row.quantity) || 0) * r
                                                 )

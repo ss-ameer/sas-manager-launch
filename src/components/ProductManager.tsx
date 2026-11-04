@@ -17,6 +17,7 @@ import {
   ImageAdjustmentConfig
 } from '../types';
 import { safeAddDoc, safeUpdateDoc } from '../firebase';
+import { saveToLocalStore } from '../services/db';
 import { generateProductSearchTerms } from '../utils/defaults';
 import { UNIVERSAL_UNITS, UNIVERSAL_CATEGORIES } from '../constants';
 import { processStockGrn, processStockAdjustment, subscribeStockMovements } from '../services/inventoryService';
@@ -1115,9 +1116,14 @@ export default function ProductManager({
       if (editingProduct && editingProduct.id) {
         const updatedProd: Product = { ...editingProduct, ...data } as Product;
         await safeUpdateDoc('products', editingProduct.id, data);
+        const nextList = products.map((p) => (p.id === editingProduct.id ? updatedProd : p));
         if (setProducts) {
-          setProducts((prev) => prev.map((p) => (p.id === editingProduct.id ? updatedProd : p)));
+          setProducts(nextList);
         }
+        try {
+          await saveToLocalStore('products', nextList);
+          localStorage.setItem('omni_products', JSON.stringify(nextList));
+        } catch (_) {}
       } else {
         const res = await safeAddDoc('products', {
           ...data,
@@ -1125,9 +1131,14 @@ export default function ProductManager({
         });
         const newId = res?.id || 'prod_' + Date.now();
         const newProd: Product = { id: newId, ...data } as Product;
+        const nextList = [newProd, ...products.filter((p) => p.id !== newId)];
         if (setProducts) {
-          setProducts((prev) => [newProd, ...prev.filter((p) => p.id !== newId)]);
+          setProducts(nextList);
         }
+        try {
+          await saveToLocalStore('products', nextList);
+          localStorage.setItem('omni_products', JSON.stringify(nextList));
+        } catch (_) {}
       }
       if (triggerToast) {
         triggerToast(
@@ -1177,26 +1188,33 @@ export default function ProductManager({
       isDestructive: true,
       onConfirm: async () => {
         try {
+          const deletedAtIso = new Date().toISOString();
+          const deletedByName = user?.full_name || user?.username || 'Unknown';
+          const nextList = products.map((prod) =>
+            prod.id === targetId
+              ? {
+                  ...prod,
+                  is_deleted: true,
+                  deleted: true,
+                  deleted_at: deletedAtIso,
+                  deleted_by_uid: user?.uid,
+                  deleted_by_name: deletedByName
+                }
+              : prod
+          );
           if (setProducts) {
-            setProducts((prev) =>
-              prev.map((prod) =>
-                prod.id === targetId
-                  ? {
-                      ...prod,
-                      is_deleted: true,
-                      deleted_at: new Date().toISOString(),
-                      deleted_by_uid: user?.uid,
-                      deleted_by_name: user?.full_name || user?.username || 'Unknown'
-                    }
-                  : prod
-              )
-            );
+            setProducts(nextList);
           }
+          try {
+            await saveToLocalStore('products', nextList);
+            localStorage.setItem('omni_products', JSON.stringify(nextList));
+          } catch (_) {}
           await safeUpdateDoc('products', targetId, {
             is_deleted: true,
-            deleted_at: new Date().toISOString(),
+            deleted: true,
+            deleted_at: deletedAtIso,
             deleted_by_uid: user?.uid || null,
-            deleted_by_name: user?.full_name || user?.username || 'Unknown'
+            deleted_by_name: deletedByName
           });
           if (triggerToast) {
             triggerToast(`Moved "${p.name || p.description}" to Recycle Bin.`, 'info');

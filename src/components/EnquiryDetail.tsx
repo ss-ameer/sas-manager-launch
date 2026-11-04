@@ -740,6 +740,11 @@ export default function EnquiryDetail({
     workspaceSupplierBills
   ]);
 
+  const catalogVariantAnalysisMap = useMemo(
+    () => buildCatalogVariantAnalysisMap(products || []),
+    [products]
+  );
+
   // Helper to build QuotationLineItems from an enquiry or source quotation
   const buildBaseLineItemsFromSource = (sourceQuote?: Quotation | null, sourceEnquiry?: Enquiry): QuotationLineItem[] => {
     if (sourceQuote?.line_items && sourceQuote.line_items.length > 0) {
@@ -5276,7 +5281,7 @@ export default function EnquiryDetail({
 
                     <div className="max-h-64 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {(() => {
-                        const variantAnalysisMap = buildCatalogVariantAnalysisMap(products || []);
+                        const variantAnalysisMap = catalogVariantAnalysisMap;
                         return (products || [])
                           .filter((p) => {
                             if (p.is_deleted) return false;

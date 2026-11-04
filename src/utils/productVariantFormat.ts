@@ -97,6 +97,40 @@ export function buildCatalogVariantAnalysisMap(products: Product[]): Map<string,
       siblingCount > 1 ||
       group.some((p) => Boolean(p.variant_parent_id));
 
+    const canonicalizeAttrKey = (rawKey: string): { key: string; label: string } => {
+      const clean = rawKey.trim();
+      const norm = clean.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      if (
+        norm === 'brand' ||
+        norm === 'make' ||
+        norm === 'brand make' ||
+        norm === 'make brand' ||
+        norm === 'manufacturer' ||
+        norm === 'brand manufacturer'
+      ) {
+        return { key: 'brand', label: 'Brand / Make' };
+      }
+      if (
+        norm === 'model' ||
+        norm === 'model no' ||
+        norm === 'part no' ||
+        norm === 'part number' ||
+        norm === 'model part' ||
+        norm === 'model part no'
+      ) {
+        return { key: 'model', label: 'Model / Part No' };
+      }
+      if (
+        norm === 'origin' ||
+        norm === 'country' ||
+        norm === 'country of origin' ||
+        norm === 'origin country'
+      ) {
+        return { key: 'origin', label: 'Origin' };
+      }
+      return { key: norm || clean.toLowerCase(), label: clean };
+    };
+
     const valuesByAttrKey = new Map<string, Set<string>>();
     const allKeyPresenceCount = new Map<string, number>();
     const canonicalKeyLabelMap = new Map<string, string>();
@@ -106,11 +140,11 @@ export function buildCatalogVariantAnalysisMap(products: Product[]): Map<string,
       const seenInProd = new Set<string>();
       for (const attr of attrs) {
         const kRaw = (attr.key || '').trim();
-        const kLower = kRaw.toLowerCase();
         const vNorm = (attr.value || '').trim().toLowerCase();
-        if (!kLower) continue;
+        if (!kRaw || !vNorm) continue;
+        const { key: kLower, label } = canonicalizeAttrKey(kRaw);
         if (!canonicalKeyLabelMap.has(kLower)) {
-          canonicalKeyLabelMap.set(kLower, kRaw);
+          canonicalKeyLabelMap.set(kLower, label);
         }
         if (!valuesByAttrKey.has(kLower)) {
           valuesByAttrKey.set(kLower, new Set<string>());
@@ -147,7 +181,7 @@ export function buildCatalogVariantAnalysisMap(products: Product[]): Map<string,
       const sharedAttributes: ProductAttribute[] = [];
 
       for (const attr of attrs) {
-        const kLower = attr.key.trim().toLowerCase();
+        const { key: kLower } = canonicalizeAttrKey(attr.key);
         if (diffKeysLower.has(kLower)) {
           differentiatingAttributes.push(attr);
         } else {

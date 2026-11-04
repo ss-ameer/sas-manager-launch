@@ -86,8 +86,8 @@ const SAMPLE_ANNEX_SVG_DATA_URI =
   <text x="80" y="540" fill="#334155" font-family="Arial, sans-serif" font-size="15">• Design Feed TDS: Up to 8,500 mg/L Brackish Well Water</text>
   <text x="80" y="575" fill="#334155" font-family="Arial, sans-serif" font-size="15">• Permeate Recovery Rate: 75% Continuous Duty (24/7 Industrial Rating)</text>
   <text x="80" y="610" fill="#334155" font-family="Arial, sans-serif" font-size="15">• Membrane Array: 8" High-Rejection Polyamide TFC Elements (USA Origin)</text>
-  <text x="80" y="645" fill="#334155" font-family="Arial, sans-serif" font-size="15">• High Pressure Pump: Grundfos Vertical Multistage SS316L + Danfoss VFD</text>
-  <text x="80" y="680" fill="#334155" font-family="Arial, sans-serif" font-size="15">• PLC &amp; HMI Automation: Siemens S7-1200 PLC with 10" Color Touch Panel</text>
+  <text x="80" y="645" fill="#334155" font-family="Arial, sans-serif" font-size="15">• High Pressure Pump: Vertical Multistage SS316L Booster + Industrial VFD</text>
+  <text x="80" y="680" fill="#334155" font-family="Arial, sans-serif" font-size="15">• PLC &amp; HMI Automation: Industrial Modular PLC with 10" Color Touch Panel</text>
 </svg>`);
 
 function buildScenarioItems(scenario: SandboxScenarioKey): QuotationLineItem[] {
@@ -97,8 +97,8 @@ function buildScenarioItems(scenario: SandboxScenarioKey): QuotationLineItem[] {
         id: 'sim_item_1',
         item_name: 'High-Rejection Brackish Water RO Membrane Element 8" (400 sq.ft)',
         description: 'Low-fouling spiral wound polyamide thin-film composite membrane element for industrial demineralization.',
-        brand: 'DuPont FilmTec',
-        model: 'BW30-400',
+        brand: 'AquaCore Membrane',
+        model: 'ACM-BW30-400',
         origin: 'USA',
         availability: 'Ex-Stock Dubai',
         quantity: 12,
@@ -117,9 +117,9 @@ function buildScenarioItems(scenario: SandboxScenarioKey): QuotationLineItem[] {
         id: 'sim_item_2',
         item_name: 'Vertical Multistage Centrifugal High-Pressure Booster Pump (SS316L)',
         description: 'Complete with IE3 15 kW flameproof motor, mechanical cartridge seal, and dry-run protection sensor.',
-        brand: 'Grundfos',
-        model: 'CRN 32-6',
-        origin: 'Denmark',
+        brand: 'HydroFlow Industrial',
+        model: 'HFI-CRN-32-6',
+        origin: 'EU',
         availability: '1–2 Weeks',
         quantity: 2,
         uom: 'SET',
@@ -141,9 +141,9 @@ function buildScenarioItems(scenario: SandboxScenarioKey): QuotationLineItem[] {
       {
         id: 'sim_t_1',
         item_name: 'FRP Pressure Vessel 8" Side-Port 4-Element Housing (450 PSI)',
-        description: 'ASME Code X certified filament-wound epoxy vessel complete with victaulic couplings and saddles.',
-        brand: 'Codeline / Pentair',
-        model: '80S45-4',
+        description: 'ASME Code X certified filament-wound epoxy vessel complete with grooved couplings and saddles.',
+        brand: 'VesselTech Composite',
+        model: 'VTC-80S45-4',
         origin: 'USA',
         availability: 'Ex-Stock',
         quantity: 6,
@@ -161,8 +161,8 @@ function buildScenarioItems(scenario: SandboxScenarioKey): QuotationLineItem[] {
         id: 'sim_t_2',
         item_name: 'Sea-Water / High-Brackish RO Membrane Element 8"x40"',
         description: 'High productivity fouling-resistant membrane for municipal & industrial water treatment.',
-        brand: 'Hydranautics',
-        model: 'CPA5-LD-8040',
+        brand: 'AquaCore Pro',
+        model: 'ACP-8040-LD',
         origin: 'USA / Japan',
         availability: 'Ex-Stock',
         quantity: 24,
@@ -180,9 +180,9 @@ function buildScenarioItems(scenario: SandboxScenarioKey): QuotationLineItem[] {
         id: 'sim_t_3',
         item_name: 'Simplex Electromagnetic Chemical Dosing Pump (Antiscalant Duty)',
         description: 'Microprocessor-controlled diaphragm metering pump with PVDF liquid end and level float switch.',
-        brand: 'Seko',
-        model: 'Tekna Evo AKL 800',
-        origin: 'Italy',
+        brand: 'DoseMatic Precision',
+        model: 'DMP-800-PVDF',
+        origin: 'EU',
         availability: 'Ex-Stock',
         quantity: 4,
         uom: 'SET',
@@ -199,8 +199,8 @@ function buildScenarioItems(scenario: SandboxScenarioKey): QuotationLineItem[] {
         id: 'sim_t_4',
         item_name: 'High-Performance Threshold Antiscalant & Dispersant Chemical',
         description: 'NSF/ANSI 60 certified phosphonate-blend scale inhibitor for calcium carbonate & sulfate control.',
-        brand: 'Avista / Genesys',
-        model: 'Vitec 3000',
+        brand: 'ChemGuard Process',
+        model: 'CGP-3000',
         origin: 'UK',
         availability: 'Ex-Stock',
         quantity: 40,
@@ -237,7 +237,7 @@ function buildScenarioItems(scenario: SandboxScenarioKey): QuotationLineItem[] {
         id: 'sim_t_6',
         item_name: 'Online Digital Conductivity, TDS & Temperature Transmitter Panel',
         description: 'Dual-channel panel mount analyzer with 4-20mA isolated output, RS485 Modbus, and SS316 sensor.',
-        brand: 'GF Signet',
+        brand: 'SenseTronic Controls',
         model: '9900-1P / 2850',
         origin: 'USA',
         availability: 'Ex-Stock',

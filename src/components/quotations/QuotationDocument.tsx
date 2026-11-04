@@ -800,8 +800,53 @@ export function extractLineItemAttributesAndCleanDescription(item: QuotationLine
   const extractedSpecsAttrs: Array<{ key: string; value: string }> = [];
   const cleanLines: string[] = [];
 
+  const canonicalizeSpecKey = (rawKey: string): string => {
+    const norm = rawKey.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    if (norm === 'brand' || norm === 'make' || norm === 'brand make' || norm === 'make brand' || norm === 'manufacturer') {
+      return 'brand';
+    }
+    if (norm === 'model' || norm === 'model no' || norm === 'part no' || norm === 'part number' || norm === 'model part no') {
+      return 'model';
+    }
+    if (norm === 'origin' || norm === 'country' || norm === 'country of origin') {
+      return 'origin';
+    }
+    if (norm === 'delivery' || norm === 'availability' || norm === 'lead time') {
+      return 'delivery';
+    }
+    return norm;
+  };
+
+  // Build set of canonical attribute keys already present on the item's structured fields/attributes
+  const existingCanonicalKeys = new Set<string>();
+  if (item.brand_make && item.brand_make.trim() && item.brand_make !== '—') existingCanonicalKeys.add('brand');
+  if (item.model_part_no && item.model_part_no.trim() && item.model_part_no !== '—') existingCanonicalKeys.add('model');
+  if (item.country_of_origin && item.country_of_origin.trim() && item.country_of_origin !== '—') existingCanonicalKeys.add('origin');
+  if (item.availability && item.availability.trim()) existingCanonicalKeys.add('delivery');
+
+  if (Array.isArray(item.attributes)) {
+    item.attributes.forEach((a) => {
+      const k = String(a?.key || (a as any)?.name || '').trim();
+      if (k && a?.value) {
+        existingCanonicalKeys.add(canonicalizeSpecKey(k));
+      }
+    });
+  } else if ((item as any).attributes && typeof (item as any).attributes === 'object') {
+    Object.entries((item as any).attributes).forEach(([k, v]) => {
+      if (k && v !== undefined && v !== null && String(v).trim() !== '') {
+        existingCanonicalKeys.add(canonicalizeSpecKey(k));
+      }
+    });
+  }
+
+  const itemTitleNorm = (item.item_name || item.title || '').trim().toLowerCase();
+
   rawDesc.split('\n').forEach((line) => {
     const trimmed = line.trim();
+    if (!trimmed) return;
+    if (itemTitleNorm && trimmed.replace(/[:\-–—]\s*$/, '').toLowerCase() === itemTitleNorm) {
+      return;
+    }
     const specsMatch = trimmed.match(/^specs:\s*(.+)$/i);
     if (specsMatch && specsMatch[1]) {
       const segments = specsMatch[1].split(/\s*[•|]\s*/);
@@ -815,9 +860,24 @@ export function extractLineItemAttributesAndCleanDescription(item: QuotationLine
           }
         }
       });
-    } else {
-      cleanLines.push(line);
+      return;
     }
+
+    // Check if this line is a standalone "Key: Value" line that duplicates an existing structured attribute
+    const colonIdx = trimmed.indexOf(':');
+    if (colonIdx > 0 && colonIdx <= 38 && !/^https?:/i.test(trimmed) && !/^note:/i.test(trimmed)) {
+      const candidateKey = trimmed.slice(0, colonIdx).trim();
+      const candidateVal = trimmed.slice(colonIdx + 1).trim();
+      if (candidateKey && candidateVal) {
+        const cKey = canonicalizeSpecKey(candidateKey);
+        if (existingCanonicalKeys.has(cKey)) {
+          // Already rendered in structured attribute pills — strip from narrative to prevent duplicate printing
+          return;
+        }
+      }
+    }
+
+    cleanLines.push(line);
   });
 
   return {
@@ -2563,7 +2623,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   const isPurchaseOrder = documentType === 'purchase_order';
   const isReceiptVoucher = documentType === 'receipt';
   const isPaymentVoucher = documentType === 'payment_voucher';
-  const isMaterialReturnNote = documentType === 'material_return_note';
+  const isMaterialReturnNote =
+    documentType === 'material_return_note' || (documentType as string) === 'material_return';
   const isDebitNote = documentType === 'debit_note';
   const deliveryMeta = quotation.delivery_metadata;
   const poMeta = quotation.purchase_order_metadata;

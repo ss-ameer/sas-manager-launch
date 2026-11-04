@@ -182,10 +182,29 @@ export function extractAttributesFromDescription(
   return baseAttrs;
 }
 
+export const CURRENCY_TO_AED_RATES: Record<string, number> = {
+  AED: 1,
+  USD: 3.6725,
+  EUR: 4.0,
+  GBP: 4.65,
+  SAR: 0.979,
+  QAR: 1.008,
+  KWD: 11.95,
+  OMR: 9.54,
+  BHD: 9.74,
+  INR: 0.044,
+  CNY: 0.51
+};
+
+export function resolveToAedMultiplier(currency?: string | null): number {
+  const code = String(currency || 'AED').trim().toUpperCase();
+  return CURRENCY_TO_AED_RATES[code] ?? 1;
+}
+
 /**
- * Ensures the Commercial & Technical Description includes both any narrative/multi-line
- * technical breakdown AND any structured Key/Value specification attributes so that
- * Quotations, Delivery Notes, and Purchase Orders always print the complete specification.
+ * Ensures the Commercial & Technical Description retains narrative lines without
+ * duplicating structured Key/Value specification attributes that are already rendered
+ * as dedicated specification pills on Quotations, Delivery Notes, and Purchase Orders.
  */
 export function compileDescriptionWithSpecs(
   title?: string | null,
@@ -209,35 +228,37 @@ export function compileDescriptionWithSpecs(
     .map((a) => ({ key: String(a?.key ?? '').trim(), value: String(a?.value ?? '').trim() }))
     .filter((a) => a.key !== '' && a.value !== '');
 
-  const isDescSameAsTitle =
-    !cleanDesc || (cleanTitle !== '' && cleanDesc.toLowerCase() === cleanTitle.toLowerCase());
-
   if (validAttrs.length === 0) {
     return cleanDesc || cleanTitle;
   }
 
+  // Strip any Key: Value line from cleanDesc that already exists in structured attributes
+  const attrKeySet = new Set(validAttrs.map((a) => a.key.toLowerCase()));
+  const filteredLines = cleanDesc
+    .split(/\r?\n/)
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+      if (/^specs:\s*/i.test(trimmed)) return false;
+      const colonIdx = trimmed.indexOf(':');
+      if (colonIdx > 0 && colonIdx < 40) {
+        const lineKey = trimmed.slice(0, colonIdx).trim().toLowerCase();
+        if (attrKeySet.has(lineKey)) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+  const narrativeOnly = filteredLines.join('\n').trim();
+  const isDescSameAsTitle =
+    !narrativeOnly || (cleanTitle !== '' && narrativeOnly.toLowerCase() === cleanTitle.toLowerCase());
+
   if (isDescSameAsTitle) {
-    return validAttrs.map((a) => `${a.key}: ${a.value}`).join('\n');
+    return '';
   }
 
-  const descLower = cleanDesc.toLowerCase();
-  const missingAttrLines: string[] = [];
-  for (const attr of validAttrs) {
-    const keyLower = attr.key.toLowerCase();
-    const valLower = attr.value.toLowerCase();
-    const alreadyPresent =
-      descLower.includes(`${keyLower}:`) ||
-      (descLower.includes(keyLower) && descLower.includes(valLower));
-    if (!alreadyPresent) {
-      missingAttrLines.push(`${attr.key}: ${attr.value}`);
-    }
-  }
-
-  if (missingAttrLines.length === 0) {
-    return cleanDesc;
-  }
-
-  return `${cleanDesc}\n${missingAttrLines.join('\n')}`;
+  return narrativeOnly;
 }
 
 /**
@@ -247,9 +268,13 @@ export function compileDescriptionWithSpecs(
 export function hasCatalogDrift(item: any, product?: Product | null, currency?: string): boolean {
   if (!item || !product || !item.product_id) return false;
 
-  const effectiveCurrency = String(currency || item?.currency || 'AED').toUpperCase();
-  const fxMultiplier = effectiveCurrency === 'USD' ? 3.6725 : 1;
-  const priceTolerance = effectiveCurrency === 'USD' ? 0.05 : 0.005;
+  const effectiveCurrency = String(currency || item?.currency || product?.currency || 'AED').toUpperCase();
+  const prodCurrency = String(product?.currency || 'AED').toUpperCase();
+  const fxMultiplier =
+    effectiveCurrency === prodCurrency
+      ? 1
+      : resolveToAedMultiplier(effectiveCurrency) / resolveToAedMultiplier(prodCurrency);
+  const priceTolerance = effectiveCurrency !== 'AED' ? 0.05 : 0.005;
 
   const itemSell = Math.round(Number(item.unit_price ?? 0) * fxMultiplier * 100) / 100;
   const prodSell = Number(product.unit_price ?? 0);
@@ -353,8 +378,12 @@ export async function syncLineItemToCatalogProduct(
 ): Promise<Product | null> {
   if (!product?.id) return null;
 
-  const effectiveCurrency = String(currency || item?.currency || 'AED').toUpperCase();
-  const fxMultiplier = effectiveCurrency === 'USD' ? 3.6725 : 1;
+  const effectiveCurrency = String(currency || item?.currency || product?.currency || 'AED').toUpperCase();
+  const prodCurrency = String(product?.currency || 'AED').toUpperCase();
+  const fxMultiplier =
+    effectiveCurrency === prodCurrency
+      ? 1
+      : resolveToAedMultiplier(effectiveCurrency) / resolveToAedMultiplier(prodCurrency);
 
   const parsed = parseLineItemTitleAndSpec(item.item_name || item.title, item.description);
   const updatedName = (item.item_name || item.title || product.name || parsed.title || '').trim();
@@ -643,7 +672,7 @@ export default function SaveToCatalogModal({
     }
 
     const effectiveCurrency = String(propCurrency || lineItem.currency || 'AED').toUpperCase();
-    const fxMultiplier = effectiveCurrency === 'USD' ? 3.6725 : 1;
+    const fxMultiplier = resolveToAedMultiplier(effectiveCurrency);
     const scaledSell =
       lineItem.unit_price != null && lineItem.unit_price >= 0
         ? Math.round(Number(lineItem.unit_price) * fxMultiplier * 100) / 100
@@ -786,7 +815,7 @@ export default function SaveToCatalogModal({
       );
 
       const effectiveCurrency = String(propCurrency || lineItem.currency || 'AED').toUpperCase();
-      const fxMultiplier = effectiveCurrency === 'USD' ? 3.6725 : 1;
+      const fxMultiplier = resolveToAedMultiplier(effectiveCurrency);
       const numSell = unitPrice !== '' && !isNaN(Number(unitPrice)) ? Number(unitPrice) : undefined;
       const numCost = costPrice !== '' && !isNaN(Number(costPrice)) ? Number(costPrice) : undefined;
       const isComposite = Boolean(
@@ -828,6 +857,7 @@ export default function SaveToCatalogModal({
         unit: (unit || '').trim() || 'Nos',
         unit_price: numSell,
         cost_price: numCost,
+        currency: 'AED',
         default_availability: leadTime.trim() || undefined,
         country_of_origin: countryOfOrigin.trim() || undefined,
         hs_code: hsCode.trim() || undefined,
@@ -857,9 +887,15 @@ export default function SaveToCatalogModal({
         ...productPayload
       } as Product;
 
+      const nextProductsList = [createdProduct, ...(products || []).filter((p) => p.id !== newId)];
       if (setProducts) {
-        setProducts((prev) => [createdProduct, ...prev.filter((p) => p.id !== newId)]);
+        setProducts(nextProductsList);
       }
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem('omni_products', JSON.stringify(nextProductsList));
+        }
+      } catch (_) {}
 
       if (triggerToast) {
         triggerToast(

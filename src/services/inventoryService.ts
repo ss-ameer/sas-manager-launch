@@ -774,7 +774,18 @@ async function getProductLiveOrLocal(productId: string): Promise<Product | null>
   } catch (_) {}
   try {
     const localList = (await getFromLocalStore<Product>('products')) || [];
-    return localList.find((p) => p.id === productId) || null;
+    const foundIdb = localList.find((p) => p.id === productId);
+    if (foundIdb) return foundIdb;
+  } catch (_) {}
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const raw = window.localStorage.getItem('omni_products');
+      if (raw) {
+        const parsed: Product[] = JSON.parse(raw);
+        const foundLs = Array.isArray(parsed) ? parsed.find((p) => p.id === productId) : null;
+        if (foundLs) return foundLs;
+      }
+    }
   } catch (_) {}
   return null;
 }

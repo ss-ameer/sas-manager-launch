@@ -96,11 +96,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   if (isPermissionError) {
     console.error('Firestore Error: ', JSON.stringify(errInfo));
     throw new Error(JSON.stringify(errInfo));
-  } else if (isQuotaError) {
-    console.warn(`[Firestore Quota Exceeded - Operating in High-Speed Local Storage Mode] Operation: ${operationType}, Path: ${path}`);
-  } else if (isUnavailable) {
-    console.warn(`[Firestore Network Offline / Reconnecting - Operating in High-Speed Local Storage Mode] Operation: ${operationType}, Path: ${path}`);
-  } else {
+  } else if (!isQuotaError && !isUnavailable) {
     console.warn('Firestore Operation Warning: ', JSON.stringify(errInfo));
   }
 

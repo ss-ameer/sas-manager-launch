@@ -152,7 +152,9 @@ class SyncEngine {
           this.lastSyncedAt = new Date();
           this.lastError = null;
         } catch (err: any) {
-          console.warn(`[SyncEngine] Failed to sync item ${item.id} (${item.entity}:${item.action}):`, err);
+          if (!item.retryCount) {
+            console.debug(`[SyncEngine] Deferred sync for ${item.id} (${item.entity}:${item.action}) to local queue.`);
+          }
           
           item.retryCount = (item.retryCount || 0) + 1;
           this.lastError = err?.message || 'Sync error occurred';

@@ -25,7 +25,7 @@ export const recalculateCompositeItemTotals = (
   const normalizedComponents: LineItemComponent[] = (components || []).map((comp) => {
     const isAcc = Boolean(comp.is_included_accessory);
     const compQty = Math.max(0, Number(comp.quantity) || 0);
-    const compUnitPrice = isAcc ? 0 : Math.max(0, Number(comp.unit_price) || 0);
+    const compUnitPrice = isAcc ? 0 : Number(comp.unit_price) || 0;
     const compCostPrice = isAcc ? 0 : Math.max(0, Number(comp.cost_price) || 0);
     const compTotal = isAcc ? 0 : Math.round(compQty * compUnitPrice * 100) / 100;
 

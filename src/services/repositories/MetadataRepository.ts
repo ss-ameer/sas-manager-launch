@@ -6,19 +6,49 @@ import { where } from 'firebase/firestore';
 
 export class MetadataRepository {
   private static PRODUCT_STORE = 'products';
+  private static PRODUCT_LS_KEY = 'omni_products';
 
-  // Static Metadata - fetched once on boot, cached in IndexedDB
+  private static syncProductsToLocalStorage(products: Product[]): void {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(this.PRODUCT_LS_KEY, JSON.stringify(products));
+      }
+    } catch (_) {}
+  }
+
+  public static async syncProductListToStores(products: Product[]): Promise<void> {
+    await saveToLocalStore(this.PRODUCT_STORE, products);
+    this.syncProductsToLocalStorage(products);
+  }
+
+  // Static Metadata - fetched once on boot, cached in IndexedDB + localStorage
   public static async fetchProductsOnce(workspaceId?: string): Promise<Product[]> {
     try {
       const snap = workspaceId
         ? await safeGetDocs('products', where('workspace_id', '==', workspaceId))
         : await safeGetDocs('products');
-      if (!snap || snap.empty) return getFromLocalStore<Product>(this.PRODUCT_STORE);
+      if (!snap || snap.empty) {
+        const local = await getFromLocalStore<Product>(this.PRODUCT_STORE);
+        if (local && local.length > 0) return local;
+        try {
+          const raw = typeof window !== 'undefined' ? window.localStorage.getItem(this.PRODUCT_LS_KEY) : null;
+          return raw ? JSON.parse(raw) : [];
+        } catch (_) {
+          return [];
+        }
+      }
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product));
-      await saveToLocalStore(this.PRODUCT_STORE, docs);
+      await this.syncProductListToStores(docs);
       return docs;
     } catch (e) {
-      return getFromLocalStore<Product>(this.PRODUCT_STORE);
+      const local = await getFromLocalStore<Product>(this.PRODUCT_STORE);
+      if (local && local.length > 0) return local;
+      try {
+        const raw = typeof window !== 'undefined' ? window.localStorage.getItem(this.PRODUCT_LS_KEY) : null;
+        return raw ? JSON.parse(raw) : [];
+      } catch (_) {
+        return [];
+      }
     }
   }
 
@@ -32,8 +62,10 @@ export class MetadataRepository {
     } else {
       updated = [product, ...current];
     }
-    await saveToLocalStore(this.PRODUCT_STORE, updated);
-    await syncEngine.enqueue('products', 'set', product.id, product);
+    await this.syncProductListToStores(updated);
+    if (product.id) {
+      await syncEngine.enqueue('products', 'set', product.id, product);
+    }
   }
 
   public static async softDeleteProduct(id: string, user?: { uid: string; name: string }): Promise<void> {
@@ -44,6 +76,7 @@ export class MetadataRepository {
     const updated: Product = {
       ...current[idx],
       is_deleted: true,
+      deleted: true,
       deleted_at: new Date().toISOString(),
       deleted_by_uid: user?.uid,
       deleted_by_name: user?.name
@@ -60,6 +93,7 @@ export class MetadataRepository {
     const restored: Product = {
       ...current[idx],
       is_deleted: false,
+      deleted: false,
       deleted_at: undefined,
       deleted_by_uid: undefined,
       deleted_by_name: undefined
@@ -71,7 +105,7 @@ export class MetadataRepository {
   public static async purgeProductPermanent(id: string): Promise<void> {
     const current = await getFromLocalStore<Product>(this.PRODUCT_STORE);
     const updated = current.filter((p) => p.id !== id);
-    await saveToLocalStore(this.PRODUCT_STORE, updated);
+    await this.syncProductListToStores(updated);
     await syncEngine.enqueue('products', 'delete', id);
   }
 

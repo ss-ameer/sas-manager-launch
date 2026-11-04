@@ -159,17 +159,20 @@ export const AtMentionInput: React.FC<AtMentionInputProps> = ({
     setActiveIndex(0);
   }, [trigger.query, trigger.isOpen]);
 
-  // Auto-adjust height when value contains newlines
+  // Auto-adjust height when value contains newlines (wrapped in requestAnimationFrame to prevent paste scrollbar jitter)
   useEffect(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    const hasNewline = String(value ?? '').includes('\n');
-    if (!hasNewline) {
-      el.style.height = '';
-    } else {
-      el.style.height = 'auto';
-      el.style.height = `${Math.min(180, Math.max(28, el.scrollHeight))}px`;
-    }
+    const rafId = window.requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      const hasNewline = String(value ?? '').includes('\n');
+      if (!hasNewline) {
+        el.style.height = '';
+      } else {
+        el.style.height = 'auto';
+        el.style.height = `${Math.min(180, Math.max(28, el.scrollHeight))}px`;
+      }
+    });
+    return () => window.cancelAnimationFrame(rafId);
   }, [value]);
 
   useEffect(() => {

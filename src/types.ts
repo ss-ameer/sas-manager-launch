@@ -941,6 +941,7 @@ export interface Product extends SoftDeleteFields {
   description: string;
   unit: UnitType;
   unit_price?: number;
+  currency?: string;
   sku?: string;
   part_no?: string;
   brand?: string;
