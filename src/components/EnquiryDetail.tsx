@@ -671,6 +671,39 @@ export default function EnquiryDetail({
     }
   };
 
+  // Self-heal any enquiry whose quote_ref_no or latest_quote_ref was previously polluted with an auxiliary prefix (e.g. DO-TEST/10/2026/5-01-R1)
+  useEffect(() => {
+    const rawRef = currentEnquiry?.quote_ref_no || '';
+    const rawLatest = (currentEnquiry as any)?.latest_quote_ref || '';
+    const cleanRef = QuotationRepository.sanitizeCanonicalQuoteRef(rawRef);
+    const cleanLatest = QuotationRepository.sanitizeCanonicalQuoteRef(rawLatest);
+    if ((rawRef && cleanRef && rawRef !== cleanRef) || (rawLatest && cleanLatest && rawLatest !== cleanLatest)) {
+      const nextQuoteRef = cleanRef || cleanLatest;
+      setCurrentEnquiry((prev) =>
+        prev
+          ? {
+              ...prev,
+              quote_ref_no: nextQuoteRef,
+              latest_quote_ref: cleanLatest || nextQuoteRef
+            }
+          : prev
+      );
+      if (currentEnquiry?.id) {
+        safeUpdateDoc('enquiries', currentEnquiry.id, {
+          quote_ref_no: nextQuoteRef,
+          latest_quote_ref: cleanLatest || nextQuoteRef
+        }).catch(() => {});
+      }
+      if (onUpdateEnquiry) {
+        onUpdateEnquiry({
+          ...currentEnquiry,
+          quote_ref_no: nextQuoteRef,
+          latest_quote_ref: cleanLatest || nextQuoteRef
+        });
+      }
+    }
+  }, [currentEnquiry?.id, currentEnquiry?.quote_ref_no]);
+
   // Load Workspace Document Profile for quotation rendering
   useEffect(() => {
     let isMounted = true;
@@ -785,10 +818,10 @@ export default function EnquiryDetail({
   // Helper to synthesize a Quotation representation from an Enquiry record (baseline proposal or linked sheet revision)
   const buildSynthesizedQuotationFromEnquiry = (targetEnq: Enquiry, revNumOverride?: number): Quotation => {
     const revNum = revNumOverride ?? Math.max(1, Number(targetEnq.revision_number) || 1);
-    const rawRef = (
+    const rawRef = QuotationRepository.sanitizeCanonicalQuoteRef(
       targetEnq.quote_ref_no ||
-      `QT-${new Date().getFullYear()}-${String(targetEnq.sn || 1).padStart(4, '0')}`
-    ).trim();
+        `QT-${new Date().getFullYear()}-${String(targetEnq.sn || 1).padStart(4, '0')}`
+    );
     const baseRef = rawRef.replace(/-R\d+$/i, '');
     const formattedRef = /-R\d+$/i.test(rawRef) ? rawRef : `${baseRef}-R${revNum}`;
     const comp = companies.find((c) => c.id === targetEnq.company_id);
@@ -879,7 +912,7 @@ export default function EnquiryDetail({
     chainList.forEach((enqItem, idx) => {
       const effectiveEnq = enqItem.id === currentEnquiry.id ? currentEnquiry : enqItem;
       const revNum = Math.max(1, Number(effectiveEnq.revision_number) || idx + 1);
-      const rawRef = (effectiveEnq.quote_ref_no || '').trim();
+      const rawRef = QuotationRepository.sanitizeCanonicalQuoteRef(effectiveEnq.quote_ref_no || '');
       const baseRef = rawRef.replace(/-R\d+$/i, '');
       const expectedFormattedRef = rawRef
         ? /-R\d+$/i.test(rawRef)
@@ -956,10 +989,11 @@ export default function EnquiryDetail({
   const handleIssueDeliveryNote = (sourceQuoteOverride?: Quotation | null) => {
     const sourceQuote = sourceQuoteOverride ?? getPrimarySourceQuotation();
     const baseItems = buildBaseLineItemsFromSource(sourceQuote);
-    const baseQuoteRef =
+    const baseQuoteRef = QuotationRepository.sanitizeCanonicalQuoteRef(
       sourceQuote?.quote_number ||
-      currentEnquiry.quote_ref_no ||
-      `QT-${new Date().getFullYear()}-${String(currentEnquiry.sn || 1).padStart(4, '0')}`;
+        currentEnquiry.quote_ref_no ||
+        `QT-${new Date().getFullYear()}-${String(currentEnquiry.sn || 1).padStart(4, '0')}`
+    );
     const linkedDoRef = QuotationRepository.generateLinkedDocumentRef(
       baseQuoteRef,
       'delivery_note',
@@ -1139,10 +1173,11 @@ export default function EnquiryDetail({
       });
 
     const selectedVendor = companies.find((c) => c.id === poModalState.supplierCompanyId);
-    const baseQuoteRef =
+    const baseQuoteRef = QuotationRepository.sanitizeCanonicalQuoteRef(
       sourceQuote?.quote_number ||
-      currentEnquiry.quote_ref_no ||
-      `QT-${new Date().getFullYear()}-${String(currentEnquiry.sn || 1).padStart(4, '0')}`;
+        currentEnquiry.quote_ref_no ||
+        `QT-${new Date().getFullYear()}-${String(currentEnquiry.sn || 1).padStart(4, '0')}`
+    );
     const linkedPoRef = QuotationRepository.generateLinkedDocumentRef(
       baseQuoteRef,
       'purchase_order',
@@ -1261,10 +1296,11 @@ export default function EnquiryDetail({
   const handleIssuePaymentReceipt = (sourceQuoteOverride?: Quotation | null) => {
     const sourceQuote = sourceQuoteOverride ?? getPrimarySourceQuotation();
     const baseItems = buildBaseLineItemsFromSource(sourceQuote);
-    const baseQuoteRef =
+    const baseQuoteRef = QuotationRepository.sanitizeCanonicalQuoteRef(
       sourceQuote?.quote_number ||
-      currentEnquiry.quote_ref_no ||
-      `QT-${new Date().getFullYear()}-${String(currentEnquiry.sn || 1).padStart(4, '0')}`;
+        currentEnquiry.quote_ref_no ||
+        `QT-${new Date().getFullYear()}-${String(currentEnquiry.sn || 1).padStart(4, '0')}`
+    );
     const linkedRecRef = QuotationRepository.generateLinkedDocumentRef(
       baseQuoteRef,
       'receipt',
@@ -4400,8 +4436,8 @@ export default function EnquiryDetail({
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
                   <div>
                     <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Quote Ref</span>
-                    <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono truncate block" title={currentEnquiry.quote_ref_no || enquiry.quote_ref_no}>
-                      {currentEnquiry.quote_ref_no || enquiry.quote_ref_no || '—'}
+                    <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono truncate block" title={QuotationRepository.sanitizeCanonicalQuoteRef(currentEnquiry.quote_ref_no || enquiry.quote_ref_no)}>
+                      {QuotationRepository.sanitizeCanonicalQuoteRef(currentEnquiry.quote_ref_no || enquiry.quote_ref_no) || '—'}
                     </span>
                   </div>
 
@@ -7159,13 +7195,15 @@ export default function EnquiryDetail({
             products={products}
             setProducts={setProducts}
             onEnquirySync={(syncPayload) => {
+              const sanitizedRef = QuotationRepository.sanitizeCanonicalQuoteRef(syncPayload.latest_quote_ref);
+              if (!sanitizedRef) return;
               setCurrentEnquiry((prev) =>
                 prev
                   ? {
                       ...prev,
                       active_quotation_id: syncPayload.active_quotation_id,
-                      latest_quote_ref: syncPayload.latest_quote_ref,
-                      quote_ref_no: syncPayload.latest_quote_ref,
+                      latest_quote_ref: sanitizedRef,
+                      quote_ref_no: sanitizedRef,
                       quoted_amount: syncPayload.quoted_amount,
                       value_aed: syncPayload.quoted_amount,
                       quotation_status: syncPayload.quotation_status,
@@ -7177,8 +7215,8 @@ export default function EnquiryDetail({
                 onUpdateEnquiry({
                   ...currentEnquiry,
                   active_quotation_id: syncPayload.active_quotation_id,
-                  latest_quote_ref: syncPayload.latest_quote_ref,
-                  quote_ref_no: syncPayload.latest_quote_ref,
+                  latest_quote_ref: sanitizedRef,
+                  quote_ref_no: sanitizedRef,
                   quoted_amount: syncPayload.quoted_amount,
                   value_aed: syncPayload.quoted_amount,
                   quotation_status: syncPayload.quotation_status,
@@ -7187,7 +7225,9 @@ export default function EnquiryDetail({
               }
             }}
             onQuotationCreated={async (newQuote) => {
-              const isStandardQuotation = (newQuote.document_type || 'quotation') === 'quotation';
+              const isStandardQuotation =
+                (newQuote.document_type || 'quotation') === 'quotation' &&
+                !/^(?:DO|PO|REC|PV|MRN|DN)-/i.test(newQuote.formatted_quote_ref || '');
 
               setQuotations((prev) => {
                 const combined = [newQuote, ...prev.filter((q) => q.id !== newQuote.id)];
@@ -7202,7 +7242,7 @@ export default function EnquiryDetail({
               if (isStandardQuotation && newQuote.grand_total !== undefined && currentEnquiry?.id) {
                 const syncPayload = QuotationRepository.buildEnquiryQuotationSyncPayload(newQuote);
                 const newTotal = syncPayload.quoted_amount;
-                const newRef = newQuote.formatted_quote_ref;
+                const newRef = QuotationRepository.sanitizeCanonicalQuoteRef(newQuote.formatted_quote_ref);
                 try {
                   await safeUpdateDoc('enquiries', currentEnquiry.id, {
                     value_aed: newTotal,

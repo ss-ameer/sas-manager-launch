@@ -1470,6 +1470,13 @@ export type QuotationBlockType =
   | 'signatory'
   | 'signatories'
   | 'acceptance'
+  | 'do_dispatch_party'
+  | 'do_receiving_party'
+  | 'vendor_return_claim'
+  | 'vendor_return_ack'
+  | 'pv_treasury_details'
+  | 'pv_beneficiary_details'
+  | 'pv_approval_matrix'
   | 'page_break'
   | 'spacer'
   | 'custom';
@@ -1977,6 +1984,11 @@ export interface DeliveryNoteMetadata {
   signoff_left_heading?: string;
   signoff_right_heading?: string;
   show_receiving_stamp_box?: boolean;
+  show_dispatch_stamp_circle?: boolean;
+  dispatched_by_title?: string;
+  consignee_company_override?: string;
+  received_date_time?: string;
+  signature_box_height_mm?: number;
   prepared_by_override?: string;
 }
 
@@ -2187,6 +2199,8 @@ export interface PaymentVoucherMetadata {
   allocation_table_heading?: string;
   treasury_card_heading?: string;
   beneficiary_card_heading?: string;
+  approval_matrix_heading?: string;
+  cleared_date?: string;
   approval_columns?: Array<{ label: string; name: string; role: string; visible?: boolean }>;
 }
 
@@ -2258,6 +2272,8 @@ export interface VendorReturnMetadata {
   signoff_left_heading?: string;
   signoff_right_heading?: string;
   show_vendor_stamp_box?: boolean;
+  dispatched_by_title?: string;
+  vendor_signatory_title?: string;
 }
 
 export interface SupplierBillLineItem {

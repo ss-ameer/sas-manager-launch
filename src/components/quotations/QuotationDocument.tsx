@@ -1282,6 +1282,112 @@ export function resolveModularLayoutBlocks(
   });
 }
 
+export function ensureSpecializedDocumentBlocks(
+  blocks: QuotationBlockConfig[],
+  documentType?: CommercialDocumentType,
+  defaultStyle: 'framed' | 'minimal' = 'framed'
+): QuotationBlockConfig[] {
+  const docType = documentType || 'quotation';
+  const result = Array.isArray(blocks) ? [...blocks] : [...DEFAULT_QUOTATION_BLOCKS];
+  const hasBlock = (idOrType: string) =>
+    result.some((b) => b.id === idOrType || b.type === idOrType);
+
+  if (docType === 'delivery_note') {
+    if (!hasBlock('do_dispatch_party')) {
+      result.push({
+        id: 'do_dispatch_party',
+        type: 'do_dispatch_party',
+        enabled: true,
+        is_visible: true,
+        placement: 'left',
+        style: defaultStyle,
+        fontScale: 'standard',
+        padding: 'standard'
+      });
+    }
+    if (!hasBlock('do_receiving_party')) {
+      result.push({
+        id: 'do_receiving_party',
+        type: 'do_receiving_party',
+        enabled: true,
+        is_visible: true,
+        placement: 'right',
+        style: defaultStyle,
+        fontScale: 'standard',
+        padding: 'standard'
+      });
+    }
+  } else if (
+    docType === 'material_return_note' ||
+    (docType as string) === 'material_return' ||
+    docType === 'debit_note'
+  ) {
+    if (!hasBlock('vendor_return_claim')) {
+      result.push({
+        id: 'vendor_return_claim',
+        type: 'vendor_return_claim',
+        enabled: true,
+        is_visible: true,
+        placement: 'left',
+        style: defaultStyle,
+        fontScale: 'standard',
+        padding: 'standard'
+      });
+    }
+    if (!hasBlock('vendor_return_ack')) {
+      result.push({
+        id: 'vendor_return_ack',
+        type: 'vendor_return_ack',
+        enabled: true,
+        is_visible: true,
+        placement: 'right',
+        style: defaultStyle,
+        fontScale: 'standard',
+        padding: 'standard'
+      });
+    }
+  } else if (docType === 'payment_voucher') {
+    if (!hasBlock('pv_treasury_details')) {
+      result.push({
+        id: 'pv_treasury_details',
+        type: 'pv_treasury_details',
+        enabled: true,
+        is_visible: true,
+        placement: 'left',
+        style: defaultStyle,
+        fontScale: 'standard',
+        padding: 'standard'
+      });
+    }
+    if (!hasBlock('pv_beneficiary_details')) {
+      result.push({
+        id: 'pv_beneficiary_details',
+        type: 'pv_beneficiary_details',
+        enabled: true,
+        is_visible: true,
+        placement: 'right',
+        style: defaultStyle,
+        fontScale: 'standard',
+        padding: 'standard'
+      });
+    }
+    if (!hasBlock('pv_approval_matrix')) {
+      result.push({
+        id: 'pv_approval_matrix',
+        type: 'pv_approval_matrix',
+        enabled: true,
+        is_visible: true,
+        placement: 'full',
+        style: defaultStyle,
+        fontScale: 'standard',
+        padding: 'standard'
+      });
+    }
+  }
+
+  return result;
+}
+
 export const DEFAULT_HEADER_CONFIG: QuotationHeaderConfig = {
   alignment: 'split',
   headerLayoutMode: 'split_left',
@@ -2289,7 +2395,13 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         : undefined) ||
       DEFAULT_QUOTATION_BLOCKS;
 
-    return resolveModularLayoutBlocks(raw, resolvedBlockStyle, {
+    const withSpecialized = ensureSpecializedDocumentBlocks(
+      raw,
+      quotation.document_type || 'quotation',
+      resolvedBlockStyle
+    );
+
+    return resolveModularLayoutBlocks(withSpecialized, resolvedBlockStyle, {
       hasExplicitLayoutBlocks,
       showBankRemittance,
       showSignatories,
@@ -2298,6 +2410,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   }, [
     layoutBlocks,
     quotation?.layout_blocks,
+    quotation?.document_type,
     (quotation as any)?.presentation_preset?.layout_blocks,
     resolvedBlockStyle,
     hasExplicitLayoutBlocks,
@@ -3173,6 +3286,20 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     const activeBlocks = resolvedBlocks.filter((b) => {
       if (b.zone === 'pre_table') return false;
       if (b.enabled === false || b.is_visible === false) return false;
+      const bType = b.type || b.id;
+      if (bType === 'do_dispatch_party' || bType === 'do_receiving_party') {
+        if (!isDeliveryNote) return false;
+      }
+      if (bType === 'vendor_return_claim' || bType === 'vendor_return_ack') {
+        if (!isMaterialReturnNote && !isDebitNote) return false;
+      }
+      if (
+        bType === 'pv_treasury_details' ||
+        bType === 'pv_beneficiary_details' ||
+        bType === 'pv_approval_matrix'
+      ) {
+        if (!isPaymentVoucher) return false;
+      }
       if (!hasExplicitLayoutBlocks) {
         if (b.id === 'terms' && !resolvedShowCommercialTerms) return false;
         if (b.id === 'remittance' && !resolvedShowBankDetails) return false;
@@ -5502,9 +5629,604 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       );
     };
 
+    const renderDoDispatchPartyBlock = (blockConfig: QuotationBlockConfig) => {
+      const dispatchedBy =
+        deliveryMeta?.prepared_by_override ||
+        deliveryMeta?.dispatched_by_name ||
+        resolvedSalesRep ||
+        resolvedSignatories[0]?.name ||
+        'Authorized Officer';
+      const dispatchedTitle =
+        deliveryMeta?.dispatched_by_title ||
+        resolvedSignatories[0]?.title ||
+        'Warehouse & Logistics Officer';
+      const heading =
+        (blockConfig.titleOverride || deliveryMeta?.signoff_left_heading || '').trim() ||
+        `Dispatched & Released By — ${senderEntityName}`;
+      const showStampCircle = deliveryMeta?.show_dispatch_stamp_circle !== false;
+      const sigHeightMm = Number(deliveryMeta?.signature_box_height_mm) || 0;
+      const sigHeightPx = sigHeightMm > 0 ? Math.round(sigHeightMm * 3.78) : 32;
+      const doStampSigOverlay = resolveStampSignatureOverlayConfig(
+        resolvedFooterConfig,
+        quotation,
+        profile
+      );
+      const doCompanySealUrl = doStampSigOverlay.activeSealUrl;
+
+      return (
+        <div className="flex flex-col justify-between h-full w-full">
+          <div>
+            <div
+              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
+              style={{ color: themePalette.textAccent }}
+            >
+              {heading}
+            </div>
+            <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
+              {(deliveryMeta as any)?.show_signoff_prepared !== false && (
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared / Checked By</span>
+                  <span className="font-semibold text-slate-900 block">{dispatchedBy}</span>
+                  {dispatchedTitle && (
+                    <span className={`${typoScale.micro} text-slate-500 block`}>{dispatchedTitle}</span>
+                  )}
+                </div>
+              )}
+              {(deliveryMeta as any)?.show_signoff_mode !== false && (
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Dispatch Mode</span>
+                  <span className="font-semibold text-slate-900">
+                    {deliveryMeta?.dispatch_mode || 'Company Transport'}
+                  </span>
+                </div>
+              )}
+              {(deliveryMeta as any)?.show_signoff_vehicle !== false && (
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vehicle / Plate #</span>
+                  <span className="font-mono font-semibold text-slate-900">
+                    {deliveryMeta?.vehicle_plate_no || '__________________'}
+                  </span>
+                </div>
+              )}
+              {(deliveryMeta as any)?.show_signoff_driver !== false && (
+                <div>
+                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Driver Name &amp; Tel</span>
+                  <span className="font-semibold text-slate-900">
+                    {[deliveryMeta?.driver_name, deliveryMeta?.driver_phone].filter(Boolean).join(' • ') ||
+                      '__________________'}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
+            <div className="flex-1">
+              <div style={{ minHeight: `${sigHeightPx}px` }} className="flex items-end">
+                {doStampSigOverlay.activeSignatureUrl ? (
+                  <img
+                    src={doStampSigOverlay.activeSignatureUrl}
+                    alt="Authorized Dispatch Signature"
+                    className="h-7 w-auto object-contain"
+                  />
+                ) : (
+                  <span className="font-serif italic text-sm text-slate-700">{dispatchedBy}</span>
+                )}
+              </div>
+              <div className="border-t border-slate-300 pt-1 mt-1">
+                <div className={`${typoScale.sub} font-bold text-slate-800`}>
+                  Authorized Dispatch Signature
+                </div>
+                <div className={`${typoScale.micro} text-slate-500`}>For {senderEntityName}</div>
+              </div>
+            </div>
+            {resolvedShowCompanySeal && showStampCircle && (
+              <div className="w-14 h-12 flex items-center justify-center shrink-0">
+                {doCompanySealUrl ? (
+                  <img
+                    src={doCompanySealUrl}
+                    alt="Official Seal"
+                    className="h-12 w-auto object-contain opacity-90"
+                  />
+                ) : (
+                  <div className="h-11 w-11 rounded-full border border-dashed border-slate-300 flex items-center justify-center text-center p-1">
+                    <span className="text-[7px] font-mono uppercase text-slate-400 leading-tight">
+                      Dispatch Stamp
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    const renderDoReceivingPartyBlock = (blockConfig: QuotationBlockConfig) => {
+      const consigneeEntity =
+        (deliveryMeta?.consignee_company_override || '').trim() || clientEntityName;
+      const receivedBy = deliveryMeta?.received_by_name || '';
+      const receivedTitle = deliveryMeta?.received_by_title || 'Site / Receiving Officer';
+      const receivedDateTime =
+        (deliveryMeta?.received_date_time || '').trim() || '____ / ____ / 20____';
+      const goodsClause =
+        deliveryMeta?.goods_received_clause?.trim() ||
+        'Received the above items in good order and condition as per the specified quantities.';
+      const heading =
+        (blockConfig.titleOverride || deliveryMeta?.signoff_right_heading || '').trim() ||
+        `Goods Received Acknowledgment — ${consigneeEntity}`;
+      const showReceivingStampBox = deliveryMeta?.show_receiving_stamp_box !== false;
+      const sigHeightMm = Number(deliveryMeta?.signature_box_height_mm) || 0;
+      const sigHeightPx = sigHeightMm > 0 ? Math.round(sigHeightMm * 3.78) : 32;
+
+      return (
+        <div className="flex flex-col justify-between h-full w-full">
+          <div>
+            <div
+              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1 border-b border-slate-200`}
+              style={{ color: themePalette.textAccent }}
+            >
+              {heading}
+            </div>
+            {(deliveryMeta as any)?.show_goods_clause !== false && (
+              <p className={`${typoScale.sub} text-slate-700 italic leading-snug mb-1.5`}>
+                {goodsClause}
+              </p>
+            )}
+            <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Received By (Name)</span>
+                <span className="font-semibold text-slate-900">
+                  {receivedBy || '______________________'}
+                </span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Designation / ID</span>
+                <span className="font-semibold text-slate-900">
+                  {receivedBy || deliveryMeta?.received_by_title
+                    ? receivedTitle
+                    : '______________________'}
+                </span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Date &amp; Time Received</span>
+                <span className="font-mono text-slate-800">{receivedDateTime}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Contact / Mobile</span>
+                <span className="font-mono text-slate-800">
+                  {deliveryMeta?.site_contact_phone || '______________________'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
+            <div className="flex-1">
+              <div style={{ minHeight: `${sigHeightPx}px` }} />
+              <div className="border-t border-slate-300 pt-1 mt-1">
+                <div className={`${typoScale.sub} font-bold text-slate-800`}>Receiver Signature</div>
+                <div className={`${typoScale.micro} text-slate-500`}>
+                  Consignee / Site Representative ({consigneeEntity})
+                </div>
+              </div>
+            </div>
+            {showReceivingStampBox && (
+              <div className="w-18 h-12 rounded border border-dashed border-slate-300 flex items-center justify-center text-center p-1 shrink-0 bg-white/70">
+                <span className="text-[7px] font-mono uppercase text-slate-400 leading-tight">
+                  Receiving Stamp
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    const renderVendorReturnClaimBlock = (blockConfig: QuotationBlockConfig) => {
+      const isDn = isDebitNote || returnMeta?.return_mode === 'debit_note';
+      const returnedBy =
+        returnMeta?.dispatched_by ||
+        returnMeta?.returned_by_name ||
+        resolvedSalesRep ||
+        resolvedSignatories[0]?.name ||
+        'Warehouse / QA Officer';
+      const returnedTitle =
+        returnMeta?.dispatched_by_title ||
+        'Authorized Procurement / Warehouse Signature';
+      const heading =
+        (blockConfig.titleOverride || returnMeta?.signoff_left_heading || '').trim() ||
+        (isDn
+          ? `Debit Claim Issued By — ${senderEntityName}`
+          : `Material Dispatched By — ${senderEntityName}`);
+      const retStampSigOverlay = resolveStampSignatureOverlayConfig(
+        resolvedFooterConfig,
+        quotation,
+        profile
+      );
+
+      return (
+        <div className="flex flex-col justify-between h-full w-full">
+          <div>
+            <div
+              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
+              style={{ color: themePalette.textAccent }}
+            >
+              {heading}
+            </div>
+            <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared / QA Officer</span>
+                <span className="font-semibold text-slate-900">{returnedBy}</span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Return Reason</span>
+                <span className="font-semibold text-rose-700">
+                  {returnMeta?.return_reason || 'Defective / Non-Conforming'}
+                </span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Requested Resolution</span>
+                <span className="font-semibold text-slate-900">
+                  {returnMeta?.resolution_type ||
+                    (isDn ? 'Credit Note / Bill Deduction' : 'Replacement Dispatch')}
+                </span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Carrier / Vehicle</span>
+                <span className="font-mono font-semibold text-slate-900">
+                  {returnMeta?.carrier_or_vehicle ||
+                    returnMeta?.vehicle_or_courier ||
+                    '__________________'}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
+            <div className="flex-1">
+              <div className="h-7 flex items-end">
+                {retStampSigOverlay.activeSignatureUrl ? (
+                  <img
+                    src={retStampSigOverlay.activeSignatureUrl}
+                    alt="Authorized Signature"
+                    className="h-6 w-auto object-contain"
+                  />
+                ) : (
+                  <span className="font-serif italic text-sm text-slate-700">{returnedBy}</span>
+                )}
+              </div>
+              <div className="border-t border-slate-300 pt-1 mt-1">
+                <div className={`${typoScale.sub} font-bold text-slate-800`}>{returnedTitle}</div>
+                <div className={`${typoScale.micro} text-slate-500`}>For {senderEntityName}</div>
+              </div>
+            </div>
+            {resolvedShowCompanySeal && retStampSigOverlay.activeSealUrl && (
+              <img
+                src={retStampSigOverlay.activeSealUrl}
+                alt="Official Seal"
+                className="h-11 w-auto object-contain opacity-90 shrink-0"
+              />
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    const renderVendorReturnAckBlock = (blockConfig: QuotationBlockConfig) => {
+      const isDn = isDebitNote || returnMeta?.return_mode === 'debit_note';
+      const vendorAck =
+        returnMeta?.received_by_vendor || returnMeta?.accepted_by_vendor_name || '';
+      const vendorEntity =
+        returnMeta?.supplier_name || returnMeta?.vendor_name || clientEntityName;
+      const heading =
+        (blockConfig.titleOverride || returnMeta?.signoff_right_heading || '').trim() ||
+        `Vendor Return / Debit Acknowledgment — ${vendorEntity}`;
+      const ackClause =
+        ((returnMeta as any)?.acknowledgment_clause || '').trim() ||
+        (isDn
+          ? 'We acknowledge receipt of this Debit Note and confirm adjustment against our account / invoice balance.'
+          : 'Received the above returned material for inspection, replacement, or credit note issuance.');
+      const showVendorStampBox = returnMeta?.show_vendor_stamp_box !== false;
+
+      return (
+        <div className="flex flex-col justify-between h-full w-full">
+          <div>
+            <div
+              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1 border-b border-slate-200`}
+              style={{ color: themePalette.textAccent }}
+            >
+              {heading}
+            </div>
+            {(returnMeta as any)?.show_ack_clause !== false && (
+              <p className={`${typoScale.sub} text-slate-700 italic leading-snug mb-1.5`}>
+                {ackClause}
+              </p>
+            )}
+            <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Accepted By (Vendor Rep)</span>
+                <span className="font-semibold text-slate-900">
+                  {vendorAck || '______________________'}
+                </span>
+              </div>
+              <div>
+                <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vendor Credit Note #</span>
+                <span className="font-mono text-slate-800">
+                  {returnMeta?.vendor_credit_note_no || '______________________'}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
+            <div className="flex-1">
+              <div className="h-7" />
+              <div className="border-t border-slate-300 pt-1 mt-1">
+                <div className={`${typoScale.sub} font-bold text-slate-800`}>
+                  {returnMeta?.vendor_signatory_title || 'Vendor Representative Signature & Stamp'}
+                </div>
+                <div className={`${typoScale.micro} text-slate-500`}>Date: ____ / ____ / 20____</div>
+              </div>
+            </div>
+            {showVendorStampBox && (
+              <div className="w-18 h-11 rounded border border-dashed border-slate-300 flex items-center justify-center text-center p-1 shrink-0 bg-white/70">
+                <span className="text-[7px] font-mono uppercase text-slate-400 leading-tight">
+                  Vendor Stamp
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    const renderPvTreasuryDetailsBlock = (blockConfig: QuotationBlockConfig) => {
+      const payMethod = pvMeta?.payment_method || 'Bank Transfer / TT';
+      const txnRef = pvMeta?.utr_or_cheque_no || pvMeta?.bank_txn_ref || pvMeta?.cheque_no || '—';
+      const disbursingBankLabel =
+        pvMeta?.disbursing_bank_name ||
+        pvMeta?.disbursing_bank_label ||
+        (resolvedBank
+          ? `${resolvedBank.bankName} — ${resolvedBank.iban || resolvedBank.accountNumber || resolvedBank.currency}`
+          : 'Corporate Treasury Account');
+      const heading =
+        (blockConfig.titleOverride || pvMeta?.treasury_card_heading || '').trim() ||
+        'Disbursing Treasury & Instrument Details';
+
+      return (
+        <div className="flex flex-col justify-between h-full w-full">
+          <div>
+            <div
+              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
+              style={{ color: themePalette.textAccent }}
+            >
+              {heading}
+            </div>
+            <div className={`space-y-1 ${typoScale.body} text-slate-700`}>
+              {(pvMeta as any)?.show_payment_mode !== false && (
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-slate-500">Payment Mode:</span>
+                  <span className="font-bold text-slate-900">{payMethod}</span>
+                </div>
+              )}
+              {(pvMeta as any)?.show_disbursing_account !== false && (
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-slate-500">Disbursing Account:</span>
+                  <span className="font-medium text-slate-800 text-right">{disbursingBankLabel}</span>
+                </div>
+              )}
+              {(pvMeta as any)?.show_utr_ref !== false && (
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-slate-500">Bank Wire / UTR / Cheque #:</span>
+                  <span className="font-mono font-semibold text-slate-900">{txnRef}</span>
+                </div>
+              )}
+              {(payMethod === 'Cheque' || pvMeta?.cleared_date || pvMeta?.cheque_date) && (
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-slate-500">Cleared / Instrument Date:</span>
+                  <span className="font-semibold text-slate-900">
+                    {[
+                      pvMeta?.cheque_bank_name,
+                      pvMeta?.cleared_date
+                        ? formatDate(pvMeta.cleared_date)
+                        : pvMeta?.cheque_date
+                        ? formatDate(pvMeta.cheque_date)
+                        : ''
+                    ]
+                      .filter(Boolean)
+                      .join(' • ') || '—'}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const renderPvBeneficiaryDetailsBlock = (blockConfig: QuotationBlockConfig) => {
+      const benBank = pvMeta?.beneficiary_bank_details || poMeta?.beneficiary_bank_details || {};
+      const heading =
+        (blockConfig.titleOverride || pvMeta?.beneficiary_card_heading || '').trim() ||
+        'Vendor Beneficiary Bank Account';
+
+      return (
+        <div className="flex flex-col justify-between h-full w-full">
+          <div>
+            <div
+              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
+              style={{ color: themePalette.textAccent }}
+            >
+              {heading}
+            </div>
+            <div className={`space-y-1 ${typoScale.body} text-slate-700`}>
+              <div className="flex justify-between gap-2">
+                <span className="font-semibold text-slate-500">Beneficiary Name:</span>
+                <span className="font-bold text-slate-900 text-right">
+                  {benBank.beneficiary_name ||
+                    pvMeta?.payee_name ||
+                    pvMeta?.paid_to_vendor_name ||
+                    clientEntityName}
+                </span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="font-semibold text-slate-500">Bank Name:</span>
+                <span className="font-semibold text-slate-800 text-right">
+                  {benBank.bank_name || 'As per Vendor File'}
+                </span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="font-semibold text-slate-500">IBAN / Account No:</span>
+                <span className="font-mono font-semibold text-slate-900 text-right">
+                  {benBank.iban || benBank.account_number || '—'}
+                </span>
+              </div>
+              {benBank.swift_code && (
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-slate-500">SWIFT / BIC:</span>
+                  <span className="font-mono font-semibold text-slate-900">{benBank.swift_code}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const renderPvApprovalMatrixBlock = (blockConfig: QuotationBlockConfig) => {
+      const radiusClass =
+        (propGlobalCardRadius ||
+          quotation.globalCardRadius ||
+          profile?.globalCardRadius ||
+          resolvedRecipientConfig.globalCardRadius) === 'sharp'
+          ? 'rounded-none'
+          : 'rounded-lg';
+      const preparedByName =
+        pvMeta?.prepared_by ||
+        pvMeta?.prepared_by_name ||
+        resolvedSalesRep ||
+        resolvedSignatories[0]?.name ||
+        'Accounts Officer';
+      const reviewedByName =
+        pvMeta?.verified_by || pvMeta?.reviewed_by_name || 'Finance / Accounts Reviewer';
+      const approvedByName =
+        pvMeta?.approved_by ||
+        pvMeta?.approved_by_name ||
+        resolvedSignatories[0]?.name ||
+        'Authorized Approver';
+      const receiverName =
+        pvMeta?.received_by_payee ||
+        pvMeta?.received_by_vendor_name ||
+        pvMeta?.payee_name ||
+        pvMeta?.paid_to_vendor_name ||
+        clientEntityName;
+
+      const defaultApprovalCols = [
+        { label: 'Prepared By', name: preparedByName, role: 'Accounts / Procurement', visible: true },
+        { label: 'Reviewed / Verified By', name: reviewedByName, role: 'Finance Verification', visible: true },
+        { label: 'Approved By', name: approvedByName, role: 'Authorized Signatory', visible: true },
+        { label: 'Payee Receiver Signature', name: receiverName, role: 'Vendor Acknowledgment', visible: true }
+      ];
+      const approvalCols =
+        Array.isArray(pvMeta?.approval_columns) && pvMeta!.approval_columns!.length > 0
+          ? pvMeta!.approval_columns!.map((col, idx) => ({
+              label: col.label || defaultApprovalCols[idx]?.label || `Signatory ${idx + 1}`,
+              name: col.name || defaultApprovalCols[idx]?.name || '',
+              role: col.role || defaultApprovalCols[idx]?.role || '',
+              visible: col.visible !== false
+            }))
+          : defaultApprovalCols;
+      const visibleApprovalCols = approvalCols.filter((c) => c.visible !== false);
+      const heading = (blockConfig.titleOverride || pvMeta?.approval_matrix_heading || '').trim();
+
+      return (
+        <div className="w-full space-y-1.5">
+          {heading && (
+            <div
+              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 border-b border-slate-200`}
+              style={{ color: themePalette.textAccent }}
+            >
+              {heading}
+            </div>
+          )}
+          <div
+            className={`grid ${
+              visibleApprovalCols.length <= 1
+                ? 'grid-cols-1'
+                : visibleApprovalCols.length === 2
+                ? 'grid-cols-2'
+                : visibleApprovalCols.length === 3
+                ? 'grid-cols-3'
+                : 'grid-cols-4'
+            } gap-2`}
+          >
+            {visibleApprovalCols.map((slot, sIdx) => (
+              <div
+                key={`${slot.label}-${sIdx}`}
+                className={`p-2 border border-slate-200 bg-white/80 ${radiusClass} flex flex-col justify-between min-h-[70px]`}
+              >
+                <span
+                  className={`${typoScale.micro} font-extrabold uppercase tracking-wider text-slate-500 border-b border-slate-200 pb-0.5`}
+                >
+                  {slot.label}
+                </span>
+                <div className="h-6 flex items-end">
+                  {sIdx === 2 && quotation.signature_image_url ? (
+                    <img
+                      src={quotation.signature_image_url}
+                      alt="Approved Signature"
+                      className="h-6 w-auto object-contain"
+                    />
+                  ) : null}
+                </div>
+                <div className="border-t border-slate-300 pt-0.5">
+                  <div className={`${typoScale.sub} font-bold text-slate-900 truncate`}>{slot.name}</div>
+                  <div className={`${typoScale.micro} text-slate-500 truncate`}>{slot.role}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    };
+
     const targetBlocks = blocksForSheet.filter((b) => {
       if (b.enabled === false || b.is_visible === false) return false;
       const bType = b.type || b.id;
+      if (bType === 'do_dispatch_party' || b.id === 'do_dispatch_party') {
+        if (!isDeliveryNote) return false;
+        if ((deliveryMeta as any)?.show_dispatch_signoff_card === false) return false;
+        return true;
+      }
+      if (bType === 'do_receiving_party' || b.id === 'do_receiving_party') {
+        if (!isDeliveryNote) return false;
+        if ((deliveryMeta as any)?.show_receiver_signoff_card === false) return false;
+        return true;
+      }
+      if (bType === 'vendor_return_claim' || b.id === 'vendor_return_claim') {
+        if (!isMaterialReturnNote && !isDebitNote) return false;
+        if ((returnMeta as any)?.show_issuer_signoff_card === false) return false;
+        return true;
+      }
+      if (bType === 'vendor_return_ack' || b.id === 'vendor_return_ack') {
+        if (!isMaterialReturnNote && !isDebitNote) return false;
+        if ((returnMeta as any)?.show_vendor_ack_card === false) return false;
+        return true;
+      }
+      if (bType === 'pv_treasury_details' || b.id === 'pv_treasury_details') {
+        if (!isPaymentVoucher) return false;
+        if (pvMeta?.show_treasury_card === false) return false;
+        return true;
+      }
+      if (bType === 'pv_beneficiary_details' || b.id === 'pv_beneficiary_details') {
+        if (!isPaymentVoucher) return false;
+        if (pvMeta?.show_beneficiary_card === false) return false;
+        return true;
+      }
+      if (bType === 'pv_approval_matrix' || b.id === 'pv_approval_matrix') {
+        if (!isPaymentVoucher) return false;
+        if (pvMeta?.show_approval_matrix === false) return false;
+        return true;
+      }
       if (isDeliveryNote || isMaterialReturnNote) {
         if (
           bType === 'terms' ||
@@ -5816,6 +6538,13 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                             {(bType === 'remittance' || b.id === 'remittance') && renderRemittanceBlock(b)}
                             {isSignatorySlot && renderSignatoryBlock(b)}
                             {(bType === 'acceptance' || b.id === 'acceptance') && renderAcceptanceBlock(b, b.placement)}
+                            {(bType === 'do_dispatch_party' || b.id === 'do_dispatch_party') && renderDoDispatchPartyBlock(b)}
+                            {(bType === 'do_receiving_party' || b.id === 'do_receiving_party') && renderDoReceivingPartyBlock(b)}
+                            {(bType === 'vendor_return_claim' || b.id === 'vendor_return_claim') && renderVendorReturnClaimBlock(b)}
+                            {(bType === 'vendor_return_ack' || b.id === 'vendor_return_ack') && renderVendorReturnAckBlock(b)}
+                            {(bType === 'pv_treasury_details' || b.id === 'pv_treasury_details') && renderPvTreasuryDetailsBlock(b)}
+                            {(bType === 'pv_beneficiary_details' || b.id === 'pv_beneficiary_details') && renderPvBeneficiaryDetailsBlock(b)}
+                            {(bType === 'pv_approval_matrix' || b.id === 'pv_approval_matrix') && renderPvApprovalMatrixBlock(b)}
                           </>
                         )}
                       </div>
@@ -10395,170 +11124,6 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             </table>
           </div>
         )}
-
-        {/* 2-Column Disbursing Bank vs Beneficiary Bank Details */}
-        {(showTreasuryCard || showBeneficiaryCard) && (
-          <div className={`grid ${showTreasuryCard && showBeneficiaryCard ? 'grid-cols-2' : 'grid-cols-1'} gap-2.5 items-stretch`}>
-            {showTreasuryCard && (
-              <div
-                onClick={
-                  isInteractive
-                    ? (e) => {
-                        e.stopPropagation();
-                        onSelectSection?.('quote_meta', 'pv_treasury_card');
-                        onSelectBlock?.('quote_meta' as any);
-                      }
-                    : undefined
-                }
-                className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between ${pvTreasuryFmt.className}`}
-                style={pvTreasuryFmt.style}
-              >
-                <div>
-                  <div
-                    className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
-                    style={{ color: themePalette.textAccent, ...pvTreasuryFmt.style }}
-                  >
-                    {treasuryHeading}
-                  </div>
-                  <div className={`space-y-1 ${typoScale.body} text-slate-700`}>
-                    {(pvMeta as any)?.show_payment_mode !== false && (
-                      <div className="flex justify-between gap-2">
-                        <span className="font-semibold text-slate-500">Payment Mode:</span>
-                        <span className="font-bold text-slate-900">{payMethod}</span>
-                      </div>
-                    )}
-                    {(pvMeta as any)?.show_disbursing_account !== false && (
-                      <div className="flex justify-between gap-2">
-                        <span className="font-semibold text-slate-500">Disbursing Account:</span>
-                        <span className="font-medium text-slate-800 text-right">{disbursingBankLabel}</span>
-                      </div>
-                    )}
-                    {(pvMeta as any)?.show_utr_ref !== false && (
-                      <div className="flex justify-between gap-2">
-                        <span className="font-semibold text-slate-500">Bank Wire / UTR / Cheque #:</span>
-                        <span className="font-mono font-semibold text-slate-900">{txnRef}</span>
-                      </div>
-                    )}
-                    {payMethod === 'Cheque' && (
-                      <div className="flex justify-between gap-2">
-                        <span className="font-semibold text-slate-500">Cheque Bank &amp; Date:</span>
-                        <span className="font-semibold text-slate-900">
-                          {[pvMeta?.cheque_bank_name, pvMeta?.cheque_date ? formatDate(pvMeta.cheque_date) : '']
-                            .filter(Boolean)
-                            .join(' • ') || '—'}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {showBeneficiaryCard && (
-              <div
-                onClick={
-                  isInteractive
-                    ? (e) => {
-                        e.stopPropagation();
-                        onSelectSection?.('quote_meta', 'pv_beneficiary_card');
-                        onSelectBlock?.('quote_meta' as any);
-                      }
-                    : undefined
-                }
-                className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between ${pvBenFmt.className}`}
-                style={pvBenFmt.style}
-              >
-                <div>
-                  <div
-                    className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
-                    style={{ color: themePalette.textAccent, ...pvBenFmt.style }}
-                  >
-                    {beneficiaryHeading}
-                  </div>
-                  <div className={`space-y-1 ${typoScale.body} text-slate-700`}>
-                    <div className="flex justify-between gap-2">
-                      <span className="font-semibold text-slate-500">Beneficiary Name:</span>
-                      <span className="font-bold text-slate-900 text-right">
-                        {benBank.beneficiary_name || pvMeta?.payee_name || pvMeta?.paid_to_vendor_name || clientEntityName}
-                      </span>
-                    </div>
-                    <div className="flex justify-between gap-2">
-                      <span className="font-semibold text-slate-500">Bank Name:</span>
-                      <span className="font-semibold text-slate-800 text-right">
-                        {benBank.bank_name || 'As per Vendor File'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between gap-2">
-                      <span className="font-semibold text-slate-500">IBAN / Account No:</span>
-                      <span className="font-mono font-semibold text-slate-900 text-right">
-                        {benBank.iban || benBank.account_number || '—'}
-                      </span>
-                    </div>
-                    {benBank.swift_code && (
-                      <div className="flex justify-between gap-2">
-                        <span className="font-semibold text-slate-500">SWIFT / BIC:</span>
-                        <span className="font-mono font-semibold text-slate-900">{benBank.swift_code}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 4-Slot Outbound Payment Voucher Signatory & Payee Acknowledgment Block */}
-        {showApprovalMatrix && visibleApprovalCols.length > 0 && (
-          <div
-            onClick={
-              isInteractive
-                ? (e) => {
-                    e.stopPropagation();
-                    onSelectSection?.('signatory', 'pv_approval_matrix');
-                    onSelectBlock?.('signatory' as any);
-                  }
-                : undefined
-            }
-            className={`grid ${
-              visibleApprovalCols.length === 1
-                ? 'grid-cols-1'
-                : visibleApprovalCols.length === 2
-                ? 'grid-cols-2'
-                : visibleApprovalCols.length === 3
-                ? 'grid-cols-3'
-                : 'grid-cols-4'
-            } gap-2 pt-0.5 relative group/sig ${
-              isInteractive ? 'cursor-pointer hover:ring-1 hover:ring-blue-400 rounded-lg' : ''
-            } ${pvMatrixFmt.className}`}
-            style={pvMatrixFmt.style}
-          >
-            {visibleApprovalCols.map((slot, sIdx) => (
-              <div
-                key={`${slot.label}-${sIdx}`}
-                className={`p-2 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between min-h-[70px]`}
-              >
-                <span
-                  className={`${typoScale.micro} font-extrabold uppercase tracking-wider text-slate-500 border-b border-slate-200 pb-0.5`}
-                >
-                  {slot.label}
-                </span>
-                <div className="h-6 flex items-end">
-                  {sIdx === 2 && quotation.signature_image_url ? (
-                    <img
-                      src={quotation.signature_image_url}
-                      alt="Approved Signature"
-                      className="h-6 w-auto object-contain"
-                    />
-                  ) : null}
-                </div>
-                <div className="border-t border-slate-300 pt-0.5">
-                  <div className={`${typoScale.sub} font-bold text-slate-900 truncate`}>{slot.name}</div>
-                  <div className={`${typoScale.micro} text-slate-500 truncate`}>{slot.role}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </section>
     );
   };
@@ -11128,10 +11693,6 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 )}
 
                 {renderBlocksGrid(sheet.blocks)}
-                {isLastMainSheet && isDeliveryNote && renderDeliveryNoteSignOffBlock()}
-                {isLastMainSheet &&
-                  (isMaterialReturnNote || isDebitNote) &&
-                  renderVendorReturnSignOffBlock()}
                 {isLastMainSheet && renderSubmittalsIndex()}
               </div>
 

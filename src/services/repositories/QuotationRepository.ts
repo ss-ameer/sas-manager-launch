@@ -120,13 +120,39 @@ export class QuotationRepository {
   }
 
   /**
+   * Sanitizes a quotation reference so it strictly represents a canonical Sales Quotation reference
+   * (e.g., strips auxiliary prefixes like DO-, PO-, REC-, PV-, MRN-, DN- and 2-digit sequence suffixes like -01 before -R1).
+   */
+  public static sanitizeCanonicalQuoteRef(rawRef?: string | null): string {
+    if (!rawRef) return '';
+    let cleaned = String(rawRef).trim();
+    const hadAuxPrefix = /^(?:DO|REC|PO|PV|MRN|DN|PI|INV)-/i.test(cleaned);
+    // Strip one or more leading auxiliary prefixes (DO-, REC-, PO-, PV-, MRN-, DN-, PI-, INV-)
+    cleaned = cleaned.replace(/^(?:(?:DO|REC|PO|PV|MRN|DN|PI|INV)-)+/i, '');
+    if (hadAuxPrefix) {
+      // If it had an auxiliary prefix (e.g. DO-TEST/10/2026/5-01-R1 or DO-TEST/10/2026/5-01), strip the 2-digit auxiliary sequence (-01)
+      cleaned = cleaned.replace(/-\d{2}(?=(?:-R\d+|\/Rev\.\d+|\s*\(Rev\s*\d+\))?$)/i, '');
+    }
+    return cleaned.trim();
+  }
+
+  /**
    * Deserializes and standardizes dual workspace fields for Quotation entities.
    */
   public static docToQuotation(id: string, data: any): Quotation {
     if (!data) return { id } as Quotation;
     const wsId = data.workspace_id || data.workspaceId || 'ws_default';
     const parentId = data.parent_quotation_id || data.parent_quote_id;
-    const docType: CommercialDocumentType = data.document_type || 'quotation';
+    const rawRefCheck = String(data.formatted_quote_ref || data.quote_ref_no || data.quote_number || '').trim();
+    let docType: CommercialDocumentType = data.document_type || 'quotation';
+    if (docType === 'quotation' && rawRefCheck) {
+      if (/^DO-/i.test(rawRefCheck)) docType = 'delivery_note';
+      else if (/^PO-/i.test(rawRefCheck)) docType = 'purchase_order';
+      else if (/^REC-/i.test(rawRefCheck)) docType = 'receipt';
+      else if (/^PV-/i.test(rawRefCheck)) docType = 'payment_voucher';
+      else if (/^MRN-/i.test(rawRefCheck)) docType = 'material_return_note';
+      else if (/^DN-/i.test(rawRefCheck)) docType = 'debit_note';
+    }
 
     const prefixMap: Partial<Record<CommercialDocumentType, string>> = {
       quotation: 'QT',
@@ -146,6 +172,9 @@ export class QuotationRepository {
     const sanitizeDocRef = (rawRef: string | undefined | null): string => {
       if (!rawRef) return '';
       const trimmed = String(rawRef).trim();
+      if (docType === 'quotation') {
+        return QuotationRepository.sanitizeCanonicalQuoteRef(trimmed);
+      }
       if (/^(QT|DO|PO|REC|PV|MRN|DN)-(QT|DO|PO|REC|PV|MRN|DN)-/i.test(trimmed)) {
         const stripped = trimmed.replace(/^(QT|DO|PO|REC|PV|MRN|DN)-+/gi, '');
         return `${expectedPrefix}-${stripped}`;
@@ -989,9 +1018,13 @@ export class QuotationRepository {
           ).grand_total
         : Number(quotation.grand_total) || 0;
 
+    const canonicalRef = this.sanitizeCanonicalQuoteRef(
+      quotation.formatted_quote_ref || quotation.quote_number || ''
+    );
+
     return {
       active_quotation_id: quotation.id || '',
-      latest_quote_ref: quotation.formatted_quote_ref || quotation.quote_number || '',
+      latest_quote_ref: canonicalRef,
       quoted_amount: calculatedGrandTotal,
       quotation_status: quotation.status || 'Draft',
       latest_revision_number:
@@ -1009,9 +1042,10 @@ export class QuotationRepository {
     const syncPayload = this.buildEnquiryQuotationSyncPayload(quotation);
     const now = new Date().toISOString();
     const docType = quotation.document_type || 'quotation';
+    const rawRef = String(quotation.formatted_quote_ref || quotation.quote_number || '').trim();
 
     // Only commercial quotations ('quotation') supersede earlier quote revisions or overwrite Enquiry quoted_amount
-    if (docType !== 'quotation') {
+    if (docType !== 'quotation' || /^(?:DO|PO|REC|PV|MRN|DN)-/i.test(rawRef)) {
       return syncPayload;
     }
 

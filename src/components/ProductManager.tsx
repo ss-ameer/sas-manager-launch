@@ -1347,7 +1347,7 @@ export default function ProductManager({
 
             {/* Stock & Media Filter Segmented Control + Group Variants + Ledger / Procurement Quick Tools */}
             <div className="lg:col-span-6 flex items-center gap-2 flex-wrap sm:flex-nowrap">
-              <div className="flex-1 flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl h-10 overflow-x-auto min-w-[240px]">
+              <div className="flex-1 flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl min-h-10 overflow-x-auto min-w-[240px] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                 {(
                   [
                     { id: 'All', label: 'All' },

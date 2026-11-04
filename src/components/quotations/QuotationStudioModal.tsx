@@ -78,7 +78,8 @@ import {
   extractLineItemAttributesAndCleanDescription,
   resolveHeaderFields,
   resolveStampSignatureOverlayConfig,
-  amountToWords
+  amountToWords,
+  ensureSpecializedDocumentBlocks
 } from './QuotationDocument';
 import {
   AtMentionInput,
@@ -188,7 +189,53 @@ const BLOCK_META: Record<string, { label: string; desc: string; icon: any }> = {
   remittance: { label: 'Bank Remittance', desc: 'Bank wire instructions & account numbers', icon: Landmark },
   signatory: { label: 'Signatures & Stamp', desc: 'Executive signatories & company seal', icon: Stamp },
   signatories: { label: 'Signatures & Stamp', desc: 'Executive signatories & company seal', icon: Stamp },
-  acceptance: { label: 'Customer Acceptance', desc: 'Client confirmation & sign-back box', icon: ShieldCheck }
+  acceptance: { label: 'Customer Acceptance', desc: 'Client confirmation & sign-back box', icon: ShieldCheck },
+  do_dispatch_party: { label: 'Dispatched & Released By', desc: 'Warehouse officer, vehicle, driver & dispatch seal', icon: Truck },
+  do_receiving_party: { label: 'Goods Received Acknowledgment', desc: 'Consignee sign-off, receiver ID & receiving stamp box', icon: CheckSquare },
+  vendor_return_claim: { label: 'Debit Claim / Return Issued By', desc: 'QA/Procurement officer, return reason & resolution mode', icon: Package },
+  vendor_return_ack: { label: 'Vendor Return / Debit Ack', desc: 'Supplier signatory, credit note ref & vendor stamp box', icon: ShieldCheck },
+  pv_treasury_details: { label: 'Disbursing Treasury & Instrument', desc: 'Disbursing bank account, UTR/cheque ref & cleared date', icon: Landmark },
+  pv_beneficiary_details: { label: 'Vendor Beneficiary Bank Account', desc: 'Payee beneficiary name, bank, IBAN & SWIFT details', icon: Building },
+  pv_approval_matrix: { label: '4-Column Approval Matrix', desc: 'Prepared, Verified, Approved & Payee Acknowledged columns', icon: Stamp }
+};
+
+const isBlockRelevantForDocumentType = (
+  block: QuotationBlockConfig,
+  docType: CommercialDocumentType
+): boolean => {
+  const id = block.id;
+  if (id === 'do_dispatch_party' || id === 'do_receiving_party') {
+    return docType === 'delivery_note';
+  }
+  if (id === 'vendor_return_claim' || id === 'vendor_return_ack') {
+    return docType === 'material_return_note' || docType === 'debit_note';
+  }
+  if (
+    id === 'pv_treasury_details' ||
+    id === 'pv_beneficiary_details' ||
+    id === 'pv_approval_matrix'
+  ) {
+    return docType === 'payment_voucher';
+  }
+  if (docType === 'delivery_note') {
+    return !['totals', 'remittance', 'acceptance', 'signatory', 'signatories'].includes(id);
+  }
+  if (docType === 'payment_voucher') {
+    return !['totals', 'remittance', 'acceptance', 'signatory', 'signatories'].includes(id);
+  }
+  if (docType === 'material_return_note') {
+    return !['totals', 'remittance', 'acceptance', 'signatory', 'signatories'].includes(id);
+  }
+  if (docType === 'debit_note') {
+    return !['remittance', 'acceptance', 'signatory', 'signatories'].includes(id);
+  }
+  if (docType === 'receipt') {
+    return !['totals', 'remittance'].includes(id);
+  }
+  if (docType === 'purchase_order') {
+    return !['remittance'].includes(id);
+  }
+  return true;
 };
 
 const getBlockMeta = (block: QuotationBlockConfig): { label: string; desc: string; icon: any } => {
@@ -1162,14 +1209,20 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     } else if ((editingQuotation as any)?.presentation_preset?.layout_blocks && (editingQuotation as any).presentation_preset.layout_blocks.length > 0) {
       raw = (editingQuotation as any).presentation_preset.layout_blocks;
     }
-    return raw.map((b) => ({
+    const normalized = raw.map((b) => ({
       ...b,
       enabled: b.enabled ?? b.is_visible ?? true,
       is_visible: b.is_visible ?? b.enabled ?? true,
       fontScale: b.fontScale || 'standard',
       padding: b.padding || 'standard'
     }));
+    const initDocType = (editingQuotation?.document_type || initialDocumentType || 'quotation') as CommercialDocumentType;
+    return ensureSpecializedDocumentBlocks(normalized, initDocType, blockStyle);
   });
+
+  useEffect(() => {
+    setLayoutBlocks((prev) => ensureSpecializedDocumentBlocks(prev, documentType, blockStyle));
+  }, [documentType, blockStyle]);
 
   const [activeLeftTab, setActiveLeftTab] = useState<'structure' | 'content'>(() =>
     (editingQuotation?.document_type || initialDocumentType || 'quotation') !== 'quotation'
@@ -1208,6 +1261,27 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     if (id === 'acceptance') {
       setCustomerAcceptanceEnabled(enabled);
       setFooterConfig((prev) => ({ ...prev, showCustomerAcceptance: enabled }));
+    }
+    if (id === 'do_dispatch_party') {
+      setDeliveryMetadata((prev) => ({ ...prev, show_dispatch_signoff_card: enabled }));
+    }
+    if (id === 'do_receiving_party') {
+      setDeliveryMetadata((prev) => ({ ...prev, show_receiver_signoff_card: enabled }));
+    }
+    if (id === 'vendor_return_claim') {
+      setVendorReturnMetadata((prev) => ({ ...prev, show_issuer_signoff_card: enabled }));
+    }
+    if (id === 'vendor_return_ack') {
+      setVendorReturnMetadata((prev) => ({ ...prev, show_vendor_ack_card: enabled }));
+    }
+    if (id === 'pv_treasury_details') {
+      setPaymentVoucherMetadata((prev) => ({ ...prev, show_treasury_card: enabled }));
+    }
+    if (id === 'pv_beneficiary_details') {
+      setPaymentVoucherMetadata((prev) => ({ ...prev, show_beneficiary_card: enabled }));
+    }
+    if (id === 'pv_approval_matrix') {
+      setPaymentVoucherMetadata((prev) => ({ ...prev, show_approval_matrix: enabled }));
     }
   };
 
@@ -3657,17 +3731,34 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setIsIncludeOmitOpen(false);
     }
 
-    const baseQuoteRef =
+    const rawBaseQuoteRef =
       editingQuotation?.quote_number ||
       (editingQuotation as any)?.quote_ref_no ||
       enquiry.quote_ref_no ||
       `QT-${new Date().getFullYear()}-${String(enquiry.sn || 1).padStart(4, '0')}`;
+    const baseQuoteRef =
+      QuotationRepository.sanitizeCanonicalQuoteRef(rawBaseQuoteRef) || rawBaseQuoteRef;
     const todayIso = new Date().toISOString().slice(0, 10);
 
     const cleanBaseRef =
       baseQuoteRef && !baseQuoteRef.includes('_gap_') && !/^[A-Za-z0-9]{15,}$/.test(baseQuoteRef)
         ? baseQuoteRef
         : `QT-${new Date().getFullYear()}-${String(enquiry.sn || 1).padStart(4, '0')}`;
+
+    // Ensure switching document types inside Studio targets a standalone document ID for that type
+    // so saving an auxiliary document never overwrites the baseline Quotation record.
+    const existingForNextType = enquiryRevisions.find(
+      (doc) => (doc.document_type || 'quotation') === nextType
+    );
+    if (existingForNextType?.id) {
+      setActiveQuotationId(existingForNextType.id);
+    } else if (nextType !== 'quotation') {
+      setActiveQuotationId(
+        `${nextType}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+      );
+    } else if (editingQuotation && (!editingQuotation.document_type || editingQuotation.document_type === 'quotation')) {
+      setActiveQuotationId(editingQuotation.id);
+    }
 
     if (nextType === 'delivery_note') {
       handleEnterUnpricedSubmittalMode();
@@ -4359,12 +4450,26 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       (editingQuotation as any)?.quote_ref_no ||
       enquiry.quote_ref_no ||
       `QT-${new Date().getFullYear()}-${String(enquiry.sn || 1).padStart(4, '0')}`;
-    const cleanQuoteNumber = rawQuoteNumber.replace(/-R\d+$/i, '').replace(/\/Rev\.\d+$/i, '').replace(/\s*\(Rev\s*\d+\)$/i, '').trim();
+    const sanitizedCanonicalQuote =
+      QuotationRepository.sanitizeCanonicalQuoteRef(rawQuoteNumber) || rawQuoteNumber;
+    const cleanQuoteNumber = sanitizedCanonicalQuote
+      .replace(/-R\d+$/i, '')
+      .replace(/\/Rev\.\d+$/i, '')
+      .replace(/\s*\(Rev\s*\d+\)$/i, '')
+      .trim();
     const revNum = revisionNumber ?? editingQuotation?.revision_number ?? 1;
     const isNonQuoteDoc = documentType && documentType !== 'quotation';
     const revMode = recipientConfig.revisionSuffixMode || 'hyphen';
-    const baseQuoteRef = formattedQuoteRefOverride
-      ? formattedQuoteRefOverride.replace(/-R\d+$/i, '').replace(/\/Rev\.\d+$/i, '').replace(/\s*\(Rev\s*\d+\)$/i, '').trim()
+    const sanitizedOverrideForQuote =
+      !isNonQuoteDoc && formattedQuoteRefOverride
+        ? QuotationRepository.sanitizeCanonicalQuoteRef(formattedQuoteRefOverride) || formattedQuoteRefOverride
+        : formattedQuoteRefOverride;
+    const baseQuoteRef = sanitizedOverrideForQuote
+      ? sanitizedOverrideForQuote
+          .replace(/-R\d+$/i, '')
+          .replace(/\/Rev\.\d+$/i, '')
+          .replace(/\s*\(Rev\s*\d+\)$/i, '')
+          .trim()
       : cleanQuoteNumber;
 
     const computedQuoteRef =
@@ -7015,12 +7120,25 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           Bottom Sections (Drag or Reorder)
                         </span>
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium border border-slate-200">
-                          {layoutBlocks.filter((b) => b.enabled !== false && b.is_visible !== false).length} of {layoutBlocks.length} Active
+                          {
+                            layoutBlocks.filter(
+                              (b) =>
+                                isBlockRelevantForDocumentType(b, documentType) &&
+                                b.enabled !== false &&
+                                b.is_visible !== false
+                            ).length
+                          }{' '}
+                          of{' '}
+                          {layoutBlocks.filter((b) => isBlockRelevantForDocumentType(b, documentType)).length}{' '}
+                          Active
                         </span>
                       </div>
 
                       <div className="space-y-1.5">
                         {layoutBlocks.map((block, idx) => {
+                          if (!isBlockRelevantForDocumentType(block, documentType)) {
+                            return null;
+                          }
                           const meta = getBlockMeta(block);
                           const Icon = meta.icon;
                           const isFirst = idx === 0;
@@ -9791,131 +9909,133 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Remittance Bank Account Selector + Edit Wire Details inline override */}
-                    <div className="pt-2.5 border-t border-slate-100 space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <label className="block text-slate-700 font-bold text-[11px] flex items-center gap-1.5">
-                          <Landmark className="w-3.5 h-3.5 text-blue-600" />
-                          Remittance Bank Account
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => setIsEditingBankDetails((prev) => !prev)}
-                          className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 text-[10.5px] font-semibold transition cursor-pointer"
-                        >
-                          {isEditingBankDetails ? 'Hide Wire Details' : 'Edit Wire Details'}
-                        </button>
-                      </div>
-
-                      {bankRegistry && bankRegistry.length > 0 && (
-                        <select
-                          value={selectedBankId}
-                          onChange={(e) => handleSelectBank(e.target.value)}
-                          className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white font-medium focus:ring-2 focus:ring-blue-500"
-                        >
-                          {bankRegistry.map((b) => {
-                            const acctLabel = b.accountNumber ? b.accountNumber : (b.iban || 'No Acct');
-                            return (
-                              <option key={b.id} value={b.id}>
-                                {b.bankName} - {acctLabel} ({b.currency})
-                              </option>
-                            );
-                          })}
-                        </select>
-                      )}
-
-                      {isEditingBankDetails && (
-                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10.5px] font-bold text-slate-700">Inline Wire Details Override</span>
-                            <button
-                              type="button"
-                              onClick={handleResetBankOverride}
-                              className="text-[10px] text-slate-500 hover:text-blue-600 underline cursor-pointer"
-                            >
-                              Reset to Registry
-                            </button>
-                          </div>
-                          <div className="grid grid-cols-1 gap-2">
-                            <div>
-                              <label className="block text-slate-400 text-[10px] mb-0.5">Bank Name</label>
-                              <input
-                                type="text"
-                                value={customBankOverride?.bankName ?? activeBankAccount?.bankName ?? ''}
-                                onChange={(e) =>
-                                  setCustomBankOverride((prev) => ({
-                                    ...(prev || {}),
-                                    bankName: e.target.value
-                                  }))
-                                }
-                                placeholder="Bank Name"
-                                className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs bg-white text-slate-800"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-slate-400 text-[10px] mb-0.5">Beneficiary Name</label>
-                              <input
-                                type="text"
-                                value={customBankOverride?.beneficiaryName ?? activeBankAccount?.beneficiaryName ?? ''}
-                                onChange={(e) =>
-                                  setCustomBankOverride((prev) => ({
-                                    ...(prev || {}),
-                                    beneficiaryName: e.target.value
-                                  }))
-                                }
-                                placeholder="Beneficiary Name"
-                                className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs bg-white text-slate-800"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-slate-400 text-[10px] mb-0.5">Account Number</label>
-                              <input
-                                type="text"
-                                value={customBankOverride?.accountNumber ?? activeBankAccount?.accountNumber ?? ''}
-                                onChange={(e) =>
-                                  setCustomBankOverride((prev) => ({
-                                    ...(prev || {}),
-                                    accountNumber: e.target.value
-                                  }))
-                                }
-                                placeholder="Account Number"
-                                className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-mono bg-white text-slate-800"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-slate-400 text-[10px] mb-0.5">SWIFT / BIC</label>
-                              <input
-                                type="text"
-                                value={customBankOverride?.swiftCode ?? activeBankAccount?.swiftCode ?? ''}
-                                onChange={(e) =>
-                                  setCustomBankOverride((prev) => ({
-                                    ...(prev || {}),
-                                    swiftCode: e.target.value
-                                  }))
-                                }
-                                placeholder="SWIFT Code"
-                                className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-mono bg-white text-slate-800"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-slate-400 text-[10px] mb-0.5">IBAN</label>
-                              <input
-                                type="text"
-                                value={customBankOverride?.iban ?? activeBankAccount?.iban ?? ''}
-                                onChange={(e) =>
-                                  setCustomBankOverride((prev) => ({
-                                    ...(prev || {}),
-                                    iban: e.target.value
-                                  }))
-                                }
-                                placeholder="IBAN"
-                                className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-mono bg-white text-slate-800"
-                              />
-                            </div>
-                          </div>
+                    {/* Remittance Bank Account Selector + Edit Wire Details inline override (Hidden in Delivery Note mode) */}
+                    {documentType !== 'delivery_note' && (
+                      <div className="pt-2.5 border-t border-slate-100 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-slate-700 font-bold text-[11px] flex items-center gap-1.5">
+                            <Landmark className="w-3.5 h-3.5 text-blue-600" />
+                            Remittance Bank Account
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setIsEditingBankDetails((prev) => !prev)}
+                            className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 text-[10.5px] font-semibold transition cursor-pointer"
+                          >
+                            {isEditingBankDetails ? 'Hide Wire Details' : 'Edit Wire Details'}
+                          </button>
                         </div>
-                      )}
-                    </div>
+
+                        {bankRegistry && bankRegistry.length > 0 && (
+                          <select
+                            value={selectedBankId}
+                            onChange={(e) => handleSelectBank(e.target.value)}
+                            className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs bg-white font-medium focus:ring-2 focus:ring-blue-500"
+                          >
+                            {bankRegistry.map((b) => {
+                              const acctLabel = b.accountNumber ? b.accountNumber : (b.iban || 'No Acct');
+                              return (
+                                <option key={b.id} value={b.id}>
+                                  {b.bankName} - {acctLabel} ({b.currency})
+                                </option>
+                              );
+                            })}
+                          </select>
+                        )}
+
+                        {isEditingBankDetails && (
+                          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10.5px] font-bold text-slate-700">Inline Wire Details Override</span>
+                              <button
+                                type="button"
+                                onClick={handleResetBankOverride}
+                                className="text-[10px] text-slate-500 hover:text-blue-600 underline cursor-pointer"
+                              >
+                                Reset to Registry
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-1 gap-2">
+                              <div>
+                                <label className="block text-slate-400 text-[10px] mb-0.5">Bank Name</label>
+                                <input
+                                  type="text"
+                                  value={customBankOverride?.bankName ?? activeBankAccount?.bankName ?? ''}
+                                  onChange={(e) =>
+                                    setCustomBankOverride((prev) => ({
+                                      ...(prev || {}),
+                                      bankName: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Bank Name"
+                                  className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs bg-white text-slate-800"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-slate-400 text-[10px] mb-0.5">Beneficiary Name</label>
+                                <input
+                                  type="text"
+                                  value={customBankOverride?.beneficiaryName ?? activeBankAccount?.beneficiaryName ?? ''}
+                                  onChange={(e) =>
+                                    setCustomBankOverride((prev) => ({
+                                      ...(prev || {}),
+                                      beneficiaryName: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Beneficiary Name"
+                                  className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs bg-white text-slate-800"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-slate-400 text-[10px] mb-0.5">Account Number</label>
+                                <input
+                                  type="text"
+                                  value={customBankOverride?.accountNumber ?? activeBankAccount?.accountNumber ?? ''}
+                                  onChange={(e) =>
+                                    setCustomBankOverride((prev) => ({
+                                      ...(prev || {}),
+                                      accountNumber: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Account Number"
+                                  className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-mono bg-white text-slate-800"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-slate-400 text-[10px] mb-0.5">SWIFT / BIC</label>
+                                <input
+                                  type="text"
+                                  value={customBankOverride?.swiftCode ?? activeBankAccount?.swiftCode ?? ''}
+                                  onChange={(e) =>
+                                    setCustomBankOverride((prev) => ({
+                                      ...(prev || {}),
+                                      swiftCode: e.target.value
+                                    }))
+                                  }
+                                  placeholder="SWIFT Code"
+                                  className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-mono bg-white text-slate-800"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-slate-400 text-[10px] mb-0.5">IBAN</label>
+                                <input
+                                  type="text"
+                                  value={customBankOverride?.iban ?? activeBankAccount?.iban ?? ''}
+                                  onChange={(e) =>
+                                    setCustomBankOverride((prev) => ({
+                                      ...(prev || {}),
+                                      iban: e.target.value
+                                    }))
+                                  }
+                                  placeholder="IBAN"
+                                  className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs font-mono bg-white text-slate-800"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Card 4: Attachments, Cover Pages & Technical Annexes */}
@@ -12959,42 +13079,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 </div>
                               </div>
 
-                              {/* 3. Vendor Beneficiary Account Card */}
-                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
-                                <div className="flex items-center justify-between">
-                                  <button
-                                    type="button"
-                                    onClick={() => setFocusedOfferStyleTarget('pv_beneficiary_card')}
-                                    className="text-[10px] font-bold text-blue-800 hover:underline cursor-pointer"
-                                  >
-                                    3. Vendor Beneficiary Account
-                                  </button>
-                                  <input
-                                    type="checkbox"
-                                    checked={paymentVoucherMetadata.show_beneficiary_card !== false}
-                                    onChange={(e) =>
-                                      setPaymentVoucherMetadata((prev) => ({
-                                        ...prev,
-                                        show_beneficiary_card: e.target.checked
-                                      }))
-                                    }
-                                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
-                                  />
-                                </div>
-                                <input
-                                  type="text"
-                                  value={paymentVoucherMetadata.beneficiary_card_heading ?? ''}
-                                  onFocus={() => setFocusedOfferStyleTarget('pv_beneficiary_card')}
-                                  onChange={(e) =>
-                                    setPaymentVoucherMetadata((prev) => ({
-                                      ...prev,
-                                      beneficiary_card_heading: e.target.value
-                                    }))
-                                  }
-                                  placeholder="Vendor Beneficiary Account"
-                                  className="w-full px-2 py-1 text-[11px] bg-slate-50 border border-slate-200 rounded"
-                                />
-                                <label className="flex items-center justify-between pt-0.5 text-[10px] font-medium text-slate-600 cursor-pointer">
+                              {/* Bill Allocation Schedule Table Toggle */}
+                              <div className="p-2 rounded-lg bg-white border border-slate-200">
+                                <label className="flex items-center justify-between text-[10px] font-semibold text-slate-700 cursor-pointer">
                                   <span>Show Bill Allocation Schedule Table</span>
                                   <input
                                     type="checkbox"
@@ -13005,6 +13092,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         show_allocation_table: e.target.checked
                                       }))
                                     }
+                                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
                                   />
                                 </label>
                               </div>
@@ -15753,32 +15841,46 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       {selectedBlockType !== 'page_break' &&
                         selectedBlockType !== 'spacer' &&
                         renderUnifiedElementStyleBar(
-                          focusedBlockStyleTarget || `block:${selectedBlock.id}`,
+                          focusedBlockStyleTarget ||
+                            (selectedBlock.id === 'do_dispatch_party'
+                              ? 'do_signoff_left'
+                              : selectedBlock.id === 'do_receiving_party'
+                              ? 'do_signoff_right'
+                              : selectedBlock.id === 'vendor_return_claim'
+                              ? 'return_signoff_left'
+                              : selectedBlock.id === 'vendor_return_ack'
+                              ? 'return_signoff_right'
+                              : selectedBlock.id === 'pv_treasury_details'
+                              ? 'pv_treasury_card'
+                              : selectedBlock.id === 'pv_beneficiary_details'
+                              ? 'pv_beneficiary_card'
+                              : selectedBlock.id === 'pv_approval_matrix'
+                              ? 'pv_approval_matrix'
+                              : `block:${selectedBlock.id}`),
                           meta.label,
                           [
                             {
-                              id: `block:${selectedBlock.id}`,
+                              id:
+                                selectedBlock.id === 'do_dispatch_party'
+                                  ? 'do_signoff_left'
+                                  : selectedBlock.id === 'do_receiving_party'
+                                  ? 'do_signoff_right'
+                                  : selectedBlock.id === 'vendor_return_claim'
+                                  ? 'return_signoff_left'
+                                  : selectedBlock.id === 'vendor_return_ack'
+                                  ? 'return_signoff_right'
+                                  : selectedBlock.id === 'pv_treasury_details'
+                                  ? 'pv_treasury_card'
+                                  : selectedBlock.id === 'pv_beneficiary_details'
+                                  ? 'pv_beneficiary_card'
+                                  : selectedBlock.id === 'pv_approval_matrix'
+                                  ? 'pv_approval_matrix'
+                                  : `block:${selectedBlock.id}`,
                               label:
                                 selectedBlock.id === 'acceptance' && documentType === 'purchase_order'
                                   ? 'Vendor Order Acknowledgment Block'
                                   : `${meta.label} Block`
-                            },
-                            ...(selectedBlock.id === 'signatory' && documentType === 'delivery_note'
-                              ? [
-                                  { id: 'do_signoff_left', label: 'Dispatched & Released By Card' },
-                                  { id: 'do_signoff_right', label: 'Goods Received Acknowledgment Card' }
-                                ]
-                              : []),
-                            ...(selectedBlock.id === 'signatory' && documentType === 'payment_voucher'
-                              ? [{ id: 'pv_approval_matrix', label: '4-Column Approval Matrix' }]
-                              : []),
-                            ...(selectedBlock.id === 'signatory' &&
-                            (documentType === 'material_return_note' || documentType === 'debit_note')
-                              ? [
-                                  { id: 'return_signoff_left', label: 'Issued & Authorized By Card' },
-                                  { id: 'return_signoff_right', label: 'Debit Claim / Acknowledgment Card' }
-                                ]
-                              : [])
+                            }
                           ],
                           setFocusedBlockStyleTarget
                         )}
@@ -17648,435 +17750,6 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 )}
                               </div>
 
-                              {/* Mode-Specific Sign-Off & Acknowledgment Customization */}
-                              {documentType === 'delivery_note' && (
-                                <div className="p-2.5 rounded-lg bg-emerald-50/70 border border-emerald-200 space-y-2.5">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800">
-                                      Delivery Note Dispatch &amp; Receiver Sign-Off
-                                    </span>
-                                    <input
-                                      type="checkbox"
-                                      checked={deliveryMetadata.show_signoff_block !== false}
-                                      onChange={(e) =>
-                                        setDeliveryMetadata((prev) => ({
-                                          ...prev,
-                                          show_signoff_block: e.target.checked
-                                        }))
-                                      }
-                                      className="rounded border-emerald-300 text-emerald-600 cursor-pointer"
-                                    />
-                                  </div>
-
-                                  <div className="grid grid-cols-2 gap-1.5">
-                                    <label className="flex items-center gap-1.5 p-1.5 rounded bg-white border border-emerald-200 text-[10px] font-semibold text-emerald-950 cursor-pointer">
-                                      <input
-                                        type="checkbox"
-                                        checked={deliveryMetadata.show_dispatch_signoff_card !== false}
-                                        onChange={(e) =>
-                                          setDeliveryMetadata((prev) => ({
-                                            ...prev,
-                                            show_dispatch_signoff_card: e.target.checked
-                                          }))
-                                        }
-                                      />
-                                      <span className="truncate">Left: Dispatched By</span>
-                                    </label>
-                                    <label className="flex items-center gap-1.5 p-1.5 rounded bg-white border border-emerald-200 text-[10px] font-semibold text-emerald-950 cursor-pointer">
-                                      <input
-                                        type="checkbox"
-                                        checked={deliveryMetadata.show_receiver_signoff_card !== false}
-                                        onChange={(e) =>
-                                          setDeliveryMetadata((prev) => ({
-                                            ...prev,
-                                            show_receiver_signoff_card: e.target.checked
-                                          }))
-                                        }
-                                      />
-                                      <span className="truncate">Right: Receiver Ack</span>
-                                    </label>
-                                  </div>
-
-                                  <div className="grid grid-cols-1 gap-2">
-                                    <div>
-                                      <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
-                                        Left Card Heading (Dispatched &amp; Released By)
-                                      </label>
-                                      <input
-                                        type="text"
-                                        value={deliveryMetadata.signoff_left_heading ?? ''}
-                                        onFocus={() => setFocusedBlockStyleTarget('do_signoff_left')}
-                                        onChange={(e) =>
-                                          setDeliveryMetadata((prev) => ({
-                                            ...prev,
-                                            signoff_left_heading: e.target.value
-                                          }))
-                                        }
-                                        placeholder="Dispatched & Released By"
-                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
-                                        Right Card Heading (Goods Received Acknowledgment)
-                                      </label>
-                                      <input
-                                        type="text"
-                                        value={deliveryMetadata.signoff_right_heading ?? ''}
-                                        onFocus={() => setFocusedBlockStyleTarget('do_signoff_right')}
-                                        onChange={(e) =>
-                                          setDeliveryMetadata((prev) => ({
-                                            ...prev,
-                                            signoff_right_heading: e.target.value
-                                          }))
-                                        }
-                                        placeholder="Goods Received Acknowledgment"
-                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
-                                      />
-                                    </div>
-                                  </div>
-
-                                  <div>
-                                    <div className="flex items-center justify-between mb-0.5">
-                                      <label className="text-[9.5px] font-semibold text-slate-600">
-                                        Goods Received Declaration Clause
-                                      </label>
-                                      <input
-                                        type="checkbox"
-                                        checked={deliveryMetadata.show_goods_clause !== false}
-                                        onChange={(e) =>
-                                          setDeliveryMetadata((prev) => ({
-                                            ...prev,
-                                            show_goods_clause: e.target.checked
-                                          }))
-                                        }
-                                      />
-                                    </div>
-                                    <input
-                                      type="text"
-                                      value={deliveryMetadata.goods_received_clause ?? ''}
-                                      onChange={(e) =>
-                                        setDeliveryMetadata((prev) => ({
-                                          ...prev,
-                                          goods_received_clause: e.target.value
-                                        }))
-                                      }
-                                      placeholder="Received the above items in good order and condition."
-                                      className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
-                                    />
-                                  </div>
-
-                                  <div className="grid grid-cols-2 gap-1 pt-0.5">
-                                    {(
-                                      [
-                                        { key: 'show_signoff_prepared', label: 'Prepared By' },
-                                        { key: 'show_signoff_mode', label: 'Dispatch Mode' },
-                                        { key: 'show_signoff_vehicle', label: 'Vehicle / Plate' },
-                                        { key: 'show_signoff_driver', label: 'Driver Name' },
-                                        { key: 'show_receiving_stamp_box', label: 'Receiver Stamp Box' }
-                                      ] as const
-                                    ).map((f) => (
-                                      <label
-                                        key={f.key}
-                                        className="flex items-center gap-1 p-1 rounded bg-white border border-emerald-200/80 text-[9.5px] font-medium text-emerald-950 cursor-pointer"
-                                      >
-                                        <input
-                                          type="checkbox"
-                                          checked={(deliveryMetadata as any)[f.key] !== false}
-                                          onChange={(e) =>
-                                            setDeliveryMetadata((prev) => ({
-                                              ...prev,
-                                              [f.key]: e.target.checked
-                                            }))
-                                          }
-                                        />
-                                        <span className="truncate">{f.label}</span>
-                                      </label>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              {documentType === 'payment_voucher' && (
-                                <div className="p-2.5 rounded-lg bg-teal-50/70 border border-teal-200 space-y-2.5">
-                                  <div className="flex items-center justify-between">
-                                    <button
-                                      type="button"
-                                      onClick={() => setFocusedBlockStyleTarget('pv_approval_matrix')}
-                                      className="text-[10px] font-extrabold uppercase tracking-wider text-teal-800 hover:underline cursor-pointer"
-                                    >
-                                      PV 4-Column Approval Matrix
-                                    </button>
-                                    <input
-                                      type="checkbox"
-                                      checked={paymentVoucherMetadata.show_approval_matrix !== false}
-                                      onChange={(e) =>
-                                        setPaymentVoucherMetadata((prev) => ({
-                                          ...prev,
-                                          show_approval_matrix: e.target.checked
-                                        }))
-                                      }
-                                      className="rounded border-teal-300 text-teal-600 cursor-pointer"
-                                    />
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-1.5">
-                                    <div>
-                                      <label className="block text-[9px] font-semibold text-slate-600 mb-0.5">
-                                        Col 1 Header &amp; Name
-                                      </label>
-                                      <input
-                                        type="text"
-                                        value={paymentVoucherMetadata.col1_heading ?? 'Prepared By'}
-                                        onChange={(e) =>
-                                          setPaymentVoucherMetadata((prev) => ({
-                                            ...prev,
-                                            col1_heading: e.target.value
-                                          }))
-                                        }
-                                        className="w-full px-1.5 py-0.5 mb-1 rounded border border-slate-200 text-[10px] font-bold bg-white"
-                                      />
-                                      <input
-                                        type="text"
-                                        value={paymentVoucherMetadata.prepared_by_name ?? ''}
-                                        onChange={(e) =>
-                                          setPaymentVoucherMetadata((prev) => ({
-                                            ...prev,
-                                            prepared_by_name: e.target.value
-                                          }))
-                                        }
-                                        placeholder="Accounts Executive"
-                                        className="w-full px-1.5 py-0.5 rounded border border-slate-300 text-[10.5px] bg-white"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[9px] font-semibold text-slate-600 mb-0.5">
-                                        Col 2 Header &amp; Name
-                                      </label>
-                                      <input
-                                        type="text"
-                                        value={paymentVoucherMetadata.col2_heading ?? 'Verified By'}
-                                        onChange={(e) =>
-                                          setPaymentVoucherMetadata((prev) => ({
-                                            ...prev,
-                                            col2_heading: e.target.value
-                                          }))
-                                        }
-                                        className="w-full px-1.5 py-0.5 mb-1 rounded border border-slate-200 text-[10px] font-bold bg-white"
-                                      />
-                                      <input
-                                        type="text"
-                                        value={paymentVoucherMetadata.verified_by_name ?? ''}
-                                        onChange={(e) =>
-                                          setPaymentVoucherMetadata((prev) => ({
-                                            ...prev,
-                                            verified_by_name: e.target.value
-                                          }))
-                                        }
-                                        placeholder="Finance Manager"
-                                        className="w-full px-1.5 py-0.5 rounded border border-slate-300 text-[10.5px] bg-white"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[9px] font-semibold text-slate-600 mb-0.5">
-                                        Col 3 Header &amp; Name
-                                      </label>
-                                      <input
-                                        type="text"
-                                        value={paymentVoucherMetadata.col3_heading ?? 'Approved By'}
-                                        onChange={(e) =>
-                                          setPaymentVoucherMetadata((prev) => ({
-                                            ...prev,
-                                            col3_heading: e.target.value
-                                          }))
-                                        }
-                                        className="w-full px-1.5 py-0.5 mb-1 rounded border border-slate-200 text-[10px] font-bold bg-white"
-                                      />
-                                      <input
-                                        type="text"
-                                        value={paymentVoucherMetadata.approved_by_name ?? ''}
-                                        onChange={(e) =>
-                                          setPaymentVoucherMetadata((prev) => ({
-                                            ...prev,
-                                            approved_by_name: e.target.value
-                                          }))
-                                        }
-                                        placeholder="Authorized Director"
-                                        className="w-full px-1.5 py-0.5 rounded border border-slate-300 text-[10.5px] bg-white"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[9px] font-semibold text-slate-600 mb-0.5">
-                                        Col 4 Header &amp; Name
-                                      </label>
-                                      <input
-                                        type="text"
-                                        value={paymentVoucherMetadata.col4_heading ?? 'Received By'}
-                                        onChange={(e) =>
-                                          setPaymentVoucherMetadata((prev) => ({
-                                            ...prev,
-                                            col4_heading: e.target.value
-                                          }))
-                                        }
-                                        className="w-full px-1.5 py-0.5 mb-1 rounded border border-slate-200 text-[10px] font-bold bg-white"
-                                      />
-                                      <input
-                                        type="text"
-                                        value={paymentVoucherMetadata.received_by_name ?? ''}
-                                        onChange={(e) =>
-                                          setPaymentVoucherMetadata((prev) => ({
-                                            ...prev,
-                                            received_by_name: e.target.value
-                                          }))
-                                        }
-                                        placeholder="Beneficiary Rep"
-                                        className="w-full px-1.5 py-0.5 rounded border border-slate-300 text-[10.5px] bg-white"
-                                      />
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-
-                              {(documentType === 'material_return_note' ||
-                                documentType === 'debit_note') && (
-                                <div className="p-2.5 rounded-lg bg-rose-50/70 border border-rose-200 space-y-2.5">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-800">
-                                      Return / Debit Note Sign-Off Controls
-                                    </span>
-                                    <input
-                                      type="checkbox"
-                                      checked={vendorReturnMetadata.show_signoff_block !== false}
-                                      onChange={(e) =>
-                                        setVendorReturnMetadata((prev) => ({
-                                          ...prev,
-                                          show_signoff_block: e.target.checked
-                                        }))
-                                      }
-                                      className="rounded border-rose-300 text-rose-600 cursor-pointer"
-                                    />
-                                  </div>
-
-                                  <div className="grid grid-cols-2 gap-1.5">
-                                    <label className="flex items-center gap-1.5 p-1.5 rounded bg-white border border-rose-200 text-[10px] font-semibold text-rose-950 cursor-pointer">
-                                      <input
-                                        type="checkbox"
-                                        checked={vendorReturnMetadata.show_issuer_signoff_card !== false}
-                                        onChange={(e) =>
-                                          setVendorReturnMetadata((prev) => ({
-                                            ...prev,
-                                            show_issuer_signoff_card: e.target.checked
-                                          }))
-                                        }
-                                      />
-                                      <span className="truncate">Left: Issued By</span>
-                                    </label>
-                                    <label className="flex items-center gap-1.5 p-1.5 rounded bg-white border border-rose-200 text-[10px] font-semibold text-rose-950 cursor-pointer">
-                                      <input
-                                        type="checkbox"
-                                        checked={vendorReturnMetadata.show_vendor_ack_card !== false}
-                                        onChange={(e) =>
-                                          setVendorReturnMetadata((prev) => ({
-                                            ...prev,
-                                            show_vendor_ack_card: e.target.checked
-                                          }))
-                                        }
-                                      />
-                                      <span className="truncate">Right: Debit / Ack</span>
-                                    </label>
-                                  </div>
-
-                                  <div className="grid grid-cols-1 gap-2">
-                                    <div>
-                                      <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
-                                        Left Card Heading (Issued &amp; Authorized By)
-                                      </label>
-                                      <input
-                                        type="text"
-                                        value={vendorReturnMetadata.signoff_left_heading ?? ''}
-                                        onFocus={() => setFocusedBlockStyleTarget('return_signoff_left')}
-                                        onChange={(e) =>
-                                          setVendorReturnMetadata((prev) => ({
-                                            ...prev,
-                                            signoff_left_heading: e.target.value
-                                          }))
-                                        }
-                                        placeholder="Issued & Authorized By"
-                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
-                                        Right Card Heading (Debit Claim / Acknowledgment)
-                                      </label>
-                                      <input
-                                        type="text"
-                                        value={vendorReturnMetadata.signoff_right_heading ?? ''}
-                                        onFocus={() => setFocusedBlockStyleTarget('return_signoff_right')}
-                                        onChange={(e) =>
-                                          setVendorReturnMetadata((prev) => ({
-                                            ...prev,
-                                            signoff_right_heading: e.target.value
-                                          }))
-                                        }
-                                        placeholder="Vendor / Supplier Acknowledgment"
-                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
-                                      />
-                                    </div>
-                                  </div>
-
-                                  <div>
-                                    <div className="flex items-center justify-between mb-0.5">
-                                      <label className="text-[9.5px] font-semibold text-slate-600">
-                                        Debit Claim / Acknowledgment Clause
-                                      </label>
-                                      <input
-                                        type="checkbox"
-                                        checked={vendorReturnMetadata.show_ack_clause !== false}
-                                        onChange={(e) =>
-                                          setVendorReturnMetadata((prev) => ({
-                                            ...prev,
-                                            show_ack_clause: e.target.checked
-                                          }))
-                                        }
-                                      />
-                                    </div>
-                                    <input
-                                      type="text"
-                                      value={vendorReturnMetadata.acknowledgment_clause ?? ''}
-                                      onChange={(e) =>
-                                        setVendorReturnMetadata((prev) => ({
-                                          ...prev,
-                                          acknowledgment_clause: e.target.value
-                                        }))
-                                      }
-                                      placeholder={
-                                        documentType === 'debit_note'
-                                          ? 'Commercial debit note acknowledged for account adjustment / credit note issuance.'
-                                          : 'Returned materials received back for inspection / replacement / credit.'
-                                      }
-                                      className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
-                                    />
-                                  </div>
-
-                                  <label className="flex items-center justify-between pt-1 cursor-pointer">
-                                    <span className="text-[10.5px] font-semibold text-rose-900">
-                                      Show Vendor Stamp Box
-                                    </span>
-                                    <input
-                                      type="checkbox"
-                                      checked={vendorReturnMetadata.show_vendor_stamp_box !== false}
-                                      onChange={(e) =>
-                                        setVendorReturnMetadata((prev) => ({
-                                          ...prev,
-                                          show_vendor_stamp_box: e.target.checked
-                                        }))
-                                      }
-                                      className="rounded border-rose-300 text-rose-600"
-                                    />
-                                  </label>
-                                </div>
-                              )}
-
                               <div className="flex items-center justify-between">
                                 <div>
                                   <span className="font-semibold text-slate-800 text-xs block">
@@ -19359,6 +19032,1046 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   placeholder="e.g. Please quote @quote_ref on wire transfer."
                                   className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
                                 />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* DEDICATED INSPECTOR: Delivery Note — Dispatched & Released By (`do_dispatch_party`) */}
+                          {selectedBlock.id === 'do_dispatch_party' && (
+                            <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-3 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-900">
+                                  Dispatched &amp; Released By Card
+                                </span>
+                                <span className="text-[9.5px] font-mono text-emerald-700 bg-white px-1.5 py-0.5 rounded border border-emerald-200">
+                                  DO Left Card
+                                </span>
+                              </div>
+
+                              <div>
+                                <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                  Card Heading Override
+                                </label>
+                                <input
+                                  type="text"
+                                  value={selectedBlock.titleOverride ?? deliveryMetadata.signoff_left_heading ?? ''}
+                                  onFocus={() => setFocusedBlockStyleTarget('do_signoff_left')}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    handleUpdateBlockConfig('do_dispatch_party', { titleOverride: val });
+                                    setDeliveryMetadata((prev) => ({
+                                      ...prev,
+                                      signoff_left_heading: val
+                                    }));
+                                  }}
+                                  placeholder="Dispatched & Released By"
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Warehouse / Dispatch Officer
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={deliveryMetadata.dispatched_by_name ?? ''}
+                                    onChange={(e) =>
+                                      setDeliveryMetadata((prev) => ({
+                                        ...prev,
+                                        dispatched_by_name: e.target.value
+                                      }))
+                                    }
+                                    placeholder={preparedBy || signatoryName || 'Officer Name'}
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Designation / Role
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={deliveryMetadata.dispatched_by_title ?? ''}
+                                    onChange={(e) =>
+                                      setDeliveryMetadata((prev) => ({
+                                        ...prev,
+                                        dispatched_by_title: e.target.value
+                                      }))
+                                    }
+                                    placeholder="Logistics / Warehouse Officer"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Dispatch Mode
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={deliveryMetadata.dispatch_mode ?? ''}
+                                    onChange={(e) =>
+                                      setDeliveryMetadata((prev) => ({
+                                        ...prev,
+                                        dispatch_mode: e.target.value
+                                      }))
+                                    }
+                                    placeholder="Company Transport"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Vehicle / Plate #
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={deliveryMetadata.vehicle_number ?? ''}
+                                    onChange={(e) =>
+                                      setDeliveryMetadata((prev) => ({
+                                        ...prev,
+                                        vehicle_number: e.target.value
+                                      }))
+                                    }
+                                    placeholder="DXB 12345"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white font-mono"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Driver Name
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={deliveryMetadata.driver_name ?? ''}
+                                    onChange={(e) =>
+                                      setDeliveryMetadata((prev) => ({
+                                        ...prev,
+                                        driver_name: e.target.value
+                                      }))
+                                    }
+                                    placeholder="Driver Full Name"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Driver Contact / Mobile
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={deliveryMetadata.driver_contact ?? ''}
+                                    onChange={(e) =>
+                                      setDeliveryMetadata((prev) => ({
+                                        ...prev,
+                                        driver_contact: e.target.value
+                                      }))
+                                    }
+                                    placeholder="+971 50 000 0000"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-1.5 pt-1">
+                                {(
+                                  [
+                                    { key: 'show_signoff_prepared', label: 'Show Officer Row' },
+                                    { key: 'show_signoff_mode', label: 'Show Dispatch Mode' },
+                                    { key: 'show_signoff_vehicle', label: 'Show Vehicle / Plate' },
+                                    { key: 'show_signoff_driver', label: 'Show Driver Info' },
+                                    { key: 'show_dispatch_stamp_circle', label: 'Dispatch Stamp Circle' }
+                                  ] as const
+                                ).map((f) => (
+                                  <label
+                                    key={f.key}
+                                    className="flex items-center gap-1.5 p-1.5 rounded bg-white border border-emerald-200 text-[10px] font-medium text-emerald-950 cursor-pointer"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={(deliveryMetadata as any)[f.key] !== false}
+                                      onChange={(e) =>
+                                        setDeliveryMetadata((prev) => ({
+                                          ...prev,
+                                          [f.key]: e.target.checked
+                                        }))
+                                      }
+                                      className="rounded border-emerald-300 text-emerald-600 cursor-pointer"
+                                    />
+                                    <span className="truncate">{f.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+
+                              <div className="p-2 rounded-lg bg-white border border-emerald-200 space-y-1">
+                                <div className="flex justify-between text-[10px] font-semibold text-slate-700">
+                                  <span>Signature Box Height</span>
+                                  <span className="font-mono text-emerald-700">
+                                    {deliveryMetadata.signature_box_height_mm ?? 22}mm
+                                  </span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={14}
+                                  max={45}
+                                  step={1}
+                                  value={deliveryMetadata.signature_box_height_mm ?? 22}
+                                  onChange={(e) =>
+                                    setDeliveryMetadata((prev) => ({
+                                      ...prev,
+                                      signature_box_height_mm: Number(e.target.value)
+                                    }))
+                                  }
+                                  className="w-full accent-emerald-600 cursor-pointer"
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* DEDICATED INSPECTOR: Delivery Note — Goods Received Acknowledgment (`do_receiving_party`) */}
+                          {selectedBlock.id === 'do_receiving_party' && (
+                            <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-3 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-900">
+                                  Goods Received Acknowledgment
+                                </span>
+                                <span className="text-[9.5px] font-mono text-emerald-700 bg-white px-1.5 py-0.5 rounded border border-emerald-200">
+                                  DO Right Card
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-1 gap-2">
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Card Heading Override
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={selectedBlock.titleOverride ?? deliveryMetadata.signoff_right_heading ?? ''}
+                                    onFocus={() => setFocusedBlockStyleTarget('do_signoff_right')}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      handleUpdateBlockConfig('do_receiving_party', { titleOverride: val });
+                                      setDeliveryMetadata((prev) => ({
+                                        ...prev,
+                                        signoff_right_heading: val
+                                      }));
+                                    }}
+                                    placeholder="Goods Received Acknowledgment"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Consignee Company Name Override
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={deliveryMetadata.consignee_company_override ?? ''}
+                                    onChange={(e) =>
+                                      setDeliveryMetadata((prev) => ({
+                                        ...prev,
+                                        consignee_company_override: e.target.value
+                                      }))
+                                    }
+                                    placeholder={
+                                      clientNameOverride ||
+                                      enquiry.company_name ||
+                                      enquiry.client_company ||
+                                      'Consignee Company'
+                                    }
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                              </div>
+
+                              <div>
+                                <div className="flex items-center justify-between mb-0.5">
+                                  <label className="text-[9.5px] font-semibold text-slate-600">
+                                    Goods Received Declaration Clause
+                                  </label>
+                                  <input
+                                    type="checkbox"
+                                    checked={deliveryMetadata.show_goods_clause !== false}
+                                    onChange={(e) =>
+                                      setDeliveryMetadata((prev) => ({
+                                        ...prev,
+                                        show_goods_clause: e.target.checked
+                                      }))
+                                    }
+                                    className="rounded border-emerald-300 text-emerald-600 cursor-pointer"
+                                  />
+                                </div>
+                                <input
+                                  type="text"
+                                  value={deliveryMetadata.goods_received_clause ?? ''}
+                                  onChange={(e) =>
+                                    setDeliveryMetadata((prev) => ({
+                                      ...prev,
+                                      goods_received_clause: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Received the above items in good order and condition."
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Received By (Name)
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={deliveryMetadata.received_by_name ?? ''}
+                                    onChange={(e) =>
+                                      setDeliveryMetadata((prev) => ({
+                                        ...prev,
+                                        received_by_name: e.target.value
+                                      }))
+                                    }
+                                    placeholder={
+                                      deliveryMetadata.site_contact_name || 'Leave blank for hand sign-off'
+                                    }
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Designation / Emirates ID
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={deliveryMetadata.received_by_designation ?? ''}
+                                    onChange={(e) =>
+                                      setDeliveryMetadata((prev) => ({
+                                        ...prev,
+                                        received_by_designation: e.target.value
+                                      }))
+                                    }
+                                    placeholder="Site Storekeeper / ID #"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Mobile / Contact Phone
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={deliveryMetadata.site_contact_phone ?? ''}
+                                    onChange={(e) =>
+                                      setDeliveryMetadata((prev) => ({
+                                        ...prev,
+                                        site_contact_phone: e.target.value
+                                      }))
+                                    }
+                                    placeholder="+971 50 000 0000"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Date &amp; Time Received
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={deliveryMetadata.received_date_time ?? ''}
+                                    onChange={(e) =>
+                                      setDeliveryMetadata((prev) => ({
+                                        ...prev,
+                                        received_date_time: e.target.value
+                                      }))
+                                    }
+                                    placeholder="Leave blank for hand entry"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                              </div>
+
+                              <label className="flex items-center justify-between p-2 rounded-lg bg-white border border-emerald-200 cursor-pointer">
+                                <span className="text-[10.5px] font-semibold text-emerald-950">
+                                  Show Physical Receiving Stamp Box
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  checked={deliveryMetadata.show_receiving_stamp_box !== false}
+                                  onChange={(e) =>
+                                    setDeliveryMetadata((prev) => ({
+                                      ...prev,
+                                      show_receiving_stamp_box: e.target.checked
+                                    }))
+                                  }
+                                  className="rounded border-emerald-300 text-emerald-600 cursor-pointer"
+                                />
+                              </label>
+                            </div>
+                          )}
+
+                          {/* DEDICATED INSPECTOR: Material Return / Debit Note — Issued By (`vendor_return_claim`) */}
+                          {selectedBlock.id === 'vendor_return_claim' && (
+                            <div className="bg-rose-50/60 border border-rose-200 rounded-xl p-3 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-extrabold uppercase tracking-wider text-rose-900">
+                                  Debit Claim / Return Issued By
+                                </span>
+                                <span className="text-[9.5px] font-mono text-rose-700 bg-white px-1.5 py-0.5 rounded border border-rose-200">
+                                  Left Card
+                                </span>
+                              </div>
+
+                              <div>
+                                <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                  Card Heading Override
+                                </label>
+                                <input
+                                  type="text"
+                                  value={selectedBlock.titleOverride ?? vendorReturnMetadata.signoff_left_heading ?? ''}
+                                  onFocus={() => setFocusedBlockStyleTarget('return_signoff_left')}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    handleUpdateBlockConfig('vendor_return_claim', { titleOverride: val });
+                                    setVendorReturnMetadata((prev) => ({
+                                      ...prev,
+                                      signoff_left_heading: val
+                                    }));
+                                  }}
+                                  placeholder="Issued & Authorized By"
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    QA / Procurement Officer
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={vendorReturnMetadata.returned_by_name ?? ''}
+                                    onChange={(e) =>
+                                      setVendorReturnMetadata((prev) => ({
+                                        ...prev,
+                                        returned_by_name: e.target.value
+                                      }))
+                                    }
+                                    placeholder={preparedBy || signatoryName || 'Officer Name'}
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Officer Designation
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={vendorReturnMetadata.returned_by_title ?? ''}
+                                    onChange={(e) =>
+                                      setVendorReturnMetadata((prev) => ({
+                                        ...prev,
+                                        returned_by_title: e.target.value
+                                      }))
+                                    }
+                                    placeholder="Procurement & QA Officer"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Return / Claim Reason
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={vendorReturnMetadata.return_reason ?? ''}
+                                    onChange={(e) =>
+                                      setVendorReturnMetadata((prev) => ({
+                                        ...prev,
+                                        return_reason: e.target.value
+                                      }))
+                                    }
+                                    placeholder="Defective / Non-Conforming"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Resolution Mode
+                                  </label>
+                                  <select
+                                    value={vendorReturnMetadata.resolution_type || 'Credit Note / Bill Deduction'}
+                                    onChange={(e) =>
+                                      setVendorReturnMetadata((prev) => ({
+                                        ...prev,
+                                        resolution_type: e.target.value
+                                      }))
+                                    }
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white text-slate-800"
+                                  >
+                                    <option value="Credit Note / Bill Deduction">Credit Note / Bill Deduction</option>
+                                    <option value="Replacement Dispatch">Replacement Dispatch</option>
+                                    <option value="Bank Refund / Reversal">Bank Refund / Reversal</option>
+                                    <option value="Warranty Repair & Return">Warranty Repair &amp; Return</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                  Outbound Carrier / Vehicle Details
+                                </label>
+                                <input
+                                  type="text"
+                                  value={vendorReturnMetadata.carrier_details ?? ''}
+                                  onChange={(e) =>
+                                    setVendorReturnMetadata((prev) => ({
+                                      ...prev,
+                                      carrier_details: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Company Vehicle / Vendor Collection"
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* DEDICATED INSPECTOR: Material Return / Debit Note — Vendor Ack (`vendor_return_ack`) */}
+                          {selectedBlock.id === 'vendor_return_ack' && (
+                            <div className="bg-rose-50/60 border border-rose-200 rounded-xl p-3 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-extrabold uppercase tracking-wider text-rose-900">
+                                  Vendor Return / Debit Acknowledgment
+                                </span>
+                                <span className="text-[9.5px] font-mono text-rose-700 bg-white px-1.5 py-0.5 rounded border border-rose-200">
+                                  Right Card
+                                </span>
+                              </div>
+
+                              <div>
+                                <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                  Card Heading Override
+                                </label>
+                                <input
+                                  type="text"
+                                  value={selectedBlock.titleOverride ?? vendorReturnMetadata.signoff_right_heading ?? ''}
+                                  onFocus={() => setFocusedBlockStyleTarget('return_signoff_right')}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    handleUpdateBlockConfig('vendor_return_ack', { titleOverride: val });
+                                    setVendorReturnMetadata((prev) => ({
+                                      ...prev,
+                                      signoff_right_heading: val
+                                    }));
+                                  }}
+                                  placeholder={
+                                    documentType === 'debit_note'
+                                      ? 'Commercial Debit Claim & Vendor Acknowledgment'
+                                      : 'Vendor / Supplier Return Acknowledgment'
+                                  }
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                />
+                              </div>
+
+                              <div>
+                                <div className="flex items-center justify-between mb-0.5">
+                                  <label className="text-[9.5px] font-semibold text-slate-600">
+                                    Acknowledgment / Debit Clause
+                                  </label>
+                                  <input
+                                    type="checkbox"
+                                    checked={vendorReturnMetadata.show_ack_clause !== false}
+                                    onChange={(e) =>
+                                      setVendorReturnMetadata((prev) => ({
+                                        ...prev,
+                                        show_ack_clause: e.target.checked
+                                      }))
+                                    }
+                                    className="rounded border-rose-300 text-rose-600 cursor-pointer"
+                                  />
+                                </div>
+                                <input
+                                  type="text"
+                                  value={vendorReturnMetadata.acknowledgment_clause ?? ''}
+                                  onChange={(e) =>
+                                    setVendorReturnMetadata((prev) => ({
+                                      ...prev,
+                                      acknowledgment_clause: e.target.value
+                                    }))
+                                  }
+                                  placeholder={
+                                    documentType === 'debit_note'
+                                      ? 'Commercial debit note acknowledged for account adjustment / credit note issuance.'
+                                      : 'Returned materials received back for inspection / replacement / credit.'
+                                  }
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Vendor Signatory Name
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={vendorReturnMetadata.vendor_signatory_name ?? ''}
+                                    onChange={(e) =>
+                                      setVendorReturnMetadata((prev) => ({
+                                        ...prev,
+                                        vendor_signatory_name: e.target.value
+                                      }))
+                                    }
+                                    placeholder={
+                                      vendorReturnMetadata.vendor_contact || 'Leave blank for hand sign-off'
+                                    }
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Vendor Signatory Title
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={vendorReturnMetadata.vendor_signatory_title ?? ''}
+                                    onChange={(e) =>
+                                      setVendorReturnMetadata((prev) => ({
+                                        ...prev,
+                                        vendor_signatory_title: e.target.value
+                                      }))
+                                    }
+                                    placeholder="Vendor Representative"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                  Vendor Credit Note / RMA Ref #
+                                </label>
+                                <input
+                                  type="text"
+                                  value={vendorReturnMetadata.credit_note_ref ?? ''}
+                                  onChange={(e) =>
+                                    setVendorReturnMetadata((prev) => ({
+                                      ...prev,
+                                      credit_note_ref: e.target.value
+                                    }))
+                                  }
+                                  placeholder="CN-2026-001 (or leave blank)"
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white font-mono"
+                                />
+                              </div>
+
+                              <label className="flex items-center justify-between p-2 rounded-lg bg-white border border-rose-200 cursor-pointer">
+                                <span className="text-[10.5px] font-semibold text-rose-950">
+                                  Show Physical Vendor Stamp Box
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  checked={vendorReturnMetadata.show_vendor_stamp_box !== false}
+                                  onChange={(e) =>
+                                    setVendorReturnMetadata((prev) => ({
+                                      ...prev,
+                                      show_vendor_stamp_box: e.target.checked
+                                    }))
+                                  }
+                                  className="rounded border-rose-300 text-rose-600 cursor-pointer"
+                                />
+                              </label>
+                            </div>
+                          )}
+
+                          {/* DEDICATED INSPECTOR: Payment Voucher — Disbursing Treasury (`pv_treasury_details`) */}
+                          {selectedBlock.id === 'pv_treasury_details' && (
+                            <div className="bg-teal-50/60 border border-teal-200 rounded-xl p-3 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-extrabold uppercase tracking-wider text-teal-900">
+                                  Disbursing Treasury &amp; Instrument
+                                </span>
+                                <span className="text-[9.5px] font-mono text-teal-700 bg-white px-1.5 py-0.5 rounded border border-teal-200">
+                                  PV Left Card
+                                </span>
+                              </div>
+
+                              <div>
+                                <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                  Card Heading Override
+                                </label>
+                                <input
+                                  type="text"
+                                  value={selectedBlock.titleOverride ?? paymentVoucherMetadata.treasury_card_heading ?? ''}
+                                  onFocus={() => setFocusedBlockStyleTarget('pv_treasury_card')}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    handleUpdateBlockConfig('pv_treasury_details', { titleOverride: val });
+                                    setPaymentVoucherMetadata((prev) => ({
+                                      ...prev,
+                                      treasury_card_heading: val
+                                    }));
+                                  }}
+                                  placeholder="Disbursing Treasury & Instrument Details"
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Payment Mode
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={paymentVoucherMetadata.payment_method ?? ''}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        payment_method: e.target.value
+                                      }))
+                                    }
+                                    placeholder="Bank Transfer / TT"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Cheque / UTR / Wire Ref #
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={paymentVoucherMetadata.transaction_ref ?? ''}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        transaction_ref: e.target.value
+                                      }))
+                                    }
+                                    placeholder="UTR / Cheque #"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white font-mono"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Disbursing Bank Account
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={paymentVoucherMetadata.paid_from_bank_name ?? ''}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        paid_from_bank_name: e.target.value
+                                      }))
+                                    }
+                                    placeholder={activeBankAccount?.bankName || 'Company Treasury Bank'}
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Cleared / Value Date
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={paymentVoucherMetadata.cleared_date ?? ''}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        cleared_date: e.target.value
+                                      }))
+                                    }
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-1.5 pt-1">
+                                {(
+                                  [
+                                    { key: 'show_pv_method', label: 'Show Payment Mode' },
+                                    { key: 'show_pv_bank', label: 'Show Disbursing Bank' },
+                                    { key: 'show_pv_tx_ref', label: 'Show UTR / Cheque Ref' },
+                                    { key: 'show_pv_po_ref', label: 'Show Linked PO Ref' }
+                                  ] as const
+                                ).map((f) => (
+                                  <label
+                                    key={f.key}
+                                    className="flex items-center gap-1.5 p-1.5 rounded bg-white border border-teal-200 text-[10px] font-medium text-teal-950 cursor-pointer"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={(paymentVoucherMetadata as any)[f.key] !== false}
+                                      onChange={(e) =>
+                                        setPaymentVoucherMetadata((prev) => ({
+                                          ...prev,
+                                          [f.key]: e.target.checked
+                                        }))
+                                      }
+                                      className="rounded border-teal-300 text-teal-600 cursor-pointer"
+                                    />
+                                    <span className="truncate">{f.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* DEDICATED INSPECTOR: Payment Voucher — Vendor Beneficiary (`pv_beneficiary_details`) */}
+                          {selectedBlock.id === 'pv_beneficiary_details' && (
+                            <div className="bg-teal-50/60 border border-teal-200 rounded-xl p-3 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-extrabold uppercase tracking-wider text-teal-900">
+                                  Vendor Beneficiary Bank Account
+                                </span>
+                                <span className="text-[9.5px] font-mono text-teal-700 bg-white px-1.5 py-0.5 rounded border border-teal-200">
+                                  PV Right Card
+                                </span>
+                              </div>
+
+                              <div>
+                                <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                  Card Heading Override
+                                </label>
+                                <input
+                                  type="text"
+                                  value={selectedBlock.titleOverride ?? paymentVoucherMetadata.beneficiary_card_heading ?? ''}
+                                  onFocus={() => setFocusedBlockStyleTarget('pv_beneficiary_card')}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    handleUpdateBlockConfig('pv_beneficiary_details', { titleOverride: val });
+                                    setPaymentVoucherMetadata((prev) => ({
+                                      ...prev,
+                                      beneficiary_card_heading: val
+                                    }));
+                                  }}
+                                  placeholder="Vendor Beneficiary Account"
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Beneficiary Account Name
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={paymentVoucherMetadata.beneficiary_bank_details?.account_name ?? ''}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        beneficiary_bank_details: {
+                                          ...(prev.beneficiary_bank_details || {}),
+                                          account_name: e.target.value
+                                        }
+                                      }))
+                                    }
+                                    placeholder={paymentVoucherMetadata.paid_to_vendor_name || 'Vendor Legal Name'}
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Vendor Bank Name
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={paymentVoucherMetadata.beneficiary_bank_details?.bank_name ?? ''}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        beneficiary_bank_details: {
+                                          ...(prev.beneficiary_bank_details || {}),
+                                          bank_name: e.target.value
+                                        }
+                                      }))
+                                    }
+                                    placeholder="Emirates NBD / ADCB"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    IBAN / Account Number
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={paymentVoucherMetadata.beneficiary_bank_details?.iban ?? ''}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        beneficiary_bank_details: {
+                                          ...(prev.beneficiary_bank_details || {}),
+                                          iban: e.target.value
+                                        }
+                                      }))
+                                    }
+                                    placeholder="AE00 0000 0000 0000 0000 000"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white font-mono"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    SWIFT / BIC Code
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={paymentVoucherMetadata.beneficiary_bank_details?.swift ?? ''}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        beneficiary_bank_details: {
+                                          ...(prev.beneficiary_bank_details || {}),
+                                          swift: e.target.value
+                                        }
+                                      }))
+                                    }
+                                    placeholder="EBILAEAD"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white font-mono"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* DEDICATED INSPECTOR: Payment Voucher — 4-Column Approval Matrix (`pv_approval_matrix`) */}
+                          {selectedBlock.id === 'pv_approval_matrix' && (
+                            <div className="bg-teal-50/60 border border-teal-200 rounded-xl p-3 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-extrabold uppercase tracking-wider text-teal-900">
+                                  4-Column Approval Matrix
+                                </span>
+                                <span className="text-[9.5px] font-mono text-teal-700 bg-white px-1.5 py-0.5 rounded border border-teal-200">
+                                  PV Sign-Off
+                                </span>
+                              </div>
+
+                              <div>
+                                <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                  Matrix Section Heading (Optional)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={selectedBlock.titleOverride ?? paymentVoucherMetadata.approval_matrix_heading ?? ''}
+                                  onFocus={() => setFocusedBlockStyleTarget('pv_approval_matrix')}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    handleUpdateBlockConfig('pv_approval_matrix', { titleOverride: val });
+                                    setPaymentVoucherMetadata((prev) => ({
+                                      ...prev,
+                                      approval_matrix_heading: val
+                                    }));
+                                  }}
+                                  placeholder="Optional banner heading above 4-column matrix"
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                />
+                              </div>
+
+                              <div className="space-y-2">
+                                {[
+                                  {
+                                    colNum: 1,
+                                    visKey: 'col1',
+                                    headKey: 'col1_heading',
+                                    defaultHead: 'Prepared By',
+                                    nameKey: 'prepared_by_name',
+                                    defaultPlaceholder: 'Accounts Executive'
+                                  },
+                                  {
+                                    colNum: 2,
+                                    visKey: 'col2',
+                                    headKey: 'col2_heading',
+                                    defaultHead: 'Verified By',
+                                    nameKey: 'verified_by_name',
+                                    defaultPlaceholder: 'Finance Manager'
+                                  },
+                                  {
+                                    colNum: 3,
+                                    visKey: 'col3',
+                                    headKey: 'col3_heading',
+                                    defaultHead: 'Approved By',
+                                    nameKey: 'approved_by_name',
+                                    defaultPlaceholder: 'Authorized Director'
+                                  },
+                                  {
+                                    colNum: 4,
+                                    visKey: 'col4',
+                                    headKey: 'col4_heading',
+                                    defaultHead: 'Payee Acknowledged',
+                                    nameKey: 'received_by_name',
+                                    defaultPlaceholder: 'Beneficiary Representative'
+                                  }
+                                ].map((col) => {
+                                  const vis = selectedBlock.visibleFields || {};
+                                  const isColVisible = vis[col.visKey] !== false;
+                                  return (
+                                    <div
+                                      key={col.visKey}
+                                      className="p-2 rounded-lg bg-white border border-teal-200/80 space-y-1.5"
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <label className="flex items-center gap-1.5 text-[10px] font-bold text-teal-950 cursor-pointer">
+                                          <input
+                                            type="checkbox"
+                                            checked={isColVisible}
+                                            onChange={(e) =>
+                                              handleUpdateBlockConfig('pv_approval_matrix', {
+                                                visibleFields: {
+                                                  ...vis,
+                                                  [col.visKey]: e.target.checked
+                                                }
+                                              })
+                                            }
+                                            className="rounded border-teal-300 text-teal-600 cursor-pointer"
+                                          />
+                                          <span>Column {col.colNum}: {col.defaultHead}</span>
+                                        </label>
+                                      </div>
+                                      {isColVisible && (
+                                        <div className="grid grid-cols-2 gap-1.5">
+                                          <input
+                                            type="text"
+                                            value={(paymentVoucherMetadata as any)[col.headKey] ?? col.defaultHead}
+                                            onChange={(e) =>
+                                              setPaymentVoucherMetadata((prev) => ({
+                                                ...prev,
+                                                [col.headKey]: e.target.value
+                                              }))
+                                            }
+                                            placeholder={col.defaultHead}
+                                            className="w-full px-1.5 py-1 rounded border border-slate-200 text-[10.5px] font-semibold bg-slate-50"
+                                          />
+                                          <input
+                                            type="text"
+                                            value={(paymentVoucherMetadata as any)[col.nameKey] ?? ''}
+                                            onChange={(e) =>
+                                              setPaymentVoucherMetadata((prev) => ({
+                                                ...prev,
+                                                [col.nameKey]: e.target.value
+                                              }))
+                                            }
+                                            placeholder={col.defaultPlaceholder}
+                                            className="w-full px-1.5 py-1 rounded border border-slate-300 text-[10.5px] bg-white"
+                                          />
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </div>
                           )}

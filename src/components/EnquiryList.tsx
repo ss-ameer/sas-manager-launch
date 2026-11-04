@@ -558,15 +558,17 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
             );
             const docRefName = quoteDoc ? quoteDoc.name.replace('.pdf', '') : null;
 
-            const formalRef =
+            const canonicalEnquiryRef = QuotationRepository.sanitizeCanonicalQuoteRef(e.quote_ref_no);
+            const formalRef = QuotationRepository.sanitizeCanonicalQuoteRef(
               activeQuotation?.formatted_quote_ref ||
-              docRefName ||
-              (e.quote_ref_no && /^QT-\d+/i.test(e.quote_ref_no) ? e.quote_ref_no : null);
+                docRefName ||
+                (canonicalEnquiryRef && /^QT-\d+/i.test(canonicalEnquiryRef) ? canonicalEnquiryRef : null)
+            );
 
             const hasFormalQuote = Boolean(
               (activeQuotation && activeQuotation.status !== 'Draft') ||
               docRefName ||
-              (e.quote_ref_no && /^QT-\d+/i.test(e.quote_ref_no))
+              (canonicalEnquiryRef && /^QT-\d+/i.test(canonicalEnquiryRef))
             );
 
             if (hasFormalQuote && formalRef) {
@@ -617,14 +619,14 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                       {formattedVal ? ` • ${formattedVal}` : ''}
                     </span>
                   </span>
-                  {e.quote_ref_no &&
-                    e.quote_ref_no !== formalRef &&
-                    !formalRef.includes(e.quote_ref_no) && (
+                  {canonicalEnquiryRef &&
+                    canonicalEnquiryRef !== formalRef &&
+                    !formalRef.includes(canonicalEnquiryRef) && (
                       <span
                         className="text-[10px] font-mono text-slate-400 dark:text-slate-500 pl-0.5 truncate max-w-full"
-                        title={e.quote_ref_no}
+                        title={canonicalEnquiryRef}
                       >
-                        Ref: {e.quote_ref_no}
+                        Ref: {canonicalEnquiryRef}
                       </span>
                     )}
                 </div>
@@ -634,9 +636,9 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
             return (
               <span
                 className="font-mono text-xs font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 inline-block max-w-full truncate overflow-hidden text-ellipsis whitespace-nowrap"
-                title={e.quote_ref_no || '—'}
+                title={canonicalEnquiryRef || '—'}
               >
-                {e.quote_ref_no || '—'}
+                {canonicalEnquiryRef || '—'}
               </span>
             );
           })()}
@@ -1200,10 +1202,12 @@ export default function EnquiryList({
   const activeQuotationByEnquiryId = React.useMemo(() => {
     const map = new Map<string, Quotation>();
 
-    // Group all quotations by enquiry_id
+    // Group strictly commercial quotations ('quotation') by enquiry_id — never auxiliary DO/PO/REC/PV/MRN/DN
     const grouped = new Map<string, Quotation[]>();
     for (const q of quotations) {
       if (!q.enquiry_id || q.is_deleted) continue;
+      if ((q.document_type || 'quotation') !== 'quotation') continue;
+      if (/^(?:DO|PO|REC|PV|MRN|DN)-/i.test(q.formatted_quote_ref || q.quote_number || '')) continue;
       const list = grouped.get(q.enquiry_id) || [];
       list.push(q);
       grouped.set(q.enquiry_id, list);
@@ -2479,23 +2483,23 @@ export default function EnquiryList({
                       />
                     </th>
                   )}
-                  <th onClick={() => handleSort('sn')} className="py-2.5 px-2 w-[6%] text-center cursor-pointer hover:text-slate-800 transition">
+                  <th onClick={() => handleSort('sn')} className="py-2.5 px-1.5 w-[5%] text-center cursor-pointer hover:text-slate-800 transition">
                     <div className="flex items-center space-x-1 justify-center">
                       <span>S/N</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-2.5 w-[23%] truncate">Company Account</th>
-                  <th className="py-2.5 px-2 w-[20%] truncate">Quote Ref No</th>
+                  <th className="py-2.5 px-2.5 w-[20%] truncate">Company Account</th>
+                  <th className="py-2.5 px-2 w-[23%] truncate">Quote Ref No</th>
                   <th className="py-2.5 px-1.5 w-[6%] truncate">Rep</th>
-                  <th onClick={() => handleSort('enquiry_date')} className="py-2.5 px-2 w-[10%] cursor-pointer hover:text-slate-800 transition truncate">
+                  <th onClick={() => handleSort('enquiry_date')} className="py-2.5 px-2 w-[13%] cursor-pointer hover:text-slate-800 transition whitespace-nowrap">
                     <div className="flex items-center space-x-1">
-                      <span className="truncate">Received Date</span>
+                      <span className="whitespace-nowrap">Received Date</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-2 w-[13%] truncate">Status</th>
-                  <th onClick={() => handleSort('value_aed')} className="py-2.5 px-2 w-[11%] cursor-pointer hover:text-slate-800 transition text-right truncate">
+                  <th className="py-2.5 px-2 w-[12%] truncate">Status</th>
+                  <th onClick={() => handleSort('value_aed')} className="py-2.5 px-2 w-[10%] cursor-pointer hover:text-slate-800 transition text-right truncate">
                     <div className="flex items-center space-x-1 justify-end">
                       <span className="truncate">Enquiry Value</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
