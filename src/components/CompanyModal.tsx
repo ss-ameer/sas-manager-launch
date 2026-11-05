@@ -19,6 +19,7 @@ import {
   matchesNormalizedPhone,
   CompanySearchMatchHint,
   UnassignedIndustryPill,
+  CompaniesDirectoryTable,
   SearchMatchHint,
   CompanySearchMatchResult
 } from './CompaniesRegistry';
@@ -2327,168 +2328,19 @@ export default function CompanyModal({
           {filteredCompanies.length > 0 ? (
             <>
               {companyViewStyle === 'table' ? (
-              <div className="w-full overflow-x-auto bg-white border border-slate-200/80 rounded-2xl shadow-xs">
-                <table className="w-full text-left text-xs border-collapse font-sans">
-                      <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500">
-                        <tr>
-                          <th className="py-3 px-4">Ref ID</th>
-                          <th className="py-3 px-4">Company Name & City</th>
-                          <th className="py-3 px-4">Industry / Type</th>
-                          <th className="py-3 px-4">Relationship & Temp</th>
-                          <th className="py-3 px-4">Phones & Emails</th>
-                          <th className="py-3 px-4">Activity</th>
-                          <th className="py-3 px-4 text-right">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200 bg-white">
-                        {paginatedCompanies.map((c) => {
-                          const isSelected = selectedCompanyId === c.id;
-                          const linkCount = enquiries.filter((e) => e.company_id === c.id).length;
-                          const relVal = c.relationship || 'Prospect';
-                          const tempBadge = getCompanyTempBadge(c.temperature, c.is_dnc);
-                          const phones = getCompanyPhones(c);
-                          const emails = getCompanyEmails(c);
-                          const matchResult = (c.id ? searchEvaluationMap.get(c.id) : null) || evaluateCompanySearch(c, searchQuery, companies, contacts);
-                          const matchHint = matchResult.matchHint;
-                          const outreach = (c.id ? companyOutreachMap.get(c.id) : null) || {
-                            lastContactedAt: null,
-                            lastContactedDateStr: null,
-                            lastContactedChannel: null,
-                            totalCompletedTouches: 0,
-                            totalCalls: 0,
-                            outreachCadence: 'never' as OutreachCadence
-                          };
-                          const hasIndustry = Boolean(
-                            c.industry_parent ||
-                            c.business_type_raw ||
-                            (c as any).subType ||
-                            c.industry ||
-                            c.industry_type
-                          );
-
-                          return (
-                            <tr
-                              key={c.id}
-                              onClick={() => setSelectedCompanyId(c.id!)}
-                              className={`cursor-pointer border-l-2 transition-colors group ${
-                                isSelected
-                                  ? 'border-l-blue-600 bg-blue-50/50'
-                                  : 'border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80'
-                              }`}
-                            >
-                              <td className="py-3 px-4 font-mono text-xs text-blue-600 font-semibold whitespace-nowrap">
-                                {getReferenceId('CMP', c, companies)}
-                              </td>
-                              <td className="py-3 px-4">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <div className="font-semibold text-slate-900 font-sans text-sm">{c.display_name}</div>
-                                  {c.company_code && (
-                                    <span className="px-1.5 py-0.5 rounded font-mono text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 uppercase">
-                                      {c.company_code}
-                                    </span>
-                                  )}
-                                  <GoogleSearchButton companyName={c.display_name} location={c.city} size="xs" />
-                                  {c.isInternalCompany && (
-                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
-                                      <span>🏢</span>
-                                      <span>Our Company</span>
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="text-slate-600 text-xs flex items-center space-x-1 mt-0.5">
-                                  <MapPin className="w-3 h-3 text-slate-500 shrink-0" />
-                                  <span>{c.city || 'Unknown City'}, {c.country || 'UAE'}</span>
-                                </div>
-                                {matchHint && (
-                                  <div>
-                                    <CompanySearchMatchHint matchHint={matchHint} />
-                                  </div>
-                                )}
-                              </td>
-                              <td className="py-3 px-4">
-                                {hasIndustry ? (
-                                  <IndustryBadge company={c ? { ...c, business_type_raw: formatSubTypeName((c as any).subType || c.business_type_raw) } : c} />
-                                ) : (
-                                  <UnassignedIndustryPill />
-                                )}
-                              </td>
-                              <td className="py-3 px-4 whitespace-nowrap">
-                                <div className="flex flex-col gap-1.5 items-start">
-                                  <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wide bg-blue-100 text-blue-800 border border-blue-200">
-                                    {relVal}
-                                  </span>
-                                  <TemperatureBadge
-                                    companyId={c.id}
-                                    temperature={c.temperature}
-                                    isDnc={c.is_dnc}
-                                    variant="pill"
-                                    companies={companies}
-                                    setCompanies={setCompanies}
-                                  />
-                                </div>
-                              </td>
-                              <td className="py-3 px-4 text-xs font-mono">
-                                {phones.length > 0 ? (
-                                  <div className="truncate max-w-[180px] text-slate-900 font-mono text-xs font-medium" title={phones[0].number}>
-                                    {phones[0].number}
-                                  </div>
-                                ) : (
-                                  <div className="text-xs font-medium text-slate-500 not-italic">No phone saved</div>
-                                )}
-                                {emails.length > 0 ? (
-                                  <div className="truncate max-w-[180px] text-slate-600 text-xs font-mono mt-0.5" title={emails[0].email}>
-                                    {emails[0].email}
-                                  </div>
-                                ) : (
-                                  <div className="text-xs font-medium text-slate-500 not-italic mt-0.5">No email addresses saved</div>
-                                )}
-                              </td>
-                              <td className="py-3 px-4 whitespace-nowrap">
-                                <div className="flex flex-col items-start gap-1">
-                                  {outreach.outreachCadence === 'never' ? (
-                                    <span
-                                      className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200"
-                                      title="No completed outreach or activity logs found for this account"
-                                    >
-                                      Never Contacted
-                                    </span>
-                                  ) : (
-                                    <span
-                                      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
-                                        outreach.outreachCadence === 'recent'
-                                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                          : 'bg-amber-50 text-amber-700 border-amber-200'
-                                      }`}
-                                      title={`Last contacted on ${new Date(outreach.lastContactedAt!).toLocaleString()}${outreach.lastContactedChannel ? ` via ${outreach.lastContactedChannel}` : ''}`}
-                                    >
-                                      <span className="w-1.5 h-1.5 rounded-full bg-current shrink-0" />
-                                      <span>Last: {formatRelativeOutreachDate(outreach.lastContactedAt)}</span>
-                                    </span>
-                                  )}
-                                  <div className="text-[11px] text-slate-500 font-medium">
-                                    {outreach.totalCalls} Calls · {linkCount} Enquiries
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="py-3 px-4 text-right whitespace-nowrap">
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedCompanyId(c.id!);
-                                  }}
-                                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
-                                >
-                                  {isSelected ? 'Inspecting' : 'Inspect'}
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
+                <CompaniesDirectoryTable
+                  paginatedCompanies={paginatedCompanies}
+                  companies={companies}
+                  contacts={contacts}
+                  enquiries={enquiries}
+                  selectedCompanyId={selectedCompanyId}
+                  setSelectedCompanyId={setSelectedCompanyId}
+                  setCompanies={setCompanies}
+                  searchQuery={searchQuery}
+                  searchEvaluationMap={searchEvaluationMap}
+                  companyOutreachMap={companyOutreachMap}
+                />
+              ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {paginatedCompanies.map((c) => {
                       const isSelected = selectedCompanyId === c.id;
