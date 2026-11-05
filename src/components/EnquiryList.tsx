@@ -19,6 +19,7 @@ import {
   X,
   Check,
   Trash,
+  Pencil,
   ChevronDown,
   Clock,
   RotateCcw,
@@ -28,7 +29,6 @@ import {
   CheckCircle2,
   Activity
 } from 'lucide-react';
-import SearchResultCounter from './common/SearchResultCounter';
 import { db, safeSetDoc, safeDeleteDoc, safeUpdateDoc } from '../firebase';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
@@ -46,10 +46,7 @@ import {
   getEffectiveWorkspaceRole,
   isCreatorOnlyViewer
 } from '../utils/permissions';
-import TemperatureBadge from './TemperatureBadge';
-import { IndustryBadge } from '../utils/taxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
-import HoverScrollText from './common/HoverScrollText';
 import { InitiateActivityOptions, useActivityLauncher } from '../context/ActivityLauncherContext';
 import Company360Modal from './Company360Modal';
 import { QuickClaimModal } from './QuickClaimModal';
@@ -121,6 +118,31 @@ export const formatRelativeTime = (isoString?: string): string => {
     if (diffDays === 1) return 'yesterday';
     if (diffDays < 7) return `${diffDays}d ago`;
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return '';
+  }
+};
+
+export const formatEnquiryRelativeAge = (dateStr?: string): string => {
+  if (!dateStr) return '';
+  try {
+    let d: Date;
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    } else {
+      d = new Date(dateStr);
+    }
+    if (isNaN(d.getTime())) return '';
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const targetStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const diffDays = Math.round((todayStart.getTime() - targetStart.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays <= 0) return 'Today';
+    if (diffDays === 1) return '1d ago';
+    if (diffDays < 30) return `${diffDays}d ago`;
+    if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`;
+    return `${Math.floor(diffDays / 365)}y ago`;
   } catch {
     return '';
   }
@@ -412,18 +434,30 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
 
   const spId = resolveSalespersonIdentifier(e);
   const spName = resolveSalespersonName(e);
-  const initials = salesperson
+  const rawInitials = salesperson
     ? (salesperson.initials || getInitials(salesperson.full_name || (salesperson as any).name || ''))
-    : (spName || spId || '—');
-  const titleText = salesperson?.full_name || (salesperson as any)?.name || spName || spId || '';
+    : (spName ? getInitials(spName) : spId || '—');
+  const cleanInitials =
+    rawInitials.toUpperCase() === 'SYSTEM'
+      ? 'SYS'
+      : rawInitials.length > 3
+      ? getInitials(rawInitials).slice(0, 3).toUpperCase()
+      : rawInitials.toUpperCase();
+  const baseRepTitle = salesperson?.full_name || (salesperson as any)?.name || spName || spId || 'Unassigned';
+  const repTooltip = isCreatorOnly
+    ? `${baseRepTitle} • Logged by you on behalf of the assigned salesperson`
+    : `Assigned Rep: ${baseRepTitle}`;
 
   const relTime = formatRelativeTime(e.statusUpdatedAt || e.sentAt || e.wonAt || e.lostAt || e.updatedAt);
   const lastUpdater = e.statusUpdatedBy || (e.statusHistory && e.statusHistory.length > 0 ? e.statusHistory[e.statusHistory.length - 1].updatedBy : undefined);
+  const shortUpdater = lastUpdater ? (lastUpdater.includes('@') ? lastUpdater.split('@')[0] : lastUpdater) : '';
+  const statusSubline = [relTime, shortUpdater].filter(Boolean).join(' · ');
   const tooltipTitle = e.statusUpdatedAt
     ? `Status: ${e.status} • Updated on ${new Date(e.statusUpdatedAt).toLocaleString()}${lastUpdater ? ` by ${lastUpdater}` : ''}`
     : `Status: ${e.status} • Click to update`;
 
   const { prefix, formattedAmount } = getEnquiryCurrencyParts(e);
+  const dateRelativeAge = formatEnquiryRelativeAge(e.enquiry_date);
 
   const handleRowClick = (evt: React.MouseEvent<HTMLTableRowElement>) => {
     const selection = window.getSelection()?.toString();
@@ -462,29 +496,33 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
       aria-label={`View details for enquiry #${e.sn || ''}`}
       onClick={handleRowClick}
       onKeyDown={handleRowKeyDown}
-      className={`cursor-pointer border-b border-slate-200/80 dark:border-slate-800/80 border-l-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:bg-slate-50/90 dark:focus-visible:bg-slate-800/70 group ${
+      className={`cursor-pointer border-b border-slate-200/80 dark:border-slate-800/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:bg-slate-50/90 dark:focus-visible:bg-slate-800/70 group ${
         isGapReserved ? 'opacity-80 bg-amber-50/20 dark:bg-amber-950/15 border-dashed' : ''
       } ${
         isChecked && isMarkingMode
-          ? 'border-l-blue-600 bg-blue-50/50 dark:bg-blue-950/30 font-medium'
-          : 'border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 dark:hover:bg-slate-800/60'
+          ? 'bg-blue-50/50 dark:bg-blue-950/30 font-medium'
+          : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/60'
       }`}
     >
       {isMarkingMode && (
-        <td className="py-2.5 px-2.5 text-center overflow-hidden" onClick={(evt) => evt.stopPropagation()}>
+        <td className="py-3 px-2.5 text-center overflow-hidden align-middle" onClick={(evt) => evt.stopPropagation()}>
           <input
             type="checkbox"
             checked={isChecked}
             onClick={(evt) => evt.stopPropagation()}
             onChange={(chk) => onToggleSelect(e.id!, chk.target.checked)}
-            className="rounded border-slate-200 dark:border-slate-700 text-slate-900 focus:ring-slate-900 cursor-pointer"
+            className="rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
           />
         </td>
       )}
-      <td className="py-2.5 px-2 font-mono text-xs text-slate-500 dark:text-slate-400 font-semibold whitespace-nowrap text-center overflow-hidden">
+
+      {/* 1. S/N */}
+      <td className="py-3 px-2 font-mono text-xs text-slate-500 dark:text-slate-400 font-semibold whitespace-nowrap text-center overflow-hidden align-middle tabular-nums">
         #{e.sn}
       </td>
-      <td className="py-2.5 px-2.5 font-semibold text-slate-900 dark:text-slate-100 overflow-hidden" title={companyName}>
+
+      {/* 2. COMPANY ACCOUNT (Strict 2-Line Hierarchy) */}
+      <td className="py-3 px-3 overflow-hidden align-middle" title={companyName}>
         {isGapReserved ? (
           <div className="flex flex-col gap-0.5 min-w-0 overflow-hidden">
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-400 font-mono truncate">
@@ -492,15 +530,15 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
               <span className="truncate">Reserved Sequence #{e.sn}</span>
             </span>
             <span
-              className="text-[11px] font-normal text-slate-500 truncate overflow-hidden text-ellipsis whitespace-nowrap"
+              className="text-xs font-normal text-slate-500 dark:text-slate-400 truncate"
               title={cleanGapMemo || 'Unassigned sequence placeholder'}
             >
               {cleanGapMemo || 'Unassigned sequence placeholder'}
             </span>
           </div>
         ) : (
-          <div className="flex flex-col gap-1 min-w-0 overflow-hidden">
-            <div className="flex items-center space-x-1.5 min-w-0 overflow-hidden">
+          <div className="flex flex-col gap-0.5 min-w-0 overflow-hidden">
+            <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
               <span
                 onClick={(evt) => {
                   if (isClickable) {
@@ -509,16 +547,19 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                   }
                 }}
                 title={companyName}
-                className={`text-sm font-semibold flex-1 min-w-0 truncate overflow-hidden text-ellipsis whitespace-nowrap ${
+                className={`text-sm font-semibold truncate ${
                   isClickable
                     ? 'text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer'
-                    : 'text-slate-700 dark:text-slate-300'
+                    : 'text-slate-800 dark:text-slate-200'
                 }`}
               >
                 {companyName}
               </span>
               {companyName && companyName !== 'Unknown Client' && (
-                <div className="shrink-0" onClick={(evt) => evt.stopPropagation()}>
+                <div
+                  className="shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+                  onClick={(evt) => evt.stopPropagation()}
+                >
                   <GoogleSearchButton
                     companyName={companyName}
                     location={resolvedCompany?.city || (companies || []).find((c) => c && c.id === e.company_id)?.city}
@@ -527,152 +568,136 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                 </div>
               )}
             </div>
-            <div className="flex items-center space-x-1.5 flex-wrap gap-y-1" onClick={(evt) => evt.stopPropagation()}>
-              {resolvedCompany && (
-                <>
-                  <TemperatureBadge
-                    companyId={resolvedCompany.id}
-                    temperature={resolvedCompany.temperature}
-                    isDnc={resolvedCompany.is_dnc}
-                    variant="compact"
-                    companies={companies || []}
-                    setCompanies={setCompanies}
-                  />
-                  <IndustryBadge company={resolvedCompany} size="sm" />
-                </>
-              )}
-              {e.enquiry_source && (
-                <span
-                  className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-sans font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/80 dark:border-slate-700/60"
-                  title={`Enquiry Source: ${normalizeEnquirySource(e.enquiry_source)}`}
-                >
-                  {normalizeEnquirySource(e.enquiry_source)}
-                </span>
-              )}
-            </div>
+            {(() => {
+              const isDnc = Boolean(resolvedCompany?.is_dnc);
+              const rawTemp = resolvedCompany?.temperature || 'Warm';
+              const tempLabel = isDnc ? 'DNC' : rawTemp;
+              const tempColorClass = isDnc
+                ? 'text-rose-600 dark:text-rose-400'
+                : rawTemp === 'Hot'
+                ? 'text-orange-600 dark:text-orange-400'
+                : rawTemp === 'Cold'
+                ? 'text-sky-600 dark:text-sky-400'
+                : 'text-amber-600 dark:text-amber-400';
+
+              const rawIndustry = (resolvedCompany?.industry || (resolvedCompany as any)?.category || '').trim();
+              const cleanIndustry =
+                rawIndustry && rawIndustry.toLowerCase() !== 'unknown' && rawIndustry.toLowerCase() !== 'general'
+                  ? rawIndustry
+                  : '';
+              const cleanSource = e.enquiry_source ? normalizeEnquirySource(e.enquiry_source) : '';
+              const secondaryParts = [cleanIndustry, cleanSource].filter(Boolean);
+
+              return (
+                <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 truncate min-w-0">
+                  {resolvedCompany && (
+                    <span className={`inline-flex items-center gap-1 font-medium shrink-0 ${tempColorClass}`}>
+                      <span className="text-[9px] leading-none">●</span>
+                      <span>{tempLabel}</span>
+                    </span>
+                  )}
+                  {resolvedCompany && secondaryParts.length > 0 && (
+                    <span className="text-slate-300 dark:text-slate-600 shrink-0" aria-hidden="true">·</span>
+                  )}
+                  {secondaryParts.length > 0 && (
+                    <span className="truncate" title={secondaryParts.join(' · ')}>
+                      {secondaryParts.join(' · ')}
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
       </td>
-      <td className="py-2.5 px-2 whitespace-nowrap overflow-hidden">
-        <div className="flex flex-col items-start gap-1 min-w-0 max-w-full overflow-hidden">
-          {(() => {
-            // Find issued formal quotation attachment reference if present
-            const quoteDoc = e.attachments?.find((att) =>
-              att.name?.startsWith('QT-') && att.name?.endsWith('.pdf')
-            );
-            const docRefName = quoteDoc ? quoteDoc.name.replace('.pdf', '') : null;
 
-            const canonicalEnquiryRef = QuotationRepository.sanitizeCanonicalQuoteRef(e.quote_ref_no);
-            const formalRef = QuotationRepository.sanitizeCanonicalQuoteRef(
-              activeQuotation?.formatted_quote_ref ||
-                docRefName ||
-                (canonicalEnquiryRef && /^QT-\d+/i.test(canonicalEnquiryRef) ? canonicalEnquiryRef : null)
-            );
+      {/* 3. QUOTE REF NO (Single Clean Monospace Badge) */}
+      <td className="py-3 px-2.5 whitespace-nowrap overflow-hidden align-middle">
+        {(() => {
+          const quoteDoc = e.attachments?.find((att) =>
+            att.name?.startsWith('QT-') && att.name?.endsWith('.pdf')
+          );
+          const docRefName = quoteDoc ? quoteDoc.name.replace('.pdf', '') : null;
 
-            const hasFormalQuote = Boolean(
-              (activeQuotation && activeQuotation.status !== 'Draft') ||
+          const canonicalEnquiryRef = QuotationRepository.sanitizeCanonicalQuoteRef(e.quote_ref_no);
+          const formalRef = QuotationRepository.sanitizeCanonicalQuoteRef(
+            activeQuotation?.formatted_quote_ref ||
               docRefName ||
-              (canonicalEnquiryRef && /^QT-\d+/i.test(canonicalEnquiryRef))
-            );
+              (canonicalEnquiryRef && /^QT-\d+/i.test(canonicalEnquiryRef) ? canonicalEnquiryRef : null)
+          );
 
-            if (hasFormalQuote && formalRef) {
-              const quoteStatus =
-                activeQuotation?.status ||
-                (e.status === 'Won / Order Confirmed' || e.status === 'Won / Approved'
-                  ? 'Approved'
-                  : e.status === 'Lost / Cancelled' || e.status === 'Lost'
-                  ? 'Declined'
-                  : 'Sent');
+          const hasFormalQuote = Boolean(
+            (activeQuotation && activeQuotation.status !== 'Draft') ||
+            docRefName ||
+            (canonicalEnquiryRef && /^QT-\d+/i.test(canonicalEnquiryRef))
+          );
 
-              const isApproved = quoteStatus === 'Approved';
-              const isDeclined = quoteStatus === 'Declined';
+          const displayRef = (hasFormalQuote && formalRef) ? formalRef : (canonicalEnquiryRef || '—');
 
-              const totalVal = activeQuotation
-                ? Number(activeQuotation.grand_total || 0)
-                : Number(e.value_aed || 0);
-              const currency = activeQuotation?.currency || e.currency || 'AED';
-
-              const formattedVal =
-                totalVal > 0
-                  ? `${currency} ${totalVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                  : null;
-
-              const badgeColorClass = isApproved
-                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60'
-                : isDeclined
-                ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-800/60'
-                : 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60';
-
-              return (
-                <div className="flex flex-col items-start gap-0.5 min-w-0 max-w-full overflow-hidden">
-                  <span
-                    className={`inline-flex items-center gap-1.5 font-mono text-[11px] font-bold px-2 py-0.5 rounded border transition-colors max-w-full overflow-hidden ${badgeColorClass}`}
-                    title={`Formal Quotation (${quoteStatus}): ${formalRef}${formattedVal ? ` • ${formattedVal}` : ''}`}
-                  >
-                    <FileText
-                      className={`w-3 h-3 shrink-0 ${
-                        isApproved
-                          ? 'text-emerald-600 dark:text-emerald-400'
-                          : isDeclined
-                          ? 'text-rose-500 dark:text-rose-400'
-                          : 'text-indigo-600 dark:text-indigo-400'
-                      }`}
-                    />
-                    <span className="truncate overflow-hidden text-ellipsis whitespace-nowrap">
-                      {formalRef}
-                      {formattedVal ? ` • ${formattedVal}` : ''}
-                    </span>
-                  </span>
-                  {canonicalEnquiryRef &&
-                    canonicalEnquiryRef !== formalRef &&
-                    !formalRef.includes(canonicalEnquiryRef) && (
-                      <span
-                        className="text-[10px] font-mono text-slate-400 dark:text-slate-500 pl-0.5 truncate max-w-full"
-                        title={canonicalEnquiryRef}
-                      >
-                        Ref: {canonicalEnquiryRef}
-                      </span>
-                    )}
-                </div>
-              );
-            }
+          if (hasFormalQuote && formalRef) {
+            const quoteStatus =
+              activeQuotation?.status ||
+              (e.status === 'Won / Order Confirmed' || e.status === 'Won / Approved'
+                ? 'Approved'
+                : e.status === 'Lost / Cancelled' || e.status === 'Lost'
+                ? 'Declined'
+                : 'Sent');
+            const isApproved = quoteStatus === 'Approved';
+            const isDeclined = quoteStatus === 'Declined';
+            const badgeColorClass = isApproved
+              ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60'
+              : isDeclined
+              ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-800/60'
+              : 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60';
 
             return (
               <span
-                className="font-mono text-xs font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 inline-block max-w-full truncate overflow-hidden text-ellipsis whitespace-nowrap"
-                title={canonicalEnquiryRef || '—'}
+                className={`inline-flex items-center gap-1.5 font-mono text-xs font-medium px-2 py-0.5 rounded-md border max-w-full truncate ${badgeColorClass}`}
+                title={`Formal Quotation (${quoteStatus}): ${formalRef}${canonicalEnquiryRef && canonicalEnquiryRef !== formalRef ? ` • Enquiry Ref: ${canonicalEnquiryRef}` : ''}`}
               >
-                {canonicalEnquiryRef || '—'}
+                <span className="truncate">{formalRef}</span>
               </span>
             );
-          })()}
-        </div>
-      </td>
-      <td className="py-2.5 px-1.5 whitespace-nowrap overflow-hidden">
-        <div className="flex flex-col items-start gap-0.5 min-w-0 max-w-full overflow-hidden">
-          <span
-            className="font-mono text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100/80 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200/60 dark:border-slate-700 truncate max-w-full"
-            title={titleText}
-          >
-            {initials}
-          </span>
-          {isCreatorOnly && (
+          }
+
+          return (
             <span
-              className="text-[9px] font-sans font-semibold px-1.5 py-0.2 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 whitespace-nowrap truncate max-w-full"
-              title="Visible to you because you logged this enquiry on behalf of the assigned salesperson"
+              className="font-mono text-xs font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700/60 inline-block max-w-full truncate"
+              title={displayRef}
             >
-              Logged by You
+              {displayRef}
+            </span>
+          );
+        })()}
+      </td>
+
+      {/* 4. REP (Centered 2-3 Char Initials Badge Only) */}
+      <td className="py-3 px-1.5 whitespace-nowrap text-center overflow-hidden align-middle">
+        <span
+          className="inline-flex items-center justify-center min-w-[28px] h-6 px-1.5 rounded-md font-mono text-[11px] font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700"
+          title={repTooltip}
+        >
+          {cleanInitials}
+        </span>
+      </td>
+
+      {/* 5. DATE (Line 1: Formatted Date, Line 2: Relative Age) */}
+      <td className="py-3 px-2 whitespace-nowrap overflow-hidden align-middle">
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <span className="text-xs font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap truncate">
+            {formatEnquiryDate(e.enquiry_date)}
+          </span>
+          {dateRelativeAge && (
+            <span className="text-[11px] text-slate-400 dark:text-slate-500 whitespace-nowrap truncate">
+              {dateRelativeAge}
             </span>
           )}
         </div>
       </td>
-      <td className="py-2.5 px-2 whitespace-nowrap overflow-hidden">
-        <span className="font-mono text-xs text-slate-600 dark:text-slate-300 font-medium truncate block">
-          {formatEnquiryDate(e.enquiry_date)}
-        </span>
-      </td>
-      <td className="py-2.5 px-2 whitespace-nowrap overflow-hidden" onClick={(evt) => evt.stopPropagation()}>
-        <div className="flex flex-col items-start gap-1 max-w-full overflow-hidden">
+
+      {/* 6. STATUS (Line 1: Status Pill, Line 2: Clean Timestamp · Author) */}
+      <td className="py-3 px-2 whitespace-nowrap overflow-hidden align-middle" onClick={(evt) => evt.stopPropagation()}>
+        <div className="flex flex-col items-start gap-0.5 max-w-full overflow-hidden">
           <div className="relative inline-flex items-center max-w-full">
             <select
               value={normalizeEnquiryStatus(e.status)}
@@ -682,7 +707,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                 onStatusChange(e, evt.target.value);
               }}
               title={tooltipTitle}
-              className={`appearance-none cursor-pointer pr-5 pl-2 py-0.5 rounded-full text-[10.5px] font-semibold uppercase tracking-wider transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/40 shadow-2xs hover:brightness-95 max-w-full truncate ${getStatusBadgeClass(e.status)}`}
+              className={`appearance-none cursor-pointer pr-5 pl-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-tight transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/40 hover:brightness-95 max-w-full truncate ${getStatusBadgeClass(e.status)}`}
             >
               {PIPELINE_STATUS_GROUPS.map((group) => (
                 <optgroup
@@ -701,7 +726,6 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                   ))}
                 </optgroup>
               ))}
-              {/* Fallback for any legacy or custom status not in canonical groups */}
               {e.status && !PIPELINE_STATUS_GROUPS.some((g) => (g.options as readonly string[]).includes(normalizeEnquiryStatus(e.status))) && (
                 <optgroup label="Other / Legacy" className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold">
                   <option value={e.status} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs">
@@ -713,25 +737,21 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
             <ChevronDown className="w-3 h-3 pointer-events-none absolute right-1.5 text-current opacity-60" />
           </div>
 
-          {relTime && (
+          {statusSubline && (
             <span
-              className="inline-flex items-center space-x-1 text-[10px] text-slate-400 dark:text-slate-500 font-mono tracking-tight max-w-full truncate"
+              className="text-[11px] text-slate-400 dark:text-slate-500 truncate max-w-full pl-0.5"
               title={tooltipTitle}
             >
-              <Clock className="w-2.5 h-2.5 opacity-70 shrink-0" />
-              <span className="truncate">{relTime}</span>
-              {lastUpdater && (
-                <span className="text-slate-400 dark:text-slate-500 font-sans font-medium truncate" title={`By ${lastUpdater}`}>
-                  • {lastUpdater.includes('@') ? lastUpdater.split('@')[0] : lastUpdater}
-                </span>
-              )}
+              {statusSubline}
             </span>
           )}
         </div>
       </td>
-      <td className="py-2.5 px-2.5 text-right whitespace-nowrap font-mono tabular-nums overflow-hidden">
+
+      {/* 7. VALUE (Generous pr-5 Right Gutter, Line 1: Currency + Amount, Line 2: Item/File Summary) */}
+      <td className="py-3 pl-2 pr-5 text-right whitespace-nowrap overflow-hidden align-middle">
         <div className="flex flex-col items-end gap-0.5 min-w-0 max-w-full overflow-hidden">
-          <div className="inline-flex items-baseline justify-end max-w-full truncate">
+          <div className="inline-flex items-baseline justify-end max-w-full truncate font-mono tabular-nums">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 mr-1">{prefix}</span>
             <span className="text-sm font-bold text-slate-900 dark:text-slate-100 tabular-nums truncate">{formattedAmount}</span>
           </div>
@@ -762,7 +782,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
             if (parts.length === 0) return null;
             return (
               <span
-                className="text-[10px] font-mono tabular-nums text-slate-400 dark:text-slate-500 truncate max-w-full block"
+                className="text-[11px] font-sans tabular-nums text-slate-400 dark:text-slate-500 truncate max-w-full block"
                 title={parts.join(' · ')}
               >
                 {parts.join(' · ')}
@@ -771,45 +791,38 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           })()}
         </div>
       </td>
-      <td className="py-2.5 pl-2 pr-3 text-center whitespace-nowrap overflow-hidden" onClick={(evt) => evt.stopPropagation()}>
-        <div className="flex items-center justify-end space-x-1" onClick={(evt) => evt.stopPropagation()}>
+
+      {/* 8. ACTIONS (Crisp Primary [Open] + Compact w-7 h-7 Icon Buttons) */}
+      <td className="py-3 pl-2 pr-3 text-right whitespace-nowrap overflow-hidden align-middle" onClick={(evt) => evt.stopPropagation()}>
+        <div className="inline-flex items-center justify-end gap-1" onClick={(evt) => evt.stopPropagation()}>
           <button
             type="button"
             onClick={(evt) => {
               evt.stopPropagation();
               if (e.id) onSelectEnquiry(e.id);
             }}
-            className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
-            title="View enquiry details"
+            className="h-7 px-2.5 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center justify-center cursor-pointer shrink-0"
+            title="Open enquiry details"
           >
-            Details
+            Open
           </button>
           {canEdit && (
-            isGapReserved ? (
-              <button
-                type="button"
-                onClick={(evt) => {
-                  evt.stopPropagation();
-                  onEditEnquiry(e);
-                }}
-                className="px-2 py-1 text-[11px] font-semibold rounded-lg bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 transition shadow-2xs cursor-pointer inline-flex items-center gap-1"
-                title="Claim and populate details for this reserved gap sequence"
-              >
-                <span>Claim Gap</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={(evt) => {
-                  evt.stopPropagation();
-                  onEditEnquiry(e);
-                }}
-                className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-blue-50/70 dark:bg-blue-950/40 hover:bg-blue-100/80 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 transition inline-flex items-center gap-1 cursor-pointer"
-                title="Edit enquiry"
-              >
-                Edit
-              </button>
-            )
+            <button
+              type="button"
+              onClick={(evt) => {
+                evt.stopPropagation();
+                onEditEnquiry(e);
+              }}
+              className={`w-7 h-7 rounded-lg inline-flex items-center justify-center border transition cursor-pointer shrink-0 ${
+                isGapReserved
+                  ? 'bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-700/60'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 border-transparent hover:border-blue-200/80 dark:hover:border-blue-800/60'
+              }`}
+              title={isGapReserved ? 'Claim reserved gap sequence' : 'Edit enquiry'}
+              aria-label={isGapReserved ? 'Claim reserved gap sequence' : 'Edit enquiry'}
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
           )}
           {canDelete && (
             <button
@@ -818,8 +831,9 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                 evt.stopPropagation();
                 onDeleteEnquiry(e);
               }}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 dark:hover:border-rose-800/60 transition cursor-pointer shrink-0"
-              title={isGapReserved ? "Delete Reserved Gap" : "Delete Record"}
+              className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 dark:hover:border-rose-800/60 transition cursor-pointer shrink-0"
+              title={isGapReserved ? 'Delete reserved gap' : 'Delete enquiry'}
+              aria-label={isGapReserved ? 'Delete reserved gap' : 'Delete enquiry'}
             >
               <Trash className="w-3.5 h-3.5" />
             </button>
@@ -2237,6 +2251,16 @@ export default function EnquiryList({
             <Filter className="w-4 h-4" />
             <span>Faceted Search & Filters</span>
           </div>
+          {(activeEnquiryFilterLabels.length > 0 || searchInput.trim() !== '') && (
+            <button
+              type="button"
+              onClick={handleClearEnquiryFilters}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition cursor-pointer"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Reset Filters</span>
+            </button>
+          )}
         </div>
 
         {/* Quotation Lifecycle Filter Bar */}
@@ -2376,22 +2400,7 @@ export default function EnquiryList({
           </div>
         </div>
 
-        {/* Standard Search Result Counter & Filter Status Banner */}
-        <SearchResultCounter
-          totalCount={authorizedEnquiries.length}
-          filteredCount={filteredEnquiries.length}
-          searchQuery={searchInput}
-          entityLabel="Enquiries & Quotes"
-          singularEntityLabel="Enquiry"
-          onClear={handleClearEnquiryFilters}
-          activeFilterLabels={activeEnquiryFilterLabels}
-          alwaysShow={true}
-          scopeLabel={
-            user?.role !== 'Admin' && user?.role !== 'admin' && user?.role !== 'Owner' && user?.role !== 'owner' && !user?.is_super_admin
-              ? 'Authorized Scope'
-              : undefined
-          }
-        />
+        {/* Redundant SearchResultCounter removed per clean B2B table overhaul */}
 
         {/* Compact, Dismissible Missing S/N Sequence Gap Indicator (hidden when inline gap rows are already rendered in current table view) */}
         {detectedWorkspaceSnGaps.length > 0 && !hasInlineGapRowsInCurrentView && !isSnGapBannerDismissed && (
@@ -2454,53 +2463,12 @@ export default function EnquiryList({
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-sm overflow-hidden">
         {filteredEnquiries.length > 0 ? (
           <>
-            {/* Table Utility & Marking Controls Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 text-xs">
-              <div className="flex items-center space-x-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = !isMarkingMode;
-                    setIsMarkingMode(next);
-                    if (!next) setSelectedEnquiryIds([]);
-                  }}
-                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl font-semibold text-xs transition border cursor-pointer ${
-                    isMarkingMode
-                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                      : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }`}
-                  title="Toggle row selection checkboxes for bulk actions"
-                >
-                  <CheckSquare className="w-3.5 h-3.5" />
-                  <span>{isMarkingMode ? 'Done Marking' : 'Marking Mode'}</span>
-                  {isMarkingMode && selectedEnquiryIds.length > 0 && (
-                    <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white text-blue-700 text-[10px] font-mono leading-none">
-                      {selectedEnquiryIds.length}
-                    </span>
-                  )}
-                </button>
-                {isMarkingMode ? (
-                  <span className="text-slate-500 dark:text-slate-400 text-[11px]">
-                    Click checkboxes to mark enquiries for batch deletion.
-                  </span>
-                ) : (
-                  <span className="text-slate-400 dark:text-slate-500 text-[11px] hidden sm:inline">
-                    Marking is optional. Click &ldquo;Marking Mode&rdquo; to select multiple rows.
-                  </span>
-                )}
-              </div>
-
-              <div className="text-slate-500 dark:text-slate-400 text-xs">
-                Showing <span className="font-semibold text-slate-800 dark:text-slate-200 font-mono">{filteredEnquiries.length}</span> enquiries
-              </div>
-            </div>
-
-            <div className="w-full overflow-x-hidden max-h-[calc(100vh-270px)] overflow-y-auto relative border-b border-slate-200 dark:border-slate-800">
-            <table className="w-full table-fixed text-left border-collapse">
-              <thead className="bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 sticky top-0 z-10 shadow-2xs select-none">
+            <div className="w-full overflow-x-auto max-h-[calc(100vh-250px)] overflow-y-auto relative border-b border-slate-200 dark:border-slate-800">
+            <table className="w-full min-w-[980px] table-fixed text-left border-collapse">
+              <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 sticky top-0 z-20 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
                 <tr>
                   {isMarkingMode && (
-                    <th className="py-2.5 px-2 w-9 text-center">
+                    <th className="py-2.5 px-2 w-9 text-center bg-slate-50 dark:bg-slate-900">
                       <input
                         type="checkbox"
                         checked={paginatedEnquiries.length > 0 && paginatedEnquiries.every((e) => selectedEnquiryIds.includes(e.id!))}
@@ -2518,34 +2486,34 @@ export default function EnquiryList({
                             setSelectedEnquiryIds((prev) => prev.filter((id) => !pageIds.includes(id)));
                           }
                         }}
-                        className="rounded border-slate-200 text-slate-900 focus:ring-slate-900 cursor-pointer"
+                        className="rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
                         title="Select all on current page"
                       />
                     </th>
                   )}
-                  <th onClick={() => handleSort('sn')} className="py-2.5 px-1.5 w-[5%] text-center cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition">
+                  <th onClick={() => handleSort('sn')} className="py-2.5 px-2 w-[6%] text-center cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition bg-slate-50 dark:bg-slate-900 whitespace-nowrap">
                     <div className="flex items-center space-x-1 justify-center">
                       <span>S/N</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-2.5 w-[23%] truncate">Company Account</th>
-                  <th className="py-2.5 px-2 w-[19%] truncate">Quote Ref No</th>
-                  <th className="py-2.5 px-1.5 w-[6%] truncate">Rep</th>
-                  <th onClick={() => handleSort('enquiry_date')} className="py-2.5 px-2 w-[10%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition whitespace-nowrap">
+                  <th className="py-2.5 px-3 w-[25%] truncate bg-slate-50 dark:bg-slate-900">Company Account</th>
+                  <th className="py-2.5 px-2.5 w-[19%] truncate bg-slate-50 dark:bg-slate-900">Quote Ref No</th>
+                  <th className="py-2.5 px-1.5 w-[6%] text-center truncate bg-slate-50 dark:bg-slate-900">Rep</th>
+                  <th onClick={() => handleSort('enquiry_date')} className="py-2.5 px-2 w-[10%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition whitespace-nowrap bg-slate-50 dark:bg-slate-900">
                     <div className="flex items-center space-x-1">
-                      <span className="truncate">Received Date</span>
+                      <span>Date</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-2 w-[14%] truncate">Status</th>
-                  <th onClick={() => handleSort('value_aed')} className="py-2.5 px-2 w-[12%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right truncate">
+                  <th className="py-2.5 px-2 w-[13%] truncate bg-slate-50 dark:bg-slate-900">Status</th>
+                  <th onClick={() => handleSort('value_aed')} className="py-2.5 pl-2 pr-5 w-[11%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">
                     <div className="flex items-center space-x-1 justify-end">
-                      <span className="truncate">Enquiry Value</span>
+                      <span>Value</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 pl-1 pr-3 w-[11%] text-right truncate">Actions</th>
+                  <th className="py-2.5 pl-2 pr-3 w-[10%] text-right truncate bg-slate-50 dark:bg-slate-900">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans">
@@ -2979,51 +2947,64 @@ export default function EnquiryList({
         </div>
       )}
 
-      {/* FLOATING BULK DELETION ACTION BAR */}
-      {isMarkingMode && selectedEnquiryIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 bg-slate-950 text-white rounded-2xl shadow-2xl py-3 px-5 border border-slate-800 flex items-center space-x-6 animate-in slide-in-from-bottom duration-200">
+      {/* FLOATING CONTEXTUAL BULK ACTION BAR (Shown only when Marking Mode is active) */}
+      {isMarkingMode && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-950 text-white rounded-2xl shadow-2xl py-3 px-5 border border-slate-800 flex items-center space-x-6 animate-in slide-in-from-bottom duration-200">
           <div className="flex items-center space-x-2">
-            <span className="text-xs font-semibold text-slate-300">
-              Selected <span className="text-white font-bold bg-slate-800 px-2 py-0.5 rounded font-mono">{selectedEnquiryIds.length}</span> enquiries
-            </span>
+            {selectedEnquiryIds.length > 0 ? (
+              <span className="text-xs font-semibold text-slate-300">
+                Selected <span className="text-white font-bold bg-slate-800 px-2 py-0.5 rounded font-mono tabular-nums">{selectedEnquiryIds.length}</span> enquiries
+              </span>
+            ) : (
+              <span className="text-xs font-medium text-slate-300">
+                Marking Mode active — Select rows using checkboxes
+              </span>
+            )}
           </div>
           <div className="flex items-center space-x-2.5">
+            {selectedEnquiryIds.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedEnquiryIds([])}
+                className="py-1 px-3 bg-transparent border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-semibold font-sans transition cursor-pointer"
+              >
+                Clear
+              </button>
+            )}
             <button
-              onClick={() => setSelectedEnquiryIds([])}
-              className="py-1 px-3 bg-transparent border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-semibold font-sans transition"
-            >
-              Clear
-            </button>
-            <button
+              type="button"
               onClick={() => {
                 setSelectedEnquiryIds([]);
                 setIsMarkingMode(false);
               }}
-              className="py-1 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg text-xs font-semibold font-sans transition"
+              className="py-1 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg text-xs font-semibold font-sans transition cursor-pointer"
             >
               Done Marking
             </button>
-            <button
-              onClick={() => {
-                setConfirmDialog({
-                  isOpen: true,
-                  title: 'Move Selected to Recycle Bin',
-                  message: `Are you sure you want to move all ${selectedEnquiryIds.length} selected enquiries to the Recycle Bin? You can restore them anytime from the sidebar.`,
-                  confirmText: 'Move to Bin',
-                  cancelText: 'Cancel',
-                  variant: 'warning',
-                  isDestructive: false,
-                  onConfirm: () => {
-                    onBulkDeleteEnquiries(selectedEnquiryIds);
-                    setSelectedEnquiryIds([]);
-                  }
-                });
-              }}
-              className="py-1 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold font-sans transition flex items-center space-x-1 shadow-sm"
-            >
-              <Trash className="w-3.5 h-3.5" />
-              <span>Delete Selected</span>
-            </button>
+            {selectedEnquiryIds.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmDialog({
+                    isOpen: true,
+                    title: 'Move Selected to Recycle Bin',
+                    message: `Are you sure you want to move all ${selectedEnquiryIds.length} selected enquiries to the Recycle Bin? You can restore them anytime from the sidebar.`,
+                    confirmText: 'Move to Bin',
+                    cancelText: 'Cancel',
+                    variant: 'warning',
+                    isDestructive: false,
+                    onConfirm: () => {
+                      onBulkDeleteEnquiries(selectedEnquiryIds);
+                      setSelectedEnquiryIds([]);
+                    }
+                  });
+                }}
+                className="py-1 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold font-sans transition flex items-center space-x-1 shadow-sm cursor-pointer"
+              >
+                <Trash className="w-3.5 h-3.5" />
+                <span>Delete Selected</span>
+              </button>
+            )}
           </div>
         </div>
       )}
