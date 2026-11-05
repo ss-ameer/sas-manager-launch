@@ -196,7 +196,54 @@ const BLOCK_META: Record<string, { label: string; desc: string; icon: any }> = {
   vendor_return_ack: { label: 'Vendor Return / Debit Ack', desc: 'Supplier signatory, credit note ref & vendor stamp box', icon: ShieldCheck },
   pv_treasury_details: { label: 'Disbursing Treasury & Instrument', desc: 'Disbursing bank account, UTR/cheque ref & cleared date', icon: Landmark },
   pv_beneficiary_details: { label: 'Vendor Beneficiary Bank Account', desc: 'Payee beneficiary name, bank, IBAN & SWIFT details', icon: Building },
-  pv_approval_matrix: { label: '4-Column Approval Matrix', desc: 'Prepared, Verified, Approved & Payee Acknowledged columns', icon: Stamp }
+  pv_approval_matrix: { label: '4-Column Approval Matrix', desc: 'Prepared, Verified, Approved & Payee Acknowledged columns', icon: Stamp },
+  rec_amount_banner: { label: 'Amount Received Banner', desc: 'Highlighted receipt amount, settlement narration & amount in words', icon: DollarSign },
+  rec_payment_instrument: { label: 'Payment Instrument & Reference', desc: 'Payment mode, bank/cheque reference, credited account & notes', icon: Landmark },
+  rec_balance_statement: { label: 'Account Settlement & Balance', desc: 'Contract value, previously received, current receipt & balance due', icon: FileCheck },
+  pv_disbursed_banner: { label: 'Amount Disbursed Banner', desc: 'Highlighted outbound disbursement amount, narration & amount in words', icon: DollarSign },
+  pv_bill_allocation: { label: 'Bill Allocation Schedule', desc: 'Outbound vendor bill settlement & allocation breakdown table', icon: Layers }
+};
+
+const synthesizeDefaultBlockConfig = (
+  id: QuotationBlockId,
+  currentStyle: 'framed' | 'minimal' = 'framed'
+): QuotationBlockConfig => {
+  const defaultPlacement: 'left' | 'right' | 'full' =
+    id === 'pv_approval_matrix' ||
+    id === 'rec_amount_banner' ||
+    id === 'pv_disbursed_banner' ||
+    id === 'pv_bill_allocation' ||
+    id === 'acceptance'
+      ? 'full'
+      : id === 'totals' ||
+        id === 'signatory' ||
+        id === 'signatories' ||
+        id === 'do_receiving_party' ||
+        id === 'vendor_return_ack' ||
+        id === 'pv_beneficiary_details' ||
+        id === 'rec_balance_statement'
+      ? 'right'
+      : 'left';
+  const defaultZone: 'pre_table' | 'post_table' =
+    id === 'rec_amount_banner' ||
+    id === 'rec_payment_instrument' ||
+    id === 'rec_balance_statement' ||
+    id === 'pv_disbursed_banner' ||
+    id === 'pv_bill_allocation'
+      ? 'pre_table'
+      : 'post_table';
+  return {
+    id,
+    type: (id === 'signatories' ? 'signatory' : id) as any,
+    order: 0,
+    zone: defaultZone,
+    placement: defaultPlacement,
+    style: currentStyle,
+    enabled: true,
+    is_visible: true,
+    fontScale: 'standard',
+    padding: 'standard'
+  };
 };
 
 const isBlockRelevantForDocumentType = (
@@ -204,6 +251,13 @@ const isBlockRelevantForDocumentType = (
   docType: CommercialDocumentType
 ): boolean => {
   const id = block.id;
+  if (
+    id === 'rec_amount_banner' ||
+    id === 'rec_payment_instrument' ||
+    id === 'rec_balance_statement'
+  ) {
+    return docType === 'receipt';
+  }
   if (id === 'do_dispatch_party' || id === 'do_receiving_party') {
     return docType === 'delivery_note';
   }
@@ -211,6 +265,8 @@ const isBlockRelevantForDocumentType = (
     return docType === 'material_return_note' || docType === 'debit_note';
   }
   if (
+    id === 'pv_disbursed_banner' ||
+    id === 'pv_bill_allocation' ||
     id === 'pv_treasury_details' ||
     id === 'pv_beneficiary_details' ||
     id === 'pv_approval_matrix'
@@ -1246,9 +1302,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   >(null);
 
   const handleToggleBlockEnabled = (id: QuotationBlockId, enabled: boolean) => {
-    setLayoutBlocks((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, enabled, is_visible: enabled } : b))
-    );
+    setLayoutBlocks((prev) => {
+      const synced = ensureSpecializedDocumentBlocks(prev, documentType, blockStyle);
+      const exists = synced.some((b) => b.id === id);
+      const base = exists ? synced : [...synced, synthesizeDefaultBlockConfig(id, blockStyle)];
+      return base.map((b) => (b.id === id ? { ...b, enabled, is_visible: enabled } : b));
+    });
     if (id === 'terms') setShowCommercialTerms(enabled);
     if (id === 'remittance') {
       setShowBankDetails(enabled);
@@ -1283,30 +1342,57 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     if (id === 'pv_approval_matrix') {
       setPaymentVoucherMetadata((prev) => ({ ...prev, show_approval_matrix: enabled }));
     }
+    if (id === 'pv_disbursed_banner') {
+      setPaymentVoucherMetadata((prev) => ({ ...prev, show_amount_banner: enabled }));
+    }
+    if (id === 'pv_bill_allocation') {
+      setPaymentVoucherMetadata((prev) => ({ ...prev, show_allocation_table: enabled }));
+    }
+    if (id === 'rec_amount_banner') {
+      setReceiptMetadata((prev) => ({ ...prev, show_amount_banner: enabled }));
+    }
+    if (id === 'rec_payment_instrument') {
+      setReceiptMetadata((prev) => ({ ...prev, show_instrument_card: enabled }));
+    }
+    if (id === 'rec_balance_statement') {
+      setReceiptMetadata((prev) => ({ ...prev, show_balance_card: enabled }));
+    }
   };
 
   const handleSetBlockPlacement = (id: QuotationBlockId, placement: 'left' | 'right' | 'full') => {
-    setLayoutBlocks((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, placement } : b))
-    );
+    setLayoutBlocks((prev) => {
+      const synced = ensureSpecializedDocumentBlocks(prev, documentType, blockStyle);
+      const exists = synced.some((b) => b.id === id);
+      const base = exists ? synced : [...synced, synthesizeDefaultBlockConfig(id, blockStyle)];
+      return base.map((b) => (b.id === id ? { ...b, placement } : b));
+    });
   };
 
   const handleSetBlockStyle = (id: QuotationBlockId, style: 'framed' | 'minimal') => {
-    setLayoutBlocks((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, style } : b))
-    );
+    setLayoutBlocks((prev) => {
+      const synced = ensureSpecializedDocumentBlocks(prev, documentType, blockStyle);
+      const exists = synced.some((b) => b.id === id);
+      const base = exists ? synced : [...synced, synthesizeDefaultBlockConfig(id, blockStyle)];
+      return base.map((b) => (b.id === id ? { ...b, style } : b));
+    });
   };
 
   const handleSetBlockFontScale = (id: QuotationBlockId, fontScale: 'compact' | 'standard' | 'prominent') => {
-    setLayoutBlocks((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, fontScale } : b))
-    );
+    setLayoutBlocks((prev) => {
+      const synced = ensureSpecializedDocumentBlocks(prev, documentType, blockStyle);
+      const exists = synced.some((b) => b.id === id);
+      const base = exists ? synced : [...synced, synthesizeDefaultBlockConfig(id, blockStyle)];
+      return base.map((b) => (b.id === id ? { ...b, fontScale } : b));
+    });
   };
 
   const handleSetBlockPadding = (id: QuotationBlockId, padding: 'compact' | 'standard') => {
-    setLayoutBlocks((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, padding } : b))
-    );
+    setLayoutBlocks((prev) => {
+      const synced = ensureSpecializedDocumentBlocks(prev, documentType, blockStyle);
+      const exists = synced.some((b) => b.id === id);
+      const base = exists ? synced : [...synced, synthesizeDefaultBlockConfig(id, blockStyle)];
+      return base.map((b) => (b.id === id ? { ...b, padding } : b));
+    });
   };
 
   const handleMoveBlock = (index: number, direction: 'up' | 'down') => {
@@ -1383,9 +1469,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   };
 
   const handleUpdateBlockConfig = (id: QuotationBlockId, patch: Partial<QuotationBlockConfig>) => {
-    setLayoutBlocks((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, ...patch } : b))
-    );
+    setLayoutBlocks((prev) => {
+      const synced = ensureSpecializedDocumentBlocks(prev, documentType, blockStyle);
+      const exists = synced.some((b) => b.id === id);
+      const base = exists ? synced : [...synced, synthesizeDefaultBlockConfig(id, blockStyle)];
+      return base.map((b) => (b.id === id ? { ...b, ...patch } : b));
+    });
   };
 
   // Universal Custom Block Engine & "My Saved Blocks" Library State
@@ -1735,6 +1824,23 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         ? 'recipient_info'
         : section;
 
+    if (
+      normalizedSection &&
+      normalizedSection !== 'header' &&
+      normalizedSection !== 'recipient_info' &&
+      normalizedSection !== 'quote_meta' &&
+      normalizedSection !== 'subject' &&
+      normalizedSection !== 'items_table' &&
+      normalizedSection !== 'footer' &&
+      normalizedSection !== 'style'
+    ) {
+      setLayoutBlocks((prev) => {
+        const synced = ensureSpecializedDocumentBlocks(prev, documentType, blockStyle);
+        if (synced.some((b) => b.id === normalizedSection)) return synced;
+        return [...synced, synthesizeDefaultBlockConfig(normalizedSection as QuotationBlockId, blockStyle)];
+      });
+    }
+
     if (subTarget) {
       if (normalizedSection === 'recipient_info' && subTarget.startsWith('recipient_')) {
         setFocusedRecipientStyleTarget(subTarget);
@@ -1755,11 +1861,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       }
       setInspectorSubTarget(`${subTarget}::${Date.now()}`);
     } else {
-      if (
+      if (normalizedSection === 'recipient_info') {
+        setFocusedRecipientStyleTarget('recipient_card');
+      } else if (normalizedSection === 'quote_meta') {
+        setFocusedOfferStyleTarget('offer_card');
+      } else if (
         normalizedSection &&
         normalizedSection !== 'header' &&
-        normalizedSection !== 'recipient_info' &&
-        normalizedSection !== 'quote_meta' &&
         normalizedSection !== 'subject' &&
         normalizedSection !== 'items_table' &&
         normalizedSection !== 'footer' &&
@@ -1789,14 +1897,20 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   const selectedBlock = useMemo(() => {
     if (!selectedBlockId) return null;
     const found = layoutBlocks.find((b) => b.id === selectedBlockId);
-    if (!found) return null;
-    return found;
-  }, [layoutBlocks, selectedBlockId]);
+    if (found) return found;
+    return synthesizeDefaultBlockConfig(selectedBlockId as QuotationBlockId, blockStyle);
+  }, [layoutBlocks, selectedBlockId, blockStyle]);
 
   const handleInspectBlock = (id: QuotationBlockId) => {
+    setLayoutBlocks((prev) => {
+      const synced = ensureSpecializedDocumentBlocks(prev, documentType, blockStyle);
+      if (synced.some((b) => b.id === id)) return synced;
+      return [...synced, synthesizeDefaultBlockConfig(id, blockStyle)];
+    });
     if (selectedSection === id) {
       setSelectedSection(null);
     } else {
+      setFocusedBlockStyleTarget(`block:${id}`);
       setSelectedSection(id);
     }
   };
@@ -2414,14 +2528,19 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           savedBlocks && Array.isArray(savedBlocks) && savedBlocks.length > 0
             ? savedBlocks
             : DEFAULT_QUOTATION_BLOCKS;
+        const targetDocType = (targetQuote.document_type || 'quotation') as CommercialDocumentType;
         setLayoutBlocks(
-          blocksToUse.map((b: QuotationBlockConfig) => ({
-            ...b,
-            enabled: b.enabled ?? b.is_visible ?? true,
-            is_visible: b.is_visible ?? b.enabled ?? true,
-            fontScale: b.fontScale || 'standard',
-            padding: b.padding || 'standard'
-          }))
+          ensureSpecializedDocumentBlocks(
+            blocksToUse.map((b: QuotationBlockConfig) => ({
+              ...b,
+              enabled: b.enabled ?? b.is_visible ?? true,
+              is_visible: b.is_visible ?? b.enabled ?? true,
+              fontScale: b.fontScale || 'standard',
+              padding: b.padding || 'standard'
+            })),
+            targetDocType,
+            blockStyle
+          )
         );
 
         const initialMap: Record<string, string[]> = {};
@@ -2477,16 +2596,20 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             'All prices are subject to availability at the time of firm order.'
         );
         setLayoutBlocks(
-          (hydrated.layoutBlocks.length > 0
-            ? hydrated.layoutBlocks
-            : DEFAULT_QUOTATION_BLOCKS
-          ).map((b: QuotationBlockConfig) => ({
-            ...b,
-            enabled: b.enabled ?? b.is_visible ?? true,
-            is_visible: b.is_visible ?? b.enabled ?? true,
-            fontScale: b.fontScale || 'standard',
-            padding: b.padding || 'standard'
-          }))
+          ensureSpecializedDocumentBlocks(
+            (hydrated.layoutBlocks.length > 0
+              ? hydrated.layoutBlocks
+              : DEFAULT_QUOTATION_BLOCKS
+            ).map((b: QuotationBlockConfig) => ({
+              ...b,
+              enabled: b.enabled ?? b.is_visible ?? true,
+              is_visible: b.is_visible ?? b.enabled ?? true,
+              fontScale: b.fontScale || 'standard',
+              padding: b.padding || 'standard'
+            })),
+            documentType,
+            blockStyle
+          )
         );
         const initialBreaks: Record<string, boolean> = {};
         (enquiry?.line_items || []).forEach((item: any, idx: number) => {
@@ -2555,9 +2678,19 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   }, []);
 
   // Automatically adjust preview scale when drawers open/close or container resizes so A4 canvas never clips horizontally
-  const isRightDrawerOpen = selectedSection !== null;
-  const [focusedRecipientStyleTarget, setFocusedRecipientStyleTarget] = useState<string>('recipient_entity_name');
-  const [focusedOfferStyleTarget, setFocusedOfferStyleTarget] = useState<string>('offer_quote_ref');
+  const isRightDrawerOpen = Boolean(
+    selectedSection &&
+      (selectedSection === 'header' ||
+        selectedSection === 'recipient_info' ||
+        selectedSection === 'quote_meta' ||
+        selectedSection === 'subject' ||
+        selectedSection === 'items_table' ||
+        selectedSection === 'footer' ||
+        selectedSection === 'style' ||
+        selectedBlock)
+  );
+  const [focusedRecipientStyleTarget, setFocusedRecipientStyleTarget] = useState<string>('recipient_card');
+  const [focusedOfferStyleTarget, setFocusedOfferStyleTarget] = useState<string>('offer_card');
 
   useEffect(() => {
     const computeAutoScale = () => {
@@ -2989,27 +3122,31 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     }
     if (preset.layout_blocks && preset.layout_blocks.length > 0) {
       setLayoutBlocks(
-        preset.layout_blocks.map((b, idx) => ({
-          ...b,
-          order: typeof b.order === 'number' ? b.order : idx,
-          enabled: b.enabled ?? b.is_visible ?? true,
-          is_visible: b.is_visible ?? b.enabled ?? true,
-          fontScale: b.fontScale || 'standard',
-          padding: b.padding || 'standard',
-          ...(b.type === 'spacer' || b.id?.startsWith('spacer_')
-            ? {
-                type: 'spacer' as const,
-                spacer_height_mm: typeof b.spacer_height_mm === 'number' ? b.spacer_height_mm : 20,
-                spacer_fill_remaining: Boolean(b.spacer_fill_remaining)
-              }
-            : {}),
-          ...(b.type === 'page_break' || b.id?.startsWith('break_')
-            ? {
-                type: 'page_break' as const,
-                show_continuation_header: b.show_continuation_header !== false
-              }
-            : {})
-        }))
+        ensureSpecializedDocumentBlocks(
+          preset.layout_blocks.map((b, idx) => ({
+            ...b,
+            order: typeof b.order === 'number' ? b.order : idx,
+            enabled: b.enabled ?? b.is_visible ?? true,
+            is_visible: b.is_visible ?? b.enabled ?? true,
+            fontScale: b.fontScale || 'standard',
+            padding: b.padding || 'standard',
+            ...(b.type === 'spacer' || b.id?.startsWith('spacer_')
+              ? {
+                  type: 'spacer' as const,
+                  spacer_height_mm: typeof b.spacer_height_mm === 'number' ? b.spacer_height_mm : 20,
+                  spacer_fill_remaining: Boolean(b.spacer_fill_remaining)
+                }
+              : {}),
+            ...(b.type === 'page_break' || b.id?.startsWith('break_')
+              ? {
+                  type: 'page_break' as const,
+                  show_continuation_header: b.show_continuation_header !== false
+                }
+              : {})
+          })),
+          documentType,
+          blockStyle
+        )
       );
     }
     if (Array.isArray(preset.flyer_attachments)) {
@@ -3760,15 +3897,28 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setActiveQuotationId(editingQuotation.id);
     }
 
+    const isCleanRefForPrefix = (ref: string | undefined, expectedPrefix: string): boolean => {
+      if (!ref || !ref.trim()) return false;
+      const trimmed = ref.trim();
+      if (!new RegExp(`^${expectedPrefix}-`, 'i').test(trimmed)) return false;
+      if (/^(?:DO|REC|PO|PV|MRN|DN|QT|PI|INV)-\s*(?:DO|REC|PO|PV|MRN|DN|QT|PI|INV)-/i.test(trimmed)) {
+        return false;
+      }
+      if (/-\d{2}(?=-R\d+|\/Rev\.\d+|\s*\(Rev\s*\d+\))/i.test(trimmed)) {
+        return false;
+      }
+      return true;
+    };
+
     if (nextType === 'delivery_note') {
       handleEnterUnpricedSubmittalMode();
-      const linkedDoRef =
-        deliveryMetadata.delivery_ref ||
-        QuotationRepository.generateLinkedDocumentRef(cleanBaseRef, 'delivery_note', enquiryRevisions);
+      const linkedDoRef = isCleanRefForPrefix(deliveryMetadata.delivery_ref, 'DO')
+        ? deliveryMetadata.delivery_ref!
+        : QuotationRepository.generateLinkedDocumentRef(cleanBaseRef, 'delivery_note', enquiryRevisions);
       setFormattedQuoteRefOverride(linkedDoRef);
       setDeliveryMetadata((prev) => ({
         ...prev,
-        delivery_ref: prev.delivery_ref || linkedDoRef,
+        delivery_ref: linkedDoRef,
         delivery_date: prev.delivery_date || todayIso,
         related_quote_ref: prev.related_quote_ref || cleanBaseRef,
         site_contact_name:
@@ -3793,9 +3943,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       if (prevType === 'delivery_note') {
         handleRestorePricedQuoteMode();
       }
-      const linkedPoRef =
-        purchaseOrderMetadata.po_ref ||
-        QuotationRepository.generateLinkedDocumentRef(cleanBaseRef, 'purchase_order', enquiryRevisions);
+      const linkedPoRef = isCleanRefForPrefix(purchaseOrderMetadata.po_ref, 'PO')
+        ? purchaseOrderMetadata.po_ref!
+        : QuotationRepository.generateLinkedDocumentRef(cleanBaseRef, 'purchase_order', enquiryRevisions);
       setFormattedQuoteRefOverride(linkedPoRef);
       if (
         !customNotes ||
@@ -3809,16 +3959,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setPurchaseOrderMetadata((prev) => ({
         ...prev,
         po_variant: prev.po_variant || 'supplier_po',
-        po_ref: prev.po_ref || linkedPoRef,
+        po_ref: linkedPoRef,
         po_date: prev.po_date || todayIso,
         shipping_destination: prev.shipping_destination || 'Warehouse',
         incoterms: prev.incoterms || 'Ex-Works',
         requisitioner_name: prev.requisitioner_name || preparedBy || signatoryName || ''
       }));
     } else if (nextType === 'receipt') {
-      const linkedRecRef =
-        receiptMetadata.receipt_ref ||
-        QuotationRepository.generateLinkedDocumentRef(cleanBaseRef, 'receipt', enquiryRevisions);
+      const linkedRecRef = isCleanRefForPrefix(receiptMetadata.receipt_ref, 'REC')
+        ? receiptMetadata.receipt_ref!
+        : QuotationRepository.generateLinkedDocumentRef(cleanBaseRef, 'receipt', enquiryRevisions);
       setFormattedQuoteRefOverride(linkedRecRef);
       const priorReceiptsTotal = enquiryRevisions
         .filter((d) => d.document_type === 'receipt' && d.id !== activeQuotationId)
@@ -3844,7 +3994,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           : '';
       setReceiptMetadata((prev) => ({
         ...prev,
-        receipt_ref: prev.receipt_ref || linkedRecRef,
+        receipt_ref: linkedRecRef,
         receipt_date: prev.receipt_date || todayIso,
         received_from:
           prev.received_from ||
@@ -3866,13 +4016,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       if (prevType === 'delivery_note' || prevType === 'material_return_note') {
         handleRestorePricedQuoteMode();
       }
-      const linkedPvRef =
-        paymentVoucherMetadata.pv_ref ||
-        QuotationRepository.generateLinkedDocumentRef(
-          cleanBaseRef,
-          'payment_voucher',
-          enquiryRevisions
-        );
+      const linkedPvRef = isCleanRefForPrefix(paymentVoucherMetadata.pv_ref, 'PV')
+        ? paymentVoucherMetadata.pv_ref!
+        : QuotationRepository.generateLinkedDocumentRef(
+            cleanBaseRef,
+            'payment_voucher',
+            enquiryRevisions
+          );
       setFormattedQuoteRefOverride(linkedPvRef);
       const totalPayable =
         Number(paymentVoucherMetadata.total_payable_amount) ||
@@ -3885,7 +4035,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           : Math.max(0, totalPayable - prevPaid);
       setPaymentVoucherMetadata((prev) => ({
         ...prev,
-        pv_ref: prev.pv_ref || linkedPvRef,
+        pv_ref: linkedPvRef,
+        voucher_ref: linkedPvRef,
         pv_date: prev.pv_date || todayIso,
         settlement_type: prev.settlement_type || 'bill_settlement',
         paid_to_vendor_name:
@@ -3914,19 +4065,20 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       } else if (prevType === 'delivery_note' || prevType === 'material_return_note') {
         handleRestorePricedQuoteMode();
       }
+      const expectedRetPrefix = nextType === 'debit_note' ? 'DN' : 'MRN';
       const existingRetRef = (vendorReturnMetadata.return_ref || '').trim();
       const swappedExistingRef = existingRetRef
         ? nextType === 'debit_note'
           ? existingRetRef.replace(/^MRN-/i, 'DN-')
           : existingRetRef.replace(/^DN-/i, 'MRN-')
         : '';
-      const linkedRetRef =
-        swappedExistingRef ||
-        QuotationRepository.generateLinkedDocumentRef(
-          cleanBaseRef,
-          nextType,
-          enquiryRevisions
-        );
+      const linkedRetRef = isCleanRefForPrefix(swappedExistingRef, expectedRetPrefix)
+        ? swappedExistingRef
+        : QuotationRepository.generateLinkedDocumentRef(
+            cleanBaseRef,
+            nextType,
+            enquiryRevisions
+          );
       setFormattedQuoteRefOverride(linkedRetRef);
       setVendorReturnMetadata((prev) => ({
         ...prev,
@@ -4483,7 +4635,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         ? `${baseQuoteRef} (Rev ${revNum})`
         : `${baseQuoteRef}-R${revNum}`;
 
-    const formattedQuoteRef = isNonQuoteDoc
+    const rawNonQuoteRef = isNonQuoteDoc
       ? (documentType === 'delivery_note' && deliveryMetadata.delivery_ref) ||
         (documentType === 'purchase_order' && purchaseOrderMetadata.po_ref) ||
         (documentType === 'receipt' && receiptMetadata.receipt_ref) ||
@@ -4493,7 +4645,39 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           vendorReturnMetadata.return_ref) ||
         formattedQuoteRefOverride ||
         QuotationRepository.generateLinkedDocumentRef(cleanQuoteNumber, documentType, enquiryRevisions)
-      : computedQuoteRef;
+      : '';
+    const expectedNonQuotePrefix =
+      documentType === 'delivery_note'
+        ? 'DO'
+        : documentType === 'purchase_order'
+        ? 'PO'
+        : documentType === 'receipt'
+        ? 'REC'
+        : documentType === 'payment_voucher'
+        ? 'PV'
+        : documentType === 'material_return_note'
+        ? 'MRN'
+        : documentType === 'debit_note'
+        ? 'DN'
+        : '';
+    const cleanedNonQuoteRef = isNonQuoteDoc
+      ? (() => {
+          let r = String(rawNonQuoteRef || '').trim();
+          while (/^(?:DO|REC|PO|PV|MRN|DN|QT|PI|INV)-\s*(?:DO|REC|PO|PV|MRN|DN|QT|PI|INV)-/i.test(r)) {
+            r = r.replace(/^(?:DO|REC|PO|PV|MRN|DN|QT|PI|INV)-\s*/i, '');
+          }
+          if (
+            expectedNonQuotePrefix &&
+            /^(?:DO|REC|PO|PV|MRN|DN|PI|INV)-/i.test(r) &&
+            !new RegExp(`^${expectedNonQuotePrefix}-`, 'i').test(r)
+          ) {
+            r = r.replace(/^(?:DO|REC|PO|PV|MRN|DN|PI|INV)-/i, `${expectedNonQuotePrefix}-`);
+          }
+          r = r.replace(/-\d{2}(?=-R\d+|\/Rev\.\d+|\s*\(Rev\s*\d+\))/i, '');
+          return r;
+        })()
+      : '';
+    const formattedQuoteRef = isNonQuoteDoc ? cleanedNonQuoteRef : computedQuoteRef;
 
     return {
       id: activeQuotationId || editingQuotation?.id || 'preview_draft',
@@ -4939,52 +5123,101 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     [activeProfile, liveQuotation.sender_snapshot]
   );
 
-  // Unified Context-Aware Element Text & Style Bar helper for Recipient, Commercial Offer, and Subject inspectors
+  // Unified Context-Aware Element Text & Style Bar helper for Sections, Cards, and Blocks
   const renderUnifiedElementStyleBar = (
     targetKey: string,
     targetLabel: string,
     targetOptions?: { id: string; label: string }[],
-    onSelectTarget?: (nextId: string) => void
+    onSelectTarget?: (nextId: string) => void,
+    wholeCardKey?: string
   ) => {
-    const currentStyle: QuotationTextFormatStyle =
-      recipientConfig.elementStyles?.[targetKey] || {};
-    const updateElementStyle = (patch: Partial<QuotationTextFormatStyle>) => {
-      setRecipientConfig((prev) => ({
-        ...prev,
-        elementStyles: {
-          ...(prev.elementStyles || {}),
-          [targetKey]: {
-            ...(prev.elementStyles?.[targetKey] || {}),
-            ...patch
-          }
-        }
-      }));
+    const blockLegacyAliasMap: Record<string, string> = {
+      'block:do_dispatch_party': 'do_signoff_left',
+      do_signoff_left: 'block:do_dispatch_party',
+      'block:do_receiving_party': 'do_signoff_right',
+      do_signoff_right: 'block:do_receiving_party',
+      'block:vendor_return_claim': 'return_signoff_left',
+      return_signoff_left: 'block:vendor_return_claim',
+      'block:vendor_return_ack': 'return_signoff_right',
+      return_signoff_right: 'block:vendor_return_ack',
+      'block:pv_treasury_details': 'pv_treasury_card',
+      pv_treasury_card: 'block:pv_treasury_details',
+      'block:pv_beneficiary_details': 'pv_beneficiary_card',
+      pv_beneficiary_card: 'block:pv_beneficiary_details',
+      'block:pv_approval_matrix': 'pv_approval_matrix',
+      pv_approval_matrix: 'block:pv_approval_matrix',
+      'block:rec_amount_banner': 'receipt_amount_banner',
+      receipt_amount_banner: 'block:rec_amount_banner',
+      'block:rec_payment_instrument': 'receipt_instrument_card',
+      receipt_instrument_card: 'block:rec_payment_instrument',
+      'block:rec_balance_statement': 'receipt_balance_card',
+      receipt_balance_card: 'block:rec_balance_statement',
+      'block:pv_disbursed_banner': 'pv_amount_banner',
+      pv_amount_banner: 'block:pv_disbursed_banner',
+      'block:pv_bill_allocation': 'pv_allocation_table',
+      pv_allocation_table: 'block:pv_bill_allocation'
     };
+    const pairedAliasKey = blockLegacyAliasMap[targetKey];
+    const currentStyle: QuotationTextFormatStyle = {
+      ...(pairedAliasKey ? recipientConfig.elementStyles?.[pairedAliasKey] : {}),
+      ...(recipientConfig.elementStyles?.[targetKey] || {})
+    };
+
+    const updateElementStyle = (patch: Partial<QuotationTextFormatStyle>) => {
+      const normalizedPatch: Partial<QuotationTextFormatStyle> = { ...patch };
+      if (patch.colorTone !== undefined) {
+        normalizedPatch.textColor = patch.colorTone as any;
+      }
+      if (patch.accentBar !== undefined) {
+        normalizedPatch.showAccentBar = patch.accentBar;
+      }
+      setRecipientConfig((prev) => {
+        const nextUpdated: QuotationTextFormatStyle = {
+          ...(pairedAliasKey ? prev.elementStyles?.[pairedAliasKey] : {}),
+          ...(prev.elementStyles?.[targetKey] || {}),
+          ...normalizedPatch
+        };
+        return {
+          ...prev,
+          elementStyles: {
+            ...(prev.elementStyles || {}),
+            [targetKey]: nextUpdated,
+            ...(pairedAliasKey ? { [pairedAliasKey]: nextUpdated } : {})
+          }
+        };
+      });
+    };
+
+    const effectiveWholeCardKey =
+      wholeCardKey || (targetOptions && targetOptions.length > 0 ? targetOptions[0].id : targetKey);
+    const isSubElementFocused = Boolean(
+      effectiveWholeCardKey && targetKey !== effectiveWholeCardKey && onSelectTarget
+    );
+    const activeTargetLabel =
+      targetOptions?.find((o) => o.id === targetKey)?.label || targetLabel;
 
     return (
       <div className="rounded-xl border border-blue-200/80 bg-gradient-to-b from-blue-50/70 to-white p-2.5 space-y-2 shadow-2xs">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <span className="text-[10px] font-bold uppercase tracking-wider text-blue-900 flex items-center gap-1">
             <Sliders className="w-3 h-3 text-blue-600" />
             Text &amp; Style Bar
           </span>
-          {targetOptions && onSelectTarget ? (
-            <select
-              value={targetKey}
-              onChange={(e) => onSelectTarget(e.target.value)}
-              className="px-2 py-0.5 text-[10.5px] font-semibold bg-white border border-blue-200 rounded-md text-blue-800 cursor-pointer focus:outline-hidden"
-            >
-              {targetOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  Target: {opt.label}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <span className="text-[10px] font-mono font-semibold text-blue-700 bg-blue-100/70 px-1.5 py-0.5 rounded">
-              {targetLabel}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-mono font-semibold text-blue-800 bg-blue-100/80 px-1.5 py-0.5 rounded border border-blue-200/70">
+              Styling: {isSubElementFocused ? activeTargetLabel : `Whole Card (${targetLabel})`}
             </span>
-          )}
+            {isSubElementFocused && onSelectTarget && (
+              <button
+                type="button"
+                onClick={() => onSelectTarget(effectiveWholeCardKey)}
+                className="px-1.5 py-0.5 rounded text-[9.5px] font-semibold bg-white hover:bg-blue-50 text-blue-700 border border-blue-300 transition cursor-pointer shadow-2xs"
+                title="Reset target to style the entire selected card"
+              >
+                Style Whole Card
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Row 1: Font Size + Bold/Italic/Underline/Uppercase */}
@@ -5099,7 +5332,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               { id: 'amber' as const, bg: 'bg-amber-500', title: 'Amber' },
               { id: 'rose' as const, bg: 'bg-rose-600', title: 'Rose' }
             ].map((c) => {
-              const active = (currentStyle.colorTone || 'default') === c.id;
+              const active = ((currentStyle.colorTone || currentStyle.textColor) || 'default') === c.id;
               return (
                 <button
                   key={c.id}
@@ -5133,9 +5366,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => updateElementStyle({ accentBar: !currentStyle.accentBar })}
+              onClick={() =>
+                updateElementStyle({
+                  accentBar: !(currentStyle.accentBar || currentStyle.showAccentBar)
+                })
+              }
               className={`px-1.5 py-0.5 rounded border text-[9px] font-semibold transition cursor-pointer ${
-                currentStyle.accentBar
+                currentStyle.accentBar || currentStyle.showAccentBar
                   ? 'bg-blue-100 border-blue-300 text-blue-900'
                   : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
               }`}
@@ -6231,24 +6468,28 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  if (selectedSection !== null) {
+                  if (isRightDrawerOpen) {
                     setSelectedSection(null);
                   } else {
-                    setSelectedSection(lastInspectedSectionRef.current || 'items_table');
+                    setLayoutBlocks((prev) =>
+                      ensureSpecializedDocumentBlocks(prev, documentType, blockStyle)
+                    );
+                    const targetSection = lastInspectedSectionRef.current || 'quote_meta';
+                    setSelectedSection(targetSection);
                   }
                 }}
                 className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
-                  selectedSection !== null
+                  isRightDrawerOpen
                     ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
                     : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200/90'
                 }`}
                 title={
-                  selectedSection !== null
+                  isRightDrawerOpen
                     ? 'Hide Right Inspector Drawer'
                     : 'Show Right Inspector Drawer (Can be open simultaneously with Left Controls)'
                 }
               >
-                {selectedSection !== null ? (
+                {isRightDrawerOpen ? (
                   <PanelRightClose className="w-3.5 h-3.5 shrink-0" />
                 ) : (
                   <PanelRight className="w-3.5 h-3.5 text-blue-600 shrink-0" />
@@ -6892,13 +7133,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         type="button"
                         onClick={() => {
                           setLayoutBlocks(
-                            DEFAULT_QUOTATION_BLOCKS.map((b) => ({
-                              ...b,
-                              enabled: true,
-                              is_visible: true,
-                              fontScale: 'standard',
-                              padding: 'standard'
-                            }))
+                            ensureSpecializedDocumentBlocks(
+                              DEFAULT_QUOTATION_BLOCKS.map((b) => ({
+                                ...b,
+                                enabled: true,
+                                is_visible: true,
+                                fontScale: 'standard',
+                                padding: 'standard'
+                              })),
+                              documentType,
+                              blockStyle
+                            )
                           );
                           setCardsOrder('recipient_first');
                           setSubjectPlacement('below_cards');
@@ -10522,6 +10767,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                   {/* Drawer Content */}
                   <div className="p-4 space-y-4 text-xs">
+                    {renderUnifiedElementStyleBar('header_card', 'Header & Branding')}
                     {(() => {
                       const activePreviewLogoUrl =
                         companyLogoUrl ||
@@ -11560,9 +11806,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   <div className="p-4 space-y-4 text-xs">
                     {/* Unified Text & Element Style Bar */}
                     {renderUnifiedElementStyleBar(
-                      focusedRecipientStyleTarget,
-                      'Recipient Element',
+                      focusedRecipientStyleTarget || 'recipient_card',
+                      'Recipient Card',
                       [
+                        { id: 'recipient_card', label: 'Whole Recipient Card' },
                         { id: 'recipient_heading', label: 'Section Heading' },
                         { id: 'recipient_entity_name', label: 'Company Name' },
                         { id: 'recipient_attention', label: 'Attention Line' },
@@ -11570,7 +11817,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         { id: 'recipient_trn', label: 'TRN / VAT Line' },
                         { id: 'recipient_contact', label: 'Phone / Email' }
                       ],
-                      setFocusedRecipientStyleTarget
+                      setFocusedRecipientStyleTarget,
+                      'recipient_card'
                     )}
 
                     {/* Section Heading Text Override */}
@@ -12411,29 +12659,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   <div className="p-4 space-y-4 text-xs">
                     {/* Unified Text & Element Style Bar */}
                     {renderUnifiedElementStyleBar(
-                      focusedOfferStyleTarget,
-                      'Offer Element',
+                      focusedOfferStyleTarget || 'offer_card',
+                      'Document Metadata Card',
                       [
+                        { id: 'offer_card', label: 'Whole Document Meta Card' },
                         { id: 'offer_heading', label: 'Section Heading' },
                         { id: 'offer_quote_ref', label: 'Document Reference Code' },
-                        { id: 'offer_meta_grid', label: 'Metadata Values Grid' },
-                        ...(documentType === 'receipt'
-                          ? [
-                              { id: 'receipt_amount_banner', label: 'Amount Received Banner' },
-                              { id: 'receipt_instrument_card', label: 'Payment Instrument Card' },
-                              { id: 'receipt_balance_card', label: 'Balance Statement Card' }
-                            ]
-                          : []),
-                        ...(documentType === 'payment_voucher'
-                          ? [
-                              { id: 'pv_amount_banner', label: 'Amount Disbursed Banner' },
-                              { id: 'pv_allocation_table', label: 'Bill Allocation Schedule' },
-                              { id: 'pv_treasury_card', label: 'Disbursing Treasury Card' },
-                              { id: 'pv_beneficiary_card', label: 'Vendor Beneficiary Card' }
-                            ]
-                          : [])
+                        { id: 'offer_meta_grid', label: 'Metadata Values Grid' }
                       ],
-                      setFocusedOfferStyleTarget
+                      setFocusedOfferStyleTarget,
+                      'offer_card'
                     )}
 
                     {/* Section Heading & Editable Reference Code + Revision Controls */}
@@ -13828,6 +14063,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                   {/* Drawer Content */}
                   <div className="p-4 space-y-4 text-xs">
+                    {renderUnifiedElementStyleBar('footer_card', 'Page Footer')}
                     {/* 1. Page Numbers & Legal Disclaimer Toggles */}
                     <div className="space-y-2">
                       <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
@@ -15868,48 +16104,21 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       {selectedBlockType !== 'page_break' &&
                         selectedBlockType !== 'spacer' &&
                         renderUnifiedElementStyleBar(
-                          focusedBlockStyleTarget ||
-                            (selectedBlock.id === 'do_dispatch_party'
-                              ? 'do_signoff_left'
-                              : selectedBlock.id === 'do_receiving_party'
-                              ? 'do_signoff_right'
-                              : selectedBlock.id === 'vendor_return_claim'
-                              ? 'return_signoff_left'
-                              : selectedBlock.id === 'vendor_return_ack'
-                              ? 'return_signoff_right'
-                              : selectedBlock.id === 'pv_treasury_details'
-                              ? 'pv_treasury_card'
-                              : selectedBlock.id === 'pv_beneficiary_details'
-                              ? 'pv_beneficiary_card'
-                              : selectedBlock.id === 'pv_approval_matrix'
-                              ? 'pv_approval_matrix'
-                              : `block:${selectedBlock.id}`),
-                          meta.label,
+                          `block:${selectedBlock.id}`,
+                          selectedBlock.id === 'acceptance' && documentType === 'purchase_order'
+                            ? 'Vendor Order Acknowledgment'
+                            : meta.label,
                           [
                             {
-                              id:
-                                selectedBlock.id === 'do_dispatch_party'
-                                  ? 'do_signoff_left'
-                                  : selectedBlock.id === 'do_receiving_party'
-                                  ? 'do_signoff_right'
-                                  : selectedBlock.id === 'vendor_return_claim'
-                                  ? 'return_signoff_left'
-                                  : selectedBlock.id === 'vendor_return_ack'
-                                  ? 'return_signoff_right'
-                                  : selectedBlock.id === 'pv_treasury_details'
-                                  ? 'pv_treasury_card'
-                                  : selectedBlock.id === 'pv_beneficiary_details'
-                                  ? 'pv_beneficiary_card'
-                                  : selectedBlock.id === 'pv_approval_matrix'
-                                  ? 'pv_approval_matrix'
-                                  : `block:${selectedBlock.id}`,
+                              id: `block:${selectedBlock.id}`,
                               label:
                                 selectedBlock.id === 'acceptance' && documentType === 'purchase_order'
                                   ? 'Vendor Order Acknowledgment Block'
                                   : `${meta.label} Block`
                             }
                           ],
-                          setFocusedBlockStyleTarget
+                          setFocusedBlockStyleTarget,
+                          `block:${selectedBlock.id}`
                         )}
 
                       {/* Unified Commercial Summary & Totals Hub (Top of Totals Inspector) */}
@@ -17280,6 +17489,42 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   />
                                   <div className="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                                 </label>
+                              </div>
+
+                              {/* VAT / Tax Footnote Override */}
+                              <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                                <label className="flex items-center justify-between cursor-pointer">
+                                  <span className="text-[10.5px] font-semibold text-slate-700">
+                                    Show VAT / Tax Footnote Under Grand Total
+                                  </span>
+                                  <input
+                                    type="checkbox"
+                                    checked={(selectedBlock.visibleFields || {}).vat_note !== false}
+                                    onChange={(e) =>
+                                      handleUpdateBlockConfig('totals', {
+                                        visibleFields: {
+                                          ...(selectedBlock.visibleFields || {}),
+                                          vat_note: e.target.checked
+                                        }
+                                      })
+                                    }
+                                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                  />
+                                </label>
+                                {(selectedBlock.visibleFields || {}).vat_note !== false && (
+                                  <AtMentionInput
+                                    value={selectedBlock.vatNoteOverride ?? ''}
+                                    onChange={(val) =>
+                                      handleUpdateBlockConfig('totals', {
+                                        vatNoteOverride: val
+                                      })
+                                    }
+                                    tokenContext={studioTokenContext}
+                                    compact
+                                    placeholder={`e.g. * All prices in ${liveQuotation.currency}. VAT (${taxRatePercent}%) included.`}
+                                    className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
+                                  />
+                                )}
                               </div>
 
                               {/* Custom Financial Rows (Reorderable, Enable/Disable, Highlight, Above/Below Grand Total) */}
@@ -20179,6 +20424,819 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     </div>
                                   );
                                 })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* DEDICATED INSPECTOR: Payment Receipt — Amount Received Banner (`rec_amount_banner`) */}
+                          {selectedBlock.id === 'rec_amount_banner' && (
+                            <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-3 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-900">
+                                  Amount Received Banner
+                                </span>
+                                <span className="text-[9.5px] font-mono text-emerald-700 bg-white px-1.5 py-0.5 rounded border border-emerald-200">
+                                  Receipt Top Banner
+                                </span>
+                              </div>
+
+                              <div>
+                                <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                  Banner Heading Override
+                                </label>
+                                <input
+                                  type="text"
+                                  value={selectedBlock.titleOverride ?? receiptMetadata.amount_banner_heading ?? ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    handleUpdateBlockConfig('rec_amount_banner', { titleOverride: val });
+                                    setReceiptMetadata((prev) => ({
+                                      ...prev,
+                                      amount_banner_heading: val
+                                    }));
+                                  }}
+                                  placeholder={`Amount Received (${liveQuotation.currency})`}
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                  Amount Received ({liveQuotation.currency})
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={receiptMetadata.amount_received ?? financialTotals.grand_total ?? 0}
+                                  onChange={(e) => {
+                                    const nextAmt = Number(e.target.value) || 0;
+                                    setReceiptMetadata((prev) => {
+                                      const totalVal = Number(prev.total_order_value ?? financialTotals.grand_total ?? nextAmt);
+                                      const prevRec = Number(prev.previously_received ?? 0);
+                                      const nextBal = Math.max(0, totalVal - prevRec - nextAmt);
+                                      return {
+                                        ...prev,
+                                        amount_received: nextAmt,
+                                        balance_remaining: nextBal,
+                                        balance_outstanding: nextBal,
+                                        balance_due: nextBal
+                                      };
+                                    });
+                                  }}
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white font-mono font-bold text-emerald-800"
+                                />
+                              </div>
+
+                              <div className="space-y-1.5 pt-1 border-t border-emerald-200/70">
+                                <label className="flex items-center justify-between cursor-pointer">
+                                  <span className="text-[10px] font-semibold text-slate-700">
+                                    Show Settlement Narration Line
+                                  </span>
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      selectedBlock.visibleFields?.narration !== undefined
+                                        ? selectedBlock.visibleFields.narration
+                                        : (receiptMetadata as any).show_narration !== false
+                                    }
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      handleUpdateBlockConfig('rec_amount_banner', {
+                                        visibleFields: {
+                                          ...(selectedBlock.visibleFields || {}),
+                                          narration: checked
+                                        }
+                                      });
+                                      setReceiptMetadata((prev) => ({
+                                        ...prev,
+                                        show_narration: checked
+                                      }));
+                                    }}
+                                    className="rounded border-slate-300 text-emerald-600 cursor-pointer"
+                                  />
+                                </label>
+                                <input
+                                  type="text"
+                                  value={receiptMetadata.narration_override ?? ''}
+                                  onChange={(e) =>
+                                    setReceiptMetadata((prev) => ({
+                                      ...prev,
+                                      narration_override: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Optional custom narration text (leave blank for default)"
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[10.5px] bg-white"
+                                />
+                              </div>
+
+                              <label className="flex items-center justify-between pt-1 border-t border-emerald-200/70 cursor-pointer">
+                                <span className="text-[10px] font-semibold text-slate-700">
+                                  Show Amount in Words
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  checked={
+                                    selectedBlock.visibleFields?.amount_in_words !== undefined
+                                      ? selectedBlock.visibleFields.amount_in_words
+                                      : amountInWordsEnabled
+                                  }
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    setAmountInWordsEnabled(checked);
+                                    handleUpdateBlockConfig('rec_amount_banner', {
+                                      visibleFields: {
+                                        ...(selectedBlock.visibleFields || {}),
+                                        amount_in_words: checked
+                                      }
+                                    });
+                                  }}
+                                  className="rounded border-slate-300 text-emerald-600 cursor-pointer"
+                                />
+                              </label>
+                            </div>
+                          )}
+
+                          {/* DEDICATED INSPECTOR: Payment Receipt — Payment Instrument Card (`rec_payment_instrument`) */}
+                          {selectedBlock.id === 'rec_payment_instrument' && (
+                            <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-3 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-900">
+                                  Payment Instrument Details
+                                </span>
+                                <span className="text-[9.5px] font-mono text-emerald-700 bg-white px-1.5 py-0.5 rounded border border-emerald-200">
+                                  Receipt Left Card
+                                </span>
+                              </div>
+
+                              <div>
+                                <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                  Card Heading Override
+                                </label>
+                                <input
+                                  type="text"
+                                  value={selectedBlock.titleOverride ?? receiptMetadata.instrument_card_heading ?? ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    handleUpdateBlockConfig('rec_payment_instrument', { titleOverride: val });
+                                    setReceiptMetadata((prev) => ({
+                                      ...prev,
+                                      instrument_card_heading: val
+                                    }));
+                                  }}
+                                  placeholder="Payment Instrument & Reference Details"
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Payment Mode
+                                  </label>
+                                  <select
+                                    value={receiptMetadata.payment_method || 'Bank Transfer'}
+                                    onChange={(e) =>
+                                      setReceiptMetadata((prev) => ({
+                                        ...prev,
+                                        payment_method: e.target.value as any
+                                      }))
+                                    }
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  >
+                                    <option value="Bank Transfer">Bank Transfer</option>
+                                    <option value="Bank Wire Transfer">Bank Wire Transfer</option>
+                                    <option value="Cheque">Cheque</option>
+                                    <option value="Cash">Cash</option>
+                                    <option value="Card / POS">Card / POS</option>
+                                    <option value="Online Payment">Online Payment</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Transaction / Bank Ref
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={receiptMetadata.bank_txn_ref ?? receiptMetadata.transaction_ref ?? ''}
+                                    onChange={(e) =>
+                                      setReceiptMetadata((prev) => ({
+                                        ...prev,
+                                        bank_txn_ref: e.target.value,
+                                        transaction_ref: e.target.value
+                                      }))
+                                    }
+                                    placeholder="UTR / FTS / Ref #"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white font-mono"
+                                  />
+                                </div>
+                              </div>
+
+                              {receiptMetadata.payment_method === 'Cheque' && (
+                                <div className="grid grid-cols-3 gap-1.5">
+                                  <div>
+                                    <label className="block text-[9px] font-semibold text-slate-600 mb-0.5">
+                                      Cheque #
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={receiptMetadata.cheque_no ?? ''}
+                                      onChange={(e) =>
+                                        setReceiptMetadata((prev) => ({
+                                          ...prev,
+                                          cheque_no: e.target.value
+                                        }))
+                                      }
+                                      placeholder="004512"
+                                      className="w-full px-1.5 py-1 rounded border border-slate-300 text-[10.5px] bg-white font-mono"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[9px] font-semibold text-slate-600 mb-0.5">
+                                      Drawee Bank
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={receiptMetadata.cheque_bank_name ?? ''}
+                                      onChange={(e) =>
+                                        setReceiptMetadata((prev) => ({
+                                          ...prev,
+                                          cheque_bank_name: e.target.value
+                                        }))
+                                      }
+                                      placeholder="ENBD"
+                                      className="w-full px-1.5 py-1 rounded border border-slate-300 text-[10.5px] bg-white"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[9px] font-semibold text-slate-600 mb-0.5">
+                                      Cheque Date
+                                    </label>
+                                    <input
+                                      type="date"
+                                      value={receiptMetadata.cheque_date ?? ''}
+                                      onChange={(e) =>
+                                        setReceiptMetadata((prev) => ({
+                                          ...prev,
+                                          cheque_date: e.target.value
+                                        }))
+                                      }
+                                      className="w-full px-1.5 py-1 rounded border border-slate-300 text-[10.5px] bg-white"
+                                    />
+                                  </div>
+                                </div>
+                              )}
+
+                              <div>
+                                <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                  Credited Account
+                                </label>
+                                <input
+                                  type="text"
+                                  value={receiptMetadata.deposit_account ?? receiptMetadata.deposit_account_label ?? ''}
+                                  onChange={(e) =>
+                                    setReceiptMetadata((prev) => ({
+                                      ...prev,
+                                      deposit_account: e.target.value,
+                                      deposit_account_label: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Corporate Treasury Account"
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                  Remarks / Allocation Notes
+                                </label>
+                                <textarea
+                                  rows={2}
+                                  value={receiptMetadata.receipt_notes ?? ''}
+                                  onChange={(e) =>
+                                    setReceiptMetadata((prev) => ({
+                                      ...prev,
+                                      receipt_notes: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Optional payment remarks..."
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[10.5px] bg-white"
+                                />
+                              </div>
+
+                              <div className="pt-1.5 border-t border-emerald-200/70 grid grid-cols-2 gap-1.5">
+                                {[
+                                  { fieldKey: 'payment_mode', metaKey: 'show_payment_mode', label: 'Payment Mode' },
+                                  { fieldKey: 'txn_ref', metaKey: 'show_txn_ref', label: 'Transaction Ref' },
+                                  { fieldKey: 'credited_account', metaKey: 'show_credited_account', label: 'Credited Account' },
+                                  { fieldKey: 'remarks', metaKey: '', label: 'Remarks Line' }
+                                ].map((f) => {
+                                  const isOn =
+                                    selectedBlock.visibleFields?.[f.fieldKey] !== undefined
+                                      ? selectedBlock.visibleFields[f.fieldKey]
+                                      : f.metaKey
+                                      ? (receiptMetadata as any)[f.metaKey] !== false
+                                      : true;
+                                  return (
+                                    <label key={f.fieldKey} className="flex items-center gap-1.5 text-[10px] text-slate-700 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={isOn}
+                                        onChange={(e) => {
+                                          const checked = e.target.checked;
+                                          handleUpdateBlockConfig('rec_payment_instrument', {
+                                            visibleFields: {
+                                              ...(selectedBlock.visibleFields || {}),
+                                              [f.fieldKey]: checked
+                                            }
+                                          });
+                                          if (f.metaKey) {
+                                            setReceiptMetadata((prev) => ({
+                                              ...prev,
+                                              [f.metaKey]: checked
+                                            }));
+                                          }
+                                        }}
+                                        className="rounded border-slate-300 text-emerald-600 cursor-pointer"
+                                      />
+                                      <span>{f.label}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* DEDICATED INSPECTOR: Payment Receipt — Account Settlement & Balance (`rec_balance_statement`) */}
+                          {selectedBlock.id === 'rec_balance_statement' && (
+                            <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-3 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-900">
+                                  Account Settlement &amp; Balance
+                                </span>
+                                <span className="text-[9.5px] font-mono text-emerald-700 bg-white px-1.5 py-0.5 rounded border border-emerald-200">
+                                  Receipt Right Card
+                                </span>
+                              </div>
+
+                              <div>
+                                <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                  Card Heading Override
+                                </label>
+                                <input
+                                  type="text"
+                                  value={selectedBlock.titleOverride ?? receiptMetadata.balance_card_heading ?? ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    handleUpdateBlockConfig('rec_balance_statement', { titleOverride: val });
+                                    setReceiptMetadata((prev) => ({
+                                      ...prev,
+                                      balance_card_heading: val
+                                    }));
+                                  }}
+                                  placeholder="Account Settlement & Balance Statement"
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Total Order / Contract Value
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={receiptMetadata.total_order_value ?? financialTotals.grand_total ?? 0}
+                                    onChange={(e) => {
+                                      const nextTotal = Number(e.target.value) || 0;
+                                      setReceiptMetadata((prev) => {
+                                        const prevRec = Number(prev.previously_received ?? 0);
+                                        const curAmt = Number(prev.amount_received ?? financialTotals.grand_total ?? 0);
+                                        const nextBal = Math.max(0, nextTotal - prevRec - curAmt);
+                                        return {
+                                          ...prev,
+                                          total_order_value: nextTotal,
+                                          balance_remaining: nextBal,
+                                          balance_outstanding: nextBal,
+                                          balance_due: nextBal
+                                        };
+                                      });
+                                    }}
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white font-mono"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Previously Received
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={receiptMetadata.previously_received ?? 0}
+                                    onChange={(e) => {
+                                      const nextPrev = Number(e.target.value) || 0;
+                                      setReceiptMetadata((prev) => {
+                                        const totalVal = Number(prev.total_order_value ?? financialTotals.grand_total ?? 0);
+                                        const curAmt = Number(prev.amount_received ?? financialTotals.grand_total ?? 0);
+                                        const nextBal = Math.max(0, totalVal - nextPrev - curAmt);
+                                        return {
+                                          ...prev,
+                                          previously_received: nextPrev,
+                                          balance_remaining: nextBal,
+                                          balance_outstanding: nextBal,
+                                          balance_due: nextBal
+                                        };
+                                      });
+                                    }}
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white font-mono"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Current Receipt Amount
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={receiptMetadata.amount_received ?? financialTotals.grand_total ?? 0}
+                                    onChange={(e) => {
+                                      const nextAmt = Number(e.target.value) || 0;
+                                      setReceiptMetadata((prev) => {
+                                        const totalVal = Number(prev.total_order_value ?? financialTotals.grand_total ?? nextAmt);
+                                        const prevRec = Number(prev.previously_received ?? 0);
+                                        const nextBal = Math.max(0, totalVal - prevRec - nextAmt);
+                                        return {
+                                          ...prev,
+                                          amount_received: nextAmt,
+                                          balance_remaining: nextBal,
+                                          balance_outstanding: nextBal,
+                                          balance_due: nextBal
+                                        };
+                                      });
+                                    }}
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white font-mono font-bold text-emerald-800"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Balance Outstanding
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={
+                                      receiptMetadata.balance_outstanding ??
+                                      receiptMetadata.balance_due ??
+                                      receiptMetadata.balance_remaining ??
+                                      Math.max(
+                                        0,
+                                        Number(receiptMetadata.total_order_value ?? financialTotals.grand_total ?? 0) -
+                                          Number(receiptMetadata.previously_received ?? 0) -
+                                          Number(receiptMetadata.amount_received ?? financialTotals.grand_total ?? 0)
+                                      )
+                                    }
+                                    onChange={(e) => {
+                                      const nextBal = Number(e.target.value) || 0;
+                                      setReceiptMetadata((prev) => ({
+                                        ...prev,
+                                        balance_outstanding: nextBal,
+                                        balance_due: nextBal,
+                                        balance_remaining: nextBal
+                                      }));
+                                    }}
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white font-mono"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="pt-1.5 border-t border-emerald-200/70 space-y-1">
+                                {[
+                                  { fieldKey: 'contract_value', metaKey: 'show_contract_value', label: 'Show Total Order / Contract Value' },
+                                  { fieldKey: 'previously_received', metaKey: 'show_previously_received', label: 'Show Less: Previously Received' },
+                                  { fieldKey: 'balance_due', metaKey: 'show_balance_due', label: 'Show Balance Outstanding' }
+                                ].map((f) => {
+                                  const isOn =
+                                    selectedBlock.visibleFields?.[f.fieldKey] !== undefined
+                                      ? selectedBlock.visibleFields[f.fieldKey]
+                                      : (receiptMetadata as any)[f.metaKey] !== false;
+                                  return (
+                                    <label key={f.fieldKey} className="flex items-center justify-between text-[10px] text-slate-700 cursor-pointer">
+                                      <span>{f.label}</span>
+                                      <input
+                                        type="checkbox"
+                                        checked={isOn}
+                                        onChange={(e) => {
+                                          const checked = e.target.checked;
+                                          handleUpdateBlockConfig('rec_balance_statement', {
+                                            visibleFields: {
+                                              ...(selectedBlock.visibleFields || {}),
+                                              [f.fieldKey]: checked
+                                            }
+                                          });
+                                          setReceiptMetadata((prev) => ({
+                                            ...prev,
+                                            [f.metaKey]: checked
+                                          }));
+                                        }}
+                                        className="rounded border-slate-300 text-emerald-600 cursor-pointer"
+                                      />
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* DEDICATED INSPECTOR: Payment Voucher — Amount Disbursed Banner (`pv_disbursed_banner`) */}
+                          {selectedBlock.id === 'pv_disbursed_banner' && (
+                            <div className="bg-indigo-50/60 border border-indigo-200 rounded-xl p-3 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-extrabold uppercase tracking-wider text-indigo-900">
+                                  Amount Disbursed Banner
+                                </span>
+                                <span className="text-[9.5px] font-mono text-indigo-700 bg-white px-1.5 py-0.5 rounded border border-indigo-200">
+                                  PV Top Banner
+                                </span>
+                              </div>
+
+                              <div>
+                                <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                  Banner Heading Override
+                                </label>
+                                <input
+                                  type="text"
+                                  value={selectedBlock.titleOverride ?? paymentVoucherMetadata.amount_banner_heading ?? ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    handleUpdateBlockConfig('pv_disbursed_banner', { titleOverride: val });
+                                    setPaymentVoucherMetadata((prev) => ({
+                                      ...prev,
+                                      amount_banner_heading: val
+                                    }));
+                                  }}
+                                  placeholder={`Amount Disbursed / Paid (${liveQuotation.currency})`}
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                  Amount Disbursed ({liveQuotation.currency})
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={paymentVoucherMetadata.amount_paid ?? financialTotals.grand_total ?? 0}
+                                  onChange={(e) => {
+                                    const nextAmt = Number(e.target.value) || 0;
+                                    setPaymentVoucherMetadata((prev) => {
+                                      const totalPay = Number(prev.total_payable_amount ?? financialTotals.grand_total ?? nextAmt);
+                                      const prevPaid = Number(prev.previously_paid ?? 0);
+                                      return {
+                                        ...prev,
+                                        amount_paid: nextAmt,
+                                        balance_remaining: Math.max(0, totalPay - prevPaid - nextAmt)
+                                      };
+                                    });
+                                  }}
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white font-mono font-bold text-indigo-900"
+                                />
+                              </div>
+
+                              <div className="space-y-1.5 pt-1 border-t border-indigo-200/70">
+                                <label className="flex items-center justify-between cursor-pointer">
+                                  <span className="text-[10px] font-semibold text-slate-700">
+                                    Show Payment Narration Line
+                                  </span>
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      selectedBlock.visibleFields?.narration !== undefined
+                                        ? selectedBlock.visibleFields.narration
+                                        : (paymentVoucherMetadata as any).show_narration !== false
+                                    }
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      handleUpdateBlockConfig('pv_disbursed_banner', {
+                                        visibleFields: {
+                                          ...(selectedBlock.visibleFields || {}),
+                                          narration: checked
+                                        }
+                                      });
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        show_narration: checked
+                                      }));
+                                    }}
+                                    className="rounded border-slate-300 text-indigo-600 cursor-pointer"
+                                  />
+                                </label>
+                                <input
+                                  type="text"
+                                  value={paymentVoucherMetadata.payment_narration ?? paymentVoucherMetadata.being_payment_for ?? ''}
+                                  onChange={(e) =>
+                                    setPaymentVoucherMetadata((prev) => ({
+                                      ...prev,
+                                      payment_narration: e.target.value,
+                                      being_payment_for: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Outbound Supplier Account Settlement"
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[10.5px] bg-white"
+                                />
+                              </div>
+
+                              <label className="flex items-center justify-between pt-1 border-t border-indigo-200/70 cursor-pointer">
+                                <span className="text-[10px] font-semibold text-slate-700">
+                                  Show Amount in Words
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  checked={
+                                    selectedBlock.visibleFields?.amount_in_words !== undefined
+                                      ? selectedBlock.visibleFields.amount_in_words
+                                      : amountInWordsEnabled
+                                  }
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    setAmountInWordsEnabled(checked);
+                                    handleUpdateBlockConfig('pv_disbursed_banner', {
+                                      visibleFields: {
+                                        ...(selectedBlock.visibleFields || {}),
+                                        amount_in_words: checked
+                                      }
+                                    });
+                                  }}
+                                  className="rounded border-slate-300 text-indigo-600 cursor-pointer"
+                                />
+                              </label>
+                            </div>
+                          )}
+
+                          {/* DEDICATED INSPECTOR: Payment Voucher — Bill Allocation Schedule (`pv_bill_allocation`) */}
+                          {selectedBlock.id === 'pv_bill_allocation' && (
+                            <div className="bg-indigo-50/60 border border-indigo-200 rounded-xl p-3 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-extrabold uppercase tracking-wider text-indigo-900">
+                                  Bill Allocation Schedule
+                                </span>
+                                <span className="text-[9.5px] font-mono text-indigo-700 bg-white px-1.5 py-0.5 rounded border border-indigo-200">
+                                  PV Schedule Card
+                                </span>
+                              </div>
+
+                              <div>
+                                <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                  Schedule Heading Override
+                                </label>
+                                <input
+                                  type="text"
+                                  value={selectedBlock.titleOverride ?? paymentVoucherMetadata.allocation_table_heading ?? ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    handleUpdateBlockConfig('pv_bill_allocation', { titleOverride: val });
+                                    setPaymentVoucherMetadata((prev) => ({
+                                      ...prev,
+                                      allocation_table_heading: val
+                                    }));
+                                  }}
+                                  placeholder="Outbound Bill Settlement & Allocation Schedule"
+                                  className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Settlement Type
+                                  </label>
+                                  <select
+                                    value={paymentVoucherMetadata.settlement_type || 'bill_settlement'}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        settlement_type: e.target.value as any
+                                      }))
+                                    }
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
+                                  >
+                                    <option value="bill_settlement">Bill / PO Settlement</option>
+                                    <option value="advance_payment">Vendor Advance Payment</option>
+                                    <option value="multi_bill">Multi-Bill Allocation</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Vendor Invoice #
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={paymentVoucherMetadata.vendor_invoice_no ?? ''}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        vendor_invoice_no: e.target.value
+                                      }))
+                                    }
+                                    placeholder="INV-2026-001"
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white font-mono"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Bill / PO Ref
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={paymentVoucherMetadata.linked_po_ref ?? ''}
+                                    onChange={(e) =>
+                                      setPaymentVoucherMetadata((prev) => ({
+                                        ...prev,
+                                        linked_po_ref: e.target.value
+                                      }))
+                                    }
+                                    placeholder="PO-..."
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white font-mono"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Bill Total ({liveQuotation.currency})
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={paymentVoucherMetadata.total_payable_amount ?? financialTotals.grand_total ?? 0}
+                                    onChange={(e) => {
+                                      const nextTotal = Number(e.target.value) || 0;
+                                      setPaymentVoucherMetadata((prev) => {
+                                        const prevPaid = Number(prev.previously_paid ?? 0);
+                                        const amtPaid = Number(prev.amount_paid ?? financialTotals.grand_total ?? 0);
+                                        return {
+                                          ...prev,
+                                          total_payable_amount: nextTotal,
+                                          balance_remaining: Math.max(0, nextTotal - prevPaid - amtPaid)
+                                        };
+                                      });
+                                    }}
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white font-mono"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Previously Paid
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={paymentVoucherMetadata.previously_paid ?? 0}
+                                    onChange={(e) => {
+                                      const nextPrev = Number(e.target.value) || 0;
+                                      setPaymentVoucherMetadata((prev) => {
+                                        const totalPay = Number(prev.total_payable_amount ?? financialTotals.grand_total ?? 0);
+                                        const amtPaid = Number(prev.amount_paid ?? financialTotals.grand_total ?? 0);
+                                        return {
+                                          ...prev,
+                                          previously_paid: nextPrev,
+                                          balance_remaining: Math.max(0, totalPay - nextPrev - amtPaid)
+                                        };
+                                      });
+                                    }}
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white font-mono"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9.5px] font-semibold text-slate-600 mb-0.5">
+                                    Paid This Voucher
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={paymentVoucherMetadata.amount_paid ?? financialTotals.grand_total ?? 0}
+                                    onChange={(e) => {
+                                      const nextAmt = Number(e.target.value) || 0;
+                                      setPaymentVoucherMetadata((prev) => {
+                                        const totalPay = Number(prev.total_payable_amount ?? financialTotals.grand_total ?? nextAmt);
+                                        const prevPaid = Number(prev.previously_paid ?? 0);
+                                        return {
+                                          ...prev,
+                                          amount_paid: nextAmt,
+                                          balance_remaining: Math.max(0, totalPay - prevPaid - nextAmt)
+                                        };
+                                      });
+                                    }}
+                                    className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white font-mono font-bold text-indigo-900"
+                                  />
+                                </div>
                               </div>
                             </div>
                           )}

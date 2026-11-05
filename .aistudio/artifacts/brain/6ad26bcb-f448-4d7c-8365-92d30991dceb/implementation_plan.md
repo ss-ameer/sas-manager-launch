@@ -1,103 +1,96 @@
-# Forensic UI/UX & Standardization Remediation Plan (UX-C1 through UX-L1)
+# Quotation Studio Architecture Fix — Selection, Right Drawer, Independent Cards & Text Style Bar
 
-## 1. Executive Summary & Preservation Mandate
-This plan resolves all 15 UI/UX, metadata-binding, layout, RBAC confidentiality, dark-mode contrast, and standardization defects identified in the forensic audit (**UX-C1 through UX-L1**) while strictly preserving 100% of the Company Code, Country Code, Quick-Resolve Modal, and Sequence Engine work completed in the previous run.
+Resolve four foundational interaction defects in Quotation Studio so every document mode (`QT`, `PI`, `INV`, `DO`, `REC`, `PO`, `PV`, `MRN`, `DN`) supports reliable single-card selection, guaranteed Right Inspector drawer opening, modular Receipt/Voucher/Totals Lego blocks, direct whole-card Text & Style Bar formatting, and clean reference prefixes across mode switches.
 
----
+### User Review & Critical Decisions
 
-## 2. Critical Studio & A4 Canvas Bindings (UX-C1 & UX-C2)
+> [!IMPORTANT]
+> All four architectural fixes below are strictly scoped to the Quotation Studio workspace and A4 document engine without altering unrelated application modules.
 
-### UX-C1: Synchronize Disconnected Right Inspector Keys Across All 7 Modular Blocks
-We will implement **dual-write** in `src/components/quotations/QuotationStudioModal.tsx` (lines ~19038–20075) and **fallback-read** in `src/components/quotations/QuotationDocument.tsx` (lines ~5632–6272) across all 7 modular blocks:
-1. **`do_dispatch_party`**:
-   - Sync `vehicle_number` $\leftrightarrow$ `vehicle_plate_no`
-   - Sync `driver_contact` $\leftrightarrow$ `driver_phone`
-2. **`do_receiving_party`**:
-   - Sync `received_by_designation` $\leftrightarrow$ `received_by_title`
-3. **`vendor_return_claim`**:
-   - Sync `returned_by_title` $\leftrightarrow$ `dispatched_by_title`
-   - Sync `carrier_details` $\leftrightarrow$ `carrier_or_vehicle` / `vehicle_or_courier`
-4. **`vendor_return_ack`**:
-   - Sync `vendor_signatory_name` $\leftrightarrow$ `received_by_vendor` / `accepted_by_vendor_name`
-   - Sync `credit_note_ref` $\leftrightarrow$ `vendor_credit_note_no`
-5. **`pv_treasury_details`**:
-   - Sync `transaction_ref` $\leftrightarrow$ `utr_or_cheque_no` / `bank_txn_ref`
-   - Sync `paid_from_bank_name` $\leftrightarrow$ `disbursing_bank_name` / `disbursing_bank_label`
-   - Wire the 4 visibility checkboxes (`show_pv_method` $\leftrightarrow$ `show_payment_mode`, `show_pv_bank` $\leftrightarrow$ `show_disbursing_account`, `show_pv_tx_ref` $\leftrightarrow$ `show_utr_ref`, and `show_pv_po_ref`) so toggling them in the Right Inspector updates the A4 canvas live.
-6. **`pv_beneficiary_details`**:
-   - Sync `beneficiary_bank_details.account_name` $\leftrightarrow$ `beneficiary_name`
-   - Sync `beneficiary_bank_details.swift` $\leftrightarrow$ `beneficiary_bank_details.swift_code`
-7. **`pv_approval_matrix`**:
-   - Honor `blockConfig.visibleFields?.col1..col4` alongside `pvMeta?.approval_columns[idx].visible`
-   - Honor `pvMeta?.col1_heading..col4_heading` alongside `approval_columns[idx].label`
-   - Read `verified_by_name` (for Column 2) and `received_by_name` (for Column 4) alongside `approval_columns` signatory fields.
-
-### UX-C2: Fix Typography & Color Overrides for Modular Blocks (`renderBlocksGrid`)
-- **File**: `src/components/quotations/QuotationDocument.tsx` (`renderBlocksGrid`, lines ~6470–6490)
-- **Fix**: Resolve `blockElemFmt` by checking both `resolvedRecipientConfig.elementStyles?.[\`block:${b.id}\`]` AND the legacy mapped key:
-  - `do_dispatch_party` $\rightarrow$ `'do_signoff_left'`
-  - `do_receiving_party` $\rightarrow$ `'do_signoff_right'`
-  - `vendor_return_claim` $\rightarrow$ `'return_signoff_left'`
-  - `vendor_return_ack` $\rightarrow$ `'return_signoff_right'`
-  - `pv_treasury_details` $\rightarrow$ `'pv_treasury_card'`
-  - `pv_beneficiary_details` $\rightarrow$ `'pv_beneficiary_card'`
-  - `pv_approval_matrix` $\rightarrow$ `'pv_approval_matrix'`
-- Merge any custom font family, size, weight, color, and alignment overrides so Right Inspector typography controls apply immediately on the A4 canvas.
+- **Guaranteed Right Inspector Drawer Opening**: Automatically synchronize missing specialized modular blocks into the Studio layout state whenever the document mode changes or a canvas block is clicked, and synthesize a fallback block configuration so clicking any card or the top-right `[Right Inspector]` toggle always opens a populated inspector drawer.
+- **Strict Single-Card Selection & Modular Receipt / Voucher / Totals Cards**: Decouple the Payment Receipt (`REC`), Payment Voucher (`PV`), and Financial Summary (`totals`) body cards from `quote_meta` so only one card on the A4 canvas highlights at a time, and split `REC` and `PV` body sections into independent, resizable, reorderable Lego cards with dedicated Right Inspector controls.
+- **Direct Whole-Card Text & Style Bar Formatting**: Remove the multi-target dropdown in the Text & Style Bar so formatting controls apply directly to the selected card by default (with a 1-click `[Style Whole Card]` reset pill whenever a specific text element inside the card is clicked), and ensure child elements inherit custom colors, font sizes, weights, alignments, and accent bars cleanly.
+- **Canonical Reference Sanitization on Mode Switch**: Strip stale auxiliary prefixes (`DO-`, `REC-`, `PO-`, `PV-`, `MRN-`, `DN-`) and intermediate `-01` sequence tokens before `-R1` whenever switching document modes so `PO` and `PV` always generate `PO-...` and `PV-...` references cleanly.
 
 ---
 
-## 3. Enquiries Registry Layout, RBAC Confidentiality & Dark Mode (UX-C3, UX-C4, UX-H1, UX-H3)
+### 1. Overview & Core Concept
 
-### UX-C3 & UX-H1: Fix `table-fixed` Column Overflow & Metadata Wrapping (`EnquiryList.tsx`)
-- Rebalance the 8 column widths in `src/components/EnquiryList.tsx` to prevent cell collisions while maintaining 100% viewport fit:
-  - `S/N`: `w-[5%]`
-  - `Company Account`: `w-[23%]`
-  - `Quote Ref No`: `w-[19%]`
-  - `Rep`: `w-[6%]`
-  - `Received Date`: `w-[10%]`
-  - `Status`: `w-[14%]`
-  - `Enquiry Value`: `w-[12%]`
-  - `Actions`: `w-[11%]`
-- Add `overflow-hidden` to every `<td>` cell in `EnquiryRow`.
-- Add `truncate` to the secondary metadata sub-line under `Enquiry Value` (`4 items · 2 files...`).
-- Replace `overflow-hidden whitespace-nowrap` on the status timestamp with `truncate` (`overflow-hidden text-ellipsis whitespace-nowrap`).
-
-### UX-C4: Gate Confidential Supplier Costs & Profit Margins Behind Admin/Manager RBAC
-- **Files**: `src/components/EnquiryList.tsx` and `src/components/ProductManager.tsx`
-- **Fix**: Compute `const canViewConfidentialMargins = canManageWorkspace(user, activeWorkspace) || isAdmin(user, activeWorkspace?.id, activeWorkspace);` and gate `{marginPct}% margin` in `EnquiryList.tsx` and `Landed: ...` cost badges in `ProductManager.tsx` behind `canViewConfidentialMargins`.
-
-### UX-H3: Dark Mode Contrast Parity (`ProductManager.tsx`, `EnquiryList.tsx`, `EnquiryDetail.tsx`)
-- Add explicit `dark:bg-slate-900`, `dark:border-slate-800`, `dark:text-slate-100`, `dark:text-slate-300`, and `dark:hover:bg-slate-800/60` pairs across `ProductManager.tsx` cards/tables/headers and audit remaining light-only surfaces in `EnquiryList.tsx` and `EnquiryDetail.tsx`.
+- **What It Does**: Upgrades the Quotation Studio interactive canvas and Right Inspector architecture so every visual card on the A4 sheet—across Sales Quotations, Delivery Notes, Payment Receipts, Purchase Orders, Payment Vouchers, Material Returns, and Debit Notes—behaves as a true self-contained modular block with single-selection isolation, a dedicated Right Inspector drawer, and live whole-card typography styling.
+- **Target Audience / Persona**: Commercial operations, finance, and logistics teams designing, customizing, and issuing commercial documents in Quotation Studio.
+- **Key Value**: Eliminates silent inspector drawer failures, prevents confusing multi-card selection rings, gives users full layout control (`Left 50%` | `Full 100%` | `Right 50%`) over Receipt and Payment Voucher cards, makes the Text & Style Bar work predictably on first click, and prevents `DO-` reference prefixes from bleeding into Purchase Orders or Payment Vouchers.
 
 ---
 
-## 4. High & Medium Priority Refinements (UX-H2, UX-H4, UX-H5, UX-M1 to UX-M5, UX-L1)
+### 2. User Experience & Visual Design
 
-### UX-H2: Fix Half-Width Grid Crushing on `pv_approval_matrix` (`QuotationDocument.tsx`)
-- In `renderPvApprovalMatrixBlock`, check `const isHalfWidth = blockConfig.placement === 'left' || blockConfig.placement === 'right';`.
-- When `isHalfWidth && visibleApprovalCols.length > 2`, use `'grid-cols-2'` instead of `'grid-cols-4'` so signatory boxes stack cleanly in a $2 \times 2$ grid without crushing horizontal width.
+- **Key User Flows**:
+  1. **Clicking Any Specialized Card (`DO`, `MRN`, `DN`, `PV`, `REC`, `Totals`)**:
+     - Clicking *Dispatched & Released By*, *Goods Received in Good Order By*, *Authorized Return / Claim By*, *Vendor Return Acknowledgment*, *Treasury & Disbursement Details*, *Beneficiary & Payee Details*, *Treasury Approval & Sign-off Matrix*, *Amount Received Banner*, *Payment Instrument & Reference Details*, *Account Settlement & Balance Statement*, *Amount Disbursed Banner*, *Outbound Bill Settlement & Allocation Schedule*, or the *Financial Summary / Totals* card immediately places a crisp blue selection ring around **only** that card and opens its dedicated Right Inspector panel.
+     - Clicking the top-right `[Right Inspector]` toolbar button when the drawer is closed always opens the drawer (defaulting to the active section or Document Meta if none is selected).
+  2. **Customizing Payment Receipt (`REC`) & Payment Voucher (`PV`) Cards**:
+     - In `REC` mode, the body renders three independent modular cards:
+       - **Amount Received Banner** (`rec_amount_banner`, default `Full 100%`)
+       - **Payment Instrument & Reference Details** (`rec_payment_instrument`, default `Left 50%`)
+       - **Account Settlement & Balance Statement** (`rec_balance_statement`, default `Right 50%`)
+     - In `PV` mode, the top **Amount Disbursed Banner** (`pv_disbursed_banner`, default `Full 100%`) and **Outbound Bill Settlement & Allocation Schedule** (`pv_bill_allocation`, default `Full 100%`) are independently selectable modular blocks separate from the top-right Document Meta header card.
+     - Each block supports `Left 50%` | `Full 100%` | `Right 50%` width toggles, Up/Down reordering, Show/Hide toggles, and field-level editing in the Right Inspector.
+  3. **Formatting via the Text & Style Bar**:
+     - Selecting any card on the canvas targets that entire card by default (`Styling: Whole Card`).
+     - Changing Font Size (`XS`–`XL`), Bold (`B`), Italic (`I`), Underline (`U`), Case (`AA` / `Aa`), Alignment, Text Color, Highlight Background, or Left Accent Bar immediately updates the visual styling of the card and its text contents.
+     - Clicking a specific text element inside a card scopes formatting to that element and displays a `Styling: Selected Text / Field` indicator with a 1-click `[Style Whole Card]` reset button.
+  4. **Switching Between Document Modes (`DO` -> `PO` / `PV`)**:
+     - Switching from a Delivery Note (`DO-TEST/10/2026/5-01-R1`) to a Purchase Order (`PO`) or Payment Voucher (`PV`) automatically strips the `DO-` prefix and intermediate `-01` sequence token before `-R1`, producing `PO-TEST/10/2026/5-01-R1` or `PV-TEST/10/2026/5-01-R1`.
 
-### UX-H4: Prune Dead Legacy Renderer Functions (`QuotationDocument.tsx`)
-- Remove unmounted legacy `renderDeliveryNoteSignOffBlock` and `renderVendorReturnSignOffBlock` functions and unused `pvTreasuryFmt` / `pvBenFmt` / `pvMatrixFmt` local variables in `QuotationDocument.tsx`.
+- **Visual Identity & Theme**:
+  - Preserves the executive light-mode Studio workspace (`--background: #f8fafc`, crisp white A4 canvas sheet, `--primary: #2563eb` active selection ring with subtle badge label, and high-contrast slate typography).
 
-### UX-H5: Require Confirmation Before Soft-Deleting Procurement Records (`ProcurementPayablesHub.tsx`)
-- Add a clean custom confirmation modal in `src/components/ProcurementPayablesHub.tsx` before soft-deleting Supplier POs, Supplier Bills, or Payment Vouchers / Returns when clicking the trash icon, displaying the record reference and type before committing deletion.
+---
 
-### UX-M1: Fix Direct Print Portal Missing Props & Stale DOM (`EnquiryDetail.tsx`)
-- Pass `bankAccount={workspaceBankAccounts.find(b => b.id === viewingQuotation.selected_bank_account_id) || workspaceBankAccounts.find(b => b.isDefault) || workspaceBankAccounts[0] || null}`, `salespersons={salespersons}`, and `layoutBlocks={viewingQuotation.layout_blocks}` to `<QuotationDocument>` inside `#quotation-print-portal`.
-- Clear `viewingQuotation` automatically after printing (`window.addEventListener('afterprint', ...)` / cleanup timeout).
+### 3. Key Product Decisions & Trade-Offs
 
-### UX-M2: Remove Redundant Inner Action Buttons in Commercial Documents Hub (`EnquiryDetail.tsx`)
-- Remove the duplicate `[Create Revision]` and `[Open Quotation Studio]` buttons inside the `Commercial Documents Hub` card header in `src/components/EnquiryDetail.tsx`, keeping the hub header clean with its title, document count badge, and `+ Generate Auxiliary Doc` dropdown.
+- **Decision 1: Auto-Synchronized Layout Blocks + Synthesized Fallback Block in Right Inspector**
+  - *Chosen Approach*: Whenever a quotation is loaded or `documentType` changes, run `ensureSpecializedDocumentBlocks` on `layoutBlocks` in Studio state, AND in `selectedBlock` resolution, synthesize a fallback `QuotationBlockConfig` if a known block ID is clicked before state hydration completes.
+  - *Why*: Guarantees `selectedBlock` is never `null` when a user clicks a specialized block on the canvas, eliminating the bug where `selectedSection` became non-null while the Right Inspector drawer remained hidden.
+- **Decision 2: First-Class Block IDs for `REC`, `PV`, and `Totals` Instead of Shared `'quote_meta'`**
+  - *Chosen Approach*: Assign distinct block IDs (`rec_amount_banner`, `rec_payment_instrument`, `rec_balance_statement`, `pv_disbursed_banner`, `pv_bill_allocation`, and `totals`) instead of routing their click handlers to `'quote_meta'`.
+  - *Why*: Routing body cards to `'quote_meta'` caused both the top-right header metadata card and multiple body cards to show active blue selection rings simultaneously, and prevented independent sizing/reordering.
+- **Decision 3: Unified Style Property Alignment & Scoped CSS Inheritance**
+  - *Chosen Approach*: Align `colorTone` / `textColor`, `accentBar` / `showAccentBar`, and `highlightBg` between the Studio Style Bar and A4 Document renderer, and apply a scoped inheritance wrapper when custom card formatting is active so child labels and values inherit custom color, size, weight, style, transform, decoration, and alignment.
+  - *Why*: Previously, the Style Bar wrote `colorTone` and `accentBar` while the document renderer only read `textColor` and `showAccentBar`, and child Tailwind classes (`text-slate-900`, `text-[10px]`, `font-semibold`) blocked parent inline styles from cascading.
 
-### UX-M3: Eliminate Double Firestore Counter Read & Fix Rep Initials Fallback (`EnquiryForm.tsx`)
-- In `src/components/EnquiryForm.tsx`, prevent the secondary `useEffect` from re-fetching `previewNextEnquiryRef` on initial mount when `initialMountRef` has already triggered it, and ensure `repInitials` falls back to `salesPerson.trim().slice(0, 3).toUpperCase()` when `selectedSp` is undefined. Preserve all Company Code / Country Code / Quick-Resolve functionality.
+---
 
-### UX-M4: Add Search Result Counter & Pagination (`ProcurementPayablesHub.tsx` & `ProjectRegistry.tsx`)
-- Add `<SearchResultCounter>` and pagination controls (default **25 rows per page** with a **25 / 50 / 100** page-size selector and Prev/Next navigation) to `ProcurementPayablesHub.tsx` and `ProjectRegistry.tsx`.
+### 4. Technical Architecture & Data Strategy *(Technical Reference)*
 
-### UX-M5: Close `··· More Actions` Dropdown on Escape Key (`EnquiryDetail.tsx`)
-- In `src/components/EnquiryDetail.tsx`, update the `Escape` keydown handler to close `isMoreActionsOpen` first (calling `e.stopPropagation()`) before closing the drawer.
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         QuotationStudioModal State                         │
+│  ┌──────────────────────────────┐      ┌────────────────────────────────┐  │
+│  │ layoutBlocks Auto-Sync       │      │ Selection & Style State        │  │
+│  │ • ensureSpecializedBlocks()  │      │ • selectedSection (1 ID only)  │  │
+│  │ • Fallback Block Synthesizer │      │ • activeStyleKey (Card default │  │
+│  │ • Mode-Switch Ref Sanitizer  │      │   or focused child element)    │  │
+│  └──────────────┬───────────────┘      └───────────────┬────────────────┘  │
+└─────────────────┼──────────────────────────────────────┼───────────────────┘
+                  │                                      │
+                  ▼                                      ▼
+┌─────────────────────────────────────┐  ┌───────────────────────────────────┐
+│       QuotationDocument Canvas      │  │      Right Inspector Drawer       │
+│  • Single Active Ring per Block ID  │  │  • Guaranteed Open on Click/Toggle│
+│  • Modular Grid (50% L/R or 100%):  │  │  • Dedicated Panels for:          │
+│    - DO: Dispatch / Receiving       │  │    - DO / MRN / DN / PV Blocks    │
+│    - MRN/DN: Claim / Acknowledgment │  │    - REC: Banner, Instrument,     │
+│    - REC: Banner, Instrument,       │  │      Balance Statement            │
+│      Balance Statement              │  │    - PV: Disbursed Banner &       │
+│    - PV: Disbursed Banner, Bill     │  │      Allocation Schedule          │
+│      Allocation, Treasury, Payee,   │  │    - Totals / Financial Summary   │
+│      Approval Matrix                │  │  • Direct Text & Style Bar with   │
+│    - Totals: Financial Summary Card │  │    [Style Whole Card] Reset Pill  │
+└─────────────────────────────────────┘  └───────────────────────────────────┘
+```
 
-### UX-L1: Neutralize Hardcoded `"ANRW Corporate"` Preset Button (`SettingsHub.tsx` & `WorkspaceDocumentProfileSettings.tsx`)
-- Rename the `"ANRW Corporate"` preset button in `src/components/SettingsHub.tsx` to `"Corporate Slash"` using dynamic workspace initials (`(activeWorkspace?.name || 'CORP').slice(0, 4).toUpperCase()`) instead of hardcoded `'ANRW'`, and verify `src/components/WorkspaceDocumentProfileSettings.tsx` has no hardcoded tenant strings.
+- **Interactive Component & State Mapping**:
+  - **Canvas Click Handler (`handleCanvasSelectSection`)**: Sets `selectedSection` to the exact clicked section/block ID, ensures the block exists in `layoutBlocks` if it is a modular block, defaults `activeStyleKey` to the whole-card key (`block:<id>`, `header_card`, `recipient_card`, `offer_card`, `subject_banner`, `items_table_card`, `footer_card`), and opens the Right Inspector drawer.
+  - **Right Inspector Toggle Button**: Evaluates `isRightDrawerOpen` based on whether a visible inspector panel is active; clicking when closed restores the last inspected section or defaults to `'quote_meta'` and scrolls the inspector into view.
+  - **Canonical Reference Sanitizer (`sanitizeCanonicalQuoteRef` & `handleSwitchDocumentType`)**: Strips any leading `(QT|DO|REC|PO|PV|MRN|DN|PI|INV)-` prefix and any intermediate `-\d{2}` sequence token before `-R\d+` so switching between `DO`, `PO`, `PV`, `REC`, `MRN`, and `DN` always constructs a clean target reference (`PO-TEST/10/2026/5-01-R1`).

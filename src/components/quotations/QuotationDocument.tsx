@@ -1347,7 +1347,73 @@ export function ensureSpecializedDocumentBlocks(
         padding: 'standard'
       });
     }
+  } else if (docType === 'receipt') {
+    if (!hasBlock('rec_amount_banner')) {
+      result.unshift({
+        id: 'rec_amount_banner',
+        type: 'rec_amount_banner',
+        enabled: true,
+        is_visible: true,
+        placement: 'full',
+        zone: 'pre_table',
+        style: defaultStyle,
+        fontScale: 'standard',
+        padding: 'standard'
+      });
+    }
+    if (!hasBlock('rec_payment_instrument')) {
+      result.push({
+        id: 'rec_payment_instrument',
+        type: 'rec_payment_instrument',
+        enabled: true,
+        is_visible: true,
+        placement: 'left',
+        zone: 'pre_table',
+        style: defaultStyle,
+        fontScale: 'standard',
+        padding: 'standard'
+      });
+    }
+    if (!hasBlock('rec_balance_statement')) {
+      result.push({
+        id: 'rec_balance_statement',
+        type: 'rec_balance_statement',
+        enabled: true,
+        is_visible: true,
+        placement: 'right',
+        zone: 'pre_table',
+        style: defaultStyle,
+        fontScale: 'standard',
+        padding: 'standard'
+      });
+    }
   } else if (docType === 'payment_voucher') {
+    if (!hasBlock('pv_disbursed_banner')) {
+      result.unshift({
+        id: 'pv_disbursed_banner',
+        type: 'pv_disbursed_banner',
+        enabled: true,
+        is_visible: true,
+        placement: 'full',
+        zone: 'pre_table',
+        style: defaultStyle,
+        fontScale: 'standard',
+        padding: 'standard'
+      });
+    }
+    if (!hasBlock('pv_bill_allocation')) {
+      result.push({
+        id: 'pv_bill_allocation',
+        type: 'pv_bill_allocation',
+        enabled: true,
+        is_visible: true,
+        placement: 'full',
+        zone: 'pre_table',
+        style: defaultStyle,
+        fontScale: 'standard',
+        padding: 'standard'
+      });
+    }
     if (!hasBlock('pv_treasury_details')) {
       result.push({
         id: 'pv_treasury_details',
@@ -3194,6 +3260,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       );
     });
 
+    const footerCardFmt = resolvedRecipientConfig.elementStyles?.['footer_card']
+      ? applyTextFormatStyle(resolvedRecipientConfig.elementStyles['footer_card'])
+      : { className: '', style: {} as React.CSSProperties };
+
     return (
       <footer
         className={`document-print-footer quotation-page-footer mt-auto pt-2 border-t border-slate-200 bg-white ${typoScale.sub} break-inside-avoid page-break-inside-avoid w-full print:mt-auto print:border-t print:border-slate-200 relative z-10 group transition-all duration-150 rounded-lg quotation-structural-section ${
@@ -3204,12 +3274,12 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             : isInteractive
             ? 'hover:ring-1 hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
             : ''
-        }`}
+        } ${footerCardFmt.className}`}
         onClick={
           isInteractive
             ? (e) => {
                 e.stopPropagation();
-                onSelectSection?.('footer');
+                onSelectSection?.('footer', 'footer_card');
                 onSelectBlock?.('footer' as any);
               }
             : undefined
@@ -3223,7 +3293,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           backgroundColor: '#ffffff',
           paddingTop: '2mm',
           breakInside: 'avoid',
-          pageBreakInside: 'avoid'
+          pageBreakInside: 'avoid',
+          ...footerCardFmt.style
         }}
       >
         {isInteractive && (
@@ -3279,12 +3350,37 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     );
   };
 
-  // Pre-table custom blocks rendered on Sheet 1 between Top Section and Line Items Table
+  // Pre-table custom & specialized blocks rendered on Sheet 1 between Top Section and Line Items Table
   const preTableBlocks = React.useMemo(() => {
-    return resolvedBlocks.filter(
-      (b) => b.zone === 'pre_table' && b.enabled !== false && b.is_visible !== false
-    );
-  }, [resolvedBlocks]);
+    return resolvedBlocks.filter((b) => {
+      if (b.zone !== 'pre_table') return false;
+      if (b.enabled === false || b.is_visible === false) return false;
+      const bType = b.type || b.id;
+      if (bType === 'do_dispatch_party' || bType === 'do_receiving_party') {
+        if (!isDeliveryNote) return false;
+      }
+      if (bType === 'vendor_return_claim' || bType === 'vendor_return_ack') {
+        if (!isMaterialReturnNote && !isDebitNote) return false;
+      }
+      if (
+        bType === 'pv_disbursed_banner' ||
+        bType === 'pv_bill_allocation' ||
+        bType === 'pv_treasury_details' ||
+        bType === 'pv_beneficiary_details' ||
+        bType === 'pv_approval_matrix'
+      ) {
+        if (!isPaymentVoucher) return false;
+      }
+      if (
+        bType === 'rec_amount_banner' ||
+        bType === 'rec_payment_instrument' ||
+        bType === 'rec_balance_statement'
+      ) {
+        if (!isReceiptVoucher) return false;
+      }
+      return true;
+    });
+  }, [resolvedBlocks, isDeliveryNote, isMaterialReturnNote, isDebitNote, isPaymentVoucher, isReceiptVoucher]);
 
   // Partition active post-table layoutBlocks + lineItems + flyer_attachments into discrete A4 cover, main & annex sheets
   const paginationWithAnnexes = React.useMemo(() => {
@@ -3299,11 +3395,20 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         if (!isMaterialReturnNote && !isDebitNote) return false;
       }
       if (
+        bType === 'pv_disbursed_banner' ||
+        bType === 'pv_bill_allocation' ||
         bType === 'pv_treasury_details' ||
         bType === 'pv_beneficiary_details' ||
         bType === 'pv_approval_matrix'
       ) {
         if (!isPaymentVoucher) return false;
+      }
+      if (
+        bType === 'rec_amount_banner' ||
+        bType === 'rec_payment_instrument' ||
+        bType === 'rec_balance_statement'
+      ) {
+        if (!isReceiptVoucher) return false;
       }
       if (!hasExplicitLayoutBlocks) {
         if (b.id === 'terms' && !resolvedShowCommercialTerms) return false;
@@ -3457,48 +3562,108 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     const cls: string[] = [];
     const st: React.CSSProperties = {};
 
-    if (fmt.fontSize === 'xs') cls.push('text-[calc(var(--block-base,10px)*0.84)]');
-    else if (fmt.fontSize === 'sm') cls.push('text-[calc(var(--block-base,10px)*0.93)]');
-    else if (fmt.fontSize === 'lg') cls.push('text-[calc(var(--block-base,10px)*1.12)]');
-    else if (fmt.fontSize === 'xl') cls.push('text-[calc(var(--block-base,10px)*1.28)]');
-    else if (fmt.fontSize === '2xl') cls.push('text-[calc(var(--block-base,10px)*1.48)]');
-    else if (fmt.fontSize === 'base') cls.push('text-[var(--block-base,10px)]');
-
-    if (fmt.fontWeight === 'bold') cls.push('font-bold');
-    else if (fmt.fontWeight === 'semibold') cls.push('font-semibold');
-    else if (fmt.fontWeight === 'medium') cls.push('font-medium');
-    else if (fmt.fontWeight === 'normal') cls.push('font-normal');
-
-    if (fmt.italic) cls.push('italic');
-    if (fmt.underline) cls.push('underline underline-offset-2');
-    if (fmt.uppercase) cls.push('uppercase tracking-wider');
-
-    if (fmt.textAlign === 'center') cls.push('text-center');
-    else if (fmt.textAlign === 'right') cls.push('text-right');
-    else if (fmt.textAlign === 'justify') cls.push('text-justify');
-    else if (fmt.textAlign === 'left') cls.push('text-left');
-
-    if (fmt.textColor === 'muted') {
-      cls.push('text-slate-500');
-    } else if (fmt.textColor === 'accent') {
-      st.color = themePalette.textAccent;
-    } else if (fmt.textColor === 'emerald') {
-      cls.push('text-emerald-700');
-    } else if (fmt.textColor === 'amber') {
-      cls.push('text-amber-700');
-    } else if (fmt.textColor === 'rose') {
-      cls.push('text-rose-700');
-    } else if (fmt.textColor === 'custom' && fmt.customColorHex) {
-      st.color = fmt.customColorHex;
-    } else if (fmt.textColor === 'default') {
-      cls.push('text-slate-900');
+    if (fmt.fontSize === 'xs') {
+      cls.push('text-[calc(var(--block-base,10px)*0.84)] quotation-fmt-size');
+      st.fontSize = '8.5px';
+      (st as any)['--block-base'] = '8.5px';
+    } else if (fmt.fontSize === 'sm') {
+      cls.push('text-[calc(var(--block-base,10px)*0.93)] quotation-fmt-size');
+      st.fontSize = '9.3px';
+      (st as any)['--block-base'] = '9.3px';
+    } else if (fmt.fontSize === 'lg') {
+      cls.push('text-[calc(var(--block-base,10px)*1.14)] quotation-fmt-size');
+      st.fontSize = '11.4px';
+      (st as any)['--block-base'] = '11.4px';
+    } else if (fmt.fontSize === 'xl') {
+      cls.push('text-[calc(var(--block-base,10px)*1.28)] quotation-fmt-size');
+      st.fontSize = '12.8px';
+      (st as any)['--block-base'] = '12.8px';
+    } else if (fmt.fontSize === '2xl') {
+      cls.push('text-[calc(var(--block-base,10px)*1.48)] quotation-fmt-size');
+      st.fontSize = '14.8px';
+      (st as any)['--block-base'] = '14.8px';
+    } else if (fmt.fontSize === 'base' || fmt.fontSize === 'md') {
+      cls.push('text-[var(--block-base,10px)]');
     }
 
-    if (fmt.highlightBg === 'SoftYellow') cls.push('bg-amber-100/80 px-1.5 py-0.5 rounded');
-    else if (fmt.highlightBg === 'SoftBlue') cls.push('bg-blue-100/80 px-1.5 py-0.5 rounded');
-    else if (fmt.highlightBg === 'SoftEmerald') cls.push('bg-emerald-100/80 px-1.5 py-0.5 rounded');
-    else if (fmt.highlightBg === 'SoftRose') cls.push('bg-rose-100/80 px-1.5 py-0.5 rounded');
-    else if (fmt.highlightBg === 'ThemeTint') {
+    if (fmt.fontWeight === 'bold') {
+      cls.push('font-bold quotation-fmt-bold');
+      st.fontWeight = 700;
+    } else if (fmt.fontWeight === 'semibold') {
+      cls.push('font-semibold quotation-fmt-semibold');
+      st.fontWeight = 600;
+    } else if (fmt.fontWeight === 'medium') {
+      cls.push('font-medium quotation-fmt-medium');
+      st.fontWeight = 500;
+    } else if (fmt.fontWeight === 'normal') {
+      cls.push('font-normal quotation-fmt-normal');
+      st.fontWeight = 400;
+    }
+
+    if (fmt.italic) {
+      cls.push('italic quotation-fmt-italic');
+      st.fontStyle = 'italic';
+    }
+    if (fmt.underline) {
+      cls.push('underline underline-offset-2 quotation-fmt-underline');
+      st.textDecoration = 'underline';
+    }
+    if (fmt.uppercase) {
+      cls.push('uppercase tracking-wider quotation-fmt-uppercase');
+      st.textTransform = 'uppercase';
+    }
+
+    if (fmt.textAlign === 'center') {
+      cls.push('text-center quotation-fmt-align-center');
+      st.textAlign = 'center';
+    } else if (fmt.textAlign === 'right') {
+      cls.push('text-right quotation-fmt-align-right');
+      st.textAlign = 'right';
+    } else if (fmt.textAlign === 'justify') {
+      cls.push('text-justify quotation-fmt-align-justify');
+      st.textAlign = 'justify';
+    } else if (fmt.textAlign === 'left') {
+      cls.push('text-left quotation-fmt-align-left');
+      st.textAlign = 'left';
+    }
+
+    const effectiveColor = fmt.colorTone || fmt.textColor;
+    if (effectiveColor === 'muted') {
+      cls.push('text-slate-500 quotation-fmt-color');
+      st.color = '#64748b';
+    } else if (effectiveColor === 'accent') {
+      cls.push('quotation-fmt-color');
+      st.color = themePalette.textAccent;
+    } else if (effectiveColor === 'emerald') {
+      cls.push('text-emerald-700 quotation-fmt-color');
+      st.color = '#047857';
+    } else if (effectiveColor === 'amber') {
+      cls.push('text-amber-700 quotation-fmt-color');
+      st.color = '#b45309';
+    } else if (effectiveColor === 'rose') {
+      cls.push('text-rose-700 quotation-fmt-color');
+      st.color = '#be123c';
+    } else if (effectiveColor === 'custom' && fmt.customColorHex) {
+      cls.push('quotation-fmt-color');
+      st.color = fmt.customColorHex;
+    } else if (effectiveColor === 'default' && (fmt.colorTone || fmt.textColor)) {
+      cls.push('text-slate-900 quotation-fmt-color');
+      st.color = '#0f172a';
+    }
+
+    if (fmt.highlightBg === 'SoftYellow' || fmt.highlightBg === 'soft_accent') {
+      cls.push('!bg-amber-50/90 px-1.5 py-0.5 rounded');
+      st.backgroundColor = '#fffbeb';
+    } else if (fmt.highlightBg === 'SoftBlue') {
+      cls.push('!bg-blue-50/90 px-1.5 py-0.5 rounded');
+      st.backgroundColor = '#eff6ff';
+    } else if (fmt.highlightBg === 'SoftEmerald') {
+      cls.push('!bg-emerald-50/90 px-1.5 py-0.5 rounded');
+      st.backgroundColor = '#ecfdf5';
+    } else if (fmt.highlightBg === 'SoftRose') {
+      cls.push('!bg-rose-50/90 px-1.5 py-0.5 rounded');
+      st.backgroundColor = '#fff1f2';
+    } else if (fmt.highlightBg === 'ThemeTint') {
       cls.push('px-1.5 py-0.5 rounded');
       st.backgroundColor = themePalette.tintBg;
     }
@@ -3508,10 +3673,12 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     else if (fmt.lineHeight === 'normal') cls.push('leading-snug');
 
     if (fmt.letterSpacing === 'wide') cls.push('tracking-wide');
-    else if (fmt.letterSpacing === 'uppercase_tracked') cls.push('uppercase tracking-wider');
+    else if (fmt.letterSpacing === 'uppercase_tracked') cls.push('uppercase tracking-wider quotation-fmt-uppercase');
 
-    if (fmt.showAccentBar) {
-      cls.push('pl-2 border-l-2');
+    if (fmt.showAccentBar || fmt.accentBar) {
+      cls.push('pl-2.5 !border-l-4');
+      st.borderLeftWidth = '4px';
+      st.borderLeftStyle = 'solid';
       st.borderLeftColor = themePalette.primaryHex;
     }
 
@@ -6286,9 +6453,477 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       );
     };
 
+    const renderRecAmountBannerBlock = (blockConfig: QuotationBlockConfig) => {
+      const amtReceived = Number(receiptMeta?.amount_received ?? quotation.grand_total ?? 0);
+      const settlementFor = formatCleanDocumentEnquiryRef(
+        receiptMeta?.settlement_for_ref || enquiryRef,
+        'receipt',
+        quotation.quote_number || 'Direct Account Settlement'
+      );
+      const rawProjectTitle =
+        receiptMeta?.project_title || receiptMeta?.payment_for || quotation.subject || enquiry?.subject || '';
+      const projectTitle =
+        rawProjectTitle && !rawProjectTitle.includes('_gap_') && !/^[A-Za-z0-9]{18,}$/.test(rawProjectTitle.trim())
+          ? rawProjectTitle
+          : quotation.subject || enquiry?.subject || 'Commercial Supply & Services';
+      const bannerHeading =
+        (blockConfig.titleOverride || receiptMeta?.amount_banner_heading || '').trim() ||
+        `Amount Received (${currency})`;
+      const showNarration =
+        blockConfig.visibleFields?.narration !== undefined
+          ? blockConfig.visibleFields.narration
+          : (receiptMeta as any)?.show_narration !== false;
+      const showWords =
+        blockConfig.visibleFields?.amount_in_words !== undefined
+          ? blockConfig.visibleFields.amount_in_words
+          : amountInWordsEnabled;
+
+      return (
+        <div className="flex flex-col gap-1 w-full">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <span
+                className={`${typoScale.heading} font-extrabold uppercase tracking-wider block`}
+                style={{ color: themePalette.textAccent }}
+              >
+                {renderResolvedQuotationText(bannerHeading, tokenContext)}
+              </span>
+              {showNarration && (
+                <span className={`${typoScale.sub} text-slate-600`}>
+                  {receiptMeta?.narration_override && receiptMeta.narration_override.trim() !== '' ? (
+                    renderResolvedQuotationText(receiptMeta.narration_override, tokenContext)
+                  ) : (
+                    <>
+                      In settlement of <span className="font-mono font-bold text-slate-800">{settlementFor}</span> — {projectTitle}
+                    </>
+                  )}
+                </span>
+              )}
+            </div>
+            <div
+              className="font-mono tabular-nums font-extrabold text-xl sm:text-2xl px-3 py-1 rounded bg-white border border-slate-200 shadow-2xs shrink-0"
+              style={{ color: themePalette.textAccent }}
+            >
+              {formatCurrency(amtReceived)}
+            </div>
+          </div>
+          {showWords && (
+            <div className={`pt-1 border-t border-slate-200/80 ${typoScale.body} text-slate-800`}>
+              <span className="font-bold text-slate-900">Amount in Words ({currency}): </span>
+              <span className="font-semibold italic">{amountToWords(amtReceived, currency)}</span>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const renderRecPaymentInstrumentBlock = (blockConfig: QuotationBlockConfig) => {
+      const payMethod = receiptMeta?.payment_method || 'Bank Wire Transfer';
+      const txnRef = receiptMeta?.bank_txn_ref || receiptMeta?.transaction_ref || '—';
+      const depositAcct =
+        receiptMeta?.deposit_account ||
+        receiptMeta?.deposit_account_label ||
+        (resolvedBank
+          ? `${resolvedBank.bankName} — ${resolvedBank.iban || resolvedBank.accountNumber || resolvedBank.currency}`
+          : 'Corporate Treasury Account');
+      const instrumentHeading =
+        (blockConfig.titleOverride || receiptMeta?.instrument_card_heading || '').trim() ||
+        'Payment Instrument & Reference Details';
+      const showMode =
+        blockConfig.visibleFields?.payment_mode !== undefined
+          ? blockConfig.visibleFields.payment_mode
+          : (receiptMeta as any)?.show_payment_mode !== false;
+      const showTxnRef =
+        blockConfig.visibleFields?.txn_ref !== undefined
+          ? blockConfig.visibleFields.txn_ref
+          : (receiptMeta as any)?.show_txn_ref !== false;
+      const showCreditedAcct =
+        blockConfig.visibleFields?.credited_account !== undefined
+          ? blockConfig.visibleFields.credited_account
+          : (receiptMeta as any)?.show_credited_account !== false;
+      const showRemarks =
+        blockConfig.visibleFields?.remarks !== undefined
+          ? blockConfig.visibleFields.remarks
+          : true;
+
+      return (
+        <div>
+          {blockConfig.showHeading !== false && (
+            <div
+              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
+              style={{ color: themePalette.textAccent }}
+            >
+              {renderResolvedQuotationText(instrumentHeading, tokenContext)}
+            </div>
+          )}
+          <div className={`space-y-1 ${typoScale.body} text-slate-700`}>
+            {showMode && (
+              <div className="flex justify-between gap-2">
+                <span className="font-semibold text-slate-500">Payment Mode:</span>
+                <span className="font-bold text-slate-900">{payMethod}</span>
+              </div>
+            )}
+            {showTxnRef && (
+              <div className="flex justify-between gap-2">
+                <span className="font-semibold text-slate-500">Transaction / Bank Ref:</span>
+                <span className="font-mono font-semibold text-slate-900">{txnRef}</span>
+              </div>
+            )}
+            {payMethod === 'Cheque' && (
+              <>
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-slate-500">Cheque Number:</span>
+                  <span className="font-mono font-semibold text-slate-900">
+                    {receiptMeta?.cheque_no || '—'}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-slate-500">Drawee Bank &amp; Date:</span>
+                  <span className="font-semibold text-slate-900">
+                    {[
+                      receiptMeta?.cheque_bank_name,
+                      receiptMeta?.cheque_date ? formatDate(receiptMeta.cheque_date) : ''
+                    ]
+                      .filter(Boolean)
+                      .join(' • ') || '—'}
+                  </span>
+                </div>
+              </>
+            )}
+            {showCreditedAcct && (
+              <div className="flex justify-between gap-2">
+                <span className="font-semibold text-slate-500">Credited Account:</span>
+                <span className="font-medium text-slate-800 text-right">{depositAcct}</span>
+              </div>
+            )}
+            {showRemarks && receiptMeta?.receipt_notes && (
+              <div className="pt-1 mt-1 border-t border-slate-200/70">
+                <span className="font-semibold text-slate-500 block">Remarks / Allocation Notes:</span>
+                <span className="text-slate-700 whitespace-pre-line">{receiptMeta.receipt_notes}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    const renderRecBalanceStatementBlock = (blockConfig: QuotationBlockConfig) => {
+      const amtReceived = Number(receiptMeta?.amount_received ?? quotation.grand_total ?? 0);
+      const totalOrderVal = Number(receiptMeta?.total_order_value ?? quotation.grand_total ?? amtReceived);
+      const prevReceived = Number(receiptMeta?.previously_received ?? 0);
+      const balanceDue =
+        receiptMeta?.balance_outstanding !== undefined
+          ? Number(receiptMeta.balance_outstanding)
+          : receiptMeta?.balance_due !== undefined
+          ? Number(receiptMeta.balance_due)
+          : Math.max(0, totalOrderVal - prevReceived - amtReceived);
+      const balanceHeading =
+        (blockConfig.titleOverride || receiptMeta?.balance_card_heading || '').trim() ||
+        'Account Settlement & Balance Statement';
+      const showContractVal =
+        blockConfig.visibleFields?.contract_value !== undefined
+          ? blockConfig.visibleFields.contract_value
+          : (receiptMeta as any)?.show_contract_value !== false;
+      const showPrevReceived =
+        blockConfig.visibleFields?.previously_received !== undefined
+          ? blockConfig.visibleFields.previously_received
+          : (receiptMeta as any)?.show_previously_received !== false;
+      const showBalanceDue =
+        blockConfig.visibleFields?.balance_due !== undefined
+          ? blockConfig.visibleFields.balance_due
+          : (receiptMeta as any)?.show_balance_due !== false;
+
+      return (
+        <div>
+          {blockConfig.showHeading !== false && (
+            <div
+              className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
+              style={{ color: themePalette.textAccent }}
+            >
+              {renderResolvedQuotationText(balanceHeading, tokenContext)}
+            </div>
+          )}
+          <div className={`space-y-1 ${typoScale.body}`}>
+            {showContractVal && (
+              <div className="flex justify-between items-center text-slate-700">
+                <span className="font-semibold text-slate-500">Total Order / Contract Value:</span>
+                <span className="font-mono tabular-nums font-bold text-slate-900">
+                  {formatCurrency(totalOrderVal)}
+                </span>
+              </div>
+            )}
+            {showPrevReceived && (
+              <div className="flex justify-between items-center text-slate-700 border-t border-slate-200/60 pt-1">
+                <span className="font-semibold text-slate-500">Less: Previously Received:</span>
+                <span className="font-mono tabular-nums font-semibold text-slate-700">
+                  {formatCurrency(prevReceived)}
+                </span>
+              </div>
+            )}
+            <div className="flex justify-between items-center text-emerald-800 bg-emerald-50/80 px-2 py-0.5 rounded border border-emerald-200">
+              <span className="font-bold">Current Receipt Amount:</span>
+              <span className="font-mono tabular-nums font-extrabold">
+                {formatCurrency(amtReceived)}
+              </span>
+            </div>
+            {showBalanceDue && (
+              <div
+                className="flex justify-between items-center pt-1.5 mt-1 border-t-2 font-extrabold"
+                style={{ borderColor: themePalette.primaryHex }}
+              >
+                <span className="uppercase tracking-tight text-slate-900">Balance Outstanding:</span>
+                <span
+                  className={`font-mono tabular-nums text-base ${
+                    balanceDue > 0 ? 'text-amber-700' : 'text-emerald-700'
+                  }`}
+                >
+                  {formatCurrency(balanceDue)}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    const renderPvDisbursedBannerBlock = (blockConfig: QuotationBlockConfig) => {
+      const rawAllocs = pvMeta?.allocated_bills || pvMeta?.allocations || [];
+      const allocations = Array.isArray(rawAllocs) ? rawAllocs : [];
+      const amtPaid = Number(
+        pvMeta?.amount_paid ??
+          (allocations.length > 0
+            ? allocations.reduce((sum, a) => sum + (Number(a.paid_this_voucher) || 0), 0)
+            : quotation.grand_total ?? 0)
+      );
+      const rawNarration =
+        pvMeta?.payment_narration ||
+        pvMeta?.being_payment_for ||
+        quotation.subject ||
+        (pvMeta?.vendor_invoice_no
+          ? `Settlement against Vendor Invoice ${pvMeta.vendor_invoice_no}`
+          : 'Outbound Supplier Account Settlement');
+      const narration =
+        rawNarration && !rawNarration.includes('_gap_')
+          ? rawNarration
+          : 'Outbound Supplier Account Settlement';
+      const bannerHeading =
+        (blockConfig.titleOverride || pvMeta?.amount_banner_heading || '').trim() ||
+        `Amount Disbursed / Paid (${currency})`;
+      const showNarration =
+        blockConfig.visibleFields?.narration !== undefined
+          ? blockConfig.visibleFields.narration
+          : (pvMeta as any)?.show_narration !== false;
+      const showWords =
+        blockConfig.visibleFields?.amount_in_words !== undefined
+          ? blockConfig.visibleFields.amount_in_words
+          : amountInWordsEnabled;
+
+      return (
+        <div className="flex flex-col gap-1 w-full">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <span
+                className={`${typoScale.heading} font-extrabold uppercase tracking-wider block`}
+                style={{ color: themePalette.textAccent }}
+              >
+                {renderResolvedQuotationText(bannerHeading, tokenContext)}
+              </span>
+              {showNarration && (
+                <span className={`${typoScale.sub} text-slate-600`}>
+                  {renderResolvedQuotationText(narration, tokenContext)}
+                </span>
+              )}
+            </div>
+            <div
+              className="font-mono tabular-nums font-extrabold text-xl sm:text-2xl px-3 py-1 rounded bg-white border border-slate-200 shadow-2xs shrink-0"
+              style={{ color: themePalette.textAccent }}
+            >
+              {formatCurrency(amtPaid)}
+            </div>
+          </div>
+          {showWords && (
+            <div className={`pt-1 border-t border-slate-200/80 ${typoScale.body} text-slate-800`}>
+              <span className="font-bold text-slate-900">Amount in Words ({currency}): </span>
+              <span className="font-semibold italic">{amountToWords(amtPaid, currency)}</span>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const renderPvBillAllocationBlock = (blockConfig: QuotationBlockConfig) => {
+      const rawAllocs = pvMeta?.allocated_bills || pvMeta?.allocations || [];
+      const allocations = Array.isArray(rawAllocs) ? rawAllocs : [];
+      const amtPaid = Number(
+        pvMeta?.amount_paid ??
+          (allocations.length > 0
+            ? allocations.reduce((sum, a) => sum + (Number(a.paid_this_voucher) || 0), 0)
+            : quotation.grand_total ?? 0)
+      );
+      const totalPayable = Number(
+        pvMeta?.total_payable_amount ??
+          (allocations.length > 0
+            ? allocations.reduce((sum, a) => sum + (Number(a.bill_total) || 0), 0)
+            : quotation.grand_total ?? amtPaid)
+      );
+      const prevPaid = Number(
+        pvMeta?.previously_paid ??
+          (allocations.length > 0
+            ? allocations.reduce((sum, a) => sum + (Number(a.previously_paid) || 0), 0)
+            : 0)
+      );
+      const creditsApplied = allocations.reduce(
+        (sum, a) => sum + (Number(a.credits_applied) || 0),
+        0
+      );
+      const balanceRemaining =
+        pvMeta?.balance_remaining !== undefined
+          ? Number(pvMeta.balance_remaining)
+          : Math.max(0, totalPayable - creditsApplied - prevPaid - amtPaid);
+      const allocHeading =
+        (blockConfig.titleOverride || pvMeta?.allocation_table_heading || '').trim() ||
+        'Outbound Bill Settlement & Allocation Schedule';
+
+      return (
+        <div className="w-full overflow-hidden">
+          {blockConfig.showHeading !== false && (
+            <div
+              className={`px-2.5 py-1 border-b border-slate-200 flex items-center justify-between ${typoScale.heading} font-extrabold uppercase tracking-wider`}
+              style={{
+                backgroundColor: themePalette.tintStrongBg,
+                color: themePalette.textAccent
+              }}
+            >
+              <span>{renderResolvedQuotationText(allocHeading, tokenContext)}</span>
+              <span className={`${typoScale.micro} font-mono`}>
+                {pvMeta?.settlement_type === 'advance_payment'
+                  ? 'VENDOR ADVANCE PAYMENT'
+                  : pvMeta?.settlement_type === 'multi_bill' || allocations.length > 1
+                  ? `MULTI-BILL ALLOCATION (${allocations.length})`
+                  : 'BILL / PO SETTLEMENT'}
+              </span>
+            </div>
+          )}
+          <table className={`w-full border-collapse text-left ${tableFontSize}`}>
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase">
+                <th className="py-1 px-2.5">Bill / PO Ref</th>
+                <th className="py-1 px-2">Vendor Invoice #</th>
+                <th className="py-1 px-2 text-right font-mono">Bill Total</th>
+                <th className="py-1 px-2 text-right font-mono">Credits / DN</th>
+                <th className="py-1 px-2 text-right font-mono">Previously Paid</th>
+                <th className="py-1 px-2 text-right font-mono">Paid This Voucher</th>
+                <th className="py-1 px-2.5 text-right font-mono">Remaining Balance</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200/80">
+              {allocations.length > 0 ? (
+                allocations.map((row, rIdx) => (
+                  <tr key={row.bill_id || rIdx} className="hover:bg-slate-50/50">
+                    <td className="py-1 px-2.5 font-mono font-semibold text-slate-800">
+                      {formatCleanDocumentEnquiryRef(row.bill_ref || row.bill_number || row.po_ref, 'payment_voucher', '—')}
+                    </td>
+                    <td className="py-1 px-2 font-mono text-slate-700">
+                      {row.vendor_invoice_no || '—'}
+                    </td>
+                    <td className="py-1 px-2 text-right font-mono tabular-nums text-slate-800">
+                      {formatCurrency(row.bill_total)}
+                    </td>
+                    <td className="py-1 px-2 text-right font-mono tabular-nums text-rose-700">
+                      {Number(row.credits_applied) > 0 ? `-${formatCurrency(row.credits_applied)}` : '0.00'}
+                    </td>
+                    <td className="py-1 px-2 text-right font-mono tabular-nums text-slate-600">
+                      {formatCurrency(row.previously_paid)}
+                    </td>
+                    <td className="py-1 px-2 text-right font-mono tabular-nums font-bold text-indigo-900 bg-indigo-50/40">
+                      {formatCurrency(row.paid_this_voucher)}
+                    </td>
+                    <td className="py-1 px-2.5 text-right font-mono tabular-nums font-semibold text-slate-800">
+                      {formatCurrency(row.remaining_balance)}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td className="py-1.5 px-2.5 font-mono font-semibold text-slate-800">
+                    {formatCleanDocumentEnquiryRef(pvMeta?.linked_po_ref || poMeta?.po_ref || quotation.quote_number, 'payment_voucher', 'Advance / PO')}
+                  </td>
+                  <td className="py-1.5 px-2 font-mono text-slate-700">
+                    {pvMeta?.vendor_invoice_no || '—'}
+                  </td>
+                  <td className="py-1.5 px-2 text-right font-mono tabular-nums text-slate-800">
+                    {formatCurrency(totalPayable)}
+                  </td>
+                  <td className="py-1.5 px-2 text-right font-mono tabular-nums text-slate-500">
+                    0.00
+                  </td>
+                  <td className="py-1.5 px-2 text-right font-mono tabular-nums text-slate-600">
+                    {formatCurrency(prevPaid)}
+                  </td>
+                  <td className="py-1.5 px-2 text-right font-mono tabular-nums font-bold text-indigo-900 bg-indigo-50/40">
+                    {formatCurrency(amtPaid)}
+                  </td>
+                  <td className="py-1.5 px-2.5 text-right font-mono tabular-nums font-semibold text-slate-800">
+                    {formatCurrency(balanceRemaining)}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            <tfoot>
+              <tr className="bg-slate-100/90 border-t-2 border-slate-300 font-bold text-slate-900">
+                <td colSpan={2} className="py-1 px-2.5 uppercase">
+                  Total Settlement Summary
+                </td>
+                <td className="py-1 px-2 text-right font-mono tabular-nums">
+                  {formatCurrency(totalPayable)}
+                </td>
+                <td className="py-1 px-2 text-right font-mono tabular-nums text-rose-700">
+                  {creditsApplied > 0 ? `-${formatCurrency(creditsApplied)}` : '0.00'}
+                </td>
+                <td className="py-1 px-2 text-right font-mono tabular-nums">
+                  {formatCurrency(prevPaid)}
+                </td>
+                <td className="py-1 px-2 text-right font-mono tabular-nums text-indigo-900">
+                  {formatCurrency(amtPaid)}
+                </td>
+                <td className="py-1 px-2.5 text-right font-mono tabular-nums">
+                  {formatCurrency(balanceRemaining)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      );
+    };
+
     const targetBlocks = blocksForSheet.filter((b) => {
       if (b.enabled === false || b.is_visible === false) return false;
       const bType = b.type || b.id;
+      if (bType === 'rec_amount_banner' || b.id === 'rec_amount_banner') {
+        if (!isReceiptVoucher) return false;
+        if (receiptMeta?.show_amount_banner === false) return false;
+        return true;
+      }
+      if (bType === 'rec_payment_instrument' || b.id === 'rec_payment_instrument') {
+        if (!isReceiptVoucher) return false;
+        if (receiptMeta?.show_instrument_card === false) return false;
+        return true;
+      }
+      if (bType === 'rec_balance_statement' || b.id === 'rec_balance_statement') {
+        if (!isReceiptVoucher) return false;
+        if (receiptMeta?.show_balance_card === false) return false;
+        return true;
+      }
+      if (bType === 'pv_disbursed_banner' || b.id === 'pv_disbursed_banner') {
+        if (!isPaymentVoucher) return false;
+        if (pvMeta?.show_amount_banner === false) return false;
+        return true;
+      }
+      if (bType === 'pv_bill_allocation' || b.id === 'pv_bill_allocation') {
+        if (!isPaymentVoucher) return false;
+        if (pvMeta?.show_allocation_table === false) return false;
+        return true;
+      }
       if (bType === 'do_dispatch_party' || b.id === 'do_dispatch_party') {
         if (!isDeliveryNote) return false;
         if ((deliveryMeta as any)?.show_dispatch_signoff_card === false) return false;
@@ -6532,11 +7167,6 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   const isMinimalBlock =
                     borderOverride === 'minimal' ||
                     (borderOverride === 'inherit' && b.style === 'minimal');
-                  const padClass = isMinimalBlock
-                    ? 'pt-1 pb-1 px-0.5'
-                    : b.padding === 'compact'
-                    ? 'p-2'
-                    : 'p-3';
                   const isSelected = activeSelectedSection === b.id;
                   const isInteractive = Boolean(onSelectSection || onSelectBlock);
                   const bType = b.type || b.id;
@@ -6555,6 +7185,23 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                       resolvedRecipientConfig.globalCardRadius) === 'sharp'
                       ? 'rounded-none'
                       : 'rounded-lg';
+                  const isAmountBannerSlot =
+                    !isCustomBlock &&
+                    (bType === 'rec_amount_banner' ||
+                      b.id === 'rec_amount_banner' ||
+                      bType === 'pv_disbursed_banner' ||
+                      b.id === 'pv_disbursed_banner');
+                  const isBillAllocationSlot =
+                    !isCustomBlock &&
+                    (bType === 'pv_bill_allocation' || b.id === 'pv_bill_allocation');
+
+                  const padClass = isBillAllocationSlot
+                    ? 'p-0'
+                    : isMinimalBlock
+                    ? 'pt-1 pb-1 px-0.5'
+                    : b.padding === 'compact'
+                    ? 'p-2'
+                    : 'p-3';
 
                   const boxPresentationClass =
                     borderOverride === 'minimal'
@@ -6565,6 +7212,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                       ? `${radiusCls} border border-slate-200/90`
                       : isMinimalBlock
                       ? 'rounded-none border-0 bg-transparent print:bg-transparent shadow-none'
+                      : isAmountBannerSlot
+                      ? `${radiusCls} border-2`
+                      : isBillAllocationSlot
+                      ? `${radiusCls} border border-slate-200 bg-white overflow-hidden`
                       : `${radiusCls} border border-slate-200 bg-slate-50/50`;
 
                   const cardStyleClass = [
@@ -6592,7 +7243,12 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     vendor_return_ack: 'return_signoff_right',
                     pv_treasury_details: 'pv_treasury_card',
                     pv_beneficiary_details: 'pv_beneficiary_card',
-                    pv_approval_matrix: 'pv_approval_matrix'
+                    pv_approval_matrix: 'pv_approval_matrix',
+                    rec_amount_banner: 'receipt_amount_banner',
+                    rec_payment_instrument: 'receipt_instrument_card',
+                    rec_balance_statement: 'receipt_balance_card',
+                    pv_disbursed_banner: 'pv_amount_banner',
+                    pv_bill_allocation: 'pv_allocation_table'
                   };
                   const legacyStyleKey = legacyStyleKeyMap[b.id] || legacyStyleKeyMap[bType];
                   const mergedBlockStyle = {
@@ -6623,7 +7279,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                           ...(allowSplit ? {} : { breakInside: 'avoid', pageBreakInside: 'avoid' }),
                           ...(borderOverride === 'left_accent'
                             ? { borderLeftColor: themePalette.primaryHex }
-                            : borderOverride === 'tinted'
+                            : borderOverride === 'tinted' || (isAmountBannerSlot && !isMinimalBlock)
                             ? { backgroundColor: themePalette.tintBg, borderColor: themePalette.primaryHex }
                             : {}),
                           ['--block-base' as any]: baseFontSize,
@@ -6656,6 +7312,11 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                             {(bType === 'pv_treasury_details' || b.id === 'pv_treasury_details') && renderPvTreasuryDetailsBlock(b)}
                             {(bType === 'pv_beneficiary_details' || b.id === 'pv_beneficiary_details') && renderPvBeneficiaryDetailsBlock(b)}
                             {(bType === 'pv_approval_matrix' || b.id === 'pv_approval_matrix') && renderPvApprovalMatrixBlock(b)}
+                            {(bType === 'rec_amount_banner' || b.id === 'rec_amount_banner') && renderRecAmountBannerBlock(b)}
+                            {(bType === 'rec_payment_instrument' || b.id === 'rec_payment_instrument') && renderRecPaymentInstrumentBlock(b)}
+                            {(bType === 'rec_balance_statement' || b.id === 'rec_balance_statement') && renderRecBalanceStatementBlock(b)}
+                            {(bType === 'pv_disbursed_banner' || b.id === 'pv_disbursed_banner') && renderPvDisbursedBannerBlock(b)}
+                            {(bType === 'pv_bill_allocation' || b.id === 'pv_bill_allocation') && renderPvBillAllocationBlock(b)}
                           </>
                         )}
                       </div>
@@ -6851,6 +7512,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       ...resolvedHeaderFieldsMap.underName
     ];
 
+    const headerCardFmt = applyTextFormatStyle(
+      resolvedRecipientConfig.elementStyles?.['header_card']
+    );
+
     return (
       <header
         className={`quotation-header-branding border-b border-slate-200 pb-3 mb-3 w-full header-flex-container relative group transition-all duration-150 rounded-lg quotation-structural-section px-1 box-border ${
@@ -6861,20 +7526,20 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             : isInteractive && !isContinuationRepeat
             ? 'hover:ring-1 hover:ring-inset hover:ring-blue-300 print:ring-0 !print:ring-0 print:outline-none !print:outline-none'
             : ''
-        }`}
+        } ${headerCardFmt.className}`}
         onClick={
           isInteractive && !isContinuationRepeat
             ? (e) => {
                 e.stopPropagation();
                 if (onSelectSection) {
-                  onSelectSection('header');
+                  onSelectSection('header', 'header_card');
                 } else if (onSelectBlock) {
                   onSelectBlock('header' as any);
                 }
               }
             : undefined
         }
-        style={{ width: '100%', maxWidth: '100%' }}
+        style={{ width: '100%', maxWidth: '100%', ...headerCardFmt.style }}
       >
         {isInteractive && !isContinuationRepeat && (
           <div
@@ -7169,17 +7834,18 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     const showClientPhone = !isFieldOmitted('client_phone', omittedFields);
     const showClientEmail = !isFieldOmitted('client_email', omittedFields);
 
-    const recipientCardBase = topCardsLayout.recipientCardClassName;
-    const offerCardBase = topCardsLayout.offerCardClassName;
-    const isRecipientFullWidth = topCardsLayout.recipientPlacement === 'full';
-    const isOfferFullWidth = topCardsLayout.offerPlacement === 'full';
-
     const recipientElementStyles = resolvedRecipientConfig.elementStyles || {};
     const getElemFmt = (key: string) => {
       const s = recipientElementStyles[key];
       if (!s) return { className: '', style: {} as React.CSSProperties };
       return applyTextFormatStyle(s);
     };
+    const recipientCardFmt = getElemFmt('recipient_card');
+    const offerCardFmt = getElemFmt('offer_card');
+    const recipientCardBase = `${topCardsLayout.recipientCardClassName} ${recipientCardFmt.className}`;
+    const offerCardBase = `${topCardsLayout.offerCardClassName} ${offerCardFmt.className}`;
+    const isRecipientFullWidth = topCardsLayout.recipientPlacement === 'full';
+    const isOfferFullWidth = topCardsLayout.offerPlacement === 'full';
 
     const renderSubjectBanner = () => {
       if (
@@ -7272,10 +7938,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         }`}
         onClick={isInteractive ? (e) => {
           e.stopPropagation();
-          onSelectSection?.('recipient_info', 'recipient_entity_name');
+          onSelectSection?.('recipient_info', 'recipient_card');
           onSelectBlock?.('recipient_info' as any);
         } : undefined}
-        style={{ width: '100%', maxWidth: '100%' }}
+        style={{ width: '100%', maxWidth: '100%', ...recipientCardFmt.style }}
       >
         {isInteractive && (
           <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
@@ -7529,10 +8195,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         }`}
         onClick={isInteractive ? (e) => {
           e.stopPropagation();
-          onSelectSection?.('quote_meta', 'offer_quote_ref');
+          onSelectSection?.('quote_meta', 'offer_card');
           onSelectBlock?.('quote_meta' as any);
         } : undefined}
-        style={{ width: '100%', maxWidth: '100%' }}
+        style={{ width: '100%', maxWidth: '100%', ...offerCardFmt.style }}
       >
         {isInteractive && (
           <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
@@ -7813,14 +8479,14 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     const handleClickRecipientCard = isInteractive
       ? (e: React.MouseEvent) => {
           e.stopPropagation();
-          onSelectSection?.('recipient_info');
+          onSelectSection?.('recipient_info', 'recipient_card');
           onSelectBlock?.('recipient_info' as any);
         }
       : undefined;
     const handleClickMetaCard = isInteractive
       ? (e: React.MouseEvent) => {
           e.stopPropagation();
-          onSelectSection?.('quote_meta');
+          onSelectSection?.('quote_meta', 'offer_card');
           onSelectBlock?.('quote_meta' as any);
         }
       : undefined;
@@ -7862,6 +8528,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         >
           <div
             className={`${recipientCardBase} ${interactiveRecipientClass} flex flex-col justify-between`}
+            style={recipientCardFmt.style}
             onClick={handleClickRecipientCard}
           >
             {isInteractive && (
@@ -7939,6 +8606,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
           <div
             className={`${offerCardBase} ${interactiveMetaClass} flex flex-col justify-between`}
+            style={offerCardFmt.style}
             onClick={handleClickMetaCard}
           >
             {isInteractive && (
@@ -8078,6 +8746,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         >
           <div
             className={`${recipientCardBase} ${interactiveRecipientClass} flex flex-col justify-between`}
+            style={recipientCardFmt.style}
             onClick={handleClickRecipientCard}
           >
             {isInteractive && (
@@ -8194,6 +8863,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
           <div
             className={`${offerCardBase} ${interactiveMetaClass} flex flex-col justify-between`}
+            style={offerCardFmt.style}
             onClick={handleClickMetaCard}
           >
             {isInteractive && (
@@ -8324,6 +8994,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         >
           <div
             className={`${recipientCardBase} ${interactiveRecipientClass} flex flex-col justify-between`}
+            style={recipientCardFmt.style}
             onClick={handleClickRecipientCard}
           >
             {isInteractive && (
@@ -8404,6 +9075,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
           <div
             className={`${offerCardBase} ${interactiveMetaClass} flex flex-col justify-between`}
+            style={offerCardFmt.style}
             onClick={handleClickMetaCard}
           >
             {isInteractive && (
@@ -8526,6 +9198,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         >
           <div
             className={`${recipientCardBase} ${interactiveRecipientClass} flex flex-col justify-between`}
+            style={recipientCardFmt.style}
             onClick={handleClickRecipientCard}
           >
             {isInteractive && (
@@ -8606,6 +9279,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
           <div
             className={`${offerCardBase} ${interactiveMetaClass} flex flex-col justify-between`}
+            style={offerCardFmt.style}
             onClick={handleClickMetaCard}
           >
             {isInteractive && (
@@ -8720,6 +9394,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         >
           <div
             className={`${recipientCardBase} ${interactiveRecipientClass} flex flex-col justify-between`}
+            style={recipientCardFmt.style}
             onClick={handleClickRecipientCard}
           >
             {isInteractive && (
@@ -8794,6 +9469,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
           <div
             className={`${offerCardBase} ${interactiveMetaClass} flex flex-col justify-between`}
+            style={offerCardFmt.style}
             onClick={handleClickMetaCard}
           >
             {isInteractive && (
@@ -10935,8 +11611,50 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       className="quotation-document-container w-[210mm] min-w-[210mm] max-w-[210mm] shrink-0 flex-shrink-0 flex flex-col items-center bg-transparent text-slate-900 text-left print:p-0 print:bg-white print:w-[210mm] print:min-w-[210mm] print:max-w-none print:m-0 print:block"
       style={{ colorScheme: 'light' }}
     >
-      {/* Scoped Print Stylesheet */}
+      {/* Scoped Print & Formatting Inheritance Stylesheet */}
       <style>{`
+        .quotation-fmt-size *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+          font-size: inherit !important;
+        }
+        .quotation-fmt-bold,
+        .quotation-fmt-bold *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+          font-weight: 700 !important;
+        }
+        .quotation-fmt-normal,
+        .quotation-fmt-normal *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+          font-weight: 400 !important;
+        }
+        .quotation-fmt-italic,
+        .quotation-fmt-italic *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+          font-style: italic !important;
+        }
+        .quotation-fmt-underline,
+        .quotation-fmt-underline *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+          text-decoration: underline !important;
+        }
+        .quotation-fmt-uppercase,
+        .quotation-fmt-uppercase *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+          text-transform: uppercase !important;
+        }
+        .quotation-fmt-align-left,
+        .quotation-fmt-align-left *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+          text-align: left !important;
+        }
+        .quotation-fmt-align-center,
+        .quotation-fmt-align-center *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+          text-align: center !important;
+        }
+        .quotation-fmt-align-right,
+        .quotation-fmt-align-right *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+          text-align: right !important;
+        }
+        .quotation-fmt-align-justify,
+        .quotation-fmt-align-justify *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+          text-align: justify !important;
+        }
+        .quotation-fmt-color *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+          color: inherit !important;
+        }
         @media print {
           @page {
             size: A4 portrait;
@@ -11232,8 +11950,6 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   <>
                     {renderTopSection()}
                     {preTableBlocks.length > 0 && renderBlocksGrid(preTableBlocks)}
-                    {isReceiptVoucher && renderReceiptVoucherBody()}
-                    {isPaymentVoucher && renderPaymentVoucherBody()}
                     {sheet.tableChunk &&
                       (!isReceiptVoucher || Boolean(receiptMeta?.show_line_items_table)) &&
                       (!isPaymentVoucher || Boolean(pvMeta?.show_line_items_table)) &&

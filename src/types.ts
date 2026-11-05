@@ -1588,6 +1588,11 @@ export type QuotationBlockType =
   | 'pv_treasury_details'
   | 'pv_beneficiary_details'
   | 'pv_approval_matrix'
+  | 'rec_amount_banner'
+  | 'rec_payment_instrument'
+  | 'rec_balance_statement'
+  | 'pv_disbursed_banner'
+  | 'pv_bill_allocation'
   | 'page_break'
   | 'spacer'
   | 'custom';
@@ -1929,6 +1934,8 @@ export interface QuotationBlockConfig {
   // Standardized Block Customization & Formatting
   titleOverride?: string;
   subtitleOverride?: string;
+  showHeading?: boolean;
+  vatNoteOverride?: string;
   showHeaderIcon?: boolean; // default true
   headerStyleOverride?: 'inherit' | 'solid' | 'tinted' | 'underline' | 'minimal' | 'none';
   fieldLayoutMode?: 'split' | 'inline' | 'grid_2col'; // default 'split'

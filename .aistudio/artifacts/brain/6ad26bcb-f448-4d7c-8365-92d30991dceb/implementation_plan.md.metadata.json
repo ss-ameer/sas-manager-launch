@@ -1,6 +1,6 @@
 {
-  "summary": "Comprehensive implementation plan for the Forensic UI/UX & Standardization Remediation Sprint (UX-C1 through UX-L1), preserving all Company Code, Country Code, Quick-Resolve, and Sequence Engine work completed previously.",
-  "updatedAt": "2026-11-05T04:36:53.946865680Z",
+  "summary": "Implementation plan for the Focused Studio Architecture Fix covering: (1) Right Inspector auto-sync & fallback resolution for DO, MRN, DN, PV, REC, and Totals blocks; (2) strict single-selection and splitting Receipt (REC), Payment Voucher (PV), and Totals into independent modular Lego blocks; (3) direct whole-card & sub-element Text & Style Bar formatting with full CSS inheritance; and (4) stripping DO- and sequence suffixes from canonical references when switching to PO/PV.",
+  "updatedAt": "2026-11-05T08:42:51.727478617Z",
   "requestFeedback": true,
   "userFacing": true
 }

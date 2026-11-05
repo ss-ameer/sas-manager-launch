@@ -126,13 +126,10 @@ export class QuotationRepository {
   public static sanitizeCanonicalQuoteRef(rawRef?: string | null): string {
     if (!rawRef) return '';
     let cleaned = String(rawRef).trim();
-    const hadAuxPrefix = /^(?:DO|REC|PO|PV|MRN|DN|PI|INV)-/i.test(cleaned);
-    // Strip one or more leading auxiliary prefixes (DO-, REC-, PO-, PV-, MRN-, DN-, PI-, INV-)
-    cleaned = cleaned.replace(/^(?:(?:DO|REC|PO|PV|MRN|DN|PI|INV)-)+/i, '');
-    if (hadAuxPrefix) {
-      // If it had an auxiliary prefix (e.g. DO-TEST/10/2026/5-01-R1 or DO-TEST/10/2026/5-01), strip the 2-digit auxiliary sequence (-01)
-      cleaned = cleaned.replace(/-\d{2}(?=(?:-R\d+|\/Rev\.\d+|\s*\(Rev\s*\d+\))?$)/i, '');
-    }
+    // Strip one or more leading auxiliary prefixes (DO-, REC-, PO-, PV-, MRN-, DN-, PI-, INV-, LPO-, STK-)
+    cleaned = cleaned.replace(/^(?:(?:DO|REC|PO|PV|MRN|DN|PI|INV|LPO|STK)-)+/i, '');
+    // Strip any intermediate 2-digit auxiliary sequence (-01) before -R1 / /Rev.1 / (Rev 1)
+    cleaned = cleaned.replace(/-\d{2}(?=(?:-R\d+|\/Rev\.\d+|\s*\(Rev\s*\d+\))?$)/i, '');
     return cleaned.trim();
   }
 
@@ -168,15 +165,19 @@ export class QuotationRepository {
     };
     const expectedPrefix = prefixMap[docType] || 'QT';
 
-    // Self-heal chained prefixes (e.g., PO-PV-0001 -> PV-0001 or PO-0001 depending on active docType)
+    // Self-heal chained or mismatched prefixes (e.g., PO-PV-0001 or DO-TEST... on a PO -> PO-TEST...)
     const sanitizeDocRef = (rawRef: string | undefined | null): string => {
       if (!rawRef) return '';
       const trimmed = String(rawRef).trim();
       if (docType === 'quotation') {
         return QuotationRepository.sanitizeCanonicalQuoteRef(trimmed);
       }
-      if (/^(QT|DO|PO|REC|PV|MRN|DN)-(QT|DO|PO|REC|PV|MRN|DN)-/i.test(trimmed)) {
-        const stripped = trimmed.replace(/^(QT|DO|PO|REC|PV|MRN|DN)-+/gi, '');
+      const singlePrefixMatch = /^(QT|DO|PO|REC|PV|MRN|DN|PI|INV)-/i.exec(trimmed);
+      if (
+        /^(QT|DO|PO|REC|PV|MRN|DN|PI|INV)-(QT|DO|PO|REC|PV|MRN|DN|PI|INV)-/i.test(trimmed) ||
+        (singlePrefixMatch && singlePrefixMatch[1].toUpperCase() !== expectedPrefix.toUpperCase())
+      ) {
+        const stripped = trimmed.replace(/^(?:(?:QT|DO|PO|REC|PV|MRN|DN|PI|INV)-)+/gi, '');
         return `${expectedPrefix}-${stripped}`;
       }
       return trimmed;
@@ -349,9 +350,12 @@ export class QuotationRepository {
       debit_note: 'DN'
     };
     const prefix = prefixMap[targetType] || 'DOC';
-    const rawClean = String(baseRef || '')
+    const sanitizedBase = QuotationRepository.sanitizeCanonicalQuoteRef(baseRef);
+    const rawClean = String(sanitizedBase || '')
       .trim()
       .replace(/-R\d+$/i, '')
+      .replace(/\/Rev\.\d+$/i, '')
+      .replace(/\s*\(Rev\s*\d+\)$/i, '')
       .replace(/^(?:(?:QT|DO|PO|REC|PV|MRN|DN|LPO|PI|INV|STK)[-_/\s]*)+/i, '')
       .replace(/-\d{2}$/, '');
     const coreBase = rawClean || String(Date.now()).slice(-4);
