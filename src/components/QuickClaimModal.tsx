@@ -1,15 +1,18 @@
-import React, { useState, useEffect } from 'react';
-import { X, Hash, Sparkles, User, Building, FileText, CheckCircle2, Loader2 } from 'lucide-react';
-import { Company, Salesperson, Workspace, Enquiry } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Hash, Sparkles, User, Building, FileText, CheckCircle2, Loader2, Tag, Globe } from 'lucide-react';
+import { Company, Salesperson, Workspace, Enquiry, resolveCountryCode, sanitizeCompanyCode } from '../types';
 import {
   previewNextEnquirySequence,
   claimNextEnquirySequence,
   getWorkspaceSequenceCounters,
   getSequencePeriodKey,
   formatPattern,
-  getWorkspaceActiveCeilings
+  getWorkspaceActiveCeilings,
+  patternRequiresCompanyCode,
+  patternRequiresCountryCode
 } from '../services/enquirySequences';
-import { safeAddDoc } from '../firebase';
+import { safeAddDoc, safeUpdateDoc } from '../firebase';
+import { CompanyRepository } from '../services/repositories/CompanyRepository';
 
 interface QuickClaimModalProps {
   isOpen: boolean;
@@ -37,12 +40,37 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
   const [selectedRep, setSelectedRep] = useState<string>('');
   const [repInitials, setRepInitials] = useState<string>('');
   const [companyName, setCompanyName] = useState<string>('');
+  const [companyCodeInput, setCompanyCodeInput] = useState<string>('');
+  const [countryInput, setCountryInput] = useState<string>('UAE');
   const [subject, setSubject] = useState<string>('');
+  const [activePattern, setActivePattern] = useState<string>('');
+  const [activePrefix, setActivePrefix] = useState<string>('');
   const [previewRef, setPreviewRef] = useState<string>('');
   const [previewSn, setPreviewSn] = useState<number | null>(null);
   const [previewSeq, setPreviewSeq] = useState<number | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState<boolean>(false);
   const [isClaiming, setIsClaiming] = useState<boolean>(false);
+
+  // Match typed company against registered companies (by name or company_code)
+  const matchedCompany = useMemo(() => {
+    const clean = (companyName || '').trim().toLowerCase();
+    if (!clean) return undefined;
+    return companies.find((c) => {
+      const name = (c.display_name || c.canonical_name || (c as any).name || '').trim().toLowerCase();
+      const code = (c.company_code || '').trim().toLowerCase();
+      return name === clean || (code && code === clean);
+    });
+  }, [companyName, companies]);
+
+  // Sync company code and country when a registered company is matched
+  useEffect(() => {
+    if (matchedCompany) {
+      setCompanyCodeInput(matchedCompany.company_code || '');
+      if (matchedCompany.country) {
+        setCountryInput(matchedCompany.country);
+      }
+    }
+  }, [matchedCompany?.id]);
 
   // Initialize selected rep to current user if matching
   useEffect(() => {
@@ -93,14 +121,13 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
       .then((counters) => {
         if (!isMounted) return;
         const now = new Date();
-        const periodKey = getSequencePeriodKey(counters.resetCadence, now);
 
-        const activePattern = (activeWorkspace as any)?.settings?.quote_sequence_pattern || counters.pattern || '{SEQ}-{DD}{MM}{YY}';
+        const resolvedPattern = (activeWorkspace as any)?.settings?.quote_sequence_pattern || counters.pattern || '{SEQ}-{DD}{MM}{YY}';
         // Calculate dynamic active ceilings from registered proposals
         const { maxSn, maxSeq } = getWorkspaceActiveCeilings(
           candidateEnquiries || [],
           activeWorkspace.id,
-          activePattern
+          resolvedPattern
         );
 
         // S/N: Respect baseline overrides if higher than maxSn, but clamp down phantom counters to maxSn + 1
@@ -115,11 +142,17 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
           ? (activeWorkspace as any).settings.quote_prefix
           : (counters.prefix || '');
 
-        const liveQuoteRef = formatPattern(activePattern, {
+        setActivePattern(resolvedPattern);
+        setActivePrefix(prefix);
+
+        const liveQuoteRef = formatPattern(resolvedPattern, {
           seq: displayNextSeq,
           prefix: prefix,
           date: now,
-          rep: repInitials
+          rep: repInitials,
+          country: countryInput || matchedCompany?.country || 'UAE',
+          countryCode: matchedCompany?.country_code || '',
+          companyCode: sanitizeCompanyCode(companyCodeInput || matchedCompany?.company_code)
         });
 
         setPreviewRef(liveQuoteRef);
@@ -129,8 +162,11 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
       })
       .catch((err) => {
         console.error('Error fetching live sequence counters:', err);
-        // Fallback to previewNextEnquirySequence
-        previewNextEnquirySequence(activeWorkspace.id, repInitials, new Date(), candidateEnquiries)
+        previewNextEnquirySequence(activeWorkspace.id, repInitials, new Date(), candidateEnquiries, {
+          country: countryInput || matchedCompany?.country || 'UAE',
+          countryCode: matchedCompany?.country_code || '',
+          companyCode: sanitizeCompanyCode(companyCodeInput || matchedCompany?.company_code)
+        })
           .then(res => {
             if (isMounted) {
               setPreviewRef(res.quoteRef);
@@ -149,7 +185,25 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
     };
   }, [isOpen, activeWorkspace?.id, repInitials, enquiries]);
 
+  // Live-update previewRef when companyCodeInput, countryInput, or matchedCompany changes
+  useEffect(() => {
+    if (!isOpen || !activePattern || previewSeq === null) return;
+    const liveQuoteRef = formatPattern(activePattern, {
+      seq: previewSeq,
+      prefix: activePrefix,
+      date: new Date(),
+      rep: repInitials,
+      country: countryInput || matchedCompany?.country || 'UAE',
+      countryCode: matchedCompany?.country_code || '',
+      companyCode: sanitizeCompanyCode(companyCodeInput || matchedCompany?.company_code)
+    });
+    setPreviewRef(liveQuoteRef);
+  }, [activePattern, activePrefix, previewSeq, repInitials, companyCodeInput, countryInput, matchedCompany]);
+
   if (!isOpen) return null;
+
+  const needsCompanyCode = patternRequiresCompanyCode(activePattern);
+  const needsCountryCode = patternRequiresCountryCode(activePattern);
 
   const handleRepChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const val = e.target.value;
@@ -182,8 +236,25 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
       }
     }
 
+    const effectiveCompanyCode = sanitizeCompanyCode(companyCodeInput || matchedCompany?.company_code);
+    const effectiveCountry = (countryInput || matchedCompany?.country || 'UAE').trim();
+
     setIsClaiming(true);
     try {
+      // Save Company Code back to matched company record if newly provided
+      if (matchedCompany?.id && effectiveCompanyCode && effectiveCompanyCode !== matchedCompany.company_code) {
+        try {
+          const compPatch: Partial<Company> = {
+            company_code: effectiveCompanyCode,
+            updatedAt: new Date().toISOString()
+          };
+          await safeUpdateDoc('companies', matchedCompany.id, compPatch);
+          await CompanyRepository.updateCompany(matchedCompany.id, compPatch, activeWorkspace.id).catch(() => {});
+        } catch (compErr) {
+          console.warn('Could not persist company code on quick claim:', compErr);
+        }
+      }
+
       // 1. Atomically claim sequential quote reference and S/N locked to preview
       const claimed = await claimNextEnquirySequence(
         activeWorkspace.id,
@@ -193,21 +264,15 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
         {
           targetSn: previewSn || undefined,
           targetSeq: previewSeq || undefined,
-          companyAccount: (companyName || '').trim(),
+          companyAccount: matchedCompany?.display_name || (companyName || '').trim(),
+          companyCode: effectiveCompanyCode,
+          country: effectiveCountry,
+          countryCode: matchedCompany?.country_code || '',
           salesPerson: selectedRep,
           assignedSalesperson: selectedRep,
           enquiries: candidateEnquiries
         }
       );
-
-      // Find company ID if existing match safely by display_name, canonical_name, or legacy name
-      const targetCompName = (companyName || '').trim().toLowerCase();
-      const matchedCompany = targetCompName
-        ? companies.find((c) => {
-            const name = (c.display_name || c.canonical_name || (c as any).name || '').trim().toLowerCase();
-            return name === targetCompName;
-          })
-        : undefined;
 
       const todayStr = new Date().toISOString().split('T')[0];
 
@@ -229,11 +294,11 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
         assigned_to_id: spId || currentUserId,
         assigned_to: repOrName,
         company_id: matchedCompany?.id || '',
-        company_name: (companyName || '').trim() || matchedCompany?.display_name || matchedCompany?.canonical_name || 'Unassigned / TBD',
+        company_name: matchedCompany?.display_name || matchedCompany?.canonical_name || (companyName || '').trim() || 'Unassigned / TBD',
         subject: (subject || '').trim() || 'Quote Reference Reserved',
         status: 'Active',
-        country: 'UAE',
-        project_location: '',
+        country: effectiveCountry,
+        project_location: matchedCompany?.city || '',
         enquiry_source: 'Email',
         value_aed: 0,
         currency: 'AED',
@@ -369,9 +434,17 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
 
           {/* Client / Company Name */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-              <Building className="w-3.5 h-3.5 text-slate-400" /> Client / Company Name
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                <Building className="w-3.5 h-3.5 text-slate-400" /> Client / Company Name
+              </label>
+              {matchedCompany && (
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                  Paired: {matchedCompany.display_name}
+                  {matchedCompany.company_code ? ` [${matchedCompany.company_code}]` : ''}
+                </span>
+              )}
+            </div>
             <input
               type="text"
               value={companyName}
@@ -383,10 +456,61 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
             <datalist id="quick-claim-companies">
               {companies.map((c) => {
                 const name = c.display_name || c.canonical_name || (c as any).name || '';
-                return name ? <option key={c.id || name} value={name} /> : null;
+                return name ? (
+                  <option key={c.id || name} value={name}>
+                    {c.company_code ? `[${c.company_code}] ${c.country || ''}` : c.country || ''}
+                  </option>
+                ) : null;
               })}
             </datalist>
           </div>
+
+          {/* Structured Pattern Tokens: Company Code & Country */}
+          {(needsCompanyCode || needsCountryCode) && (
+            <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700">
+              {needsCompanyCode && (
+                <div className={needsCountryCode ? '' : 'col-span-2'}>
+                  <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <Tag className="w-3 h-3 text-indigo-500" /> Company Code
+                    </span>
+                    {matchedCompany && !matchedCompany.company_code && companyCodeInput && (
+                      <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-normal">
+                        Saves to profile
+                      </span>
+                    )}
+                  </label>
+                  <input
+                    type="text"
+                    value={companyCodeInput}
+                    onChange={(e) => setCompanyCodeInput(sanitizeCompanyCode(e.target.value))}
+                    placeholder="e.g. CWE, BME"
+                    maxLength={12}
+                    className="w-full px-3 py-1.5 text-xs font-mono font-bold uppercase bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white"
+                  />
+                </div>
+              )}
+              {needsCountryCode && (
+                <div className={needsCompanyCode ? '' : 'col-span-2'}>
+                  <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <Globe className="w-3 h-3 text-blue-500" /> Country
+                    </span>
+                    <span className="text-[9px] font-mono text-slate-400">
+                      Code: {resolveCountryCode(countryInput, matchedCompany?.country_code) || 'UAE'}
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    value={countryInput}
+                    onChange={(e) => setCountryInput(e.target.value)}
+                    placeholder="e.g. UAE, KSA, Oman"
+                    className="w-full px-3 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 dark:text-white"
+                  />
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Subject / Scope Brief */}
           <div>

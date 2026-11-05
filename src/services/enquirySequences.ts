@@ -1,22 +1,35 @@
 import { safeGetDocs, db, handleFirestoreError, OperationType } from '../firebase';
 import { where, doc, runTransaction, getDoc, setDoc } from 'firebase/firestore';
-import { WorkspaceSequenceCounters, SequenceFormatTokens, ClaimedSequenceResult, Enquiry, SequenceResetCadence } from '../types';
+import { WorkspaceSequenceCounters, SequenceFormatTokens, ClaimedSequenceResult, Enquiry, SequenceResetCadence, resolveCountryCode, sanitizeCompanyCode } from '../types';
 import { getFromLocalStore } from './db';
+
+export function patternRequiresCompanyCode(pattern?: string | null): boolean {
+  if (!pattern) return false;
+  return /\{(?:COMPANY_CODE|COMPANY|CLIENT_CODE)\}/i.test(pattern);
+}
+
+export function patternRequiresCountryCode(pattern?: string | null): boolean {
+  if (!pattern) return false;
+  return /\{(?:COUNTRY|COUNTRY_CODE)\}/i.test(pattern);
+}
 
 /**
  * Format string patterns using tokens:
- * {SEQ}: Sequence counter number
- * {PREFIX}: Workspace prefix (e.g. ANRW)
+ * {SEQ} / {REF_SEQ}: Sequence counter number
+ * {PREFIX}: Workspace prefix (e.g. ANRW, AVENTURA)
+ * {COUNTRY} / {COUNTRY_CODE}: 3-letter country code (e.g. UAE, KSA, OMN)
+ * {COMPANY_CODE} / {COMPANY} / {CLIENT_CODE}: Registered client company code (e.g. CWE, BME, VWT)
  * {DD}: 2-digit day (01-31)
  * {MM}: 2-digit month (01-12)
  * {YY}: 2-digit year (e.g. 26)
  * {YYYY}: 4-digit year (e.g. 2026)
  * {REP}: Sales representative initials
  *
- * Also sanitizes accidental double slashes or orphan hyphens when prefix is empty.
+ * Never guesses a company code. Renders [COMPANY_CODE] (or [COUNTRY]) placeholder when required by the pattern
+ * and not yet provided, unless preserveUnresolvedPlaceholders is explicitly false.
  */
 export function formatPattern(pattern: string, tokens: SequenceFormatTokens): string {
-  const now = tokens.date || new Date();
+  const now = tokens.date && !isNaN(tokens.date.getTime()) ? tokens.date : new Date();
   const day = String(now.getDate()).padStart(2, '0');
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const fullYear = String(now.getFullYear());
@@ -25,16 +38,25 @@ export function formatPattern(pattern: string, tokens: SequenceFormatTokens): st
   const prefix = (tokens.prefix || '').trim();
   const seqStr = String(tokens.seq);
 
-  let formatted = pattern
-    .replace(/\{SEQ\}/g, seqStr)
-    .replace(/\{PREFIX\}/g, prefix)
-    .replace(/\{DD\}/g, day)
-    .replace(/\{MM\}/g, month)
-    .replace(/\{YYYY\}/g, fullYear)
-    .replace(/\{YY\}/g, shortYear)
-    .replace(/\{REP\}/g, rep);
+  const preservePlaceholders = tokens.preserveUnresolvedPlaceholders !== false;
+  const resolvedCountry = resolveCountryCode(tokens.country, tokens.countryCode);
+  const resolvedCompanyCode = sanitizeCompanyCode(tokens.companyCode);
 
-  // Clean up orphan separators if prefix was blank or missing
+  const countryReplacement = resolvedCountry || (preservePlaceholders ? '[COUNTRY]' : '');
+  const companyCodeReplacement = resolvedCompanyCode || (preservePlaceholders ? '[COMPANY_CODE]' : '');
+
+  let formatted = pattern
+    .replace(/\{(?:SEQ|REF_SEQ)\}/gi, seqStr)
+    .replace(/\{PREFIX\}/gi, prefix)
+    .replace(/\{(?:COUNTRY|COUNTRY_CODE)\}/gi, countryReplacement)
+    .replace(/\{(?:COMPANY_CODE|COMPANY|CLIENT_CODE)\}/gi, companyCodeReplacement)
+    .replace(/\{DD\}/gi, day)
+    .replace(/\{MM\}/gi, month)
+    .replace(/\{YYYY\}/gi, fullYear)
+    .replace(/\{YY\}/gi, shortYear)
+    .replace(/\{REP\}/gi, rep);
+
+  // Clean up orphan separators if prefix or optional tokens were blank
   // 1. Remove double or multiple consecutive slashes: // -> /
   formatted = formatted.replace(/\/+/g, '/');
   // 2. Remove leading slash: /09/2026/... -> 09/2026/...
@@ -190,7 +212,13 @@ export async function previewNextEnquirySequence(
   workspaceId: string,
   repInitials: string = '',
   date: Date = new Date(),
-  activeEnquiries?: Array<{ sn?: number; is_deleted?: boolean }>
+  activeEnquiries?: Array<{ sn?: number; is_deleted?: boolean }>,
+  extraTokens?: {
+    country?: string;
+    countryCode?: string;
+    companyCode?: string;
+    preserveUnresolvedPlaceholders?: boolean;
+  }
 ): Promise<ClaimedSequenceResult> {
   const counters = await getWorkspaceSequenceCounters(workspaceId);
   const periodKey = getSequencePeriodKey(counters.resetCadence, date);
@@ -211,7 +239,11 @@ export async function previewNextEnquirySequence(
     seq: nextSeq,
     prefix: counters.prefix,
     date,
-    rep: repInitials
+    rep: repInitials,
+    country: extraTokens?.country,
+    countryCode: extraTokens?.countryCode,
+    companyCode: extraTokens?.companyCode,
+    preserveUnresolvedPlaceholders: extraTokens?.preserveUnresolvedPlaceholders
   });
 
   return {
@@ -226,24 +258,33 @@ export async function previewNextEnquirySequence(
  */
 export function parseSequenceFromQuoteRef(quoteRef: string, pattern?: string): number | null {
   if (!quoteRef || typeof quoteRef !== 'string') return null;
-  const trimmed = quoteRef.trim();
+  // Strip any leading auxiliary document prefix (DO-, PO-, REC-, PV-, MRN-, DN-, PI-, INV-)
+  // and any trailing revision suffix (-R1, /Rev.1, (Rev 1)) before extracting the core sequence
+  const trimmed = quoteRef
+    .trim()
+    .replace(/^(?:(?:DO|REC|PO|PV|MRN|DN|PI|INV)-)+/i, '')
+    .replace(/(?:-R\d+|\/Rev\.\d+|\s*\(Rev\s*\d+\))$/i, '')
+    .trim();
 
   // 1. Pattern-Guided Regex Extraction
-  // If pattern is provided and contains {SEQ}
-  if (pattern && pattern.includes('{SEQ}')) {
+  // If pattern is provided and contains {SEQ} or {REF_SEQ}
+  if (pattern && /\{(?:SEQ|REF_SEQ)\}/i.test(pattern)) {
     try {
       // Escape regex special characters in the pattern except the curly brace tokens
       let regexStr = pattern
         .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        .replace(/\\\{SEQ\\\}/g, '(\\d+)')
-        .replace(/\\\{PREFIX\\\}/g, '[A-Za-z0-9_-]*')
-        .replace(/\\\{REP\\\}/g, '[A-Za-z0-9_-]*')
-        .replace(/\\\{DD\\\}/g, '\\d{1,2}')
-        .replace(/\\\{MM\\\}/g, '\\d{1,2}')
-        .replace(/\\\{YY\\\}/g, '\\d{2}')
-        .replace(/\\\{YYYY\\\}/g, '\\d{4}');
+        .replace(/\\\{(?:SEQ|REF_SEQ)\\\}/gi, '(\\d+)')
+        .replace(/\\\{PREFIX\\\}/gi, '[\\[\\]A-Za-z0-9_.-]*')
+        .replace(/\\\{(?:COUNTRY|COUNTRY_CODE)\\\}/gi, '[\\[\\]A-Za-z0-9_.-]*')
+        .replace(/\\\{(?:COMPANY_CODE|COMPANY|CLIENT_CODE)\\\}/gi, '[\\[\\]A-Za-z0-9_.-]*')
+        .replace(/\\\{REP\\\}/gi, '[\\[\\]A-Za-z0-9_.-]*')
+        .replace(/\\\{DD\\\}/gi, '\\d{1,2}')
+        .replace(/\\\{MM\\\}/gi, '\\d{1,2}')
+        .replace(/\\\{YY\\\}/gi, '\\d{2}')
+        .replace(/\\\{YYYY\\\}/gi, '\\d{4}');
 
-      const regex = new RegExp(`^${regexStr}$`, 'i');
+      // Allow optional trailing custom letter suffixes like "AA" (e.g. 2851-191026AA)
+      const regex = new RegExp(`^${regexStr}[A-Za-z]*$`, 'i');
       const match = trimmed.match(regex);
       if (match && match[1]) {
         const parsed = parseInt(match[1], 10);
@@ -417,6 +458,9 @@ export interface ClaimSequenceOptions {
   customQuoteRef?: string;
   date?: Date;
   companyAccount?: string;
+  companyCode?: string;
+  country?: string;
+  countryCode?: string;
   salesPerson?: string;
   assignedSalesperson?: string;
   repInitials?: string;
@@ -633,7 +677,10 @@ export async function claimNextEnquirySequence(
           seq: nextSeq,
           prefix: counters.prefix,
           date: now,
-          rep: repInitials
+          rep: repInitials,
+          country: options?.country,
+          countryCode: options?.countryCode,
+          companyCode: options?.companyCode
         });
       }
 

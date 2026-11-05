@@ -2644,9 +2644,24 @@ export default function EnquiryDetail({
   const handlePairCompany = async (targetCompany: Company) => {
     if (!currentEnquiry?.id || !targetCompany?.id) return;
     try {
+      let nextQuoteRef = currentEnquiry.quote_ref_no || '';
+      if (nextQuoteRef.includes('[COMPANY_CODE]') && targetCompany.company_code?.trim()) {
+        nextQuoteRef = nextQuoteRef.replace(
+          /\[COMPANY_CODE\]/g,
+          targetCompany.company_code.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '')
+        );
+      }
+      if (nextQuoteRef.includes('[COUNTRY]') && (targetCompany.country_code || targetCompany.country)) {
+        const rawCtry = (targetCompany.country_code || targetCompany.country || 'UAE').trim().toUpperCase();
+        const ctryCode = rawCtry.length <= 4 ? rawCtry : 'UAE';
+        nextQuoteRef = nextQuoteRef.replace(/\[COUNTRY\]/g, ctryCode);
+      }
+
       const updatedPayload: Partial<Enquiry> = {
         company_id: targetCompany.id,
         company_name: targetCompany.display_name || targetCompany.canonical_name,
+        ...(targetCompany.country && !currentEnquiry.country ? { country: targetCompany.country } : {}),
+        ...(nextQuoteRef && nextQuoteRef !== currentEnquiry.quote_ref_no ? { quote_ref_no: nextQuoteRef } : {}),
         updatedAt: new Date().toISOString()
       };
       await safeUpdateDoc('enquiries', currentEnquiry.id, updatedPayload);

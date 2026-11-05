@@ -5,7 +5,9 @@ import {
   UserProfile,
   DropdownOption,
   CallLogEntry,
-  LegalSuffix
+  LegalSuffix,
+  resolveCountryCode,
+  sanitizeCompanyCode
 } from '../types';
 import { safeAddDoc, safeUpdateDoc } from '../firebase';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
@@ -102,11 +104,13 @@ export default function CompanyEditModal({
   }, [company, companyId, companies]);
 
   const [canonicalName, setCanonicalName] = useState('');
+  const [companyCode, setCompanyCode] = useState('');
   const [legalSuffix, setLegalSuffix] = useState<LegalSuffix>('None / To Be Added Later');
   const [aliasesInput, setAliasesInput] = useState('');
   const { findParentForSubtype } = useIndustryTaxonomy();
   const [city, setCity] = useState('Sharjah');
   const [country, setCountry] = useState('UAE');
+  const [countryCode, setCountryCode] = useState('');
   const [industryParent, setIndustryParent] = useState('');
   const [businessTypeRaw, setBusinessTypeRaw] = useState('');
   const [relationship, setRelationship] = useState('Prospect');
@@ -158,10 +162,12 @@ export default function CompanyEditModal({
         }
       }
       setCanonicalName(baseName);
+      setCompanyCode(targetCompany.company_code || '');
       setLegalSuffix(targetCompany.legal_suffix || 'None / To Be Added Later');
       setAliasesInput((targetCompany.aliases || []).join(', '));
       setCity(targetCompany.city || 'Sharjah');
       setCountry(targetCompany.country || 'UAE');
+      setCountryCode(targetCompany.country_code || '');
       const rawVal = targetCompany.business_type_raw || targetCompany.industry || targetCompany.industry_type || '';
       let resolvedParent = targetCompany.industry_parent || '';
       if (!resolvedParent && rawVal) {
@@ -262,10 +268,12 @@ export default function CompanyEditModal({
     } else {
       // Add mode defaults
       setCanonicalName('');
+      setCompanyCode('');
       setLegalSuffix('None / To Be Added Later');
       setAliasesInput('');
       setCity('Sharjah');
       setCountry('UAE');
+      setCountryCode('');
       setIndustryParent('');
       setBusinessTypeRaw('');
       setRelationship('Prospect');
@@ -372,16 +380,23 @@ export default function CompanyEditModal({
     const primaryEmailVal = validEmails[0]?.value ? validEmails[0].value.trim() : '';
 
     const computedCanonical = computeCanonicalName(displayName) || canonicalName.trim().toLowerCase();
-    const searchTerms = generateCompanySearchTerms(displayName, city, legacyPhones.length > 0 ? legacyPhones : [{ number: primaryPhoneVal }]);
+    const cleanCompanyCode = sanitizeCompanyCode(companyCode);
+    const cleanCountryCode = sanitizeCompanyCode(countryCode);
+    const baseSearchTerms = generateCompanySearchTerms(displayName, city, legacyPhones.length > 0 ? legacyPhones : [{ number: primaryPhoneVal }]);
+    const searchTerms = cleanCompanyCode
+      ? Array.from(new Set([...baseSearchTerms, cleanCompanyCode.toLowerCase()]))
+      : baseSearchTerms;
 
     const rawCompany: Omit<Company, 'id'> = {
       workspace_id: workspaceId,
       workspaceId: workspaceId,
       canonical_name: computedCanonical,
+      company_code: cleanCompanyCode || undefined,
       legal_suffix: finalSuffix,
       display_name: displayName,
       aliases: aliasesArr,
       country: country.trim(),
+      country_code: cleanCountryCode || undefined,
       city: city.trim(),
       industry_parent: industryParent || undefined,
       business_type_raw: businessTypeRaw.trim() || undefined,
@@ -570,22 +585,34 @@ export default function CompanyEditModal({
         {/* Scrollable Form Body */}
         <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden font-sans">
           <div className="flex-1 overflow-y-auto px-6 py-5 pb-8 space-y-4">
-            {/* Canonical Name & Legal Suffix */}
+            {/* Canonical Name, Company Code & Legal Suffix */}
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
-              <div className="sm:col-span-8">
+              <div className="sm:col-span-6">
                 <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
                   Canonical Name <span className="text-rose-500 font-bold ml-0.5">*</span>
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Veolia Water Solutions"
+                  placeholder="e.g. Celar Water Equipment"
                   value={canonicalName}
                   onChange={(e) => setCanonicalName(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
                 />
               </div>
-              <div className="sm:col-span-4">
+              <div className="sm:col-span-3">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5" title="Short code used in structured Quote References ({COMPANY_CODE})">
+                  Company Code
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. CWE, BME"
+                  value={companyCode}
+                  onChange={(e) => setCompanyCode(e.target.value.toUpperCase())}
+                  className="w-full px-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm font-mono font-bold uppercase placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                />
+              </div>
+              <div className="sm:col-span-3">
                 <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
                   Legal Suffix
                 </label>
@@ -676,9 +703,9 @@ export default function CompanyEditModal({
               </div>
             )}
 
-            {/* City & Country */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
+            {/* City, Country & Country Code Override */}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+              <div className="sm:col-span-5">
                 <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
                   City <span className="text-rose-500 font-bold ml-0.5">*</span>
                 </label>
@@ -691,7 +718,7 @@ export default function CompanyEditModal({
                   className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
                 />
               </div>
-              <div>
+              <div className="sm:col-span-4">
                 <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
                   Country <span className="text-rose-500 font-bold ml-0.5">*</span>
                 </label>
@@ -702,6 +729,18 @@ export default function CompanyEditModal({
                   value={country}
                   onChange={(e) => setCountry(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
+                />
+              </div>
+              <div className="sm:col-span-3">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5" title="3-letter Country Code for {COUNTRY} token (auto-mapped if blank)">
+                  Country Code
+                </label>
+                <input
+                  type="text"
+                  placeholder={resolveCountryCode(country) || 'e.g. UAE'}
+                  value={countryCode}
+                  onChange={(e) => setCountryCode(e.target.value.toUpperCase())}
+                  className="w-full px-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm font-mono font-bold uppercase placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                 />
               </div>
             </div>

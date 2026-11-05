@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Company, UserProfile, Workspace, LegalSuffix, ContactMethod } from '../../types';
+import { Company, UserProfile, Workspace, LegalSuffix, ContactMethod, resolveCountryCode, sanitizeCompanyCode } from '../../types';
 import { safeAddDoc, safeUpdateDoc } from '../../firebase';
 import { CompanyRepository } from '../../services/repositories/CompanyRepository';
 import { recordAuditLog } from '../../utils/auditLogger';
@@ -30,6 +30,7 @@ export interface CreateCompanyModalProps {
   companies: Company[];
   setCompanies?: React.Dispatch<React.SetStateAction<Company[]>>;
   initialName?: string;
+  initialCompanyCode?: string;
   initialCity?: string;
   initialCountry?: string;
   onCompanyCreated?: (newCompany: Company) => void;
@@ -103,6 +104,7 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
   companies,
   setCompanies,
   initialName = '',
+  initialCompanyCode = '',
   initialCity = '',
   initialCountry = 'UAE',
   onCompanyCreated,
@@ -110,9 +112,11 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
   triggerToast
 }) => {
   const [canonicalName, setCanonicalName] = useState(initialName);
+  const [companyCode, setCompanyCode] = useState(initialCompanyCode);
   const [legalSuffix, setLegalSuffix] = useState<string>('None / To Be Added Later');
   const [city, setCity] = useState(initialCity || 'Dubai');
   const [country, setCountry] = useState(initialCountry || 'UAE');
+  const [countryCode, setCountryCode] = useState('');
   const [industry, setIndustry] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -132,8 +136,10 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setCanonicalName(initialName);
+      setCompanyCode(initialCompanyCode || '');
       setCity(initialCity || 'Dubai');
       setCountry(initialCountry || 'UAE');
+      setCountryCode('');
       setLegalSuffix('None / To Be Added Later');
       setIndustry('');
       setPhone('');
@@ -146,7 +152,7 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
       setDuplicateMatchInfo(null);
       setIgnoredDuplicateIds([]);
     }
-  }, [isOpen, initialName, initialCity, initialCountry]);
+  }, [isOpen, initialName, initialCompanyCode, initialCity, initialCountry]);
 
   // Real-Time Duplicate Account Detection (250ms debounce)
   useEffect(() => {
@@ -303,7 +309,12 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
       );
 
       const computedCanonical = computeCanonicalName(displayName) || cleanName.toLowerCase();
-      const searchTerms = generateCompanySearchTerms(displayName, city, phone ? [{ number: phone }] : []);
+      const cleanCompanyCode = sanitizeCompanyCode(companyCode);
+      const cleanCountryCode = sanitizeCompanyCode(countryCode);
+      const baseSearchTerms = generateCompanySearchTerms(displayName, city, phone ? [{ number: phone }] : []);
+      const searchTerms = cleanCompanyCode
+        ? Array.from(new Set([...baseSearchTerms, cleanCompanyCode.toLowerCase()]))
+        : baseSearchTerms;
 
       const validPhones: ContactMethod[] = phone.trim()
         ? [{ id: `cm_${Date.now()}_p`, label: 'Main', value: phone.trim() }]
@@ -317,10 +328,12 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
         workspace_id: currentWorkspaceId,
         workspaceId: currentWorkspaceId,
         canonical_name: computedCanonical,
+        company_code: cleanCompanyCode || undefined,
         legal_suffix: cleanSuffix || undefined,
         display_name: displayName,
-        aliases: [cleanName],
+        aliases: cleanCompanyCode ? Array.from(new Set([cleanName, cleanCompanyCode])) : [cleanName],
         country: country.trim() || 'UAE',
+        country_code: cleanCountryCode || undefined,
         city: city.trim() || 'Dubai',
         industry: industry.trim() || undefined,
         industry_type: industry.trim() || undefined,
@@ -422,22 +435,34 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
 
         {/* Modal Body */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
-          {/* Company Name & Legal Suffix Grid */}
+          {/* Company Name, Company Code & Legal Suffix Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
-            <div className="sm:col-span-7">
+            <div className="sm:col-span-6">
               <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block mb-1.5">
                 Company Name <span className="text-rose-500">*</span>
               </label>
               <input
                 type="text"
                 required
-                placeholder="e.g. Rafael Hotel"
+                placeholder="e.g. Celar Water Equipment"
                 value={canonicalName}
                 onChange={(e) => setCanonicalName(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition font-sans"
               />
             </div>
-            <div className="sm:col-span-5">
+            <div className="sm:col-span-3">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block mb-1.5" title="Short code used in structured Quote References ({COMPANY_CODE})">
+                Company Code
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. CWE"
+                value={companyCode}
+                onChange={(e) => setCompanyCode(e.target.value.toUpperCase())}
+                className="w-full px-3 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 text-sm font-mono font-bold uppercase focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition"
+              />
+            </div>
+            <div className="sm:col-span-3">
               <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block mb-1.5">
                 Legal Suffix
               </label>
@@ -457,11 +482,16 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
 
           {/* Sanitized Live Preview Tag */}
           {canonicalName.trim() && (
-            <div className="flex items-center space-x-2 text-xs bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg">
+            <div className="flex items-center space-x-2 text-xs bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg flex-wrap gap-y-1">
               <span className="text-slate-400 font-medium shrink-0">Catalog Display Name:</span>
               <span className="font-semibold text-slate-800 font-mono truncate">
                 {preview.displayName}
               </span>
+              {sanitizeCompanyCode(companyCode) && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono font-bold shrink-0">
+                  Code: {sanitizeCompanyCode(companyCode)}
+                </span>
+              )}
               {preview.legalSuffix ? (
                 <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-50 text-blue-700 border border-blue-200 font-mono shrink-0">
                   Suffix: {preview.legalSuffix}
@@ -553,9 +583,9 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
             </div>
           )}
 
-          {/* Location & Industry Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            <div>
+          {/* Location & Country Code Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5">
+            <div className="sm:col-span-5">
               <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block mb-1.5">
                 City / Location
               </label>
@@ -567,16 +597,28 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
                 className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition font-sans"
               />
             </div>
-            <div>
+            <div className="sm:col-span-4">
               <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block mb-1.5">
                 Country
               </label>
               <input
                 type="text"
-                placeholder="e.g. UAE, Saudi Arabia, Qatar"
+                placeholder="e.g. UAE, Saudi Arabia"
                 value={country}
                 onChange={(e) => setCountry(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition font-sans"
+              />
+            </div>
+            <div className="sm:col-span-3">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block mb-1.5" title="3-letter Country Code for {COUNTRY} token (auto-mapped if blank)">
+                Country Code
+              </label>
+              <input
+                type="text"
+                placeholder={resolveCountryCode(country) || 'e.g. UAE'}
+                value={countryCode}
+                onChange={(e) => setCountryCode(e.target.value.toUpperCase())}
+                className="w-full px-3 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 text-sm font-mono font-bold uppercase focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition"
               />
             </div>
           </div>

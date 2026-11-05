@@ -1220,7 +1220,7 @@ export default function SettingsHub({
                             className="w-full px-3.5 py-2 text-xs font-mono font-semibold bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                           <p className="text-[11px] text-slate-400 font-sans">
-                            Tokens: <code className="font-mono text-blue-700 font-semibold">{'{PREFIX}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{SEQ}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{DD}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{MM}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{YY}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{YYYY}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{REP}'}</code>
+                            Tokens: <code className="font-mono text-blue-700 font-semibold">{'{PREFIX}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{COUNTRY}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{COMPANY_CODE}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{SEQ}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{DD}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{MM}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{YY}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{YYYY}'}</code>, <code className="font-mono text-blue-700 font-semibold">{'{REP}'}</code>
                           </p>
                         </div>
                       </div>
@@ -1232,7 +1232,9 @@ export default function SettingsHub({
                           seq: previewSeq,
                           prefix: seqPrefix,
                           date: new Date(),
-                          rep: 'AM'
+                          rep: 'AM',
+                          country: 'UAE',
+                          companyCode: 'CWE'
                         });
                         return (
                           <div className="p-3 bg-white border border-blue-200 rounded-xl flex items-center justify-between shadow-2xs">

@@ -163,6 +163,7 @@ export interface Company extends SoftDeleteFields {
   workspaceId?: string | 'unassigned';
   name?: string;
   canonical_name: string;
+  company_code?: string;
   legal_suffix?: LegalSuffix | string | null;
   display_name: string;
   aliases: string[];
@@ -171,6 +172,7 @@ export interface Company extends SoftDeleteFields {
   industry_parent?: string;
   business_type_raw?: string;
   country: string;
+  country_code?: string;
   city: string;
   website?: string;
   phone?: string;
@@ -1194,6 +1196,115 @@ export interface SequenceFormatTokens {
   prefix?: string;
   date?: Date;
   rep?: string;
+  country?: string;
+  countryCode?: string;
+  companyCode?: string;
+  preserveUnresolvedPlaceholders?: boolean;
+}
+
+const STANDARD_COUNTRY_CODE_MAP: Record<string, string> = {
+  'united arab emirates': 'UAE',
+  'u.a.e.': 'UAE',
+  'u.a.e': 'UAE',
+  'uae': 'UAE',
+  'dubai': 'UAE',
+  'abu dhabi': 'UAE',
+  'sharjah': 'UAE',
+  'ajman': 'UAE',
+  'ras al khaimah': 'UAE',
+  'fujairah': 'UAE',
+  'umm al quwain': 'UAE',
+  'saudi arabia': 'KSA',
+  'kingdom of saudi arabia': 'KSA',
+  'k.s.a.': 'KSA',
+  'ksa': 'KSA',
+  'oman': 'OMN',
+  'sultanate of oman': 'OMN',
+  'omn': 'OMN',
+  'qatar': 'QAT',
+  'state of qatar': 'QAT',
+  'qat': 'QAT',
+  'kuwait': 'KWT',
+  'state of kuwait': 'KWT',
+  'kwt': 'KWT',
+  'bahrain': 'BHR',
+  'kingdom of bahrain': 'BHR',
+  'bhr': 'BHR',
+  'egypt': 'EGY',
+  'jordan': 'JOR',
+  'iraq': 'IRQ',
+  'lebanon': 'LBN',
+  'india': 'IND',
+  'pakistan': 'PAK',
+  'bangladesh': 'BGD',
+  'sri lanka': 'LKA',
+  'united kingdom': 'UK',
+  'great britain': 'UK',
+  'england': 'UK',
+  'uk': 'UK',
+  'gbr': 'UK',
+  'united states': 'USA',
+  'united states of america': 'USA',
+  'u.s.a.': 'USA',
+  'usa': 'USA',
+  'us': 'USA',
+  'china': 'CHN',
+  'germany': 'DEU',
+  'france': 'FRA',
+  'italy': 'ITA',
+  'spain': 'ESP',
+  'netherlands': 'NLD',
+  'turkey': 'TUR',
+  'turkiye': 'TUR',
+  'singapore': 'SGP',
+  'malaysia': 'MYS',
+  'indonesia': 'IDN',
+  'australia': 'AUS',
+  'canada': 'CAN',
+  'south africa': 'ZAF',
+  'nigeria': 'NGA',
+  'kenya': 'KEN',
+  'morocco': 'MAR',
+  'algeria': 'DZA',
+  'tunisia': 'TUN',
+  'libya': 'LBY',
+  'sudan': 'SDN',
+  'yemen': 'YEM',
+  'syria': 'SYR',
+  'palestine': 'PSE'
+};
+
+/**
+ * Resolves a structured 2–3 letter country code from an explicit country_code override
+ * or a standard country name. Never invents random codes for unrecognized free-text.
+ */
+export function resolveCountryCode(country?: string | null, countryCodeOverride?: string | null): string {
+  const override = (countryCodeOverride || '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+  if (override) return override;
+
+  const raw = (country || '').trim();
+  if (!raw) return '';
+
+  const normalized = raw.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (STANDARD_COUNTRY_CODE_MAP[normalized]) {
+    return STANDARD_COUNTRY_CODE_MAP[normalized];
+  }
+
+  // If the user already typed a 2-4 uppercase code directly into country (e.g. "UAE", "KSA", "OMN")
+  if (/^[A-Za-z]{2,4}$/.test(raw)) {
+    return raw.toUpperCase();
+  }
+
+  return '';
+}
+
+/**
+ * Sanitizes an explicitly registered company code (uppercase, trimmed, no spaces).
+ * Never guesses or derives a code from a company name.
+ */
+export function sanitizeCompanyCode(code?: string | null): string {
+  if (!code || typeof code !== 'string') return '';
+  return code.trim().toUpperCase().replace(/\s+/g, '');
 }
 
 export interface ClaimedSequenceResult {

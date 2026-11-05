@@ -737,6 +737,13 @@ export default function Company360Modal({
                   <span>REF: {getReferenceId('CMP', company, companies)}</span>
                 </span>
 
+                {/* Registered Company Code Badge */}
+                {company.company_code && (
+                  <span className="px-2 py-0.5 rounded font-mono text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 uppercase shrink-0" title="Registered Company Code for Quote References">
+                    CODE: {company.company_code}
+                  </span>
+                )}
+
                 {/* Google Search shortcut */}
                 <GoogleSearchButton
                   companyName={company.canonical_name || company.display_name}

@@ -129,14 +129,18 @@ export function evaluateCompanySearch(
   const idStr = (c.id || '').toLowerCase();
   const canonicalName = (c.canonical_name || '').toLowerCase();
   const displayName = (c.display_name || '').toLowerCase();
+  const companyCode = (c.company_code || '').toLowerCase();
+  const countryCode = (c.country_code || '').toLowerCase();
   const aliases = Array.isArray(c.aliases) ? c.aliases : [];
 
-  // 1. Direct Name / Alias / RefID Match (No hint needed - direct match)
+  // 1. Direct Name / Alias / RefID / Company Code Match (No hint needed - direct match)
   const matchedNameOrAlias =
     refId.includes(q) ||
     idStr.includes(q) ||
     canonicalName.includes(q) ||
     displayName.includes(q) ||
+    (companyCode && companyCode.includes(q)) ||
+    (countryCode && countryCode.includes(q)) ||
     aliases.some((a) => a?.toLowerCase?.().includes(q));
 
   if (matchedNameOrAlias) {

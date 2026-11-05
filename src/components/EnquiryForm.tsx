@@ -4,12 +4,13 @@ import { prepareAttachmentsForSave, resolveAttachmentUrl, getAttachmentStorageKe
 import mammoth from 'mammoth';
 import { PdfViewer } from './PdfViewer';
 import { MarqueeLabel } from './MarqueeLabel';
-import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductType, UnitType, EnquiryStatus, Product, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, DropdownOption, Workspace, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, LegalSuffix, PIPELINE_STATUS_GROUPS } from '../types';
+import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductType, UnitType, EnquiryStatus, Product, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, DropdownOption, Workspace, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, LegalSuffix, PIPELINE_STATUS_GROUPS, WorkspaceSequenceCounters, resolveCountryCode, sanitizeCompanyCode } from '../types';
 import { db } from '../firebase';
 import { writeBatch, doc, updateDoc } from 'firebase/firestore';
 import { safeAddDoc, safeUpdateDoc, uploadAttachmentWithProgress } from '../firebase';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
-import { previewNextEnquirySequence, claimNextEnquirySequence, syncSequenceHighWaterMark, getWorkspaceSequenceCounters, getSequencePeriodKey, formatPattern } from '../services/enquirySequences';
+import { CompanyRepository } from '../services/repositories/CompanyRepository';
+import { previewNextEnquirySequence, claimNextEnquirySequence, syncSequenceHighWaterMark, getWorkspaceSequenceCounters, getSequencePeriodKey, formatPattern, patternRequiresCompanyCode, patternRequiresCountryCode } from '../services/enquirySequences';
 import { BRAND_CONFIG } from '../config';
 import DuplicateMatchModal from './DuplicateMatchModal';
 import GeminiKeyModal from './GeminiKeyModal';
@@ -1133,11 +1134,20 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
   const [isEditingContact, setIsEditingContact] = useState(false);
   const [subCompanyName, setSubCompanyName] = useState('');
   const [subLegalSuffix, setSubLegalSuffix] = useState('None / To Be Added Later');
+  const [subCompanyCode, setSubCompanyCode] = useState('');
+  const [subCountryCode, setSubCountryCode] = useState('');
   const [subCountry, setSubCountry] = useState('UAE');
   const [subCity, setSubCity] = useState('');
   const [subGeneralPhone, setSubGeneralPhone] = useState('');
   const [subGeneralEmail, setSubGeneralEmail] = useState('');
   const [subNotes, setSubNotes] = useState('');
+
+  // Workspace sequence counters & inline Quick-Resolve Company Code state
+  const [workspaceCounters, setWorkspaceCounters] = useState<WorkspaceSequenceCounters | null>(null);
+  const [showQuickResolveCode, setShowQuickResolveCode] = useState(false);
+  const [quickResolveCodeVal, setQuickResolveCodeVal] = useState('');
+  const [quickResolveCountryCodeVal, setQuickResolveCountryCodeVal] = useState('');
+  const [isSavingQuickCode, setIsSavingQuickCode] = useState(false);
 
   const [subContactName, setSubContactName] = useState('');
   const [subContactDesignation, setSubContactDesignation] = useState('');
@@ -1154,8 +1164,43 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
   // Auto-calculate suggested Quote Ref using workspace pattern or standard DDMMYY (only if not custom/extracted by AI)
   useEffect(() => {
     const isExistingRecord = Boolean(enquiryToEdit && (enquiryToEdit.id || (enquiryToEdit as any)._id));
-    const hasPresetQuoteRef = Boolean(enquiryToEdit?.quote_ref_no && enquiryToEdit.quote_ref_no.trim());
-    if (enquiryDate && sn && !isExistingRecord && !hasPresetQuoteRef && !isQuoteRefCustom) {
+    const isGapRecord = Boolean(
+      enquiryToEdit && (
+        Boolean((enquiryToEdit as any).is_gap_placeholder) ||
+        enquiryToEdit.status === 'Gap / Reserved' ||
+        enquiryToEdit.status === 'GAP / RESERVED' ||
+        (enquiryToEdit.company_name && enquiryToEdit.company_name.includes('[Reserved Sequence'))
+      )
+    );
+    const hasPresetQuoteRef = Boolean(
+      enquiryToEdit?.quote_ref_no &&
+      enquiryToEdit.quote_ref_no.trim() &&
+      !enquiryToEdit.quote_ref_no.includes('[COMPANY_CODE]') &&
+      !enquiryToEdit.quote_ref_no.includes('[COUNTRY]')
+    );
+
+    const selectedComp = companies.find((c) => c.id === companyId);
+    const effectiveCountry = country || selectedComp?.country || 'UAE';
+    const effectiveCountryCode = selectedComp?.country_code || '';
+    const effectiveCompanyCode = selectedComp?.company_code || '';
+
+    // If editing an existing record whose quote_ref_no still contains [COMPANY_CODE] or [COUNTRY],
+    // automatically substitute the newly paired/updated company's code when not manually locked
+    if (isExistingRecord && !isGapRecord && !isQuoteRefCustom && quoteRefNo && (quoteRefNo.includes('[COMPANY_CODE]') || quoteRefNo.includes('[COUNTRY]'))) {
+      let nextRef = quoteRefNo;
+      if (effectiveCompanyCode && nextRef.includes('[COMPANY_CODE]')) {
+        nextRef = nextRef.replace(/\[COMPANY_CODE\]/g, sanitizeCompanyCode(effectiveCompanyCode));
+      }
+      const resolvedCtry = resolveCountryCode(effectiveCountry, effectiveCountryCode);
+      if (resolvedCtry && nextRef.includes('[COUNTRY]')) {
+        nextRef = nextRef.replace(/\[COUNTRY\]/g, resolvedCtry);
+      }
+      if (nextRef !== quoteRefNo) {
+        setQuoteRefNo(nextRef);
+      }
+    }
+
+    if (enquiryDate && sn && (!isExistingRecord || isGapRecord) && !hasPresetQuoteRef && !isQuoteRefCustom) {
       if (activeWorkspace?.id) {
         const selectedSp = salespersons.find(
           (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
@@ -1164,7 +1209,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         const parts = enquiryDate.split('-');
         const dateObj = parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])) : new Date();
 
-        previewNextEnquirySequence(activeWorkspace.id, repInitials, dateObj, enquiries)
+        previewNextEnquirySequence(activeWorkspace.id, repInitials, dateObj, enquiries, {
+          country: effectiveCountry,
+          countryCode: effectiveCountryCode,
+          companyCode: effectiveCompanyCode
+        })
           .then((res) => {
             if (res.quoteRef) {
               setQuoteRefNo(res.quoteRef);
@@ -1184,57 +1233,79 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         }
       }
     }
-  }, [enquiryDate, sn, enquiryToEdit, isQuoteRefCustom, activeWorkspace?.id, salesPerson, salespersons, enquiries]);
+  }, [enquiryDate, sn, companyId, country, companies, enquiryToEdit, isQuoteRefCustom, activeWorkspace?.id, salesPerson, salespersons, enquiries]);
 
   // Live Next Sequence Resolution: On mount for new enquiries (including Duplicated deals without an ID or preset ref), fetch fresh counters from Firestore
   useEffect(() => {
+    if (!activeWorkspace?.id) return;
     const isExistingRecord = Boolean(enquiryToEdit && (enquiryToEdit.id || (enquiryToEdit as any)._id));
-    const hasPresetQuoteRef = Boolean(enquiryToEdit?.quote_ref_no && enquiryToEdit.quote_ref_no.trim());
-    if (!isExistingRecord && !hasPresetQuoteRef && activeWorkspace?.id) {
-      let isMounted = true;
-      getWorkspaceSequenceCounters(activeWorkspace.id)
-        .then((counters) => {
-          if (!isMounted) return;
-          const parts = (enquiryDate || new Date().toISOString().split('T')[0]).split('-');
-          const dateObj = parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])) : new Date();
-          const periodKey = getSequencePeriodKey(counters.resetCadence, dateObj);
+    const isGapRecord = Boolean(
+      enquiryToEdit && (
+        Boolean((enquiryToEdit as any).is_gap_placeholder) ||
+        enquiryToEdit.status === 'Gap / Reserved' ||
+        enquiryToEdit.status === 'GAP / RESERVED' ||
+        (enquiryToEdit.company_name && enquiryToEdit.company_name.includes('[Reserved Sequence'))
+      )
+    );
+    const hasPresetQuoteRef = Boolean(
+      enquiryToEdit?.quote_ref_no &&
+      enquiryToEdit.quote_ref_no.trim() &&
+      !enquiryToEdit.quote_ref_no.includes('[COMPANY_CODE]') &&
+      !enquiryToEdit.quote_ref_no.includes('[COUNTRY]')
+    );
 
-          // Calculate maxSn strictly based on non-deleted workspace enquiries
-          const currentWorkspaceId = activeWorkspace?.id;
-          const workspaceEnqs = (enquiries || []).filter(e => {
-            if (e.is_deleted) return false;
-            const eWid = e.workspace_id || (e as any).workspaceId;
-            return eWid === currentWorkspaceId || (!eWid && activeWorkspace?.is_default);
-          });
-          const maxWorkspaceSn = workspaceEnqs.reduce((max, e) => Math.max(max, Number(e.sn) || 0), 0);
-          const calculatedNextSn = maxWorkspaceSn > 0 ? maxWorkspaceSn + 1 : ((counters.lastSnNumber || 0) + 1);
-          const calculatedNextSeq = (counters.sequences?.[periodKey] || 0) + 1;
+    let isMounted = true;
+    getWorkspaceSequenceCounters(activeWorkspace.id)
+      .then((counters) => {
+        if (!isMounted) return;
+        setWorkspaceCounters(counters);
+        if ((isExistingRecord && !isGapRecord) || hasPresetQuoteRef) return;
 
-          // If S/N is unset or default, update to live nextSn
-          setSn((prev) => (prev <= 1 || prev === nextSn || prev === calibratedDefaultSn ? calculatedNextSn : prev));
+        const parts = (enquiryDate || new Date().toISOString().split('T')[0]).split('-');
+        const dateObj = parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])) : new Date();
+        const periodKey = getSequencePeriodKey(counters.resetCadence, dateObj);
 
-          if (!isQuoteRefCustom) {
-            const selectedSp = salespersons.find(
-              (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
-            );
-            const repInitials = selectedSp?.initials || (selectedSp?.full_name ? selectedSp.full_name.slice(0, 2).toUpperCase() : '');
-            const liveRef = formatPattern(counters.pattern, {
-              seq: calculatedNextSeq,
-              prefix: counters.prefix,
-              date: dateObj,
-              rep: repInitials
-            });
-            setQuoteRefNo(liveRef);
-          }
-        })
-        .catch((err) => {
-          console.warn('Could not fetch live workspace sequence counters:', err);
+        // Calculate maxSn strictly based on non-deleted workspace enquiries
+        const currentWorkspaceId = activeWorkspace?.id;
+        const workspaceEnqs = (enquiries || []).filter(e => {
+          if (e.is_deleted) return false;
+          const eWid = e.workspace_id || (e as any).workspaceId;
+          return eWid === currentWorkspaceId || (!eWid && activeWorkspace?.is_default);
         });
+        const maxWorkspaceSn = workspaceEnqs.reduce((max, e) => Math.max(max, Number(e.sn) || 0), 0);
+        const calculatedNextSn = maxWorkspaceSn > 0 ? maxWorkspaceSn + 1 : ((counters.lastSnNumber || 0) + 1);
+        const calculatedNextSeq = (counters.sequences?.[periodKey] || 0) + 1;
 
-      return () => {
-        isMounted = false;
-      };
-    }
+        // If S/N is unset or default on a brand new record, update to live nextSn
+        if (!isExistingRecord) {
+          setSn((prev) => (prev <= 1 || prev === nextSn || prev === calibratedDefaultSn ? calculatedNextSn : prev));
+        }
+
+        if (!isQuoteRefCustom) {
+          const selectedSp = salespersons.find(
+            (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
+          );
+          const repInitials = selectedSp?.initials || (selectedSp?.full_name ? selectedSp.full_name.slice(0, 2).toUpperCase() : '');
+          const selectedComp = companies.find((c) => c.id === companyId);
+          const liveRef = formatPattern(counters.pattern, {
+            seq: isGapRecord && sn > 0 ? sn : calculatedNextSeq,
+            prefix: counters.prefix,
+            date: dateObj,
+            rep: repInitials,
+            country: country || selectedComp?.country || 'UAE',
+            countryCode: selectedComp?.country_code || '',
+            companyCode: selectedComp?.company_code || ''
+          });
+          setQuoteRefNo(liveRef);
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not fetch live workspace sequence counters:', err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, [enquiryToEdit, activeWorkspace?.id, enquiries, calibratedDefaultSn, nextSn]);
 
   // Check if target S/N is already assigned to an existing, non-deleted enquiry
@@ -1990,6 +2061,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           : `${compName} ${String(rawSuf).trim()}`;
       const city = unregisteredEntities.city?.trim() || 'Dubai';
       const countryVal = unregisteredEntities.country?.trim() || 'UAE';
+      const cleanCompCode = sanitizeCompanyCode(unregisteredEntities.companyCode);
+      const cleanCountryCode = sanitizeCompanyCode(unregisteredEntities.countryCode);
       const companyGeneralPhone = unregisteredEntities.phoneDestination === 'company' ? (unregisteredEntities.generalPhone || unregisteredEntities.contactMobile) : undefined;
       const companyGeneralEmail = unregisteredEntities.emailDestination === 'company' ? (unregisteredEntities.generalEmail || unregisteredEntities.contactEmail) : undefined;
 
@@ -2035,6 +2108,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   canonical_name: compName,
                   display_name,
                   legal_suffix: suf,
+                  ...(cleanCompCode ? { company_code: cleanCompCode } : {}),
+                  ...(cleanCountryCode ? { country_code: cleanCountryCode } : {}),
                   city,
                   country: countryVal,
                   relationship: unregisteredEntities.relationship || 'Prospect',
@@ -2075,6 +2150,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           display_name,
           aliases: [compName],
           legal_suffix: suf,
+          ...(cleanCompCode ? { company_code: cleanCompCode } : {}),
+          ...(cleanCountryCode ? { country_code: cleanCountryCode } : {}),
           city,
           country: countryVal,
           relationship: unregisteredEntities.relationship || 'Prospect',
@@ -3430,12 +3507,19 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               formDate,
               {
                 targetSn: targetSn > 0 ? targetSn : undefined,
-                customQuoteRef: isQuoteRefCustom ? (quoteRefNo || '').trim() : undefined
+                customQuoteRef: isQuoteRefCustom ? (quoteRefNo || '').trim() : undefined,
+                companyAccount: resolvedCompanyName || '',
+                companyCode: selectedCompany?.company_code || '',
+                country: country || selectedCompany?.country || 'UAE',
+                countryCode: selectedCompany?.country_code || '',
+                enquiries
               }
             );
 
             if (!isQuoteRefCustom && claimed.quoteRef) {
               finalQuoteRef = claimed.quoteRef;
+            } else if (finalQuoteRef && selectedCompany?.company_code && finalQuoteRef.includes('[COMPANY_CODE]')) {
+              finalQuoteRef = finalQuoteRef.replace(/\[COMPANY_CODE\]/g, sanitizeCompanyCode(selectedCompany.company_code));
             }
             if (claimed.sn) {
               finalSn = claimed.sn;
@@ -4603,6 +4687,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                   }
                                   setSubCompanyName(baseName);
                                   setSubLegalSuffix(comp.legal_suffix || 'None / To Be Added Later');
+                                  setSubCompanyCode(comp.company_code || '');
+                                  setSubCountryCode(comp.country_code || '');
                                   setSubCity(comp.city);
                                   setSubCountry(comp.country);
                                   setSubGeneralPhone(comp.general_phone || '');
@@ -4624,6 +4710,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               setCompanyMenuOpen(false);
                               setSubCompanyName(companySearch);
                               setSubLegalSuffix('None / To Be Added Later');
+                              setSubCompanyCode('');
+                              setSubCountryCode('');
                               setSubCity('');
                               setSubCountry('UAE');
                               setSubGeneralPhone('');
@@ -4643,19 +4731,29 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   </div>
                 </div>
                 <div className="flex gap-2 items-center min-w-0">
-                  <input
-                    type="text"
-                    required={status !== 'Gap / Reserved'}
-                    placeholder={status === 'Gap / Reserved' ? '[Reserved Sequence / Missing File]' : BRAND_CONFIG.placeholderSearchText}
-                    value={companySearch ?? ''}
-                    onChange={(e) => {
-                      setCompanySearch(e.target.value);
-                      if (companyId) setCompanyId('');
-                      setShowCompanyList(true);
-                    }}
-                    onFocus={() => setShowCompanyList(true)}
-                    className={`flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none transition-all ${getHighlightClasses('company')}`}
-                  />
+                  <div className="relative flex-1 min-w-0">
+                    <input
+                      type="text"
+                      required={status !== 'Gap / Reserved'}
+                      placeholder={status === 'Gap / Reserved' ? '[Reserved Sequence / Missing File]' : BRAND_CONFIG.placeholderSearchText}
+                      value={companySearch ?? ''}
+                      onChange={(e) => {
+                        setCompanySearch(e.target.value);
+                        if (companyId) setCompanyId('');
+                        setShowCompanyList(true);
+                      }}
+                      onFocus={() => setShowCompanyList(true)}
+                      className={`w-full min-w-0 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 pl-3 pr-14 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none transition-all ${getHighlightClasses('company')}`}
+                    />
+                    {companyId && (() => {
+                      const selComp = companies.find((c) => c.id === companyId);
+                      return selComp?.company_code ? (
+                        <span className="absolute right-2.5 top-2 px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-mono font-bold text-[10px] pointer-events-none">
+                          {selComp.company_code}
+                        </span>
+                      ) : null;
+                    })()}
+                  </div>
                   {companySearch.trim().length > 0 && !companyId && (
                     <button
                       type="button"
@@ -4691,7 +4789,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         }}
                         className="w-full p-3 hover:bg-slate-50 dark:hover:bg-slate-800 text-left text-xs font-sans text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer transition"
                       >
-                        <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">{c.display_name}</span>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">{c.display_name}</span>
+                          {c.company_code && (
+                            <span className="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-mono font-bold text-[10px] shrink-0">
+                              {c.company_code}
+                            </span>
+                          )}
+                        </div>
                         <span className="text-[10px] text-slate-400 font-mono uppercase shrink-0 ml-2">{c.city}, {c.country}</span>
                       </button>
                     ))}
@@ -4915,25 +5020,50 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               <div id="field-quote_ref_no">
                 <div className="flex items-center justify-between mb-1.5">
                   <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">Quote Ref</MarqueeLabel>
-                  {!enquiryToEdit && activeWorkspace?.id && (
+                  {!isReadOnly && activeWorkspace?.id && (
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
                         setIsQuoteRefCustom(false);
                         const selectedSp = salespersons.find(
                           (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
                         );
                         const repInitials = selectedSp?.initials || (selectedSp?.full_name ? selectedSp.full_name.slice(0, 2).toUpperCase() : '');
+                        const selectedComp = companies.find((c) => c.id === companyId);
                         const parts = enquiryDate.split('-');
                         const dateObj = parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])) : new Date();
-                        previewNextEnquirySequence(activeWorkspace.id, repInitials, dateObj, enquiries).then(res => {
-                          if (res.quoteRef) setQuoteRefNo(res.quoteRef);
-                        });
+                        const isExisting = Boolean(enquiryToEdit && (enquiryToEdit.id || (enquiryToEdit as any)._id));
+                        if (isExisting && !isClaimingGap && typeof sn === 'number' && sn > 0) {
+                          try {
+                            const counters = await getWorkspaceSequenceCounters(activeWorkspace.id);
+                            setWorkspaceCounters(counters);
+                            const formatted = formatPattern(counters.pattern || '{SEQ}-{DD}{MM}{YY}', {
+                              seq: sn,
+                              prefix: counters.prefix || '',
+                              date: dateObj,
+                              rep: repInitials,
+                              country: country || selectedComp?.country || 'UAE',
+                              countryCode: selectedComp?.country_code || '',
+                              companyCode: selectedComp?.company_code || ''
+                            });
+                            setQuoteRefNo(formatted);
+                          } catch (err) {
+                            console.warn(err);
+                          }
+                        } else {
+                          previewNextEnquirySequence(activeWorkspace.id, repInitials, dateObj, enquiries, {
+                            country: country || selectedComp?.country || 'UAE',
+                            countryCode: selectedComp?.country_code || '',
+                            companyCode: selectedComp?.company_code || ''
+                          }).then(res => {
+                            if (res.quoteRef) setQuoteRefNo(res.quoteRef);
+                          });
+                        }
                       }}
-                      className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 flex items-center gap-1 transition"
-                      title="Generate based on workspace sequence configuration"
+                      className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 flex items-center gap-1 transition cursor-pointer"
+                      title="Generate or re-sync based on workspace sequence configuration and selected company/date"
                     >
-                      <Sparkles className="w-3 h-3" /> Auto Pattern
+                      <Sparkles className="w-3 h-3" /> {isQuoteRefCustom ? 'Reset to Auto Pattern' : 'Auto Pattern'}
                     </button>
                   )}
                 </div>
@@ -4945,8 +5075,273 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     setQuoteRefNo(e.target.value);
                     setIsQuoteRefCustom(true);
                   }}
-                  className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono ${getHighlightClasses('quote_ref_no')}`}
+                  className={`w-full bg-white dark:bg-slate-900 border ${
+                    quoteRefNo?.includes('[COMPANY_CODE]') || quoteRefNo?.includes('[COUNTRY]')
+                      ? 'border-amber-400 focus:border-amber-500 focus:ring-amber-500/20 bg-amber-50/40 dark:bg-amber-950/20'
+                      : 'border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-blue-500/20'
+                  } focus:ring-2 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono ${getHighlightClasses('quote_ref_no')}`}
                 />
+
+                {/* Structured Token Status & Quick-Resolve Prompt for {COMPANY_CODE} / {COUNTRY} */}
+                {(() => {
+                  const activePat =
+                    workspaceCounters?.pattern ||
+                    (activeWorkspace as any)?.settings?.quote_sequence_pattern ||
+                    '';
+                  const needsCompCode =
+                    patternRequiresCompanyCode(activePat) || Boolean(quoteRefNo?.includes('[COMPANY_CODE]'));
+                  const needsCountry =
+                    patternRequiresCountryCode(activePat) || Boolean(quoteRefNo?.includes('[COUNTRY]'));
+                  if (!needsCompCode && !needsCountry) return null;
+
+                  const selectedComp = companies.find((c) => c.id === companyId);
+                  const hasCompCode = Boolean(selectedComp?.company_code?.trim());
+                  const resolvedCtry = resolveCountryCode(
+                    country || selectedComp?.country || 'UAE',
+                    selectedComp?.country_code
+                  );
+
+                  if (needsCompCode && !companyId) {
+                    return (
+                      <div className="mt-1.5 flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-[11px] text-amber-800 dark:text-amber-300">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span className="truncate">
+                            Select a <strong>Company</strong> above to resolve{' '}
+                            <code className="font-mono font-bold">[COMPANY_CODE]</code>
+                          </span>
+                        </div>
+                        {resolvedCtry && (
+                          <span className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-amber-200 dark:border-slate-700 font-mono font-bold text-[10px] shrink-0">
+                            {resolvedCtry}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  if (needsCompCode && companyId && selectedComp && !hasCompCode) {
+                    return (
+                      <div className="mt-1.5 p-2.5 rounded-lg bg-amber-50/90 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 space-y-2 animate-in fade-in duration-150">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 text-[11px] text-amber-900 dark:text-amber-200 font-medium">
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            <span>
+                              <strong>{selectedComp.display_name}</strong> has no registered Company Code for{' '}
+                              <code className="font-mono font-bold">[COMPANY_CODE]</code>.
+                            </span>
+                          </div>
+                          {!showQuickResolveCode && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setQuickResolveCodeVal(selectedComp.company_code || '');
+                                setQuickResolveCountryCodeVal(
+                                  selectedComp.country_code || resolvedCtry || 'UAE'
+                                );
+                                setShowQuickResolveCode(true);
+                              }}
+                              className="px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] uppercase tracking-wider shrink-0 transition cursor-pointer shadow-2xs"
+                            >
+                              Set Company Code
+                            </button>
+                          )}
+                        </div>
+
+                        {showQuickResolveCode && (
+                          <div className="pt-1.5 border-t border-amber-200/80 dark:border-amber-800/60 flex flex-wrap items-end gap-2">
+                            <div className="flex-1 min-w-[120px]">
+                              <label className="block text-[9px] font-mono uppercase text-amber-800 dark:text-amber-300 font-bold mb-0.5">
+                                Company Code (e.g. CWE, BME) *
+                              </label>
+                              <input
+                                type="text"
+                                value={quickResolveCodeVal}
+                                onChange={(e) => setQuickResolveCodeVal(sanitizeCompanyCode(e.target.value))}
+                                placeholder="e.g. CWE"
+                                maxLength={12}
+                                className="w-full px-2 py-1 text-xs font-mono font-bold uppercase bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500 text-slate-900 dark:text-white"
+                              />
+                            </div>
+                            <div className="w-24">
+                              <label className="block text-[9px] font-mono uppercase text-amber-800 dark:text-amber-300 font-bold mb-0.5">
+                                Country Code
+                              </label>
+                              <input
+                                type="text"
+                                value={quickResolveCountryCodeVal}
+                                onChange={(e) => setQuickResolveCountryCodeVal(sanitizeCompanyCode(e.target.value))}
+                                placeholder={resolvedCtry || 'UAE'}
+                                maxLength={6}
+                                className="w-full px-2 py-1 text-xs font-mono font-bold uppercase bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500 text-slate-900 dark:text-white"
+                              />
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                disabled={!quickResolveCodeVal.trim() || isSavingQuickCode}
+                                onClick={async () => {
+                                  const cleanCode = sanitizeCompanyCode(quickResolveCodeVal);
+                                  const cleanCtry = sanitizeCompanyCode(quickResolveCountryCodeVal) || resolvedCtry;
+                                  if (!cleanCode || !selectedComp.id) return;
+                                  setIsSavingQuickCode(true);
+                                  try {
+                                    const patch: Partial<Company> = {
+                                      company_code: cleanCode,
+                                      ...(cleanCtry ? { country_code: cleanCtry } : {}),
+                                      updatedAt: new Date().toISOString()
+                                    };
+                                    await safeUpdateDoc('companies', selectedComp.id, patch);
+                                    await CompanyRepository.updateCompany(
+                                      selectedComp.id,
+                                      patch,
+                                      activeWorkspace?.id
+                                    ).catch(() => {});
+                                    if (setCompanies) {
+                                      setCompanies((prev) =>
+                                        prev.map((c) => (c.id === selectedComp.id ? { ...c, ...patch } : c))
+                                      );
+                                    }
+                                    setQuoteRefNo((prev) => {
+                                      let updated = (prev || '').replace(/\[COMPANY_CODE\]/g, cleanCode);
+                                      if (cleanCtry) {
+                                        updated = updated.replace(/\[COUNTRY\]/g, cleanCtry);
+                                      }
+                                      return updated;
+                                    });
+                                    setShowQuickResolveCode(false);
+                                    triggerToast?.(
+                                      `Saved Company Code "${cleanCode}" to ${selectedComp.display_name} and updated Quote Ref!`,
+                                      'success'
+                                    );
+                                  } catch (err: any) {
+                                    console.error('Failed saving quick company code:', err);
+                                    triggerToast?.('Failed to save company code: ' + err.message, 'error');
+                                  } finally {
+                                    setIsSavingQuickCode(false);
+                                  }
+                                }}
+                                className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-[10px] uppercase tracking-wider transition cursor-pointer flex items-center gap-1"
+                              >
+                                {isSavingQuickCode ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                                <span>Save &amp; Apply</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setShowQuickResolveCode(false)}
+                                className="px-2 py-1 rounded-md border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 hover:bg-amber-100/60 text-[10px] font-semibold transition cursor-pointer"
+                              >
+                                Skip
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  if (selectedComp && hasCompCode) {
+                    return (
+                      <div className="mt-1 space-y-1.5">
+                        <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 px-1">
+                          <span className="flex items-center gap-1.5">
+                            <span>Resolved Tokens:</span>
+                            <span className="px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-mono font-bold">
+                              {sanitizeCompanyCode(selectedComp.company_code)}
+                            </span>
+                            {resolvedCtry && (
+                              <span className="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-mono font-bold">
+                                {resolvedCtry}
+                              </span>
+                            )}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQuickResolveCodeVal(selectedComp.company_code || '');
+                              setQuickResolveCountryCodeVal(selectedComp.country_code || resolvedCtry || 'UAE');
+                              setShowQuickResolveCode((v) => !v);
+                            }}
+                            className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline font-medium cursor-pointer"
+                          >
+                            {showQuickResolveCode ? 'Close' : 'Edit Code'}
+                          </button>
+                        </div>
+                        {showQuickResolveCode && (
+                          <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 flex flex-wrap items-end gap-2">
+                            <div className="flex-1 min-w-[110px]">
+                              <label className="block text-[9px] font-mono uppercase text-slate-500 font-bold mb-0.5">
+                                Company Code
+                              </label>
+                              <input
+                                type="text"
+                                value={quickResolveCodeVal}
+                                onChange={(e) => setQuickResolveCodeVal(sanitizeCompanyCode(e.target.value))}
+                                maxLength={12}
+                                className="w-full px-2 py-1 text-xs font-mono font-bold uppercase bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none text-slate-900 dark:text-white"
+                              />
+                            </div>
+                            <div className="w-20">
+                              <label className="block text-[9px] font-mono uppercase text-slate-500 font-bold mb-0.5">
+                                Country
+                              </label>
+                              <input
+                                type="text"
+                                value={quickResolveCountryCodeVal}
+                                onChange={(e) => setQuickResolveCountryCodeVal(sanitizeCompanyCode(e.target.value))}
+                                maxLength={6}
+                                className="w-full px-2 py-1 text-xs font-mono font-bold uppercase bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none text-slate-900 dark:text-white"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              disabled={!quickResolveCodeVal.trim() || isSavingQuickCode}
+                              onClick={async () => {
+                                const oldCode = sanitizeCompanyCode(selectedComp.company_code);
+                                const cleanCode = sanitizeCompanyCode(quickResolveCodeVal);
+                                const cleanCtry = sanitizeCompanyCode(quickResolveCountryCodeVal) || resolvedCtry;
+                                if (!cleanCode || !selectedComp.id) return;
+                                setIsSavingQuickCode(true);
+                                try {
+                                  const patch: Partial<Company> = {
+                                    company_code: cleanCode,
+                                    ...(cleanCtry ? { country_code: cleanCtry } : {}),
+                                    updatedAt: new Date().toISOString()
+                                  };
+                                  await safeUpdateDoc('companies', selectedComp.id, patch);
+                                  await CompanyRepository.updateCompany(
+                                    selectedComp.id,
+                                    patch,
+                                    activeWorkspace?.id
+                                  ).catch(() => {});
+                                  if (setCompanies) {
+                                    setCompanies((prev) =>
+                                      prev.map((c) => (c.id === selectedComp.id ? { ...c, ...patch } : c))
+                                    );
+                                  }
+                                  if (oldCode && quoteRefNo.includes(`/${oldCode}/`)) {
+                                    setQuoteRefNo((prev) => prev.replace(`/${oldCode}/`, `/${cleanCode}/`));
+                                  }
+                                  setShowQuickResolveCode(false);
+                                  triggerToast?.(`Updated Company Code to "${cleanCode}"`, 'success');
+                                } catch (err: any) {
+                                  triggerToast?.('Failed to update company code: ' + err.message, 'error');
+                                } finally {
+                                  setIsSavingQuickCode(false);
+                                }
+                              }}
+                              className="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-[10px] uppercase tracking-wider transition cursor-pointer"
+                            >
+                              Save
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  return null;
+                })()}
               </div>
             </div>
 
@@ -6775,6 +7170,37 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
+                  <MarqueeLabel>Company Code (Quote Ref)</MarqueeLabel>
+                  <input
+                    type="text"
+                    placeholder="e.g. CWE, BME, VWT"
+                    maxLength={12}
+                    value={subCompanyCode}
+                    onChange={(e) => setSubCompanyCode(sanitizeCompanyCode(e.target.value))}
+                    className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-mono font-bold uppercase"
+                  />
+                  <span className="text-[10px] text-slate-400 block mt-0.5">
+                    Used for {'{COMPANY_CODE}'} in Quote Refs
+                  </span>
+                </div>
+                <div>
+                  <MarqueeLabel>Country Code (3-Letter)</MarqueeLabel>
+                  <input
+                    type="text"
+                    placeholder={resolveCountryCode(subCountry) || 'e.g. UAE, KSA'}
+                    maxLength={6}
+                    value={subCountryCode}
+                    onChange={(e) => setSubCountryCode(sanitizeCompanyCode(e.target.value))}
+                    className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-800 focus:outline-none font-mono font-bold uppercase"
+                  />
+                  <span className="text-[10px] text-slate-400 block mt-0.5">
+                    Auto: {resolveCountryCode(subCountry, subCountryCode) || 'UAE'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
                   <MarqueeLabel required>Country</MarqueeLabel>
                   <input
                     type="text"
@@ -6848,14 +7274,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       ? cleanSubName
                       : `${cleanSubName} ${String(subLegalSuffix).trim()}`;
                   const finalSubSuffix = isNoneSubSuf ? undefined : (subLegalSuffix as LegalSuffix);
+                  const cleanSubCode = sanitizeCompanyCode(subCompanyCode);
+                  const cleanSubCountryCode = sanitizeCompanyCode(subCountryCode);
 
                   if (isEditingCompany) {
                     if (!companyId) return;
                     try {
-                      const updatePayload = {
+                      const updatePayload: Partial<Company> = {
                         display_name,
                         aliases: [cleanSubName],
                         legal_suffix: finalSubSuffix,
+                        company_code: cleanSubCode || undefined,
+                        country_code: cleanSubCountryCode || undefined,
                         city: subCity.trim(),
                         country: subCountry.trim(),
                         general_phone: subGeneralPhone.trim() || undefined,
@@ -6866,6 +7296,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         updatedAt: new Date().toISOString()
                       };
                       await safeUpdateDoc('companies', companyId, updatePayload);
+                      await CompanyRepository.updateCompany(companyId, updatePayload, activeWorkspace?.id).catch(() => {});
                       await logAudit(companyId, 'company', 'update', null, updatePayload, []);
                       
                       if (setCompanies) {
@@ -6875,6 +7306,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       setCompanySearch(display_name);
                       setCountry(subCountry.trim());
                       setProjectLocation(subCity.trim());
+                      if (cleanSubCode && quoteRefNo.includes('[COMPANY_CODE]')) {
+                        setQuoteRefNo((prev) => prev.replace(/\[COMPANY_CODE\]/g, cleanSubCode));
+                      }
 
                       setNewCompanyModal(false);
                       if (triggerToast) {
@@ -6910,6 +7344,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       display_name,
                       aliases: [cleanSubName],
                       legal_suffix: finalSubSuffix,
+                      ...(cleanSubCode ? { company_code: cleanSubCode } : {}),
+                      ...(cleanSubCountryCode ? { country_code: cleanSubCountryCode } : {}),
                       city: subCity.trim(),
                       country: subCountry.trim(),
                       general_phone: subGeneralPhone.trim() || undefined,
@@ -6928,8 +7364,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     // Log audit
                     await logAudit(docId.id, 'company', 'create', null, newCompPayload, []);
 
+                    const newCompObj: Company = { id: docId.id, canonical_name: display_name, ...newCompPayload };
+                    await CompanyRepository.save(newCompObj).catch(() => {});
+
                     if (setCompanies) {
-                      const newCompObj: Company = { id: docId.id, canonical_name: display_name, ...newCompPayload };
                       setCompanies((prev) => [newCompObj, ...prev.filter((c) => c.id !== docId.id)]);
                     }
 
@@ -6937,9 +7375,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     setCompanySearch(display_name);
                     setCountry(subCountry.trim());
                     setProjectLocation(subCity.trim());
+                    if (cleanSubCode && quoteRefNo.includes('[COMPANY_CODE]')) {
+                      setQuoteRefNo((prev) => prev.replace(/\[COMPANY_CODE\]/g, cleanSubCode));
+                    }
                     
                     // Reset fields
                     setSubCompanyName('');
+                    setSubCompanyCode('');
+                    setSubCountryCode('');
                     setSubCity('');
                     setSubCountry('UAE');
                     setSubGeneralPhone('');
@@ -7687,14 +8130,27 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     </div>
                   </div>
 
-                  <div>
-                    <label className="text-[10px] font-mono uppercase text-slate-400 font-semibold block mb-1">City / Location</label>
-                    <input
-                      type="text"
-                      value={unregisteredEntities.city || ''}
-                      onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, city: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
-                    />
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] font-mono uppercase text-slate-400 font-semibold block mb-1">Company Code (Quote Ref)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. CWE, BME"
+                        maxLength={12}
+                        value={unregisteredEntities.companyCode || ''}
+                        onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, companyCode: sanitizeCompanyCode(e.target.value) })}
+                        className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs font-mono font-bold uppercase text-slate-800 focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-mono uppercase text-slate-400 font-semibold block mb-1">City / Location</label>
+                      <input
+                        type="text"
+                        value={unregisteredEntities.city || ''}
+                        onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, city: e.target.value })}
+                        className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
                   </div>
                 </div>
 

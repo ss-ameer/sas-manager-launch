@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import { useActivityLauncher, InitiateActivityOptions } from '../context/ActivityLauncherContext';
 import { CustomLabelSelect, PHONE_LABEL_DEFAULT_OPTIONS, EMAIL_LABEL_DEFAULT_OPTIONS } from './CustomLabelSelect';
-import { Company, Contact, Enquiry, UserProfile, LegalSuffix, Workspace, getContactPhones, getContactEmails, getCompanyPhones, getCompanyEmails, LabeledPhone, LabeledEmail, PhoneCategory, DropdownOption, CallLogEntry, Salesperson, ContactMethod, isSamePhoneNumber } from '../types';
+import { Company, Contact, Enquiry, UserProfile, LegalSuffix, Workspace, getContactPhones, getContactEmails, getCompanyPhones, getCompanyEmails, LabeledPhone, LabeledEmail, PhoneCategory, DropdownOption, CallLogEntry, Salesperson, ContactMethod, isSamePhoneNumber, resolveCountryCode, sanitizeCompanyCode } from '../types';
 import { getReferenceId } from '../utils/refId';
 import { recordAuditLog } from '../utils/auditLogger';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
@@ -775,8 +775,10 @@ export default function CompanyModal({
   const [showAddCompany, setShowAddCompany] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const [canonicalName, setCanonicalName] = useState('');
+  const [companyCode, setCompanyCode] = useState('');
   const [legalSuffix, setLegalSuffix] = useState<LegalSuffix>('None / To Be Added Later');
   const [country, setCountry] = useState('UAE');
+  const [countryCode, setCountryCode] = useState('');
   const [city, setCity] = useState('');
   const [industryParent, setIndustryParent] = useState<string>('');
   const [businessTypeRaw, setBusinessTypeRaw] = useState<string>('');
@@ -979,8 +981,10 @@ export default function CompanyModal({
     setShowAddCompany(false);
     setEditingCompany(null);
     setCanonicalName('');
+    setCompanyCode('');
     setLegalSuffix('None / To Be Added Later');
     setCountry('UAE');
+    setCountryCode('');
     setCity('');
     setIndustryParent('');
     setBusinessTypeRaw('');
@@ -1007,8 +1011,10 @@ export default function CompanyModal({
   const handleOpenAddCompany = () => {
     setEditingCompany(null);
     setCanonicalName('');
+    setCompanyCode('');
     setLegalSuffix('None / To Be Added Later');
     setCountry('UAE');
+    setCountryCode('');
     setCity('');
     setIndustryParent('');
     setBusinessTypeRaw('');
@@ -1043,8 +1049,10 @@ export default function CompanyModal({
       }
     }
     setCanonicalName(baseName);
+    setCompanyCode(comp.company_code || '');
     setLegalSuffix(comp.legal_suffix);
     setCountry(comp.country);
+    setCountryCode(comp.country_code || '');
     setCity(comp.city);
     const rawVal = comp.business_type_raw || comp.industry || comp.industry_type || '';
     let resolvedParent = comp.industry_parent || '';
@@ -1183,16 +1191,23 @@ export default function CompanyModal({
     const primaryEmailVal = validEmails[0]?.value ? validEmails[0].value.trim() : '';
 
     const computedCanonicalName = computeCanonicalName(displayName) || canonicalName.trim().toLowerCase();
-    const searchTerms = generateCompanySearchTerms(displayName, city, legacyPhones.length > 0 ? legacyPhones : [{ number: primaryPhoneVal }]);
+    const cleanCompanyCode = sanitizeCompanyCode(companyCode);
+    const cleanCountryCode = sanitizeCompanyCode(countryCode);
+    const baseSearchTerms = generateCompanySearchTerms(displayName, city, legacyPhones.length > 0 ? legacyPhones : [{ number: primaryPhoneVal }]);
+    const searchTerms = cleanCompanyCode
+      ? Array.from(new Set([...baseSearchTerms, cleanCompanyCode.toLowerCase()]))
+      : baseSearchTerms;
 
     const rawCompany: Omit<Company, 'id'> = {
       workspace_id: activeWorkspace.id,
       workspaceId: activeWorkspace.id,
       canonical_name: computedCanonicalName,
+      company_code: cleanCompanyCode || undefined,
       legal_suffix: finalSuffix,
       display_name: displayName,
       aliases: aliasesArr,
       country: country.trim(),
+      country_code: cleanCountryCode || undefined,
       city: city.trim(),
       industry_parent: industryParent || undefined,
       business_type_raw: businessTypeRaw.trim() || undefined,
@@ -2367,6 +2382,11 @@ export default function CompanyModal({
                               <td className="py-3 px-4">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <div className="font-semibold text-slate-900 font-sans text-sm">{c.display_name}</div>
+                                  {c.company_code && (
+                                    <span className="px-1.5 py-0.5 rounded font-mono text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 uppercase">
+                                      {c.company_code}
+                                    </span>
+                                  )}
                                   <GoogleSearchButton companyName={c.display_name} location={c.city} size="xs" />
                                   {c.isInternalCompany && (
                                     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
@@ -3308,20 +3328,32 @@ export default function CompanyModal({
               {/* Scroll Body */}
               <div className="flex-1 overflow-y-auto px-6 py-5 pb-8 space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
-                  <div className="sm:col-span-8">
+                  <div className="sm:col-span-6">
                     <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
                       Canonical Name <span className="text-rose-500 font-bold ml-0.5">*</span>
                     </label>
                     <input
                       type="text"
                       required
-                      placeholder="e.g. Veolia Water Solutions"
+                      placeholder="e.g. Celar Water Equipment"
                       value={canonicalName}
                       onChange={(e) => setCanonicalName(e.target.value)}
                       className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-sans"
                     />
                   </div>
-                  <div className="sm:col-span-4">
+                  <div className="sm:col-span-3">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5" title="Short code used in structured Quote References ({COMPANY_CODE})">
+                      Company Code
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. CWE, BME"
+                      value={companyCode}
+                      onChange={(e) => setCompanyCode(e.target.value.toUpperCase())}
+                      className="w-full px-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 text-sm font-mono font-bold uppercase focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                    />
+                  </div>
+                  <div className="sm:col-span-3">
                     <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
                       Legal Suffix
                     </label>
@@ -3445,8 +3477,8 @@ export default function CompanyModal({
                   </label>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+                  <div className="sm:col-span-5">
                     <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
                       City <span className="text-rose-500 font-bold ml-0.5">*</span>
                     </label>
@@ -3459,7 +3491,7 @@ export default function CompanyModal({
                       className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-sans"
                     />
                   </div>
-                  <div>
+                  <div className="sm:col-span-4">
                     <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
                       Country <span className="text-rose-500 font-bold ml-0.5">*</span>
                     </label>
@@ -3470,6 +3502,18 @@ export default function CompanyModal({
                       value={country}
                       onChange={(e) => setCountry(e.target.value)}
                       className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-sans"
+                    />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5" title="3-letter Country Code for {COUNTRY} token (auto-mapped if blank)">
+                      Country Code
+                    </label>
+                    <input
+                      type="text"
+                      placeholder={resolveCountryCode(country) || 'e.g. UAE'}
+                      value={countryCode}
+                      onChange={(e) => setCountryCode(e.target.value.toUpperCase())}
+                      className="w-full px-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 text-sm font-mono font-bold uppercase focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
                     />
                   </div>
                 </div>

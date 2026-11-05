@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan for Quotation Studio two-row header reorganization and simultaneous dual-drawer (3-pane) layout with independent toggles and auto-scaled A4 preview.",
-  "updatedAt": "2026-11-03T10:37:07.107607139Z",
+  "summary": "Architectural & UX implementation plan for Structured Quote References & Company Codes ({COUNTRY}, {COMPANY_CODE}), covering zero-guess registration, quick-resolve missing code prompts, live-until-edited reference syncing, and downstream sequence/sanitizer safety.",
+  "updatedAt": "2026-11-04T20:10:52.011701359Z",
   "requestFeedback": true,
   "userFacing": true
 }

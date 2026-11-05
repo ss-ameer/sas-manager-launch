@@ -20,6 +20,7 @@
       "type": "object",
       "properties": {
         "canonical_name": { "type": "string" },
+        "company_code": { "type": "string" },
         "legal_suffix": { "type": "string", "enum": ["LLC", "FZE", "FZC", "Co. LLC", "Ltd", "W.L.L.", "Est.", "None / Other"] },
         "display_name": { "type": "string" },
         "aliases": {
@@ -27,6 +28,7 @@
           "items": { "type": "string" }
         },
         "country": { "type": "string" },
+        "country_code": { "type": "string" },
         "city": { "type": "string" },
         "general_phone": { "type": "string" },
         "general_email": { "type": "string", "format": "email" },
