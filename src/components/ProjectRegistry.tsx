@@ -39,6 +39,8 @@ import {
   Edit2,
   Plus,
   ExternalLink,
+  ChevronLeft,
+  ChevronRight,
   Save
 } from 'lucide-react';
 
@@ -82,7 +84,13 @@ export default function ProjectRegistry({
 }: ProjectRegistryProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | Project['status']>('All');
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [itemsPerPage, setItemsPerPage] = useState<number>(25);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, itemsPerPage]);
   const [isDispatching, setIsDispatching] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [confirmDispatchOpen, setConfirmDispatchOpen] = useState(false);
@@ -975,7 +983,14 @@ export default function ProjectRegistry({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200/80 text-xs">
-                  {filteredProjects.map((project) => {
+                  {filteredProjects
+                    .slice(
+                      (Math.min(currentPage, Math.max(1, Math.ceil(filteredProjects.length / itemsPerPage))) - 1) *
+                        itemsPerPage,
+                      Math.min(currentPage, Math.max(1, Math.ceil(filteredProjects.length / itemsPerPage))) *
+                        itemsPerPage
+                    )
+                    .map((project) => {
                     const isDelivered = project.status === 'Delivered' || project.status === 'Completed';
                     const isSelected = selectedProject?.id && selectedProject.id === project.id;
                     const inventoriedCount = (project.line_items || []).filter((it) => {
@@ -1093,15 +1108,57 @@ export default function ProjectRegistry({
             )}
           </div>
 
-          {/* Standardized Card Footer & Item Counter */}
-          <div className="px-5 py-3.5 bg-slate-50/60 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 font-sans">
-            <div>
-              Showing <span className="font-bold text-slate-900 font-mono">{filteredProjects.length}</span> of <span className="font-bold text-slate-900 font-mono">{workspaceProjects.length}</span> projects
-            </div>
-            <div className="text-[11px] font-mono text-slate-400">
-              Active Workspace Registry
-            </div>
-          </div>
+          {/* Standardized Card Footer & Pagination Controls (UX-M4) */}
+          {(() => {
+            const totalPages = Math.max(1, Math.ceil(filteredProjects.length / itemsPerPage));
+            const safePage = Math.min(currentPage, totalPages);
+            const startIdx = filteredProjects.length === 0 ? 0 : (safePage - 1) * itemsPerPage + 1;
+            const endIdx = Math.min(safePage * itemsPerPage, filteredProjects.length);
+            return (
+              <div className="px-5 py-3.5 bg-slate-50/60 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 font-sans">
+                <div className="flex items-center gap-3">
+                  <div>
+                    Showing <span className="font-bold text-slate-900 font-mono">{startIdx}</span>–
+                    <span className="font-bold text-slate-900 font-mono">{endIdx}</span> of{' '}
+                    <span className="font-bold text-slate-900 font-mono">{filteredProjects.length}</span> projects
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-400">Rows:</span>
+                    <select
+                      value={itemsPerPage}
+                      onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-mono font-semibold text-slate-700 cursor-pointer"
+                    >
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={safePage <= 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" /> Prev
+                  </button>
+                  <span className="px-2 font-mono text-xs font-semibold text-slate-700">
+                    Page {safePage} of {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={safePage >= totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    Next <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </PageBody>
 

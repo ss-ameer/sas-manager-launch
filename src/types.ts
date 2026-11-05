@@ -1612,21 +1612,26 @@ export interface QuotationTextFormatStyle {
   underline?: boolean;
   uppercase?: boolean;
   showAccentBar?: boolean;
+  accentBar?: boolean;
   textAlign?: 'left' | 'center' | 'right' | 'justify';
   textColor?: 'default' | 'muted' | 'accent' | 'emerald' | 'amber' | 'rose' | 'custom';
+  colorTone?: 'default' | 'muted' | 'accent' | 'emerald' | 'amber' | 'rose' | 'custom';
   customColorHex?: string;
-  highlightBg?: 'none' | 'SoftYellow' | 'SoftBlue' | 'SoftEmerald' | 'SoftRose' | 'ThemeTint';
+  highlightBg?: 'none' | 'soft_accent' | 'SoftYellow' | 'SoftBlue' | 'SoftEmerald' | 'SoftRose' | 'ThemeTint';
   lineHeight?: 'tight' | 'normal' | 'relaxed';
   letterSpacing?: 'normal' | 'wide' | 'uppercase_tracked';
 }
 
 export interface QuotationBlockFieldRowItem {
   id: string;
-  enabled: boolean;
+  key?: string;
+  enabled?: boolean;
+  visible?: boolean;
   label: string;
   value: string; // Supports @tags
   hideIfEmpty?: boolean; // Default false per Choice A2
   valueBold?: boolean;
+  style?: QuotationTextFormatStyle;
   textStyle?: QuotationTextFormatStyle;
   labelStyle?: QuotationTextFormatStyle;
   valueStyle?: QuotationTextFormatStyle;

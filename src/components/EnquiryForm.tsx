@@ -1128,6 +1128,29 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
   // Currency of this individual Enquiry (AED or USD)
   const [formCurrency, setFormCurrency] = useState<'AED' | 'USD'>('AED');
 
+  const handleCurrencySwitch = (targetCurrency: 'AED' | 'USD') => {
+    if (targetCurrency === formCurrency) return;
+    const rate = targetCurrency === 'USD' ? 1 / 3.6725 : 3.6725;
+    setLineItems((prev) =>
+      prev.map((li) => {
+        const nextPrice = Number(((Number(li.unit_price) || 0) * rate).toFixed(2));
+        const nextQty = Number(li.qty) || 0;
+        const nextCost =
+          li.cost_price !== undefined ? Number(((Number(li.cost_price) || 0) * rate).toFixed(2)) : undefined;
+        return {
+          ...li,
+          unit_price: nextPrice,
+          total: Number((nextQty * nextPrice).toFixed(2)),
+          ...(nextCost !== undefined ? { cost_price: nextCost } : {})
+        };
+      })
+    );
+    if (isLumpSum && manualValue > 0) {
+      setManualValue((prev) => Number((prev * rate).toFixed(2)));
+    }
+    setFormCurrency(targetCurrency);
+  };
+
   // Sub-modal states for inline Company and Contact creation
   const [showNewContactModal, setShowNewContactModal] = useState(false);
   const [isEditingCompany, setIsEditingCompany] = useState(false);
@@ -1205,26 +1228,32 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         const selectedSp = salespersons.find(
           (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
         );
-        const repInitials = selectedSp?.initials || (selectedSp?.full_name ? selectedSp.full_name.slice(0, 2).toUpperCase() : '');
+        const repInitials =
+          selectedSp?.initials ||
+          (selectedSp?.full_name
+            ? selectedSp.full_name.slice(0, 2).toUpperCase()
+            : salesPerson
+            ? salesPerson.trim().slice(0, 3).toUpperCase()
+            : '');
         const parts = enquiryDate.split('-');
         const dateObj = parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])) : new Date();
 
-        previewNextEnquirySequence(activeWorkspace.id, repInitials, dateObj, enquiries, {
-          country: effectiveCountry,
-          countryCode: effectiveCountryCode,
-          companyCode: effectiveCompanyCode
-        })
-          .then((res) => {
-            if (res.quoteRef) {
-              setQuoteRefNo(res.quoteRef);
-            }
-          })
-          .catch(() => {
-            if (parts.length === 3) {
-              const formattedDate = `${parts[2]}${parts[1]}${parts[0].slice(2)}`;
-              setQuoteRefNo(`${sn}-${formattedDate}`);
-            }
+        if (workspaceCounters) {
+          const periodKey = getSequencePeriodKey(workspaceCounters.resetCadence, dateObj);
+          const calculatedNextSeq = (workspaceCounters.sequences?.[periodKey] || 0) + 1;
+          const liveRef = formatPattern(workspaceCounters.pattern, {
+            seq: isGapRecord && sn > 0 ? sn : calculatedNextSeq,
+            prefix: workspaceCounters.prefix,
+            date: dateObj,
+            rep: repInitials,
+            country: effectiveCountry,
+            countryCode: effectiveCountryCode,
+            companyCode: effectiveCompanyCode
           });
+          if (liveRef) {
+            setQuoteRefNo(liveRef);
+          }
+        }
       } else {
         const parts = enquiryDate.split('-'); // [YYYY, MM, DD]
         if (parts.length === 3) {
@@ -1233,7 +1262,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         }
       }
     }
-  }, [enquiryDate, sn, companyId, country, companies, enquiryToEdit, isQuoteRefCustom, activeWorkspace?.id, salesPerson, salespersons, enquiries]);
+  }, [enquiryDate, sn, companyId, country, companies, enquiryToEdit, isQuoteRefCustom, activeWorkspace?.id, salesPerson, salespersons, enquiries, workspaceCounters]);
 
   // Live Next Sequence Resolution: On mount for new enquiries (including Duplicated deals without an ID or preset ref), fetch fresh counters from Firestore
   useEffect(() => {
@@ -1285,7 +1314,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           const selectedSp = salespersons.find(
             (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
           );
-          const repInitials = selectedSp?.initials || (selectedSp?.full_name ? selectedSp.full_name.slice(0, 2).toUpperCase() : '');
+          const repInitials =
+            selectedSp?.initials ||
+            (selectedSp?.full_name
+              ? selectedSp.full_name.slice(0, 2).toUpperCase()
+              : salesPerson
+              ? salesPerson.trim().slice(0, 3).toUpperCase()
+              : '');
           const selectedComp = companies.find((c) => c.id === companyId);
           const liveRef = formatPattern(counters.pattern, {
             seq: isGapRecord && sn > 0 ? sn : calculatedNextSeq,
@@ -3496,7 +3531,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             const selectedSp = salespersons.find(
               (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
             );
-            const repInitials = selectedSp?.initials || (selectedSp?.full_name ? selectedSp.full_name.slice(0, 2).toUpperCase() : '');
+            const repInitials =
+              selectedSp?.initials ||
+              (selectedSp?.full_name
+                ? selectedSp.full_name.slice(0, 2).toUpperCase()
+                : salesPerson
+                ? salesPerson.trim().slice(0, 3).toUpperCase()
+                : '');
             const parts = (enquiryDate || new Date().toISOString().split('T')[0]).split('-');
             const formDate = parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])) : new Date();
 
@@ -5028,7 +5069,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         const selectedSp = salespersons.find(
                           (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
                         );
-                        const repInitials = selectedSp?.initials || (selectedSp?.full_name ? selectedSp.full_name.slice(0, 2).toUpperCase() : '');
+                        const repInitials =
+                          selectedSp?.initials ||
+                          (selectedSp?.full_name
+                            ? selectedSp.full_name.slice(0, 2).toUpperCase()
+                            : salesPerson
+                            ? salesPerson.trim().slice(0, 3).toUpperCase()
+                            : '');
                         const selectedComp = companies.find((c) => c.id === companyId);
                         const parts = enquiryDate.split('-');
                         const dateObj = parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])) : new Date();
@@ -5194,8 +5241,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     await safeUpdateDoc('companies', selectedComp.id, patch);
                                     await CompanyRepository.updateCompany(
                                       selectedComp.id,
-                                      patch,
-                                      activeWorkspace?.id
+                                      patch
                                     ).catch(() => {});
                                     if (setCompanies) {
                                       setCompanies((prev) =>
@@ -5311,8 +5357,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                   await safeUpdateDoc('companies', selectedComp.id, patch);
                                   await CompanyRepository.updateCompany(
                                     selectedComp.id,
-                                    patch,
-                                    activeWorkspace?.id
+                                    patch
                                   ).catch(() => {});
                                   if (setCompanies) {
                                     setCompanies((prev) =>
@@ -7296,7 +7341,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         updatedAt: new Date().toISOString()
                       };
                       await safeUpdateDoc('companies', companyId, updatePayload);
-                      await CompanyRepository.updateCompany(companyId, updatePayload, activeWorkspace?.id).catch(() => {});
+                      await CompanyRepository.updateCompany(companyId, updatePayload).catch(() => {});
                       await logAudit(companyId, 'company', 'update', null, updatePayload, []);
                       
                       if (setCompanies) {
@@ -7365,7 +7410,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     await logAudit(docId.id, 'company', 'create', null, newCompPayload, []);
 
                     const newCompObj: Company = { id: docId.id, canonical_name: display_name, ...newCompPayload };
-                    await CompanyRepository.save(newCompObj).catch(() => {});
+                    await CompanyRepository.saveCompany(newCompObj).catch(() => {});
 
                     if (setCompanies) {
                       setCompanies((prev) => [newCompObj, ...prev.filter((c) => c.id !== docId.id)]);

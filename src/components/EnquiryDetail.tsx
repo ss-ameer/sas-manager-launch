@@ -856,6 +856,7 @@ export default function EnquiryDetail({
       created_at: targetEnq.enquiry_date || targetEnq.createdAt || new Date().toISOString(),
       valid_until: new Date(Date.now() + 30 * 86400000).toISOString(),
       sender_snapshot: {
+        entity_name: documentProfile?.legal_entity_name || documentProfile?.legal_name || activeWorkspace?.name || 'Aventura Components FZE',
         legal_name: documentProfile?.legal_name || activeWorkspace?.name || 'Aventura Components FZE',
         tagline: documentProfile?.tagline || '',
         address: documentProfile?.address || '',
@@ -868,7 +869,7 @@ export default function EnquiryDetail({
       client_snapshot: {
         company_id: comp?.id || targetEnq.company_id,
         entity_name: comp?.display_name || targetEnq.company_name || 'Valued Client',
-        contact_person: cont?.full_name || targetEnq.contact_name || '',
+        contact_person: cont?.full_name || targetEnq.contact_person_name || (targetEnq as any).contact_name || '',
         address: [comp?.address, comp?.city || targetEnq.project_location, comp?.country || targetEnq.country]
           .filter(Boolean)
           .join(', '),
@@ -2634,6 +2635,20 @@ export default function EnquiryDetail({
   const [companySearchTerm, setCompanySearchTerm] = useState('');
   const [isMoreActionsOpen, setIsMoreActionsOpen] = useState(false);
 
+  // UX-M5: Close More Actions menu on Escape key in capture phase before parent drawer closes
+  useEffect(() => {
+    if (!isMoreActionsOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        e.preventDefault();
+        setIsMoreActionsOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [isMoreActionsOpen]);
+
   // Unpaired company duplicate match check
   const unpairedCompanyName = currentEnquiry.company_name || (currentEnquiry as any)?.company || enquiry.company_name || '';
   const candidateCompanyMatch = useMemo(() => {
@@ -2793,7 +2808,7 @@ export default function EnquiryDetail({
       }
 
       const nowIso = new Date().toISOString();
-      const updatedPatch: Partial<Enquiry> = {
+      const updatedPatch: Partial<Enquiry> & Record<string, any> = {
         revision_number: nextRevQuote.revision_number,
         quote_ref_no: nextRevQuote.formatted_quote_ref,
         latest_quote_ref: nextRevQuote.formatted_quote_ref,
@@ -3338,11 +3353,13 @@ export default function EnquiryDetail({
             <div className="relative flex items-center shrink-0">
               <button
                 type="button"
+                aria-haspopup="menu"
+                aria-expanded={isMoreActionsOpen}
                 onClick={() => setIsMoreActionsOpen((prev) => !prev)}
                 className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shadow-2xs ${
                   isMoreActionsOpen
                     ? 'bg-slate-900 text-white border-slate-900'
-                    : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-700'
                 }`}
                 title="More Enquiry Actions"
               >
@@ -3357,7 +3374,10 @@ export default function EnquiryDetail({
                     className="fixed inset-0 z-30"
                     onClick={() => setIsMoreActionsOpen(false)}
                   />
-                  <div className="absolute right-0 top-full mt-1.5 w-60 rounded-xl bg-white border border-slate-200 shadow-xl py-1.5 z-40 divide-y divide-slate-100">
+                  <div
+                    role="menu"
+                    className="absolute right-0 top-full mt-1.5 w-60 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl py-1.5 z-40 divide-y divide-slate-100 dark:divide-slate-800"
+                  >
                     <div className="py-1">
                       {canEditEnquiry(user, activeWorkspace, enquiry) && (
                         <button
@@ -3740,28 +3760,6 @@ export default function EnquiryDetail({
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <button
                       type="button"
-                      onClick={() => {
-                        setEditingQuotation(getPrimarySourceQuotation());
-                        setIsQuotationStudioOpen(true);
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer transition shadow-2xs"
-                    >
-                      <FileText className="w-3.5 h-3.5" />
-                      <span>Open Studio</span>
-                    </button>
-                    {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
-                      <button
-                        type="button"
-                        onClick={handleCreateRevision}
-                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold flex items-center gap-1 cursor-pointer transition shadow-2xs"
-                        title="Create next Proposal Revision (-R2, -R3) on this Enquiry S/N"
-                      >
-                        <GitFork className="w-3.5 h-3.5" />
-                        <span>Create Revision</span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
                       onClick={() => handleIssueDeliveryNote()}
                       className="px-2.5 py-1 rounded-lg bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 text-xs font-semibold flex items-center gap-1 cursor-pointer transition shadow-2xs"
                       title="Generate an unpriced Delivery Note (DO) from the active quotation or line items"
@@ -4136,6 +4134,8 @@ export default function EnquiryDetail({
                                       type="button"
                                       onClick={() => {
                                         setViewingQuotation(q);
+                                        const cleanup = () => setViewingQuotation(null);
+                                        window.addEventListener('afterprint', cleanup, { once: true });
                                         setTimeout(() => window.print(), 150);
                                       }}
                                       className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
@@ -6718,6 +6718,8 @@ export default function EnquiryDetail({
                                   type="button"
                                   onClick={() => {
                                     setViewingQuotation(q);
+                                    const cleanup = () => setViewingQuotation(null);
+                                    window.addEventListener('afterprint', cleanup, { once: true });
                                     setTimeout(() => window.print(), 150);
                                   }}
                                   className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-semibold transition cursor-pointer flex items-center gap-1"
@@ -7853,6 +7855,21 @@ export default function EnquiryDetail({
                   quotation={viewingQuotation}
                   profile={documentProfile}
                   user={user}
+                  enquiry={currentEnquiry}
+                  salesRepName={currentEnquiry.assigned_salesperson || resolveSalespersonName(currentEnquiry)}
+                  layoutBlocks={viewingQuotation.layout_blocks}
+                  bankAccount={
+                    viewingQuotation.selectedBank ||
+                    viewingQuotation.selected_bank ||
+                    viewingQuotation.applied_bank_account ||
+                    documentProfile?.bank_accounts?.find(
+                      (b) =>
+                        b.id === (viewingQuotation.remittanceBankId || viewingQuotation.remittance_bank_id) ||
+                        b.is_default
+                    ) ||
+                    documentProfile?.bank_accounts?.[0]
+                  }
+                  salespersons={salespersons}
                   signatoryName={viewingQuotation.primary_signatory_name}
                   signatoryTitle={viewingQuotation.primary_signatory_title}
                 />
@@ -7869,14 +7886,28 @@ export default function EnquiryDetail({
             quotation={viewingQuotation}
             profile={documentProfile}
             isCompactView={(viewingQuotation as any).presentation_preset?.density === 'compact' || viewingQuotation.table_density === 'compact'}
-            visibleColumns={(viewingQuotation as any).presentation_preset?.columns}
+            visibleColumns={(viewingQuotation as any).presentation_preset?.columns || viewingQuotation.visible_columns}
+            layoutBlocks={viewingQuotation.layout_blocks}
+            bankAccount={
+              viewingQuotation.selectedBank ||
+              viewingQuotation.selected_bank ||
+              viewingQuotation.applied_bank_account ||
+              documentProfile?.bank_accounts?.find(
+                (b) =>
+                  b.id === (viewingQuotation.remittanceBankId || viewingQuotation.remittance_bank_id) ||
+                  b.is_default
+              ) ||
+              documentProfile?.bank_accounts?.[0]
+            }
+            salespersons={salespersons}
+            salesRepName={currentEnquiry.assigned_salesperson || resolveSalespersonName(currentEnquiry)}
             user={user}
             signatoryName={viewingQuotation.primary_signatory_name}
             signatoryTitle={viewingQuotation.primary_signatory_title}
             showStampAndSignatures={true}
             showBankDetails={true}
             {...({
-              enquiry,
+              enquiry: currentEnquiry,
               templatePreset: (viewingQuotation as any).presentation_preset?.theme || 'classic',
               isPrintMode: true,
               primarySignatoryName: viewingQuotation.primary_signatory_name,

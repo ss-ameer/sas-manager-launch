@@ -249,7 +249,7 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
             updatedAt: new Date().toISOString()
           };
           await safeUpdateDoc('companies', matchedCompany.id, compPatch);
-          await CompanyRepository.updateCompany(matchedCompany.id, compPatch, activeWorkspace.id).catch(() => {});
+          await CompanyRepository.updateCompany(matchedCompany.id, compPatch).catch(() => {});
         } catch (compErr) {
           console.warn('Could not persist company code on quick claim:', compErr);
         }

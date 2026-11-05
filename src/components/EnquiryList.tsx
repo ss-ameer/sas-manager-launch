@@ -41,6 +41,7 @@ import {
   canEditEnquiry,
   canDeleteEnquiry,
   canExportData,
+  canManageWorkspace,
   isAdmin,
   getEffectiveWorkspaceRole,
   isCreatorOnlyViewer
@@ -263,6 +264,7 @@ export interface EnquiryTableRowProps {
   isEditable: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  canViewConfidentialMargins?: boolean;
   isCreatorOnly?: boolean;
   companyName: string;
   resolvedCompany?: Company;
@@ -287,6 +289,7 @@ export function areRowPropsEqual(
   if (prevProps.isEditable !== nextProps.isEditable) return false;
   if (prevProps.canEdit !== nextProps.canEdit) return false;
   if (prevProps.canDelete !== nextProps.canDelete) return false;
+  if (prevProps.canViewConfidentialMargins !== nextProps.canViewConfidentialMargins) return false;
   if (prevProps.isCreatorOnly !== nextProps.isCreatorOnly) return false;
   if (prevProps.companyName !== nextProps.companyName) return false;
 
@@ -384,6 +387,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
   isEditable,
   canEdit,
   canDelete,
+  canViewConfidentialMargins,
   isCreatorOnly,
   companyName,
   resolvedCompany,
@@ -458,29 +462,29 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
       aria-label={`View details for enquiry #${e.sn || ''}`}
       onClick={handleRowClick}
       onKeyDown={handleRowKeyDown}
-      className={`cursor-pointer border-b border-slate-200/80 border-l-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:bg-slate-50/90 group ${
-        isGapReserved ? 'opacity-80 bg-amber-50/20 border-dashed' : ''
+      className={`cursor-pointer border-b border-slate-200/80 dark:border-slate-800/80 border-l-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:bg-slate-50/90 dark:focus-visible:bg-slate-800/70 group ${
+        isGapReserved ? 'opacity-80 bg-amber-50/20 dark:bg-amber-950/15 border-dashed' : ''
       } ${
         isChecked && isMarkingMode
-          ? 'border-l-blue-600 bg-blue-50/50 font-medium'
-          : 'border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80'
+          ? 'border-l-blue-600 bg-blue-50/50 dark:bg-blue-950/30 font-medium'
+          : 'border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 dark:hover:bg-slate-800/60'
       }`}
     >
       {isMarkingMode && (
-        <td className="py-2.5 px-2.5 text-center" onClick={(evt) => evt.stopPropagation()}>
+        <td className="py-2.5 px-2.5 text-center overflow-hidden" onClick={(evt) => evt.stopPropagation()}>
           <input
             type="checkbox"
             checked={isChecked}
             onClick={(evt) => evt.stopPropagation()}
             onChange={(chk) => onToggleSelect(e.id!, chk.target.checked)}
-            className="rounded border-slate-200 text-slate-900 focus:ring-slate-900 cursor-pointer"
+            className="rounded border-slate-200 dark:border-slate-700 text-slate-900 focus:ring-slate-900 cursor-pointer"
           />
         </td>
       )}
-      <td className="py-2.5 px-2 font-mono text-xs text-slate-500 font-semibold whitespace-nowrap text-center overflow-hidden">
+      <td className="py-2.5 px-2 font-mono text-xs text-slate-500 dark:text-slate-400 font-semibold whitespace-nowrap text-center overflow-hidden">
         #{e.sn}
       </td>
-      <td className="py-2.5 px-2.5 font-semibold text-slate-900 overflow-hidden" title={companyName}>
+      <td className="py-2.5 px-2.5 font-semibold text-slate-900 dark:text-slate-100 overflow-hidden" title={companyName}>
         {isGapReserved ? (
           <div className="flex flex-col gap-0.5 min-w-0 overflow-hidden">
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-400 font-mono truncate">
@@ -645,16 +649,16 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
         </div>
       </td>
       <td className="py-2.5 px-1.5 whitespace-nowrap overflow-hidden">
-        <div className="flex flex-col items-start gap-0.5">
+        <div className="flex flex-col items-start gap-0.5 min-w-0 max-w-full overflow-hidden">
           <span
-            className="font-mono text-xs font-semibold text-slate-600 bg-slate-100/80 px-2 py-0.5 rounded border border-slate-200/60"
+            className="font-mono text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100/80 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200/60 dark:border-slate-700 truncate max-w-full"
             title={titleText}
           >
             {initials}
           </span>
           {isCreatorOnly && (
             <span
-              className="text-[9px] font-sans font-semibold px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 border border-amber-200/80 whitespace-nowrap"
+              className="text-[9px] font-sans font-semibold px-1.5 py-0.2 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 whitespace-nowrap truncate max-w-full"
               title="Visible to you because you logged this enquiry on behalf of the assigned salesperson"
             >
               Logged by You
@@ -663,7 +667,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
         </div>
       </td>
       <td className="py-2.5 px-2 whitespace-nowrap overflow-hidden">
-        <span className="font-mono text-xs text-slate-600 font-medium truncate block">
+        <span className="font-mono text-xs text-slate-600 dark:text-slate-300 font-medium truncate block">
           {formatEnquiryDate(e.enquiry_date)}
         </span>
       </td>
@@ -711,13 +715,13 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
 
           {relTime && (
             <span
-              className="inline-flex items-center space-x-1 text-[10px] text-slate-400 dark:text-slate-500 font-mono tracking-tight"
+              className="inline-flex items-center space-x-1 text-[10px] text-slate-400 dark:text-slate-500 font-mono tracking-tight max-w-full truncate"
               title={tooltipTitle}
             >
-              <Clock className="w-2.5 h-2.5 opacity-70" />
-              <span>{relTime}</span>
+              <Clock className="w-2.5 h-2.5 opacity-70 shrink-0" />
+              <span className="truncate">{relTime}</span>
               {lastUpdater && (
-                <span className="text-slate-400 font-sans font-medium" title={`By ${lastUpdater}`}>
+                <span className="text-slate-400 dark:text-slate-500 font-sans font-medium truncate" title={`By ${lastUpdater}`}>
                   • {lastUpdater.includes('@') ? lastUpdater.split('@')[0] : lastUpdater}
                 </span>
               )}
@@ -725,18 +729,18 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           )}
         </div>
       </td>
-      <td className="py-2.5 px-2.5 text-right whitespace-nowrap font-mono tabular-nums">
-        <div className="flex flex-col items-end gap-0.5">
-          <div className="inline-flex items-baseline justify-end">
-            <span className="text-xs font-semibold text-slate-500 mr-1">{prefix}</span>
-            <span className="text-sm font-bold text-slate-900 tabular-nums">{formattedAmount}</span>
+      <td className="py-2.5 px-2.5 text-right whitespace-nowrap font-mono tabular-nums overflow-hidden">
+        <div className="flex flex-col items-end gap-0.5 min-w-0 max-w-full overflow-hidden">
+          <div className="inline-flex items-baseline justify-end max-w-full truncate">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 mr-1">{prefix}</span>
+            <span className="text-sm font-bold text-slate-900 dark:text-slate-100 tabular-nums truncate">{formattedAmount}</span>
           </div>
           {(() => {
             const items = e.line_items || [];
             const itemCount = items.length;
             const fileCount = (e.attachments || []).length;
             let marginText: string | null = null;
-            if (canEdit && itemCount > 0) {
+            if (canViewConfidentialMargins && itemCount > 0) {
               const baselineItems = items.filter(
                 (li) => !li.option || li.option === 'Baseline / All' || li.option === 'Option A'
               );
@@ -757,14 +761,17 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
             ].filter(Boolean);
             if (parts.length === 0) return null;
             return (
-              <span className="text-[10px] font-mono tabular-nums text-slate-400">
+              <span
+                className="text-[10px] font-mono tabular-nums text-slate-400 dark:text-slate-500 truncate max-w-full block"
+                title={parts.join(' · ')}
+              >
                 {parts.join(' · ')}
               </span>
             );
           })()}
         </div>
       </td>
-      <td className="py-2.5 pl-2 pr-3 text-center whitespace-nowrap" onClick={(evt) => evt.stopPropagation()}>
+      <td className="py-2.5 pl-2 pr-3 text-center whitespace-nowrap overflow-hidden" onClick={(evt) => evt.stopPropagation()}>
         <div className="flex items-center justify-end space-x-1" onClick={(evt) => evt.stopPropagation()}>
           <button
             type="button"
@@ -772,7 +779,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
               evt.stopPropagation();
               if (e.id) onSelectEnquiry(e.id);
             }}
-            className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
+            className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
             title="View enquiry details"
           >
             Details
@@ -785,7 +792,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                   evt.stopPropagation();
                   onEditEnquiry(e);
                 }}
-                className="px-2 py-1 text-[11px] font-semibold rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-300 transition shadow-2xs cursor-pointer inline-flex items-center gap-1"
+                className="px-2 py-1 text-[11px] font-semibold rounded-lg bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 transition shadow-2xs cursor-pointer inline-flex items-center gap-1"
                 title="Claim and populate details for this reserved gap sequence"
               >
                 <span>Claim Gap</span>
@@ -797,7 +804,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                   evt.stopPropagation();
                   onEditEnquiry(e);
                 }}
-                className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-blue-50/70 hover:bg-blue-100/80 text-blue-700 border border-blue-200/80 transition inline-flex items-center gap-1 cursor-pointer"
+                className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-blue-50/70 dark:bg-blue-950/40 hover:bg-blue-100/80 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 transition inline-flex items-center gap-1 cursor-pointer"
                 title="Edit enquiry"
               >
                 Edit
@@ -811,7 +818,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                 evt.stopPropagation();
                 onDeleteEnquiry(e);
               }}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition cursor-pointer shrink-0"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 dark:hover:border-rose-800/60 transition cursor-pointer shrink-0"
               title={isGapReserved ? "Delete Reserved Gap" : "Delete Record"}
             >
               <Trash className="w-3.5 h-3.5" />
@@ -1141,6 +1148,9 @@ export default function EnquiryList({
   const currentUser = user;
   const effectiveRole = getEffectiveWorkspaceRole(currentUser, activeWorkspace);
   const isWsAdmin = effectiveRole === 'admin';
+  const canViewConfidentialMargins =
+    canManageWorkspace(currentUser, activeWorkspace) ||
+    isAdmin(currentUser, activeWorkspace?.id, activeWorkspace);
   const currentUserId = (currentUser?.uid || currentUser?.id || '').trim();
 
   // Scoped Enquiry Access Control: Base set of authorized records visible to the current user
@@ -2513,23 +2523,23 @@ export default function EnquiryList({
                       />
                     </th>
                   )}
-                  <th onClick={() => handleSort('sn')} className="py-2.5 px-1.5 w-[5%] text-center cursor-pointer hover:text-slate-800 transition">
+                  <th onClick={() => handleSort('sn')} className="py-2.5 px-1.5 w-[5%] text-center cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition">
                     <div className="flex items-center space-x-1 justify-center">
                       <span>S/N</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-2.5 w-[20%] truncate">Company Account</th>
-                  <th className="py-2.5 px-2 w-[23%] truncate">Quote Ref No</th>
+                  <th className="py-2.5 px-2.5 w-[23%] truncate">Company Account</th>
+                  <th className="py-2.5 px-2 w-[19%] truncate">Quote Ref No</th>
                   <th className="py-2.5 px-1.5 w-[6%] truncate">Rep</th>
-                  <th onClick={() => handleSort('enquiry_date')} className="py-2.5 px-2 w-[13%] cursor-pointer hover:text-slate-800 transition whitespace-nowrap">
+                  <th onClick={() => handleSort('enquiry_date')} className="py-2.5 px-2 w-[10%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition whitespace-nowrap">
                     <div className="flex items-center space-x-1">
-                      <span className="whitespace-nowrap">Received Date</span>
+                      <span className="truncate">Received Date</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-2 w-[12%] truncate">Status</th>
-                  <th onClick={() => handleSort('value_aed')} className="py-2.5 px-2 w-[10%] cursor-pointer hover:text-slate-800 transition text-right truncate">
+                  <th className="py-2.5 px-2 w-[14%] truncate">Status</th>
+                  <th onClick={() => handleSort('value_aed')} className="py-2.5 px-2 w-[12%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right truncate">
                     <div className="flex items-center space-x-1 justify-end">
                       <span className="truncate">Enquiry Value</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
@@ -2538,7 +2548,7 @@ export default function EnquiryList({
                   <th className="py-2.5 pl-1 pr-3 w-[11%] text-right truncate">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 font-sans">
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans">
                 {paginatedEnquiries.map((e, index) => {
                   if (!e) return null;
                   const companyName = (e.company_id ? companyMap.get(e.company_id) : '') || (e as any)?.company_name || (e as any)?.client_company || 'Unknown Client';
@@ -2577,6 +2587,7 @@ export default function EnquiryList({
                         isEditable={isEditable}
                         canEdit={canEdit}
                         canDelete={canDelete}
+                        canViewConfidentialMargins={canViewConfidentialMargins}
                         isCreatorOnly={isCreatorOnly}
                         companyName={companyName}
                         resolvedCompany={resolvedComp}

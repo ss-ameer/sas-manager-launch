@@ -1,6 +1,7 @@
 import React, { Component } from 'react';
 import {
   Quotation,
+  CommercialDocumentType,
   WorkspaceDocumentProfile,
   QuotationPreset,
   QuotationPresetColumns,
@@ -839,7 +840,7 @@ export function extractLineItemAttributesAndCleanDescription(item: QuotationLine
     });
   }
 
-  const itemTitleNorm = (item.item_name || item.title || '').trim().toLowerCase();
+  const itemTitleNorm = (item.item_name || (item as any).title || '').trim().toLowerCase();
 
   rawDesc.split('\n').forEach((line) => {
     const trimmed = line.trim();
@@ -2156,6 +2157,8 @@ export interface QuotationDocumentProps {
   tableHeaderStyle?: QuotationSectionHeaderStyle;
   blockHeaderStyle?: QuotationSectionHeaderStyle;
   layoutBlocks?: QuotationBlockConfig[];
+  bankAccount?: any;
+  salespersons?: any[];
   selectedBlockId?: StudioSelectedSection;
   selectedSection?: StudioSelectedSection;
   onSelectBlock?: (id: StudioSelectedSection) => void;
@@ -2279,6 +2282,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   tableHeaderStyle: propTableHeaderStyle,
   blockHeaderStyle: propBlockHeaderStyle,
   layoutBlocks,
+  bankAccount: propBankAccount,
   selectedBlockId,
   selectedSection,
   onSelectBlock,
@@ -2818,6 +2822,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
   // Bank account selection: prefer explicitly applied on quotation / selectedBank, then by remittanceBankId, then profile default, then first profile account
   const rawBank: any =
+    propBankAccount ||
     quotation.selectedBank ||
     quotation.selected_bank ||
     propFooterConfig?.selectedBank ||
@@ -5652,6 +5657,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         profile
       );
       const doCompanySealUrl = doStampSigOverlay.activeSealUrl;
+      const resolvedVehicleNo =
+        deliveryMeta?.vehicle_plate_no || (deliveryMeta as any)?.vehicle_number || '__________________';
+      const resolvedDriverPhone =
+        deliveryMeta?.driver_phone || (deliveryMeta as any)?.driver_contact || '';
 
       return (
         <div className="flex flex-col justify-between h-full w-full">
@@ -5684,7 +5693,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 <div>
                   <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vehicle / Plate #</span>
                   <span className="font-mono font-semibold text-slate-900">
-                    {deliveryMeta?.vehicle_plate_no || '__________________'}
+                    {resolvedVehicleNo}
                   </span>
                 </div>
               )}
@@ -5692,7 +5701,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 <div>
                   <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Driver Name &amp; Tel</span>
                   <span className="font-semibold text-slate-900">
-                    {[deliveryMeta?.driver_name, deliveryMeta?.driver_phone].filter(Boolean).join(' • ') ||
+                    {[deliveryMeta?.driver_name, resolvedDriverPhone].filter(Boolean).join(' • ') ||
                       '__________________'}
                   </span>
                 </div>
@@ -5746,7 +5755,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       const consigneeEntity =
         (deliveryMeta?.consignee_company_override || '').trim() || clientEntityName;
       const receivedBy = deliveryMeta?.received_by_name || '';
-      const receivedTitle = deliveryMeta?.received_by_title || 'Site / Receiving Officer';
+      const explicitReceivedTitle =
+        deliveryMeta?.received_by_title || (deliveryMeta as any)?.received_by_designation || '';
+      const receivedTitle = explicitReceivedTitle || 'Site / Receiving Officer';
       const receivedDateTime =
         (deliveryMeta?.received_date_time || '').trim() || '____ / ____ / 20____';
       const goodsClause =
@@ -5783,7 +5794,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               <div>
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Designation / ID</span>
                 <span className="font-semibold text-slate-900">
-                  {receivedBy || deliveryMeta?.received_by_title
+                  {receivedBy || explicitReceivedTitle
                     ? receivedTitle
                     : '______________________'}
                 </span>
@@ -5832,8 +5843,14 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         resolvedSignatories[0]?.name ||
         'Warehouse / QA Officer';
       const returnedTitle =
+        (returnMeta as any)?.returned_by_title ||
         returnMeta?.dispatched_by_title ||
         'Authorized Procurement / Warehouse Signature';
+      const resolvedCarrier =
+        returnMeta?.carrier_or_vehicle ||
+        returnMeta?.vehicle_or_courier ||
+        (returnMeta as any)?.carrier_details ||
+        '__________________';
       const heading =
         (blockConfig.titleOverride || returnMeta?.signoff_left_heading || '').trim() ||
         (isDn
@@ -5875,9 +5892,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               <div>
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Carrier / Vehicle</span>
                 <span className="font-mono font-semibold text-slate-900">
-                  {returnMeta?.carrier_or_vehicle ||
-                    returnMeta?.vehicle_or_courier ||
-                    '__________________'}
+                  {resolvedCarrier}
                 </span>
               </div>
             </div>
@@ -5915,7 +5930,14 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     const renderVendorReturnAckBlock = (blockConfig: QuotationBlockConfig) => {
       const isDn = isDebitNote || returnMeta?.return_mode === 'debit_note';
       const vendorAck =
-        returnMeta?.received_by_vendor || returnMeta?.accepted_by_vendor_name || '';
+        (returnMeta as any)?.vendor_signatory_name ||
+        returnMeta?.received_by_vendor ||
+        returnMeta?.accepted_by_vendor_name ||
+        '';
+      const resolvedCreditNoteRef =
+        (returnMeta as any)?.credit_note_ref ||
+        returnMeta?.vendor_credit_note_no ||
+        '______________________';
       const vendorEntity =
         returnMeta?.supplier_name || returnMeta?.vendor_name || clientEntityName;
       const heading =
@@ -5952,7 +5974,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               <div>
                 <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vendor Credit Note #</span>
                 <span className="font-mono text-slate-800">
-                  {returnMeta?.vendor_credit_note_no || '______________________'}
+                  {resolvedCreditNoteRef}
                 </span>
               </div>
             </div>
@@ -5981,16 +6003,34 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
     const renderPvTreasuryDetailsBlock = (blockConfig: QuotationBlockConfig) => {
       const payMethod = pvMeta?.payment_method || 'Bank Transfer / TT';
-      const txnRef = pvMeta?.utr_or_cheque_no || pvMeta?.bank_txn_ref || pvMeta?.cheque_no || '—';
+      const txnRef =
+        (pvMeta as any)?.transaction_ref ||
+        pvMeta?.utr_or_cheque_no ||
+        pvMeta?.bank_txn_ref ||
+        pvMeta?.cheque_no ||
+        '—';
       const disbursingBankLabel =
+        (pvMeta as any)?.paid_from_bank_name ||
         pvMeta?.disbursing_bank_name ||
         pvMeta?.disbursing_bank_label ||
         (resolvedBank
           ? `${resolvedBank.bankName} — ${resolvedBank.iban || resolvedBank.accountNumber || resolvedBank.currency}`
           : 'Corporate Treasury Account');
+      const linkedPoRef = formatCleanDocumentEnquiryRef(
+        pvMeta?.linked_po_ref || poMeta?.po_ref || quotation.quote_number,
+        'payment_voucher',
+        '—'
+      );
       const heading =
         (blockConfig.titleOverride || pvMeta?.treasury_card_heading || '').trim() ||
         'Disbursing Treasury & Instrument Details';
+      const showPayMode =
+        (pvMeta as any)?.show_pv_method !== false && (pvMeta as any)?.show_payment_mode !== false;
+      const showDisbursingBank =
+        (pvMeta as any)?.show_pv_bank !== false && (pvMeta as any)?.show_disbursing_account !== false;
+      const showTxRef =
+        (pvMeta as any)?.show_pv_tx_ref !== false && (pvMeta as any)?.show_utr_ref !== false;
+      const showPoRef = (pvMeta as any)?.show_pv_po_ref !== false;
 
       return (
         <div className="flex flex-col justify-between h-full w-full">
@@ -6002,22 +6042,28 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               {heading}
             </div>
             <div className={`space-y-1 ${typoScale.body} text-slate-700`}>
-              {(pvMeta as any)?.show_payment_mode !== false && (
+              {showPayMode && (
                 <div className="flex justify-between gap-2">
                   <span className="font-semibold text-slate-500">Payment Mode:</span>
                   <span className="font-bold text-slate-900">{payMethod}</span>
                 </div>
               )}
-              {(pvMeta as any)?.show_disbursing_account !== false && (
+              {showDisbursingBank && (
                 <div className="flex justify-between gap-2">
                   <span className="font-semibold text-slate-500">Disbursing Account:</span>
                   <span className="font-medium text-slate-800 text-right">{disbursingBankLabel}</span>
                 </div>
               )}
-              {(pvMeta as any)?.show_utr_ref !== false && (
+              {showTxRef && (
                 <div className="flex justify-between gap-2">
                   <span className="font-semibold text-slate-500">Bank Wire / UTR / Cheque #:</span>
                   <span className="font-mono font-semibold text-slate-900">{txnRef}</span>
+                </div>
+              )}
+              {showPoRef && linkedPoRef && linkedPoRef !== '—' && (
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-slate-500">Linked PO / Reference:</span>
+                  <span className="font-mono font-semibold text-slate-900">{linkedPoRef}</span>
                 </div>
               )}
               {(payMethod === 'Cheque' || pvMeta?.cleared_date || pvMeta?.cheque_date) && (
@@ -6048,6 +6094,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       const heading =
         (blockConfig.titleOverride || pvMeta?.beneficiary_card_heading || '').trim() ||
         'Vendor Beneficiary Bank Account';
+      const resolvedSwift = (benBank as any).swift || benBank.swift_code || '';
 
       return (
         <div className="flex flex-col justify-between h-full w-full">
@@ -6062,7 +6109,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               <div className="flex justify-between gap-2">
                 <span className="font-semibold text-slate-500">Beneficiary Name:</span>
                 <span className="font-bold text-slate-900 text-right">
-                  {benBank.beneficiary_name ||
+                  {(benBank as any).account_name ||
+                    benBank.beneficiary_name ||
                     pvMeta?.payee_name ||
                     pvMeta?.paid_to_vendor_name ||
                     clientEntityName}
@@ -6080,10 +6128,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   {benBank.iban || benBank.account_number || '—'}
                 </span>
               </div>
-              {benBank.swift_code && (
+              {resolvedSwift && (
                 <div className="flex justify-between gap-2">
                   <span className="font-semibold text-slate-500">SWIFT / BIC:</span>
-                  <span className="font-mono font-semibold text-slate-900">{benBank.swift_code}</span>
+                  <span className="font-mono font-semibold text-slate-900">{resolvedSwift}</span>
                 </div>
               )}
             </div>
@@ -6101,42 +6149,101 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           ? 'rounded-none'
           : 'rounded-lg';
       const preparedByName =
-        pvMeta?.prepared_by ||
         pvMeta?.prepared_by_name ||
+        pvMeta?.prepared_by ||
         resolvedSalesRep ||
         resolvedSignatories[0]?.name ||
         'Accounts Officer';
       const reviewedByName =
-        pvMeta?.verified_by || pvMeta?.reviewed_by_name || 'Finance / Accounts Reviewer';
+        (pvMeta as any)?.verified_by_name ||
+        pvMeta?.verified_by ||
+        pvMeta?.reviewed_by_name ||
+        'Finance / Accounts Reviewer';
       const approvedByName =
-        pvMeta?.approved_by ||
         pvMeta?.approved_by_name ||
+        pvMeta?.approved_by ||
         resolvedSignatories[0]?.name ||
         'Authorized Approver';
       const receiverName =
+        (pvMeta as any)?.received_by_name ||
         pvMeta?.received_by_payee ||
         pvMeta?.received_by_vendor_name ||
         pvMeta?.payee_name ||
         pvMeta?.paid_to_vendor_name ||
         clientEntityName;
 
+      const visFields = blockConfig.visibleFields || {};
       const defaultApprovalCols = [
-        { label: 'Prepared By', name: preparedByName, role: 'Accounts / Procurement', visible: true },
-        { label: 'Reviewed / Verified By', name: reviewedByName, role: 'Finance Verification', visible: true },
-        { label: 'Approved By', name: approvedByName, role: 'Authorized Signatory', visible: true },
-        { label: 'Payee Receiver Signature', name: receiverName, role: 'Vendor Acknowledgment', visible: true }
+        {
+          label: (pvMeta as any)?.col1_heading || 'Prepared By',
+          name: preparedByName,
+          role: 'Accounts / Procurement',
+          visible: visFields.col1 !== false
+        },
+        {
+          label: (pvMeta as any)?.col2_heading || 'Reviewed / Verified By',
+          name: reviewedByName,
+          role: 'Finance Verification',
+          visible: visFields.col2 !== false
+        },
+        {
+          label: (pvMeta as any)?.col3_heading || 'Approved By',
+          name: approvedByName,
+          role: 'Authorized Signatory',
+          visible: visFields.col3 !== false
+        },
+        {
+          label: (pvMeta as any)?.col4_heading || 'Payee Receiver Signature',
+          name: receiverName,
+          role: 'Vendor Acknowledgment',
+          visible: visFields.col4 !== false
+        }
+      ];
+      const directNameOverrides = [
+        pvMeta?.prepared_by_name,
+        (pvMeta as any)?.verified_by_name,
+        pvMeta?.approved_by_name,
+        (pvMeta as any)?.received_by_name
+      ];
+      const directHeadOverrides = [
+        (pvMeta as any)?.col1_heading,
+        (pvMeta as any)?.col2_heading,
+        (pvMeta as any)?.col3_heading,
+        (pvMeta as any)?.col4_heading
       ];
       const approvalCols =
         Array.isArray(pvMeta?.approval_columns) && pvMeta!.approval_columns!.length > 0
-          ? pvMeta!.approval_columns!.map((col, idx) => ({
-              label: col.label || defaultApprovalCols[idx]?.label || `Signatory ${idx + 1}`,
-              name: col.name || defaultApprovalCols[idx]?.name || '',
-              role: col.role || defaultApprovalCols[idx]?.role || '',
-              visible: col.visible !== false
-            }))
+          ? pvMeta!.approval_columns!.map((col, idx) => {
+              const visKey = `col${idx + 1}`;
+              const explicitVis = visFields[visKey];
+              return {
+                label:
+                  directHeadOverrides[idx] ||
+                  col.label ||
+                  defaultApprovalCols[idx]?.label ||
+                  `Signatory ${idx + 1}`,
+                name:
+                  directNameOverrides[idx] ||
+                  col.name ||
+                  defaultApprovalCols[idx]?.name ||
+                  '',
+                role: col.role || defaultApprovalCols[idx]?.role || '',
+                visible:
+                  explicitVis !== undefined ? explicitVis !== false : col.visible !== false
+              };
+            })
           : defaultApprovalCols;
       const visibleApprovalCols = approvalCols.filter((c) => c.visible !== false);
       const heading = (blockConfig.titleOverride || pvMeta?.approval_matrix_heading || '').trim();
+      const isHalfWidth = blockConfig.placement === 'left' || blockConfig.placement === 'right';
+      const gridColsClass =
+        visibleApprovalCols.length <= 1
+          ? 'grid-cols-1'
+          : visibleApprovalCols.length === 2 || (isHalfWidth && visibleApprovalCols.length > 2)
+          ? 'grid-cols-2'
+          : visibleApprovalCols.length === 3
+          ? 'grid-cols-3'
+          : 'grid-cols-4';
 
       return (
         <div className="w-full space-y-1.5">
@@ -6148,17 +6255,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               {heading}
             </div>
           )}
-          <div
-            className={`grid ${
-              visibleApprovalCols.length <= 1
-                ? 'grid-cols-1'
-                : visibleApprovalCols.length === 2
-                ? 'grid-cols-2'
-                : visibleApprovalCols.length === 3
-                ? 'grid-cols-3'
-                : 'grid-cols-4'
-            } gap-2`}
-          >
+          <div className={`grid ${gridColsClass} gap-2`}>
             {visibleApprovalCols.map((slot, sIdx) => (
               <div
                 key={`${slot.label}-${sIdx}`}
@@ -6488,8 +6585,22 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     ? 'quotation-block-allow-split'
                     : 'break-inside-avoid page-break-inside-avoid';
 
+                  const legacyStyleKeyMap: Record<string, string> = {
+                    do_dispatch_party: 'do_signoff_left',
+                    do_receiving_party: 'do_signoff_right',
+                    vendor_return_claim: 'return_signoff_left',
+                    vendor_return_ack: 'return_signoff_right',
+                    pv_treasury_details: 'pv_treasury_card',
+                    pv_beneficiary_details: 'pv_beneficiary_card',
+                    pv_approval_matrix: 'pv_approval_matrix'
+                  };
+                  const legacyStyleKey = legacyStyleKeyMap[b.id] || legacyStyleKeyMap[bType];
+                  const mergedBlockStyle = {
+                    ...(legacyStyleKey ? resolvedRecipientConfig.elementStyles?.[legacyStyleKey] : {}),
+                    ...(resolvedRecipientConfig.elementStyles?.[`block:${b.id}`] || {})
+                  };
                   const blockElemFmt = applyTextFormatStyle(
-                    resolvedRecipientConfig.elementStyles?.[`block:${b.id}`]
+                    Object.keys(mergedBlockStyle).length > 0 ? mergedBlockStyle : undefined
                   );
 
                   return (
@@ -10282,267 +10393,6 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     );
   };
 
-  const renderDeliveryNoteSignOffBlock = () => {
-    if (!isDeliveryNote) return null;
-    if (resolvedFooterConfig.showSignatories === false) return null;
-    if ((deliveryMeta as any)?.show_signoff_block === false) return null;
-    const radiusClass =
-      (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp'
-        ? 'rounded-none'
-        : 'rounded-lg';
-    const dispatchedBy =
-      deliveryMeta?.prepared_by_override ||
-      deliveryMeta?.dispatched_by_name ||
-      resolvedSalesRep ||
-      resolvedSignatories[0]?.name ||
-      'Authorized Officer';
-    const receivedBy = deliveryMeta?.received_by_name || '';
-    const receivedTitle = deliveryMeta?.received_by_title || 'Site / Receiving Officer';
-    const goodsClause =
-      deliveryMeta?.goods_received_clause?.trim() ||
-      'Received the above items in good order and condition as per the specified quantities.';
-    const leftHeading =
-      (deliveryMeta?.signoff_left_heading || '').trim() ||
-      `Dispatched & Released By — ${senderEntityName}`;
-    const rightHeading =
-      (deliveryMeta?.signoff_right_heading || '').trim() ||
-      `Goods Received Acknowledgment — ${clientEntityName}`;
-    const showReceivingStampBox = deliveryMeta?.show_receiving_stamp_box !== false;
-    const showDispatchCard = (deliveryMeta as any)?.show_dispatch_signoff_card !== false;
-    const showReceiverCard = (deliveryMeta as any)?.show_receiver_signoff_card !== false;
-    if (!showDispatchCard && !showReceiverCard) return null;
-    const isSigSelected =
-      activeSelectedSection === 'signatory' || activeSelectedSection === 'signatories';
-    const doLeftFmt = applyTextFormatStyle(
-      resolvedRecipientConfig.elementStyles?.['do_signoff_left'] ||
-        resolvedRecipientConfig.elementStyles?.['block:signatory']
-    );
-    const doRightFmt = applyTextFormatStyle(
-      resolvedRecipientConfig.elementStyles?.['do_signoff_right'] ||
-        resolvedRecipientConfig.elementStyles?.['block:signatory']
-    );
-
-    return (
-      <section
-        className={`w-full mb-2 print:mb-1.5 grid ${
-          showDispatchCard && showReceiverCard ? 'grid-cols-2' : 'grid-cols-1'
-        } gap-2.5 break-inside-avoid page-break-inside-avoid relative group ${
-          isInteractive
-            ? `cursor-pointer rounded-lg transition-all ${
-                isSigSelected
-                  ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0'
-                  : 'hover:ring-1 hover:ring-blue-400 print:ring-0'
-              }`
-            : ''
-        }`}
-        style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
-        onClick={
-          isInteractive
-            ? (e) => {
-                e.stopPropagation();
-                onSelectSection?.('signatory', 'do_signoff_left');
-                onSelectBlock?.('signatory' as any);
-              }
-            : undefined
-        }
-      >
-        {isInteractive && (
-          <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
-            isSigSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
-          }`}>
-            Click to Customize Dispatch &amp; Receipt Sign-Off
-          </div>
-        )}
-        {/* Left: Dispatched By (Our Company) */}
-        {showDispatchCard && (
-          <div
-            onClick={
-              isInteractive
-                ? (e) => {
-                    e.stopPropagation();
-                    onSelectSection?.('signatory', 'do_signoff_left');
-                    onSelectBlock?.('signatory' as any);
-                  }
-                : undefined
-            }
-            className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between ${doLeftFmt.className}`}
-            style={doLeftFmt.style}
-          >
-            <div>
-              <div
-                className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
-                style={{ color: themePalette.textAccent, ...doLeftFmt.style }}
-              >
-                {leftHeading}
-              </div>
-              <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
-                {(deliveryMeta as any)?.show_signoff_prepared !== false && (
-                  <div>
-                    <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared / Checked By</span>
-                    <span className="font-semibold text-slate-900">{dispatchedBy}</span>
-                  </div>
-                )}
-                {(deliveryMeta as any)?.show_signoff_mode !== false && (
-                  <div>
-                    <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Dispatch Mode</span>
-                    <span className="font-semibold text-slate-900">
-                      {deliveryMeta?.dispatch_mode || 'Company Transport'}
-                    </span>
-                  </div>
-                )}
-                {(deliveryMeta as any)?.show_signoff_vehicle !== false && (
-                  <div>
-                    <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vehicle / Plate #</span>
-                    <span className="font-mono font-semibold text-slate-900">
-                      {deliveryMeta?.vehicle_plate_no || '__________________'}
-                    </span>
-                  </div>
-                )}
-                {(deliveryMeta as any)?.show_signoff_driver !== false && (
-                  <div>
-                    <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Driver Name &amp; Tel</span>
-                    <span className="font-semibold text-slate-900">
-                      {[deliveryMeta?.driver_name, deliveryMeta?.driver_phone].filter(Boolean).join(' • ') ||
-                        '__________________'}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
-              {(() => {
-                const doStampSigOverlay = resolveStampSignatureOverlayConfig(
-                  resolvedFooterConfig,
-                  quotation,
-                  profile
-                );
-                const doCompanySealUrl = doStampSigOverlay.activeSealUrl;
-                return (
-                  <>
-                    <div className="flex-1">
-                      <div className="h-8 flex items-end">
-                        {doStampSigOverlay.activeSignatureUrl ? (
-                          <img
-                            src={doStampSigOverlay.activeSignatureUrl}
-                            alt="Authorized Dispatch Signature"
-                            className="h-7 w-auto object-contain"
-                          />
-                        ) : (
-                          <span className="font-serif italic text-sm text-slate-700">{dispatchedBy}</span>
-                        )}
-                      </div>
-                      <div className="border-t border-slate-300 pt-1 mt-1">
-                        <div className={`${typoScale.sub} font-bold text-slate-800`}>
-                          Authorized Dispatch Signature
-                        </div>
-                        <div className={`${typoScale.micro} text-slate-500`}>
-                          For {senderEntityName}
-                        </div>
-                      </div>
-                    </div>
-                    {resolvedShowCompanySeal && (
-                      <div className="w-14 h-12 flex items-center justify-center shrink-0">
-                        {doCompanySealUrl ? (
-                          <img
-                            src={doCompanySealUrl}
-                            alt="Official Seal"
-                            className="h-12 w-auto object-contain opacity-90"
-                          />
-                        ) : (
-                          <div className="h-11 w-11 rounded-full border border-dashed border-slate-300 flex items-center justify-center text-center p-1">
-                            <span className="text-[7px] font-mono uppercase text-slate-400 leading-tight">
-                              Dispatch Stamp
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-        )}
-
-        {/* Right: Received By (Client / Consignee) */}
-        {showReceiverCard && (
-          <div
-            onClick={
-              isInteractive
-                ? (e) => {
-                    e.stopPropagation();
-                    onSelectSection?.('signatory', 'do_signoff_right');
-                    onSelectBlock?.('signatory' as any);
-                  }
-                : undefined
-            }
-            className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between ${doRightFmt.className}`}
-            style={doRightFmt.style}
-          >
-            <div>
-              <div
-                className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1 border-b border-slate-200`}
-                style={{ color: themePalette.textAccent, ...doRightFmt.style }}
-              >
-                {rightHeading}
-              </div>
-              {(deliveryMeta as any)?.show_goods_clause !== false && (
-                <p className={`${typoScale.sub} text-slate-700 italic leading-snug mb-1.5`}>
-                  {goodsClause}
-                </p>
-              )}
-              <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
-                <div>
-                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Received By (Name)</span>
-                  <span className="font-semibold text-slate-900">
-                    {receivedBy || '______________________'}
-                  </span>
-                </div>
-                <div>
-                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Designation / ID</span>
-                  <span className="font-semibold text-slate-900">
-                    {receivedBy ? receivedTitle : '______________________'}
-                  </span>
-                </div>
-                <div>
-                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Date &amp; Time Received</span>
-                  <span className="font-mono text-slate-800">____ / ____ / 20____</span>
-                </div>
-                <div>
-                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Contact / Mobile</span>
-                  <span className="font-mono text-slate-800">
-                    {deliveryMeta?.site_contact_phone || '______________________'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
-              <div className="flex-1">
-                <div className="h-8" />
-                <div className="border-t border-slate-300 pt-1 mt-1">
-                  <div className={`${typoScale.sub} font-bold text-slate-800`}>
-                    Receiver Signature
-                  </div>
-                  <div className={`${typoScale.micro} text-slate-500`}>
-                    Consignee / Site Representative
-                  </div>
-                </div>
-              </div>
-              {showReceivingStampBox && (
-                <div className="w-18 h-12 rounded border border-dashed border-slate-300 flex items-center justify-center text-center p-1 shrink-0 bg-white/70">
-                  <span className="text-[7px] font-mono uppercase text-slate-400 leading-tight">
-                    Receiving Stamp
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </section>
-    );
-  };
 
   const renderReceiptVoucherBody = () => {
     if (!isReceiptVoucher) return null;
@@ -10868,69 +10718,19 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         ? rawNarration
         : 'Outbound Supplier Account Settlement';
 
-    const disbursingBankLabel =
-      pvMeta?.disbursing_bank_name ||
-      pvMeta?.disbursing_bank_label ||
-      (resolvedBank
-        ? `${resolvedBank.bankName} — ${resolvedBank.iban || resolvedBank.accountNumber || resolvedBank.currency}`
-        : 'Corporate Treasury Account');
-
-    const benBank = pvMeta?.beneficiary_bank_details || poMeta?.beneficiary_bank_details || {};
-    const preparedByName =
-      pvMeta?.prepared_by || pvMeta?.prepared_by_name || resolvedSalesRep || resolvedSignatories[0]?.name || 'Accounts Officer';
-    const reviewedByName = pvMeta?.verified_by || pvMeta?.reviewed_by_name || 'Finance / Accounts Reviewer';
-    const approvedByName =
-      pvMeta?.approved_by || pvMeta?.approved_by_name || resolvedSignatories[0]?.name || 'Authorized Approver';
-    const receiverName =
-      pvMeta?.received_by_payee || pvMeta?.received_by_vendor_name || pvMeta?.payee_name || pvMeta?.paid_to_vendor_name || clientEntityName;
-
     const showAmountBanner = pvMeta?.show_amount_banner !== false;
     const showAllocationTable = pvMeta?.show_allocation_table !== false;
-    const showTreasuryCard = pvMeta?.show_treasury_card !== false;
-    const showBeneficiaryCard = pvMeta?.show_beneficiary_card !== false;
-    const showApprovalMatrix = pvMeta?.show_approval_matrix !== false && resolvedFooterConfig.showSignatories !== false;
 
     const bannerHeading =
       (pvMeta?.amount_banner_heading || '').trim() || `Amount Disbursed / Paid (${currency})`;
     const allocHeading =
       (pvMeta?.allocation_table_heading || '').trim() || 'Outbound Bill Settlement & Allocation Schedule';
-    const treasuryHeading =
-      (pvMeta?.treasury_card_heading || '').trim() || 'Disbursing Treasury & Instrument Details';
-    const beneficiaryHeading =
-      (pvMeta?.beneficiary_card_heading || '').trim() || 'Vendor Beneficiary Bank Account';
-
-    const defaultApprovalCols = [
-      { label: 'Prepared By', name: preparedByName, role: 'Accounts / Procurement', visible: true },
-      { label: 'Reviewed / Verified By', name: reviewedByName, role: 'Finance Verification', visible: true },
-      { label: 'Approved By', name: approvedByName, role: 'Authorized Signatory', visible: true },
-      { label: 'Payee Receiver Signature', name: receiverName, role: 'Vendor Acknowledgment', visible: true }
-    ];
-    const approvalCols =
-      Array.isArray(pvMeta?.approval_columns) && pvMeta!.approval_columns!.length > 0
-        ? pvMeta!.approval_columns!.map((col, idx) => ({
-            label: col.label || defaultApprovalCols[idx]?.label || `Signatory ${idx + 1}`,
-            name: col.name || defaultApprovalCols[idx]?.name || '',
-            role: col.role || defaultApprovalCols[idx]?.role || '',
-            visible: col.visible !== false
-          }))
-        : defaultApprovalCols;
-    const visibleApprovalCols = approvalCols.filter((c) => c.visible !== false);
 
     const pvBannerFmt = applyTextFormatStyle(
       resolvedRecipientConfig.elementStyles?.['pv_amount_banner']
     );
     const pvAllocFmt = applyTextFormatStyle(
       resolvedRecipientConfig.elementStyles?.['pv_allocation_table']
-    );
-    const pvTreasuryFmt = applyTextFormatStyle(
-      resolvedRecipientConfig.elementStyles?.['pv_treasury_card']
-    );
-    const pvBenFmt = applyTextFormatStyle(
-      resolvedRecipientConfig.elementStyles?.['pv_beneficiary_card']
-    );
-    const pvMatrixFmt = applyTextFormatStyle(
-      resolvedRecipientConfig.elementStyles?.['pv_approval_matrix'] ||
-        resolvedRecipientConfig.elementStyles?.['block:signatory']
     );
 
     return (
@@ -11128,230 +10928,6 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     );
   };
 
-  const renderVendorReturnSignOffBlock = () => {
-    if (!isMaterialReturnNote && !isDebitNote) return null;
-    if (resolvedFooterConfig.showSignatories === false) return null;
-    if ((returnMeta as any)?.show_signoff_block === false) return null;
-    const isDn = isDebitNote || returnMeta?.return_mode === 'debit_note';
-    const radiusClass =
-      (propGlobalCardRadius || quotation.globalCardRadius || profile?.globalCardRadius || resolvedRecipientConfig.globalCardRadius) === 'sharp'
-        ? 'rounded-none'
-        : 'rounded-lg';
-
-    const returnedBy =
-      returnMeta?.dispatched_by || returnMeta?.returned_by_name || resolvedSalesRep || resolvedSignatories[0]?.name || 'Warehouse / QA Officer';
-    const vendorAck = returnMeta?.received_by_vendor || returnMeta?.accepted_by_vendor_name || '';
-    const vendorEntity =
-      returnMeta?.supplier_name || returnMeta?.vendor_name || clientEntityName;
-    const leftHeading =
-      (returnMeta?.signoff_left_heading || '').trim() ||
-      (isDn ? `Debit Claim Issued By — ${senderEntityName}` : `Material Dispatched By — ${senderEntityName}`);
-    const rightHeading =
-      (returnMeta?.signoff_right_heading || '').trim() ||
-      `Vendor Return / Debit Acknowledgment — ${vendorEntity}`;
-    const ackClause =
-      ((returnMeta as any)?.acknowledgment_clause || '').trim() ||
-      (isDn
-        ? 'We acknowledge receipt of this Debit Note and confirm adjustment against our account / invoice balance.'
-        : 'Received the above returned material for inspection, replacement, or credit note issuance.');
-    const showVendorStampBox = returnMeta?.show_vendor_stamp_box !== false;
-    const showIssuerCard = (returnMeta as any)?.show_issuer_signoff_card !== false;
-    const showVendorAckCard = (returnMeta as any)?.show_vendor_ack_card !== false;
-    if (!showIssuerCard && !showVendorAckCard) return null;
-    const isSigSelected =
-      activeSelectedSection === 'signatory' || activeSelectedSection === 'signatories';
-    const retLeftFmt = applyTextFormatStyle(
-      resolvedRecipientConfig.elementStyles?.['return_signoff_left'] ||
-        resolvedRecipientConfig.elementStyles?.['block:signatory']
-    );
-    const retRightFmt = applyTextFormatStyle(
-      resolvedRecipientConfig.elementStyles?.['return_signoff_right'] ||
-        resolvedRecipientConfig.elementStyles?.['block:signatory']
-    );
-
-    return (
-      <section
-        className={`w-full mb-2 print:mb-1.5 grid ${
-          showIssuerCard && showVendorAckCard ? 'grid-cols-2' : 'grid-cols-1'
-        } gap-2.5 break-inside-avoid page-break-inside-avoid relative group ${
-          isInteractive
-            ? `cursor-pointer rounded-lg transition-all ${
-                isSigSelected
-                  ? 'ring-2 ring-blue-500 ring-offset-2 shadow-sm print:ring-0'
-                  : 'hover:ring-1 hover:ring-blue-400 print:ring-0'
-              }`
-            : ''
-        }`}
-        style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
-        onClick={
-          isInteractive
-            ? (e) => {
-                e.stopPropagation();
-                onSelectSection?.('signatory', 'return_signoff_left');
-                onSelectBlock?.('signatory' as any);
-              }
-            : undefined
-        }
-      >
-        {isInteractive && (
-          <div className={`quotation-canvas-guide absolute -top-2.5 right-3 px-2 py-0.5 rounded text-[9px] font-semibold tracking-wide uppercase shadow-xs transition-opacity print:hidden z-10 ${
-            isSigSelected ? 'bg-blue-600 text-white opacity-100' : 'bg-slate-200 text-slate-700 opacity-0 group-hover:opacity-100'
-          }`}>
-            Click to Customize Return / Debit Sign-Off
-          </div>
-        )}
-        {showIssuerCard && (
-          <div
-            onClick={
-              isInteractive
-                ? (e) => {
-                    e.stopPropagation();
-                    onSelectSection?.('signatory', 'return_signoff_left');
-                    onSelectBlock?.('signatory' as any);
-                  }
-                : undefined
-            }
-            className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between ${retLeftFmt.className}`}
-            style={retLeftFmt.style}
-          >
-            <div>
-              <div
-                className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1.5 border-b border-slate-200`}
-                style={{ color: themePalette.textAccent, ...retLeftFmt.style }}
-              >
-                {leftHeading}
-              </div>
-              <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
-                <div>
-                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared / QA Officer</span>
-                  <span className="font-semibold text-slate-900">{returnedBy}</span>
-                </div>
-                <div>
-                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Return Reason</span>
-                  <span className="font-semibold text-rose-700">
-                    {returnMeta?.return_reason || 'Defective / Non-Conforming'}
-                  </span>
-                </div>
-                <div>
-                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Requested Resolution</span>
-                  <span className="font-semibold text-slate-900">
-                    {returnMeta?.resolution_type || (isDn ? 'Credit Note / Bill Deduction' : 'Replacement Dispatch')}
-                  </span>
-                </div>
-                <div>
-                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Carrier / Vehicle</span>
-                  <span className="font-mono font-semibold text-slate-900">
-                    {returnMeta?.carrier_or_vehicle || returnMeta?.vehicle_or_courier || '__________________'}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
-              {(() => {
-                const retStampSigOverlay = resolveStampSignatureOverlayConfig(
-                  resolvedFooterConfig,
-                  quotation,
-                  profile
-                );
-                return (
-                  <>
-                    <div className="flex-1">
-                      <div className="h-7 flex items-end">
-                        {retStampSigOverlay.activeSignatureUrl ? (
-                          <img
-                            src={retStampSigOverlay.activeSignatureUrl}
-                            alt="Authorized Signature"
-                            className="h-6 w-auto object-contain"
-                          />
-                        ) : (
-                          <span className="font-serif italic text-sm text-slate-700">{returnedBy}</span>
-                        )}
-                      </div>
-                      <div className="border-t border-slate-300 pt-1 mt-1">
-                        <div className={`${typoScale.sub} font-bold text-slate-800`}>
-                          Authorized Procurement / Warehouse Signature
-                        </div>
-                        <div className={`${typoScale.micro} text-slate-500`}>For {senderEntityName}</div>
-                      </div>
-                    </div>
-                    {resolvedShowCompanySeal && retStampSigOverlay.activeSealUrl && (
-                      <img
-                        src={retStampSigOverlay.activeSealUrl}
-                        alt="Official Seal"
-                        className="h-11 w-auto object-contain opacity-90 shrink-0"
-                      />
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-        )}
-
-        {showVendorAckCard && (
-          <div
-            onClick={
-              isInteractive
-                ? (e) => {
-                    e.stopPropagation();
-                    onSelectSection?.('signatory', 'return_signoff_right');
-                    onSelectBlock?.('signatory' as any);
-                  }
-                : undefined
-            }
-            className={`p-2.5 border border-slate-200 bg-slate-50/50 ${radiusClass} flex flex-col justify-between ${retRightFmt.className}`}
-            style={retRightFmt.style}
-          >
-            <div>
-              <div
-                className={`${typoScale.heading} font-extrabold uppercase tracking-wider pb-1 mb-1 border-b border-slate-200`}
-                style={{ color: themePalette.textAccent, ...retRightFmt.style }}
-              >
-                {rightHeading}
-              </div>
-              {(returnMeta as any)?.show_ack_clause !== false && (
-                <p className={`${typoScale.sub} text-slate-700 italic leading-snug mb-1.5`}>
-                  {ackClause}
-                </p>
-              )}
-              <div className={`grid grid-cols-2 gap-1.5 ${typoScale.body} text-slate-700`}>
-                <div>
-                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Accepted By (Vendor Rep)</span>
-                  <span className="font-semibold text-slate-900">
-                    {vendorAck || '______________________'}
-                  </span>
-                </div>
-                <div>
-                  <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Vendor Credit Note #</span>
-                  <span className="font-mono text-slate-800">
-                    {returnMeta?.vendor_credit_note_no || '______________________'}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="pt-2.5 mt-2 border-t border-slate-200/80 flex items-end justify-between gap-3">
-              <div className="flex-1">
-                <div className="h-7" />
-                <div className="border-t border-slate-300 pt-1 mt-1">
-                  <div className={`${typoScale.sub} font-bold text-slate-800`}>
-                    Vendor Representative Signature &amp; Stamp
-                  </div>
-                  <div className={`${typoScale.micro} text-slate-500`}>Date: ____ / ____ / 20____</div>
-                </div>
-              </div>
-              {showVendorStampBox && (
-                <div className="w-18 h-11 rounded border border-dashed border-slate-300 flex items-center justify-center text-center p-1 shrink-0 bg-white/70">
-                  <span className="text-[7px] font-mono uppercase text-slate-400 leading-tight">
-                    Vendor Stamp
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </section>
-    );
-  };
 
   return (
     <div

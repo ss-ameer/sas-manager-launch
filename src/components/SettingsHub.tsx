@@ -1174,7 +1174,7 @@ export default function SettingsHub({
                             type="text"
                             value={seqPrefix}
                             onChange={(e) => setSeqPrefix(e.target.value.toUpperCase())}
-                            placeholder="e.g. ANRW"
+                            placeholder="e.g. CORP"
                             className="w-full px-3.5 py-2 text-xs font-mono font-semibold bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase"
                           />
                           <p className="text-[11px] text-slate-400 font-sans">Leave blank if quotes do not use a corporate prefix.</p>
@@ -1189,14 +1189,23 @@ export default function SettingsHub({
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setSeqPrefix('ANRW');
+                                  const wsInitials =
+                                    (activeWorkspace?.name || 'CORP')
+                                      .split(/\s+/)
+                                      .filter(Boolean)
+                                      .map((w) => w[0])
+                                      .join('')
+                                      .toUpperCase()
+                                      .replace(/[^A-Z0-9]/g, '')
+                                      .slice(0, 4) || 'CORP';
+                                  setSeqPrefix(seqPrefix.trim() || wsInitials);
                                   setSeqPattern('{PREFIX}/{MM}/{YYYY}/{SEQ}');
                                   setSeqResetCadence('monthly');
                                 }}
                                 className="px-2 py-0.5 text-[10px] font-semibold font-mono rounded bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 transition"
-                                title="ANRW: {PREFIX}/{MM}/{YYYY}/{SEQ}"
+                                title="Corporate Slash: {PREFIX}/{MM}/{YYYY}/{SEQ}"
                               >
-                                ANRW Corporate
+                                Corporate Slash
                               </button>
                               <button
                                 type="button"

@@ -19132,10 +19132,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   </label>
                                   <input
                                     type="text"
-                                    value={deliveryMetadata.vehicle_number ?? ''}
+                                    value={deliveryMetadata.vehicle_plate_no ?? (deliveryMetadata as any).vehicle_number ?? ''}
                                     onChange={(e) =>
                                       setDeliveryMetadata((prev) => ({
                                         ...prev,
+                                        vehicle_plate_no: e.target.value,
                                         vehicle_number: e.target.value
                                       }))
                                     }
@@ -19169,10 +19170,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   </label>
                                   <input
                                     type="text"
-                                    value={deliveryMetadata.driver_contact ?? ''}
+                                    value={deliveryMetadata.driver_phone ?? (deliveryMetadata as any).driver_contact ?? ''}
                                     onChange={(e) =>
                                       setDeliveryMetadata((prev) => ({
                                         ...prev,
+                                        driver_phone: e.target.value,
                                         driver_contact: e.target.value
                                       }))
                                     }
@@ -19351,10 +19353,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   </label>
                                   <input
                                     type="text"
-                                    value={deliveryMetadata.received_by_designation ?? ''}
+                                    value={deliveryMetadata.received_by_title ?? (deliveryMetadata as any).received_by_designation ?? ''}
                                     onChange={(e) =>
                                       setDeliveryMetadata((prev) => ({
                                         ...prev,
+                                        received_by_title: e.target.value,
                                         received_by_designation: e.target.value
                                       }))
                                     }
@@ -19474,10 +19477,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   </label>
                                   <input
                                     type="text"
-                                    value={vendorReturnMetadata.returned_by_title ?? ''}
+                                    value={vendorReturnMetadata.dispatched_by_title ?? (vendorReturnMetadata as any).returned_by_title ?? ''}
                                     onChange={(e) =>
                                       setVendorReturnMetadata((prev) => ({
                                         ...prev,
+                                        dispatched_by_title: e.target.value,
                                         returned_by_title: e.target.value
                                       }))
                                     }
@@ -19533,10 +19537,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 </label>
                                 <input
                                   type="text"
-                                  value={vendorReturnMetadata.carrier_details ?? ''}
+                                  value={
+                                    vendorReturnMetadata.carrier_or_vehicle ??
+                                    vendorReturnMetadata.vehicle_or_courier ??
+                                    (vendorReturnMetadata as any).carrier_details ??
+                                    ''
+                                  }
                                   onChange={(e) =>
                                     setVendorReturnMetadata((prev) => ({
                                       ...prev,
+                                      carrier_or_vehicle: e.target.value,
+                                      vehicle_or_courier: e.target.value,
                                       carrier_details: e.target.value
                                     }))
                                   }
@@ -19626,10 +19637,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   </label>
                                   <input
                                     type="text"
-                                    value={vendorReturnMetadata.vendor_signatory_name ?? ''}
+                                    value={
+                                      vendorReturnMetadata.received_by_vendor ??
+                                      vendorReturnMetadata.accepted_by_vendor_name ??
+                                      (vendorReturnMetadata as any).vendor_signatory_name ??
+                                      ''
+                                    }
                                     onChange={(e) =>
                                       setVendorReturnMetadata((prev) => ({
                                         ...prev,
+                                        received_by_vendor: e.target.value,
+                                        accepted_by_vendor_name: e.target.value,
                                         vendor_signatory_name: e.target.value
                                       }))
                                     }
@@ -19664,10 +19682,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 </label>
                                 <input
                                   type="text"
-                                  value={vendorReturnMetadata.credit_note_ref ?? ''}
+                                  value={
+                                    vendorReturnMetadata.vendor_credit_note_no ??
+                                    (vendorReturnMetadata as any).credit_note_ref ??
+                                    ''
+                                  }
                                   onChange={(e) =>
                                     setVendorReturnMetadata((prev) => ({
                                       ...prev,
+                                      vendor_credit_note_no: e.target.value,
                                       credit_note_ref: e.target.value
                                     }))
                                   }
@@ -19752,10 +19775,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   </label>
                                   <input
                                     type="text"
-                                    value={paymentVoucherMetadata.transaction_ref ?? ''}
+                                    value={
+                                      paymentVoucherMetadata.utr_or_cheque_no ??
+                                      paymentVoucherMetadata.bank_txn_ref ??
+                                      (paymentVoucherMetadata as any).transaction_ref ??
+                                      ''
+                                    }
                                     onChange={(e) =>
                                       setPaymentVoucherMetadata((prev) => ({
                                         ...prev,
+                                        utr_or_cheque_no: e.target.value,
+                                        bank_txn_ref: e.target.value,
                                         transaction_ref: e.target.value
                                       }))
                                     }
@@ -19772,10 +19802,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   </label>
                                   <input
                                     type="text"
-                                    value={paymentVoucherMetadata.paid_from_bank_name ?? ''}
+                                    value={
+                                      paymentVoucherMetadata.disbursing_bank_name ??
+                                      paymentVoucherMetadata.disbursing_bank_label ??
+                                      (paymentVoucherMetadata as any).paid_from_bank_name ??
+                                      ''
+                                    }
                                     onChange={(e) =>
                                       setPaymentVoucherMetadata((prev) => ({
                                         ...prev,
+                                        disbursing_bank_name: e.target.value,
+                                        disbursing_bank_label: e.target.value,
                                         paid_from_bank_name: e.target.value
                                       }))
                                     }
@@ -19804,10 +19841,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               <div className="grid grid-cols-2 gap-1.5 pt-1">
                                 {(
                                   [
-                                    { key: 'show_pv_method', label: 'Show Payment Mode' },
-                                    { key: 'show_pv_bank', label: 'Show Disbursing Bank' },
-                                    { key: 'show_pv_tx_ref', label: 'Show UTR / Cheque Ref' },
-                                    { key: 'show_pv_po_ref', label: 'Show Linked PO Ref' }
+                                    { key: 'show_pv_method', aliasKey: 'show_payment_mode', label: 'Show Payment Mode' },
+                                    { key: 'show_pv_bank', aliasKey: 'show_disbursing_account', label: 'Show Disbursing Bank' },
+                                    { key: 'show_pv_tx_ref', aliasKey: 'show_utr_ref', label: 'Show UTR / Cheque Ref' },
+                                    { key: 'show_pv_po_ref', aliasKey: 'show_pv_po_ref', label: 'Show Linked PO Ref' }
                                   ] as const
                                 ).map((f) => (
                                   <label
@@ -19816,11 +19853,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   >
                                     <input
                                       type="checkbox"
-                                      checked={(paymentVoucherMetadata as any)[f.key] !== false}
+                                      checked={
+                                        (paymentVoucherMetadata as any)[f.key] !== false &&
+                                        (paymentVoucherMetadata as any)[f.aliasKey] !== false
+                                      }
                                       onChange={(e) =>
                                         setPaymentVoucherMetadata((prev) => ({
                                           ...prev,
-                                          [f.key]: e.target.checked
+                                          [f.key]: e.target.checked,
+                                          [f.aliasKey]: e.target.checked
                                         }))
                                       }
                                       className="rounded border-teal-300 text-teal-600 cursor-pointer"
@@ -19872,12 +19913,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   </label>
                                   <input
                                     type="text"
-                                    value={paymentVoucherMetadata.beneficiary_bank_details?.account_name ?? ''}
+                                    value={
+                                      paymentVoucherMetadata.beneficiary_bank_details?.beneficiary_name ??
+                                      (paymentVoucherMetadata.beneficiary_bank_details as any)?.account_name ??
+                                      ''
+                                    }
                                     onChange={(e) =>
                                       setPaymentVoucherMetadata((prev) => ({
                                         ...prev,
                                         beneficiary_bank_details: {
                                           ...(prev.beneficiary_bank_details || {}),
+                                          beneficiary_name: e.target.value,
                                           account_name: e.target.value
                                         }
                                       }))
@@ -19932,12 +19978,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   </label>
                                   <input
                                     type="text"
-                                    value={paymentVoucherMetadata.beneficiary_bank_details?.swift ?? ''}
+                                    value={
+                                      paymentVoucherMetadata.beneficiary_bank_details?.swift_code ??
+                                      (paymentVoucherMetadata.beneficiary_bank_details as any)?.swift ??
+                                      ''
+                                    }
                                     onChange={(e) =>
                                       setPaymentVoucherMetadata((prev) => ({
                                         ...prev,
                                         beneficiary_bank_details: {
                                           ...(prev.beneficiary_bank_details || {}),
+                                          swift_code: e.target.value,
                                           swift: e.target.value
                                         }
                                       }))
@@ -20030,14 +20081,30 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                           <input
                                             type="checkbox"
                                             checked={isColVisible}
-                                            onChange={(e) =>
+                                            onChange={(e) => {
+                                              const nextVis = e.target.checked;
                                               handleUpdateBlockConfig('pv_approval_matrix', {
                                                 visibleFields: {
                                                   ...vis,
-                                                  [col.visKey]: e.target.checked
+                                                  [col.visKey]: nextVis
                                                 }
-                                              })
-                                            }
+                                              });
+                                              setPaymentVoucherMetadata((prev) => {
+                                                const cols = Array.isArray(prev.approval_columns)
+                                                  ? [...prev.approval_columns]
+                                                  : [];
+                                                if (cols[col.colNum - 1]) {
+                                                  cols[col.colNum - 1] = {
+                                                    ...cols[col.colNum - 1],
+                                                    visible: nextVis
+                                                  };
+                                                }
+                                                return {
+                                                  ...prev,
+                                                  ...(cols.length > 0 ? { approval_columns: cols } : {})
+                                                };
+                                              });
+                                            }}
                                             className="rounded border-teal-300 text-teal-600 cursor-pointer"
                                           />
                                           <span>Column {col.colNum}: {col.defaultHead}</span>
@@ -20048,24 +20115,62 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                           <input
                                             type="text"
                                             value={(paymentVoucherMetadata as any)[col.headKey] ?? col.defaultHead}
-                                            onChange={(e) =>
-                                              setPaymentVoucherMetadata((prev) => ({
-                                                ...prev,
-                                                [col.headKey]: e.target.value
-                                              }))
-                                            }
+                                            onChange={(e) => {
+                                              const val = e.target.value;
+                                              setPaymentVoucherMetadata((prev) => {
+                                                const cols = Array.isArray(prev.approval_columns)
+                                                  ? [...prev.approval_columns]
+                                                  : [];
+                                                if (cols[col.colNum - 1]) {
+                                                  cols[col.colNum - 1] = {
+                                                    ...cols[col.colNum - 1],
+                                                    label: val
+                                                  };
+                                                }
+                                                return {
+                                                  ...prev,
+                                                  [col.headKey]: val,
+                                                  ...(cols.length > 0 ? { approval_columns: cols } : {})
+                                                };
+                                              });
+                                            }}
                                             placeholder={col.defaultHead}
                                             className="w-full px-1.5 py-1 rounded border border-slate-200 text-[10.5px] font-semibold bg-slate-50"
                                           />
                                           <input
                                             type="text"
                                             value={(paymentVoucherMetadata as any)[col.nameKey] ?? ''}
-                                            onChange={(e) =>
-                                              setPaymentVoucherMetadata((prev) => ({
-                                                ...prev,
-                                                [col.nameKey]: e.target.value
-                                              }))
-                                            }
+                                            onChange={(e) => {
+                                              const val = e.target.value;
+                                              setPaymentVoucherMetadata((prev) => {
+                                                const cols = Array.isArray(prev.approval_columns)
+                                                  ? [...prev.approval_columns]
+                                                  : [];
+                                                if (cols[col.colNum - 1]) {
+                                                  cols[col.colNum - 1] = {
+                                                    ...cols[col.colNum - 1],
+                                                    name: val
+                                                  };
+                                                }
+                                                const aliasPatch: Record<string, string> = {};
+                                                if (col.nameKey === 'prepared_by_name') aliasPatch.prepared_by = val;
+                                                if (col.nameKey === 'verified_by_name') {
+                                                  aliasPatch.verified_by = val;
+                                                  aliasPatch.reviewed_by_name = val;
+                                                }
+                                                if (col.nameKey === 'approved_by_name') aliasPatch.approved_by = val;
+                                                if (col.nameKey === 'received_by_name') {
+                                                  aliasPatch.received_by_payee = val;
+                                                  aliasPatch.received_by_vendor_name = val;
+                                                }
+                                                return {
+                                                  ...prev,
+                                                  [col.nameKey]: val,
+                                                  ...aliasPatch,
+                                                  ...(cols.length > 0 ? { approval_columns: cols } : {})
+                                                };
+                                              });
+                                            }}
                                             placeholder={col.defaultPlaceholder}
                                             className="w-full px-1.5 py-1 rounded border border-slate-300 text-[10.5px] bg-white"
                                           />
