@@ -1309,23 +1309,23 @@ export default function ProductManager({
         </div>
 
         {/* Filters and Search Console */}
-        <div className="relative z-10 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-4 sm:p-5 shadow-xs">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-center">
+        <div className="relative z-10 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
+          <div className="flex flex-wrap items-center gap-2.5 w-full">
             {/* Search bar */}
-            <div className="lg:col-span-4 relative flex items-center">
+            <div className="relative flex-1 min-w-[240px] flex items-center">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
               <input
                 type="text"
                 placeholder="Search by name, brand, model, SKU, or spec..."
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                className="w-full bg-white border border-slate-200 hover:border-slate-300 focus:border-blue-500 rounded-xl py-2 pl-10 pr-8 text-xs font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none transition h-10"
+                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 focus:border-blue-500 rounded-xl py-2 pl-10 pr-8 text-xs font-semibold text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition h-10"
               />
               {searchInput && (
                 <button
                   type="button"
                   onClick={() => setSearchInput('')}
-                  className="absolute right-2.5 p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+                  className="absolute right-2.5 p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -1333,11 +1333,11 @@ export default function ProductManager({
             </div>
 
             {/* Category filter */}
-            <div className="lg:col-span-2 relative flex items-center bg-white border border-slate-200 hover:border-slate-300 rounded-xl shadow-2xs h-10 transition">
+            <div className="relative w-full sm:w-48 shrink-0 flex items-center bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-xl shadow-2xs h-10 transition">
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
-                className="appearance-none w-full bg-transparent pl-3 pr-7 text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer h-full font-sans truncate"
+                className="appearance-none w-full bg-transparent pl-3 pr-8 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer h-full font-sans truncate"
               >
                 <option value="All">All Categories</option>
                 {productCategories.map((cat) => (
@@ -1349,51 +1349,52 @@ export default function ProductManager({
               <ChevronDown className="absolute right-2.5 w-4 h-4 text-slate-400 pointer-events-none" />
             </div>
 
-            {/* Stock & Media Filter Segmented Control + Group Variants + Ledger / Procurement Quick Tools */}
-            <div className="lg:col-span-6 flex items-center gap-2 flex-wrap sm:flex-nowrap">
-              <div className="flex-1 flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl min-h-10 overflow-x-auto min-w-[240px] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                {(
-                  [
-                    { id: 'All', label: 'All' },
-                    { id: 'CompositeKit', label: 'Kits / BOM' },
-                    { id: 'Tracked', label: 'Tracked' },
-                    { id: 'LowStock', label: `Low (${lowStockProducts.length})` },
-                    { id: 'WithDatasheet', label: 'Datasheet' }
-                  ] as const
-                ).map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setStockFilter(tab.id)}
-                    className={`flex-1 h-full rounded-lg text-[10px] font-bold transition cursor-pointer whitespace-nowrap px-1.5 ${
-                      stockFilter === tab.id
-                        ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-2xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
+            {/* Stock & Media Filter Segmented Control */}
+            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl h-10 shrink-0 overflow-x-auto max-w-full">
+              {(
+                [
+                  { id: 'All', label: 'All' },
+                  { id: 'CompositeKit', label: 'Kits / BOM' },
+                  { id: 'Tracked', label: 'Tracked' },
+                  { id: 'LowStock', label: `Low (${lowStockProducts.length})` },
+                  { id: 'WithDatasheet', label: 'Datasheet' }
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setStockFilter(tab.id)}
+                  className={`h-full rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap px-2.5 ${
+                    stockFilter === tab.id
+                      ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
 
+            {/* Quick Tools Group */}
+            <div className="flex items-center gap-2 flex-wrap shrink-0 ml-auto">
               <button
                 type="button"
                 onClick={() => setGroupVariantsByFamily((prev) => !prev)}
-                className={`h-10 px-2.5 rounded-xl border text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer shrink-0 ${
+                className={`h-10 px-3 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer shrink-0 ${
                   groupVariantsByFamily
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                    : 'bg-white hover:bg-indigo-50/60 text-slate-700 hover:text-indigo-700 border-slate-200'
+                    : 'bg-white dark:bg-slate-950 hover:bg-indigo-50/60 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-indigo-700 border-slate-200 dark:border-slate-800'
                 }`}
                 title="Group sibling product variants under their parent Product Family header"
               >
-                <GitFork className="w-3.5 h-3.5" />
+                <GitFork className="w-3.5 h-3.5 shrink-0" />
                 <span>Group Variants</span>
                 {variantFamilyCount > 0 && (
                   <span
-                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${
                       groupVariantsByFamily
                         ? 'bg-indigo-800 text-indigo-100'
-                        : 'bg-indigo-50 text-indigo-700'
+                        : 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300'
                     }`}
                   >
                     {variantFamilyCount}
@@ -1404,10 +1405,10 @@ export default function ProductManager({
               <button
                 type="button"
                 onClick={() => setShowLedgerModal(true)}
-                className="h-10 px-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer shrink-0"
+                className="h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300 text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer shrink-0"
                 title="Open Inventory Stock Movement Ledger & Audit Log"
               >
-                <History className="w-3.5 h-3.5 text-blue-600" />
+                <History className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                 <span>Stock Ledger</span>
               </button>
 
@@ -1415,10 +1416,10 @@ export default function ProductManager({
                 <button
                   type="button"
                   onClick={onOpenProcurement}
-                  className="h-10 px-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer shrink-0"
+                  className="h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300 text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer shrink-0"
                   title="Open Procurement & Payables Hub"
                 >
-                  <ShoppingBag className="w-3.5 h-3.5 text-indigo-600" />
+                  <ShoppingBag className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                   <span>Procurement</span>
                 </button>
               )}
@@ -1438,7 +1439,6 @@ export default function ProductManager({
               ...(stockFilter !== 'All' ? [`Filter: ${stockFilter}`] : []),
               ...(groupVariantsByFamily ? ['Grouped by Variant Family'] : [])
             ]}
-            className="mt-3"
           />
         </div>
 
@@ -1446,16 +1446,16 @@ export default function ProductManager({
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-xs overflow-hidden">
           {paginatedProducts.length > 0 ? (
             <>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead className="bg-slate-50/90 dark:bg-slate-900/90 border-b border-slate-200/80 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+              <div className="w-full overflow-x-hidden">
+                <table className="w-full table-fixed text-left border-collapse">
+                  <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 sticky top-0 z-20 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
                     <tr>
-                      <th className="py-3 px-4">Product &amp; Specifications</th>
-                      <th className="py-3 px-2.5 whitespace-nowrap">Category</th>
-                      <th className="py-3 px-2.5 whitespace-nowrap">Brand / SKU</th>
-                      <th className="py-3 px-2.5 whitespace-nowrap">Stock &amp; Lead Time</th>
-                      <th className="py-3 px-3 text-right whitespace-nowrap">Standard Price</th>
-                      <th className="py-3 px-3 text-center whitespace-nowrap">Actions</th>
+                      <th className="py-3 px-4 w-[38%] truncate bg-slate-50 dark:bg-slate-900">Product &amp; Specifications</th>
+                      <th className="py-3 px-2.5 w-[14%] truncate bg-slate-50 dark:bg-slate-900">Category</th>
+                      <th className="py-3 px-2.5 w-[15%] truncate bg-slate-50 dark:bg-slate-900">Brand &amp; SKU</th>
+                      <th className="py-3 px-2.5 w-[13%] truncate bg-slate-50 dark:bg-slate-900">Stock &amp; Lead Time</th>
+                      <th className="py-3 pl-2 pr-4 w-[11%] text-right truncate bg-slate-50 dark:bg-slate-900">Unit Price</th>
+                      <th className="py-3 pl-2 pr-3 w-[9%] text-right truncate bg-slate-50 dark:bg-slate-900">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans text-sm">
@@ -1476,6 +1476,38 @@ export default function ProductManager({
                         Boolean(vInfo?.isVariant) &&
                         (!prevProd || (prevProd.id && variantAnalysisMap.get(prevProd.id)?.familyKey) !== vInfo?.familyKey);
 
+                      const productTitle = (p.name || p.product_type || 'Unnamed Product').trim();
+                      const orderedAttrs = vInfo?.isVariant
+                        ? [...vInfo.differentiatingAttributes, ...vInfo.sharedAttributes]
+                        : (p.attributes || []);
+                      const hasStructuredAttrs = orderedAttrs.length > 0;
+                      const visibleAttrs = orderedAttrs.slice(0, 3);
+                      const remainingAttrCount = Math.max(0, orderedAttrs.length - visibleAttrs.length);
+                      const allSpecsTooltip = orderedAttrs.map((a) => `${a.key}: ${a.value || '—'}`).join(' • ');
+
+                      // Deduplicated single-line subtitle when no structured attributes exist
+                      const rawDesc = (p.description || '').trim();
+                      let cleanSubtitle = rawDesc;
+                      if (cleanSubtitle.toLowerCase() === productTitle.toLowerCase()) {
+                        cleanSubtitle = '';
+                      } else if (cleanSubtitle.toLowerCase().startsWith(productTitle.toLowerCase())) {
+                        cleanSubtitle = cleanSubtitle.slice(productTitle.length).replace(/^[\s\-–—:|•,\n]+/, '').trim();
+                      }
+                      cleanSubtitle = cleanSubtitle.replace(/\s+/g, ' ').trim();
+                      if (cleanSubtitle.toLowerCase() === productTitle.toLowerCase()) {
+                        cleanSubtitle = '';
+                      }
+
+                      // Brand & SKU 2-line strings
+                      const brandLabel = (p.brand_make || '').trim() || '—';
+                      const skuStr = (p.sku || '').trim();
+                      const modelStr = (p.model_part_no || '').trim();
+                      const skuModelParts = [
+                        skuStr || null,
+                        modelStr && modelStr.toLowerCase() !== skuStr.toLowerCase() ? modelStr : null
+                      ].filter(Boolean);
+                      const skuModelLine = skuModelParts.length > 0 ? skuModelParts.join(' · ') : '—';
+
                       return (
                         <React.Fragment key={p.id || rowIdx}>
                           {showFamilyGroupHeader && vInfo && (
@@ -1493,15 +1525,6 @@ export default function ProductManager({
                                     {vInfo.differentiatingKeys.length > 0 && (
                                       <span className="text-[11px] font-mono text-indigo-700 dark:text-indigo-300 bg-white/80 dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 px-2 py-0.5 rounded-md">
                                         Varies by: <strong>{vInfo.differentiatingKeys.join(', ')}</strong>
-                                      </span>
-                                    )}
-                                    {vInfo.sharedAttributes.length > 0 && (
-                                      <span className="text-[11px] font-mono text-slate-600 dark:text-slate-400">
-                                        Shared:{' '}
-                                        {vInfo.sharedAttributes
-                                          .slice(0, 3)
-                                          .map((a) => `${a.key}: ${a.value}`)
-                                          .join(' • ')}
                                       </span>
                                     )}
                                   </div>
@@ -1524,282 +1547,264 @@ export default function ProductManager({
                           )}
                           <tr
                             onClick={() => openEditModal(p)}
-                            className={`border-l-2 transition-colors group cursor-pointer ${
+                            className={`transition-colors group cursor-pointer ${
                               groupVariantsByFamily && vInfo?.isVariant
-                                ? 'border-l-indigo-400 hover:border-l-indigo-600 bg-indigo-50/10 dark:bg-indigo-950/15 hover:bg-indigo-50/40 dark:hover:bg-indigo-900/30'
-                                : 'border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 dark:hover:bg-slate-800/60'
+                                ? 'bg-indigo-50/10 dark:bg-indigo-950/15 hover:bg-indigo-50/40 dark:hover:bg-indigo-900/30'
+                                : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/60'
                             }`}
                           >
-                            <td className="py-3 px-4">
-                              <div className="flex items-start gap-3">
+                            {/* 1. PRODUCT & SPECIFICATIONS (Strict 2-Line Cell, Zero Duplicate Specs) */}
+                            <td className="py-3 px-4 overflow-hidden align-middle">
+                              <div className="flex items-center gap-3 min-w-0 overflow-hidden">
                                 {/* Product Image Thumbnail or Clean Placeholder */}
                                 {p.image_url ? (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setLightboxProduct(p);
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setLightboxProduct(p);
+                                    }}
+                                    className="relative group/thumb shrink-0 cursor-pointer"
+                                    title="Click to inspect photo, rotate, or add technical diagram"
+                                  >
+                                    <img
+                                      src={p.image_url}
+                                      alt={productTitle}
+                                      className="w-9 h-9 rounded-xl object-contain bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 group-hover/thumb:border-blue-400 p-0.5 shrink-0 shadow-2xs transition"
+                                      style={{
+                                        transform: `rotate(${p.image_adjustments?.rotation || 0}deg) scale(${p.image_adjustments?.scale || 1})`
                                       }}
-                                      className="relative group/thumb shrink-0 cursor-pointer"
-                                      title="Click to inspect photo, rotate, or add technical diagram"
-                                    >
-                                      <img
-                                        src={p.image_url}
-                                        alt={p.name || p.description}
-                                        className="w-10 h-10 rounded-xl object-contain bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 group-hover/thumb:border-blue-400 p-0.5 shrink-0 shadow-2xs transition"
-                                        style={{
-                                          transform: `rotate(${p.image_adjustments?.rotation || 0}deg) scale(${p.image_adjustments?.scale || 1})`
-                                        }}
-                                        referrerPolicy="no-referrer"
-                                      />
-                                      {p.secondary_image_url && (
-                                        <span className="absolute -top-1 -right-1 px-1 py-0.2 rounded-full bg-indigo-600 text-white text-[8px] font-mono font-bold shadow-xs">
-                                          2
-                                        </span>
-                                      )}
-                                    </button>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setLightboxProduct(p);
-                                      }}
-                                      className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200/80 dark:border-slate-700 hover:border-blue-300 flex items-center justify-center text-slate-400 hover:text-blue-600 shrink-0 cursor-pointer transition"
-                                      title="Click to upload or paste product image"
-                                    >
-                                      <Package className="w-4.5 h-4.5" />
-                                    </button>
-                                  )}
-
-                                <div className="space-y-1 min-w-0 flex-1">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    <HoverScrollText
-                                      text={p.name || p.product_type}
-                                      className="font-semibold text-slate-900 dark:text-slate-100 font-sans max-w-[260px]"
+                                      referrerPolicy="no-referrer"
                                     />
-                                    {vInfo?.isVariant && (
-                                      <span
-                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60"
-                                        title={`Part of "${vInfo.familyDisplayName}" product family (${vInfo.siblingCount} Spec Variants)`}
-                                      >
-                                        <GitFork className="w-2.5 h-2.5" />
-                                        <span>Variant • {vInfo.siblingCount} SKUs</span>
+                                    {p.secondary_image_url && (
+                                      <span className="absolute -top-1 -right-1 px-1 py-0.2 rounded-full bg-indigo-600 text-white text-[8px] font-mono font-bold shadow-xs">
+                                        2
                                       </span>
                                     )}
-                                    {p.is_composite_set && p.sub_components && p.sub_components.length > 0 && (
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60">
-                                        <Layers className="w-3 h-3" />
-                                        <span>Kit / BOM • {p.sub_components.length} parts</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setLightboxProduct(p);
+                                    }}
+                                    className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200/80 dark:border-slate-700 hover:border-blue-300 flex items-center justify-center text-slate-400 hover:text-blue-600 shrink-0 cursor-pointer transition"
+                                    title="Click to upload or paste product image"
+                                  >
+                                    <Package className="w-4 h-4" />
+                                  </button>
+                                )}
+
+                                <div className="min-w-0 flex-1 overflow-hidden">
+                                  {/* Line 1: Bold Product Name + Compact Inline Kit/Origin/Datasheet Badge */}
+                                  <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
+                                    <span
+                                      className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate"
+                                      title={productTitle}
+                                    >
+                                      {productTitle}
+                                    </span>
+                                    {p.is_composite_set && p.sub_components && p.sub_components.length > 0 ? (
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 shrink-0">
+                                        <Layers className="w-2.5 h-2.5" />
+                                        <span>Kit / BOM</span>
                                       </span>
-                                    )}
+                                    ) : p.country_of_origin ? (
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 shrink-0">
+                                        <span>{p.country_of_origin}</span>
+                                      </span>
+                                    ) : null}
                                     {p.datasheet_attachment?.url && (
                                       <a
                                         href={p.datasheet_attachment.url}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         onClick={(e) => e.stopPropagation()}
-                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 hover:bg-indigo-100 transition"
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 hover:bg-indigo-100 transition shrink-0"
                                         title={`View Technical Datasheet: ${p.datasheet_attachment.name}`}
                                       >
-                                        <FileText className="w-3 h-3" />
-                                        <span>Datasheet</span>
+                                        <FileText className="w-2.5 h-2.5" />
+                                        <span>PDF</span>
                                       </a>
                                     )}
-                                    {p.country_of_origin && (
-                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                        <Globe className="w-2.5 h-2.5 text-slate-400" />
-                                        <span>{p.country_of_origin}</span>
-                                      </span>
-                                    )}
                                   </div>
-                                  <span
-                                    className="text-xs text-slate-500 dark:text-slate-400 block max-w-md truncate"
-                                    title={p.description}
-                                  >
-                                    {p.description}
-                                  </span>
-                                  {p.attributes && p.attributes.length > 0 && (
-                                    <div className="flex flex-wrap gap-1.5 pt-1">
-                                      {vInfo?.isVariant ? (
-                                        <>
-                                          {vInfo.differentiatingAttributes.map((attr, idx) => (
-                                            <span
-                                              key={`diff-${idx}`}
-                                              className="text-[10px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800/60 shadow-2xs"
-                                              title={`Differentiating Variant Spec — ${attr.key}: ${attr.value}`}
-                                            >
-                                              {attr.key}: {attr.value || '—'}
-                                            </span>
-                                          ))}
-                                          {vInfo.sharedAttributes.slice(0, 4).map((attr, idx) => (
-                                            <span
-                                              key={`shared-${idx}`}
-                                              className="text-[10px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700"
-                                              title={`Shared Family Spec — ${attr.key}: ${attr.value}`}
-                                            >
-                                              {attr.key}: {attr.value || '—'}
-                                            </span>
-                                          ))}
-                                        </>
-                                      ) : (
-                                        <>
-                                          {p.attributes.slice(0, 5).map((attr, idx) => (
-                                            <span
-                                              key={idx}
-                                              className="text-[10px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700"
-                                            >
-                                              {attr.key}: {attr.value || '—'}
-                                            </span>
-                                          ))}
-                                          {p.attributes.length > 5 && (
-                                            <span className="text-[10px] font-mono text-slate-400 px-1 py-0.5">
-                                              +{p.attributes.length - 5} more
-                                            </span>
-                                          )}
-                                        </>
+
+                                  {/* Line 2: Either up to 3 compact spec pills (+N more) OR a single non-repeating subtitle line */}
+                                  {hasStructuredAttrs ? (
+                                    <div
+                                      className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap mt-1"
+                                      title={allSpecsTooltip}
+                                    >
+                                      {visibleAttrs.map((attr, idx) => {
+                                        const isDiff =
+                                          Boolean(vInfo?.isVariant) &&
+                                          idx < (vInfo?.differentiatingAttributes.length || 0);
+                                        return (
+                                          <span
+                                            key={idx}
+                                            className={`text-[10.5px] font-mono px-1.5 py-0.5 rounded border max-w-[160px] truncate shrink-0 ${
+                                              isDiff
+                                                ? 'font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60'
+                                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
+                                            }`}
+                                          >
+                                            {attr.key}: {attr.value || '—'}
+                                          </span>
+                                        );
+                                      })}
+                                      {remainingAttrCount > 0 && (
+                                        <span className="text-[10.5px] font-mono text-slate-400 dark:text-slate-500 shrink-0">
+                                          +{remainingAttrCount} more
+                                        </span>
                                       )}
                                     </div>
-                                  )}
+                                  ) : cleanSubtitle ? (
+                                    <span
+                                      className="text-xs text-slate-500 dark:text-slate-400 block truncate mt-0.5"
+                                      title={cleanSubtitle}
+                                    >
+                                      {cleanSubtitle}
+                                    </span>
+                                  ) : null}
                                 </div>
                               </div>
                             </td>
 
-                            <td className="py-3 px-2.5">
-                              <span className="inline-flex items-center text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 uppercase whitespace-nowrap">
-                                {p.product_type}
+                            {/* 2. CATEGORY */}
+                            <td className="py-3 px-2.5 overflow-hidden align-middle">
+                              <span
+                                className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/40 border border-blue-200/70 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 truncate max-w-full"
+                                title={p.product_type || 'General'}
+                              >
+                                {p.product_type || 'General'}
                               </span>
                             </td>
 
-                            <td className="py-3 px-2.5">
-                              <div className="space-y-0.5 text-xs">
-                                {(p.brand_make || p.model_part_no) ? (
-                                  <div className="flex items-center gap-1 flex-wrap">
-                                    {p.brand_make && (
-                                      <span className="font-semibold text-slate-800 dark:text-slate-200">
-                                        {p.brand_make}
-                                      </span>
-                                    )}
-                                    {p.model_part_no && (
-                                      <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                        {p.model_part_no}
-                                      </span>
-                                    )}
-                                  </div>
-                                ) : null}
-                                <span className="block font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                                  {p.sku ? `SKU: ${p.sku}` : '—'}
+                            {/* 3. BRAND & SKU (Max 2 Lines) */}
+                            <td className="py-3 px-2.5 overflow-hidden align-middle">
+                              <div className="flex flex-col gap-0.5 min-w-0 overflow-hidden">
+                                <span
+                                  className="font-semibold text-xs text-slate-800 dark:text-slate-200 truncate"
+                                  title={brandLabel}
+                                >
+                                  {brandLabel}
+                                </span>
+                                <span
+                                  className="font-mono text-[11px] text-slate-500 dark:text-slate-400 truncate"
+                                  title={skuModelLine}
+                                >
+                                  {skuModelLine}
                                 </span>
                               </div>
                             </td>
 
-                            <td className="py-3 px-2.5">
-                              <div className="space-y-0.5">
+                            {/* 4. STOCK & LEAD TIME (Max 2 Lines) */}
+                            <td className="py-3 px-2.5 overflow-hidden align-middle">
+                              <div className="flex flex-col items-start gap-0.5 min-w-0 overflow-hidden">
                                 {p.is_inventoried ? (
                                   <>
                                     <span
-                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold truncate max-w-full ${
                                         isLowStock
-                                          ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
-                                          : 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60'
+                                          ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
+                                          : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60'
                                       }`}
+                                      title={`Available: ${availableQty} ${cleanUnit} (On Hand: ${p.stock_on_hand || 0}, Reserved: ${p.stock_reserved || 0})`}
                                     >
                                       {isLowStock && <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />}
-                                      <span>
-                                        Avail: {availableQty} {cleanUnit}
+                                      <span className="truncate">
+                                        In Stock: {availableQty} {cleanUnit}
                                       </span>
                                     </span>
-                                    <div className="text-[10px] font-mono text-slate-400 flex items-center gap-2 whitespace-nowrap">
-                                      <span>On Hand: {p.stock_on_hand || 0}</span>
-                                      {(p.stock_reserved || 0) > 0 && (
-                                        <span className="text-amber-600 dark:text-amber-400">Res: {p.stock_reserved}</span>
-                                      )}
-                                    </div>
-                                    {p.storage_location && (
+                                    {(() => {
+                                      const stockSubParts = [
+                                        p.default_availability || null,
+                                        p.storage_location ? `Bin: ${p.storage_location}` : null,
+                                        (p.stock_reserved || 0) > 0 ? `Res: ${p.stock_reserved}` : null
+                                      ].filter(Boolean);
+                                      if (stockSubParts.length === 0) return null;
+                                      return (
+                                        <span
+                                          className="text-[11px] text-slate-400 dark:text-slate-500 truncate max-w-full"
+                                          title={stockSubParts.join(' · ')}
+                                        >
+                                          {stockSubParts.join(' · ')}
+                                        </span>
+                                      );
+                                    })()}
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 truncate max-w-full">
+                                      Order / Non-Stock
+                                    </span>
+                                    {p.default_availability && (
                                       <span
-                                        className="block text-[10px] text-slate-400 font-mono truncate max-w-[130px]"
-                                        title={p.storage_location}
+                                        className="text-[11px] text-slate-400 dark:text-slate-500 truncate max-w-full"
+                                        title={p.default_availability}
                                       >
-                                        Bin: {p.storage_location}
+                                        {p.default_availability}
                                       </span>
                                     )}
                                   </>
-                                ) : (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 whitespace-nowrap">
-                                    {p.default_availability || 'Order / Non-Stock'}
-                                  </span>
                                 )}
                               </div>
                             </td>
 
-                            <td className="py-3 px-3 text-right whitespace-nowrap">
+                            {/* 5. UNIT PRICE (Right-Aligned with pr-4, Max 2 Lines) */}
+                            <td className="py-3 pl-2 pr-4 text-right whitespace-nowrap overflow-hidden align-middle">
                               {p.unit_price !== undefined && p.unit_price > 0 ? (
-                                <div>
-                                  <span className="font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100 block">
+                                <div className="flex flex-col items-end gap-0.5 min-w-0 overflow-hidden">
+                                  <span className="font-bold font-mono tabular-nums text-sm text-slate-900 dark:text-slate-100 truncate max-w-full">
                                     AED{' '}
                                     {p.unit_price.toLocaleString(undefined, {
                                       minimumFractionDigits: 2,
                                       maximumFractionDigits: 2
                                     })}
-                                    <span className="text-[10.5px] font-normal text-slate-400 ml-1">
-                                      / {cleanUnit}
-                                    </span>
                                   </span>
-                                  {canViewConfidentialMargins && marginPct !== null && (
-                                    <span
-                                      className={`inline-block text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded ${
-                                        marginPct >= 20
-                                          ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40'
-                                          : marginPct > 0
-                                          ? 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40'
-                                          : 'text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40'
-                                      }`}
-                                    >
-                                      {marginPct}% margin
-                                    </span>
-                                  )}
-                                  {canViewConfidentialMargins && p.last_landed_cost !== undefined && p.last_landed_cost > 0 && (
-                                    <span
-                                      className="block text-[9.5px] font-mono text-indigo-700 dark:text-indigo-300 mt-0.5"
-                                      title={p.last_grn_ref ? `Last Landed Cost from ${p.last_grn_ref}` : 'Last Landed Unit Cost'}
-                                    >
-                                      Landed: {p.last_landed_cost.toFixed(2)}
-                                    </span>
-                                  )}
+                                  {(() => {
+                                    const subParts = [
+                                      `per ${cleanUnit}`,
+                                      canViewConfidentialMargins && marginPct !== null ? `${marginPct}% margin` : null,
+                                      canViewConfidentialMargins && p.last_landed_cost && p.last_landed_cost > 0
+                                        ? `Landed: ${p.last_landed_cost.toFixed(0)}`
+                                        : null
+                                    ].filter(Boolean);
+                                    return (
+                                      <span
+                                        className="text-[11px] text-slate-400 dark:text-slate-500 truncate max-w-full"
+                                        title={subParts.join(' · ')}
+                                      >
+                                        {subParts.join(' · ')}
+                                      </span>
+                                    );
+                                  })()}
                                 </div>
                               ) : (
-                                <div>
-                                  <span className="text-xs font-medium text-slate-400 italic block">Price on Request</span>
-                                  <span className="text-[10px] font-mono text-slate-400">UOM: {cleanUnit}</span>
+                                <div className="flex flex-col items-end gap-0.5 min-w-0 overflow-hidden">
+                                  <span className="text-xs font-medium text-slate-400 italic truncate">Price on Request</span>
+                                  <span className="text-[11px] text-slate-400 dark:text-slate-500 truncate">per {cleanUnit}</span>
                                 </div>
                               )}
                             </td>
 
-                            <td className="py-3 px-3 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                              <div className="inline-flex items-center justify-center gap-1">
+                            {/* 6. ACTIONS (Compact Icon Buttons, Never Clips) */}
+                            <td className="py-3 pl-2 pr-3 text-right whitespace-nowrap overflow-hidden align-middle" onClick={(e) => e.stopPropagation()}>
+                              <div className="inline-flex items-center justify-end gap-1">
                                 {isEditable ? (
                                   <>
                                     <button
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        openGrnModal(p);
+                                        openEditModal(p);
                                       }}
-                                      className="p-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border border-slate-200 dark:border-slate-700 hover:border-emerald-200 text-slate-500 dark:text-slate-300 hover:text-emerald-700 dark:hover:text-emerald-300 rounded-lg transition cursor-pointer"
-                                      title="Receive Stock (Inbound GRN)"
+                                      className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-transparent hover:border-blue-200/80 dark:hover:border-blue-800/60 transition cursor-pointer shrink-0"
+                                      title="Inspect / Edit Product"
+                                      aria-label="Inspect / Edit Product"
                                     >
-                                      <ArrowDownToLine className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openAdjustModal(p);
-                                      }}
-                                      className="p-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 border border-slate-200 dark:border-slate-700 hover:border-indigo-200 text-slate-500 dark:text-slate-300 hover:text-indigo-700 dark:hover:text-indigo-300 rounded-lg transition cursor-pointer"
-                                      title="Quick Stock Adjustment (Recount / Opening Stock / Write-Off)"
-                                    >
-                                      <Sliders className="w-3.5 h-3.5" />
+                                      <Edit2 className="w-3.5 h-3.5" />
                                     </button>
                                     <button
                                       type="button"
@@ -1807,22 +1812,11 @@ export default function ProductManager({
                                         e.stopPropagation();
                                         openSpecVariantModal(p);
                                       }}
-                                      className="px-2 py-1 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 text-indigo-700 dark:text-indigo-300 rounded-lg text-[10.5px] font-bold inline-flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
-                                      title="Add Spec Variant (keeps base product name & clones spec keys so you only edit the differing spec & SKU)"
+                                      className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 border border-transparent hover:border-indigo-200/80 dark:hover:border-indigo-800/60 transition cursor-pointer shrink-0"
+                                      title="Add Spec Variant"
+                                      aria-label="Add Spec Variant"
                                     >
-                                      <GitFork className="w-3 h-3" />
-                                      <span>Variant</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openDuplicateModal(p);
-                                      }}
-                                      className="p-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-700 hover:border-blue-200 text-slate-500 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 rounded-lg transition cursor-pointer"
-                                      title="Duplicate as Standalone Copy"
-                                    >
-                                      <Copy className="w-3.5 h-3.5" />
+                                      <GitFork className="w-3.5 h-3.5" />
                                     </button>
                                     <button
                                       type="button"
@@ -1830,14 +1824,15 @@ export default function ProductManager({
                                         e.stopPropagation();
                                         handleDeleteProduct(p);
                                       }}
-                                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 transition cursor-pointer"
+                                      className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 dark:hover:border-rose-800/60 transition cursor-pointer shrink-0"
                                       title="Move to Recycle Bin"
+                                      aria-label="Move to Recycle Bin"
                                     >
                                       <Trash2 className="w-3.5 h-3.5" />
                                     </button>
                                   </>
                                 ) : (
-                                  <span className="text-xs text-slate-400 italic">Viewer Mode</span>
+                                  <span className="text-xs text-slate-400 italic">Viewer</span>
                                 )}
                               </div>
                             </td>

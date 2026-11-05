@@ -2463,8 +2463,8 @@ export default function EnquiryList({
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-sm overflow-hidden">
         {filteredEnquiries.length > 0 ? (
           <>
-            <div className="w-full overflow-x-auto max-h-[calc(100vh-250px)] overflow-y-auto relative border-b border-slate-200 dark:border-slate-800">
-            <table className="w-full min-w-[980px] table-fixed text-left border-collapse">
+            <div className="w-full overflow-x-hidden max-h-[calc(100vh-250px)] overflow-y-auto relative border-b border-slate-200 dark:border-slate-800">
+            <table className="w-full table-fixed text-left border-collapse">
               <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 sticky top-0 z-20 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
                 <tr>
                   {isMarkingMode && (
@@ -2497,7 +2497,7 @@ export default function EnquiryList({
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-3 w-[25%] truncate bg-slate-50 dark:bg-slate-900">Company Account</th>
+                  <th className="py-2.5 px-3 w-[23%] truncate bg-slate-50 dark:bg-slate-900">Company Account</th>
                   <th className="py-2.5 px-2.5 w-[19%] truncate bg-slate-50 dark:bg-slate-900">Quote Ref No</th>
                   <th className="py-2.5 px-1.5 w-[6%] text-center truncate bg-slate-50 dark:bg-slate-900">Rep</th>
                   <th onClick={() => handleSort('enquiry_date')} className="py-2.5 px-2 w-[10%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition whitespace-nowrap bg-slate-50 dark:bg-slate-900">
@@ -2513,7 +2513,7 @@ export default function EnquiryList({
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 pl-2 pr-3 w-[10%] text-right truncate bg-slate-50 dark:bg-slate-900">Actions</th>
+                  <th className="py-2.5 pl-2 pr-3 w-[136px] text-right truncate bg-slate-50 dark:bg-slate-900">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans">
