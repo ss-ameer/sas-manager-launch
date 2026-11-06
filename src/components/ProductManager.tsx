@@ -1412,7 +1412,7 @@ export default function ProductManager({
                 <span>Stock Ledger</span>
               </button>
 
-              {onOpenProcurement && (
+              {canViewConfidentialMargins && onOpenProcurement && (
                 <button
                   type="button"
                   onClick={onOpenProcurement}
@@ -1443,19 +1443,19 @@ export default function ProductManager({
         </div>
 
         {/* Products Table Layout */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-xs overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-xs overflow-clip">
           {paginatedProducts.length > 0 ? (
             <>
-              <div className="w-full overflow-x-hidden">
+              <div className="w-full overflow-x-clip">
                 <table className="w-full table-fixed text-left border-collapse">
-                  <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 sticky top-0 z-20 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
+                  <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 sticky top-[76px] z-20 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
                     <tr>
-                      <th className="py-3 px-4 w-[38%] truncate bg-slate-50 dark:bg-slate-900">Product &amp; Specifications</th>
+                      <th className="py-3 px-4 w-[36%] truncate bg-slate-50 dark:bg-slate-900">Product &amp; Specifications</th>
                       <th className="py-3 px-2.5 w-[14%] truncate bg-slate-50 dark:bg-slate-900">Category</th>
                       <th className="py-3 px-2.5 w-[15%] truncate bg-slate-50 dark:bg-slate-900">Brand &amp; SKU</th>
                       <th className="py-3 px-2.5 w-[13%] truncate bg-slate-50 dark:bg-slate-900">Stock &amp; Lead Time</th>
                       <th className="py-3 pl-2 pr-4 w-[11%] text-right truncate bg-slate-50 dark:bg-slate-900">Unit Price</th>
-                      <th className="py-3 pl-2 pr-3 w-[9%] text-right truncate bg-slate-50 dark:bg-slate-900">Actions</th>
+                      <th className="py-3 pl-2 pr-3 w-[116px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans text-sm">
@@ -1790,7 +1790,7 @@ export default function ProductManager({
                             </td>
 
                             {/* 6. ACTIONS (Compact Icon Buttons, Never Clips) */}
-                            <td className="py-3 pl-2 pr-3 text-right whitespace-nowrap overflow-hidden align-middle" onClick={(e) => e.stopPropagation()}>
+                            <td className="py-3 pl-2 pr-3 w-[116px] text-right whitespace-nowrap align-middle" onClick={(e) => e.stopPropagation()}>
                               <div className="inline-flex items-center justify-end gap-1">
                                 {isEditable ? (
                                   <>

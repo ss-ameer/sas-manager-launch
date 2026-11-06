@@ -20,7 +20,7 @@ import {
   PdfCompressionPreset,
   formatByteSize
 } from '../services/attachmentStorage';
-import { isAdmin, isSuperAdmin } from '../utils/permissions';
+import { canManageWorkspace, isAdmin, isSuperAdmin } from '../utils/permissions';
 import { PageHeader, PageBody, KpiStatCard } from './layout/UiContainer';
 import SearchResultCounter from './common/SearchResultCounter';
 import HoverScrollText from './common/HoverScrollText';
@@ -45,6 +45,7 @@ import {
   Unlock,
   Upload,
   Trash2,
+  Edit2,
   Eye,
   RotateCcw,
   Calculator,
@@ -251,8 +252,16 @@ export default function ProcurementPayablesHub({
   };
 
   const userIsAdmin = useMemo(
-    () => isAdmin(user, activeWorkspace.id) || isSuperAdmin(user),
-    [user, activeWorkspace.id]
+    () => isAdmin(user, activeWorkspace?.id, activeWorkspace) || isSuperAdmin(user),
+    [user, activeWorkspace]
+  );
+
+  const canViewConfidentialMargins = useMemo(
+    () =>
+      canManageWorkspace(user, activeWorkspace) ||
+      isAdmin(user, activeWorkspace?.id, activeWorkspace) ||
+      isSuperAdmin(user),
+    [user, activeWorkspace]
   );
 
   useEffect(() => {
@@ -1756,14 +1765,33 @@ export default function ProcurementPayablesHub({
         />
         <KpiStatCard
           label="Total Payables Balance"
-          value={`${defaultCurrency} ${kpiStats.totalPayables.toLocaleString('en-US', {
-            minimumFractionDigits: 2
-          })}`}
-          subtext="Net of Debit Notes & PVs"
+          value={
+            canViewConfidentialMargins
+              ? `${defaultCurrency} ${kpiStats.totalPayables.toLocaleString('en-US', {
+                  minimumFractionDigits: 2
+                })}`
+              : 'Restricted'
+          }
+          subtext={canViewConfidentialMargins ? 'Net of Debit Notes & PVs' : 'Admin / Manager Only'}
           icon={<DollarSign className="w-5 h-5" />}
           tone="rose"
         />
       </div>
+
+      {!canViewConfidentialMargins ? (
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-10 text-center max-w-xl mx-auto my-6 shadow-2xs space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto">
+            <Lock className="w-5 h-5" />
+          </div>
+          <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+            Confidential Supplier Cost &amp; Payables Ledger
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+            Access to supplier purchase order unit costs, landed GRN cost allocations, vendor bills, and payment vouchers is restricted to Workspace Admins and Commercial Managers.
+          </p>
+        </div>
+      ) : (
+        <>
 
       {/* Navigation Tabs + Filters */}
       <div className="bg-white rounded-2xl border border-slate-200/90 p-3 shadow-2xs flex flex-wrap items-center justify-between gap-3">
@@ -1894,286 +1922,332 @@ export default function ProcurementPayablesHub({
                 setVendorFilter('ALL');
               }}
             />
-          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
-                    <th className="py-3 px-4">PO Ref #</th>
-                    <th className="py-3 px-3">Date</th>
-                    <th className="py-3 px-3">Vendor / Supplier</th>
-                    <th className="py-3 px-3">Linked Enquiry / Scope</th>
-                    <th className="py-3 px-3 text-right">PO Total</th>
-                    <th className="py-3 px-3 text-center">GRN Status</th>
-                    <th className="py-3 px-4 text-right">Procurement Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {paginatedPos.map((po) => {
-                    const meta = po.purchase_order_metadata;
-                    const recStatus = meta?.receiving_status || 'Pending Receipt';
-                    const linkedEnq = enquiries.find((e) => e.id === po.enquiry_id);
-                    return (
-                      <tr
-                        key={po.id}
-                        onClick={() => setViewingPoSummary(po)}
-                        className="cursor-pointer hover:bg-slate-50/90 transition-colors"
-                      >
-                        <td className="py-3 px-4 font-mono font-bold text-indigo-700 whitespace-nowrap">
-                          {meta?.po_ref || po.formatted_quote_ref}
-                        </td>
-                        <td className="py-3 px-3 font-mono text-slate-600 whitespace-nowrap">
-                          {(meta?.po_date || po.quotation_date || '').slice(0, 10)}
-                        </td>
-                        <td className="py-3 px-3 max-w-[220px]">
-                          {(() => {
-                            const vName = meta?.supplier_name || po.client_snapshot?.entity_name || 'Vendor';
-                            const vCompId = resolveVendorCompanyId(meta?.vendor_company_id, vName);
-                            return vCompId && onOpenCompany360 ? (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs overflow-clip">
+              <div className="w-full overflow-x-clip">
+                <table className="w-full table-fixed text-left border-collapse text-xs font-sans">
+                  <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                    <tr>
+                      <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">PO Ref</th>
+                      <th className="py-3 px-3.5 w-[22%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Vendor / Supplier</th>
+                      <th className="py-3 px-3 w-[12%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Date</th>
+                      <th className="py-3 px-3 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Status / Receiving</th>
+                      <th className="py-3 pl-2 pr-5 w-[14%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Amount</th>
+                      <th className="py-3 px-3.5 w-[215px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                    {paginatedPos.map((po) => {
+                      const meta = po.purchase_order_metadata;
+                      const recStatus = meta?.receiving_status || 'Pending Receipt';
+                      const linkedEnq = enquiries.find((e) => e.id === po.enquiry_id);
+                      const poRefText = meta?.po_ref || po.formatted_quote_ref || 'PO-DRAFT';
+                      const poDateStr = (meta?.po_date || po.quotation_date || '').slice(0, 10) || '—';
+                      const expDateStr = (meta?.expected_delivery_date || '').slice(0, 10);
+                      const vName = meta?.supplier_name || po.client_snapshot?.entity_name || 'Vendor';
+                      const vCompId = resolveVendorCompanyId(meta?.vendor_company_id, vName);
+                      const lineItems = po.line_items || [];
+                      const receivedLinesCount = lineItems.filter((li: any) => {
+                        const ord = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
+                        const rcv = Number(li.qty_received) || 0;
+                        return ord > 0 && rcv >= ord;
+                      }).length;
+                      const totalAmount = Number(po.financial_totals?.grand_total ?? po.grand_total ?? 0);
+
+                      return (
+                        <tr
+                          key={po.id}
+                          onClick={() => setViewingPoSummary(po)}
+                          className="cursor-pointer border-l-2 border-l-transparent hover:border-l-indigo-500 hover:bg-slate-50/90 dark:hover:bg-slate-800/50 transition-colors group"
+                        >
+                          {/* 1. PO REF & LINKED ENQUIRY (Max 2 Lines) */}
+                          <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                            <div className="font-mono text-xs font-bold text-indigo-700 dark:text-indigo-400 truncate" title={poRefText}>
+                              {poRefText}
+                            </div>
+                            <div className="mt-0.5 truncate" onClick={(e) => e.stopPropagation()}>
+                              {linkedEnq ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onSelectEnquiry?.(linkedEnq.id)}
+                                  className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-medium inline-flex items-center gap-1 max-w-full truncate cursor-pointer"
+                                  title={`ENQ #${linkedEnq.sn} — ${linkedEnq.company_name}`}
+                                >
+                                  <span className="truncate">ENQ #{linkedEnq.sn} · {linkedEnq.company_name}</span>
+                                </button>
+                              ) : (
+                                <span className="text-[11px] text-slate-400 dark:text-slate-500 truncate block">
+                                  Stock Replenishment
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* 2. VENDOR / SUPPLIER (Max 2 Lines) */}
+                          <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                            <div className="flex items-center gap-1 min-w-0">
+                              {vCompId && onOpenCompany360 ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenCompany360(vCompId);
+                                  }}
+                                  className="text-left group/v inline-flex items-center gap-1 max-w-full truncate cursor-pointer"
+                                  title={vName}
+                                >
+                                  <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 group-hover/v:text-indigo-600 group-hover/v:underline truncate">
+                                    {vName}
+                                  </span>
+                                  <ArrowUpRight className="w-3 h-3 text-slate-400 group-hover/v:text-indigo-600 shrink-0" />
+                                </button>
+                              ) : (
+                                <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate" title={vName}>
+                                  {vName}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate mt-0.5">
+                              {meta?.supplier_trn
+                                ? `TRN: ${meta.supplier_trn}`
+                                : `${lineItems.length} ${lineItems.length === 1 ? 'line item' : 'line items'}`}
+                            </div>
+                          </td>
+
+                          {/* 3. DATE (Max 2 Lines) */}
+                          <td className="py-2.5 px-3 align-middle overflow-hidden">
+                            <div className="font-mono text-xs font-medium text-slate-700 dark:text-slate-200 whitespace-nowrap truncate">
+                              {poDateStr}
+                            </div>
+                            <div className="text-[11px] text-slate-400 dark:text-slate-500 whitespace-nowrap truncate mt-0.5">
+                              {expDateStr ? `Exp: ${expDateStr}` : 'Standard Lead'}
+                            </div>
+                          </td>
+
+                          {/* 4. STATUS / RECEIVING (Max 2 Lines) */}
+                          <td className="py-2.5 px-3 align-middle overflow-hidden">
+                            <div className="flex flex-col items-start gap-1 min-w-0">
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-semibold border truncate max-w-full leading-tight ${
+                                  recStatus === 'Fully Received'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
+                                    : recStatus === 'Partially Received'
+                                    ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800'
+                                    : 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                                }`}
+                              >
+                                {recStatus}
+                              </span>
+                              <div className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-full">
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                    recStatus === 'Fully Received'
+                                      ? 'bg-emerald-500'
+                                      : recStatus === 'Partially Received'
+                                      ? 'bg-amber-500'
+                                      : 'bg-slate-400'
+                                  }`}
+                                />
+                                <span className="truncate font-mono">
+                                  {lineItems.length > 0
+                                    ? `${receivedLinesCount}/${lineItems.length} Lines Rcvd`
+                                    : 'Pending GRN'}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* 5. AMOUNT (Max 2 Lines, Right-Aligned with pr-5) */}
+                          <td className="py-2.5 pl-2 pr-5 text-right align-middle overflow-hidden">
+                            <div className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100 tabular-nums whitespace-nowrap truncate">
+                              {canViewConfidentialMargins
+                                ? `${po.currency} ${totalAmount.toLocaleString('en-US', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                  })}`
+                                : 'Restricted'}
+                            </div>
+                            <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
+                              {meta?.payment_terms || 'Incl. VAT'}
+                            </div>
+                          </td>
+
+                          {/* 6. ACTIONS (Fixed Width, Compact Studio + Icon Buttons) */}
+                          <td
+                            className="py-2.5 px-3.5 w-[215px] text-right whitespace-nowrap align-middle"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="inline-flex items-center justify-end gap-1">
                               <button
                                 type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onOpenCompany360(vCompId);
-                                }}
-                                className="text-left group inline-flex items-center gap-1 max-w-full cursor-pointer"
+                                onClick={() => handleOpenInStudio(po)}
+                                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-semibold shadow-2xs transition cursor-pointer"
+                                title="Open Supplier PO in A4 Studio"
                               >
-                                <HoverScrollText
-                                  text={vName}
-                                  className="font-bold text-slate-900 group-hover:text-indigo-600 group-hover:underline transition-colors"
-                                />
-                                <ArrowUpRight className="w-3 h-3 text-slate-400 group-hover:text-indigo-600 shrink-0" />
+                                Studio
                               </button>
-                            ) : (
-                              <HoverScrollText text={vName} className="font-bold text-slate-900" />
-                            );
-                          })()}
-                          {meta?.supplier_trn && (
-                            <div className="text-[10px] font-mono text-slate-400">
-                              TRN: {meta.supplier_trn}
+                              {recStatus !== 'Fully Received' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenGrnModal(po)}
+                                  className="w-7 h-7 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition inline-flex items-center justify-center cursor-pointer"
+                                  title="Receive Stock (GRN)"
+                                >
+                                  <PackageCheck className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenBillModal(po)}
+                                className="w-7 h-7 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition inline-flex items-center justify-center cursor-pointer"
+                                title="Record Supplier Bill"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openCreatePvModal(undefined, po)}
+                                className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition inline-flex items-center justify-center cursor-pointer"
+                                title="Issue Outbound Payment Voucher (PV)"
+                              >
+                                <DollarSign className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const totalVal = totalAmount.toLocaleString('en-US', {
+                                    minimumFractionDigits: 2
+                                  });
+                                  setDeleteConfirmTarget({
+                                    type: 'po',
+                                    id: po.id,
+                                    refLabel: poRefText,
+                                    vendorName: vName,
+                                    amountLabel: `${po.currency} ${totalVal}`
+                                  });
+                                }}
+                                className="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition inline-flex items-center justify-center cursor-pointer"
+                                title="Move Supplier PO to Recycle Bin"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {filteredPos.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-12 px-4 text-center">
+                          {hasActiveFilter ? (
+                            <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                              <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+                                <Search className="w-5 h-5" />
+                              </div>
+                              <div className="text-sm font-bold text-slate-800">
+                                No Supplier POs Match Your Filter
+                              </div>
+                              <p className="text-xs text-slate-500">
+                                No purchase orders matched{' '}
+                                {searchQuery.trim() ? (
+                                  <span className="font-semibold text-slate-700">&ldquo;{searchQuery}&rdquo;</span>
+                                ) : (
+                                  <span className="font-semibold text-slate-700">{vendorFilter}</span>
+                                )}
+                                . Clear the active filter to view all {supplierPOs.length} Supplier POs.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSearchQuery('');
+                                  setVendorFilter('ALL');
+                                }}
+                                className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition cursor-pointer"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Clear Search / Reset Filters</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                              <div className="w-11 h-11 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+                                <ShoppingBag className="w-5 h-5" />
+                              </div>
+                              <div className="text-sm font-bold text-slate-900">
+                                No Outbound Supplier Purchase Orders Yet
+                              </div>
+                              <p className="text-xs text-slate-500">
+                                Issue a formal Supplier PO for client enquiry fulfillment or warehouse stock replenishment to track GRN receipts and 3-Way Match bills.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewPoVendorId('');
+                                  setNewPoSupplierName('');
+                                  setNewPoEnquiryId('');
+                                  setNewPoExpectedDate('');
+                                  setNewPoLines([
+                                    { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
+                                  ]);
+                                  setShowCreatePoModal(true);
+                                }}
+                                className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>Create First Supplier PO</span>
+                              </button>
                             </div>
                           )}
-                        </td>
-                        <td className="py-3 px-3 max-w-[240px]" onClick={(e) => e.stopPropagation()}>
-                          {linkedEnq ? (
-                            <button
-                              type="button"
-                              onClick={() => onSelectEnquiry?.(linkedEnq.id)}
-                              className="text-left text-blue-600 hover:underline font-semibold flex items-center gap-1 max-w-full cursor-pointer"
-                            >
-                              <HoverScrollText
-                                text={`ENQ #${linkedEnq.sn} — ${linkedEnq.company_name}`}
-                                className="max-w-[200px]"
-                              />
-                              <ArrowUpRight className="w-3 h-3 shrink-0" />
-                            </button>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-semibold">
-                              Stock Replenishment
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
-                          {po.currency}{' '}
-                          {Number(po.financial_totals?.grand_total ?? po.grand_total ?? 0).toLocaleString('en-US', {
-                            minimumFractionDigits: 2
-                          })}
-                        </td>
-                        <td className="py-3 px-3 text-center whitespace-nowrap">
-                          <span
-                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
-                              recStatus === 'Fully Received'
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : recStatus === 'Partially Received'
-                                ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                : 'bg-slate-100 text-slate-700 border-slate-200'
-                            }`}
-                          >
-                            {recStatus}
-                          </span>
-                        </td>
-                        <td
-                          className="py-3 px-4 text-right whitespace-nowrap"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div className="inline-flex items-center gap-1.5">
-                            {recStatus !== 'Fully Received' && (
-                              <button
-                                type="button"
-                                onClick={() => handleOpenGrnModal(po)}
-                                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10.5px] font-bold transition cursor-pointer"
-                              >
-                                Receive GRN
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => handleOpenBillModal(po)}
-                              className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[10.5px] font-bold transition cursor-pointer"
-                            >
-                              Record Bill
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => openCreatePvModal(undefined, po)}
-                              className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10.5px] font-semibold transition cursor-pointer"
-                              title="Issue Outbound Payment Voucher"
-                            >
-                              + PV
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleIssueVendorReturn('material_return_note', po)}
-                              className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10.5px] font-semibold transition cursor-pointer"
-                              title="Issue Material Return Note / Debit Note"
-                            >
-                              Return / DN
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenInStudio(po)}
-                              className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[10.5px] font-bold transition cursor-pointer"
-                            >
-                              Open in Studio
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const vName = meta?.supplier_name || po.client_snapshot?.entity_name || 'Vendor';
-                                const totalVal = Number(po.financial_totals?.grand_total ?? po.grand_total ?? 0).toLocaleString('en-US', {
-                                  minimumFractionDigits: 2
-                                });
-                                setDeleteConfirmTarget({
-                                  type: 'po',
-                                  id: po.id,
-                                  refLabel: meta?.po_ref || po.formatted_quote_ref || 'Supplier PO',
-                                  vendorName: vName,
-                                  amountLabel: `${po.currency} ${totalVal}`
-                                });
-                              }}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
-                              title="Move Supplier PO to Recycle Bin"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
                         </td>
                       </tr>
-                    );
-                  })}
-                  {filteredPos.length === 0 && (
-                    <tr>
-                      <td colSpan={7} className="py-12 px-4 text-center">
-                        {hasActiveFilter ? (
-                          <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                            <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
-                              <Search className="w-5 h-5" />
-                            </div>
-                            <div className="text-sm font-bold text-slate-800">
-                              No Supplier POs Match Your Filter
-                            </div>
-                            <p className="text-xs text-slate-500">
-                              No purchase orders matched{' '}
-                              {searchQuery.trim() ? (
-                                <span className="font-semibold text-slate-700">&ldquo;{searchQuery}&rdquo;</span>
-                              ) : (
-                                <span className="font-semibold text-slate-700">{vendorFilter}</span>
-                              )}
-                              . Clear the active filter to view all {supplierPOs.length} Supplier POs.
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSearchQuery('');
-                                setVendorFilter('ALL');
-                              }}
-                              className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition cursor-pointer"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                              <span>Clear Search / Reset Filters</span>
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                            <div className="w-11 h-11 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
-                              <ShoppingBag className="w-5 h-5" />
-                            </div>
-                            <div className="text-sm font-bold text-slate-900">
-                              No Outbound Supplier Purchase Orders Yet
-                            </div>
-                            <p className="text-xs text-slate-500">
-                              Issue a formal Supplier PO for client enquiry fulfillment or warehouse stock replenishment to track GRN receipts and 3-Way Match bills.
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setNewPoVendorId('');
-                                setNewPoSupplierName('');
-                                setNewPoEnquiryId('');
-                                setNewPoExpectedDate('');
-                                setNewPoLines([
-                                  { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
-                                ]);
-                                setShowCreatePoModal(true);
-                              }}
-                              className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              <span>Create First Supplier PO</span>
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {filteredPos.length > 0 && (
-              <div className="px-4 py-3 bg-slate-50/70 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
-                <div className="flex items-center gap-3">
-                  <span>
-                    Showing <span className="font-mono font-bold text-slate-900">{(safePage - 1) * itemsPerPage + 1}</span>–
-                    <span className="font-mono font-bold text-slate-900">{Math.min(safePage * itemsPerPage, filteredPos.length)}</span> of{' '}
-                    <span className="font-mono font-bold text-slate-900">{filteredPos.length}</span> Supplier POs
-                  </span>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {filteredPos.length > 0 && (
+                <div className="px-4 py-3 bg-slate-50/70 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+                  <div className="flex items-center gap-3">
+                    <span>
+                      Showing <span className="font-mono font-bold text-slate-900">{(safePage - 1) * itemsPerPage + 1}</span>–
+                      <span className="font-mono font-bold text-slate-900">{Math.min(safePage * itemsPerPage, filteredPos.length)}</span> of{' '}
+                      <span className="font-mono font-bold text-slate-900">{filteredPos.length}</span> Supplier POs
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-400">Rows:</span>
+                      <select
+                        value={itemsPerPage}
+                        onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-mono font-semibold text-slate-700 cursor-pointer"
+                      >
+                        <option value={25}>25</option>
+                        <option value={50}>50</option>
+                        <option value={100}>100</option>
+                      </select>
+                    </div>
+                  </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-slate-400">Rows:</span>
-                    <select
-                      value={itemsPerPage}
-                      onChange={(e) => setItemsPerPage(Number(e.target.value))}
-                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-mono font-semibold text-slate-700 cursor-pointer"
+                    <button
+                      type="button"
+                      disabled={safePage <= 1}
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
                     >
-                      <option value={25}>25</option>
-                      <option value={50}>50</option>
-                      <option value={100}>100</option>
-                    </select>
+                      <ChevronLeft className="w-3.5 h-3.5" /> Prev
+                    </button>
+                    <span className="px-2 font-mono text-xs font-semibold text-slate-700">
+                      Page {safePage} of {totalPages}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={safePage >= totalPages}
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      Next <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    disabled={safePage <= 1}
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" /> Prev
-                  </button>
-                  <span className="px-2 font-mono text-xs font-semibold text-slate-700">
-                    Page {safePage} of {totalPages}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={safePage >= totalPages}
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                    className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    Next <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
           </div>
         );
       })()}
@@ -2231,203 +2305,244 @@ export default function ProcurementPayablesHub({
                 setVendorFilter('ALL');
               }}
             />
-          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
-                    <th className="py-3 px-4">PO Ref #</th>
-                    <th className="py-3 px-3">Vendor</th>
-                    <th className="py-3 px-3">Item / Part No</th>
-                    <th className="py-3 px-3 text-right">Ordered</th>
-                    <th className="py-3 px-3 text-right">Received</th>
-                    <th className="py-3 px-3 text-right">Pending</th>
-                    <th className="py-3 px-3 text-right">Last Landed Cost</th>
-                    <th className="py-3 px-4 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {paginatedGrnRows.map(({ po, li }) => {
-                    const ordered = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
-                    const received = Number(li.qty_received) || 0;
-                    const pending = Math.max(0, ordered - received);
-                    return (
-                      <tr
-                        key={`${po.id}_${li.id}`}
-                        onClick={() => handleOpenGrnModal(po)}
-                        className="cursor-pointer hover:bg-slate-50/90 transition-colors"
-                      >
-                        <td className="py-2.5 px-4 font-mono font-bold text-indigo-700">
-                          {po.purchase_order_metadata?.po_ref || po.formatted_quote_ref}
-                        </td>
-                        <td className="py-2.5 px-3 font-semibold text-slate-800">
-                          {(() => {
-                            const vName =
-                              po.purchase_order_metadata?.supplier_name ||
-                              po.client_snapshot?.entity_name ||
-                              'Vendor';
-                            const vCompId = resolveVendorCompanyId(
-                              po.purchase_order_metadata?.vendor_company_id,
-                              vName
-                            );
-                            return vCompId && onOpenCompany360 ? (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs overflow-clip">
+              <div className="w-full overflow-x-clip">
+                <table className="w-full table-fixed text-left border-collapse text-xs font-sans">
+                  <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                    <tr>
+                      <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">PO Ref &amp; Date</th>
+                      <th className="py-3 px-3.5 w-[22%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Vendor / Supplier</th>
+                      <th className="py-3 px-3.5 w-[25%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Item &amp; Part No</th>
+                      <th className="py-3 px-3 w-[13%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Ordered / Rcvd</th>
+                      <th className="py-3 pl-2 pr-5 w-[13%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Pending &amp; Cost</th>
+                      <th className="py-3 px-3.5 w-[155px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                    {paginatedGrnRows.map(({ po, li }) => {
+                      const ordered = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
+                      const received = Number(li.qty_received) || 0;
+                      const pending = Math.max(0, ordered - received);
+                      const poRefText = po.purchase_order_metadata?.po_ref || po.formatted_quote_ref || 'PO';
+                      const poDateStr = (po.purchase_order_metadata?.po_date || po.quotation_date || '').slice(0, 10) || '—';
+                      const vName =
+                        po.purchase_order_metadata?.supplier_name ||
+                        po.client_snapshot?.entity_name ||
+                        'Vendor';
+                      const vCompId = resolveVendorCompanyId(
+                        po.purchase_order_metadata?.vendor_company_id,
+                        vName
+                      );
+                      const unitCost = Number(li.landed_unit_cost ?? li.unit_price ?? 0);
+
+                      return (
+                        <tr
+                          key={`${po.id}_${li.id}`}
+                          onClick={() => handleOpenGrnModal(po)}
+                          className="cursor-pointer border-l-2 border-l-transparent hover:border-l-emerald-500 hover:bg-slate-50/90 dark:hover:bg-slate-800/50 transition-colors"
+                        >
+                          {/* 1. PO REF & DATE */}
+                          <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                            <div className="font-mono text-xs font-bold text-indigo-700 dark:text-indigo-400 truncate" title={poRefText}>
+                              {poRefText}
+                            </div>
+                            <div className="font-mono text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
+                              {poDateStr}
+                            </div>
+                          </td>
+
+                          {/* 2. VENDOR / SUPPLIER */}
+                          <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                            <div className="flex items-center gap-1 min-w-0">
+                              {vCompId && onOpenCompany360 ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenCompany360(vCompId);
+                                  }}
+                                  className="text-left hover:text-indigo-600 hover:underline inline-flex items-center gap-1 max-w-full truncate cursor-pointer"
+                                  title={vName}
+                                >
+                                  <span className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate">{vName}</span>
+                                  <ArrowUpRight className="w-3 h-3 text-slate-400 shrink-0" />
+                                </button>
+                              ) : (
+                                <span className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate" title={vName}>
+                                  {vName}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
+                              {po.purchase_order_metadata?.supplier_trn
+                                ? `TRN: ${po.purchase_order_metadata.supplier_trn}`
+                                : 'Warehouse Intake'}
+                            </div>
+                          </td>
+
+                          {/* 3. ITEM & PART NO */}
+                          <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                            <div className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate" title={li.item_name || li.description}>
+                              {li.item_name || li.description}
+                            </div>
+                            <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                              {li.part_no ? `PN: ${li.part_no}` : '—'}
+                            </div>
+                          </td>
+
+                          {/* 4. ORDERED / RECEIVED */}
+                          <td className="py-2.5 px-3 text-right align-middle overflow-hidden">
+                            <div className="font-mono text-xs text-slate-700 dark:text-slate-300 whitespace-nowrap truncate">
+                              Ord: {ordered} {li.unit || 'Nos'}
+                            </div>
+                            <div className="font-mono text-[11px] text-emerald-700 dark:text-emerald-400 whitespace-nowrap truncate mt-0.5">
+                              Rcvd: {received} {li.unit || 'Nos'}
+                            </div>
+                          </td>
+
+                          {/* 5. PENDING & COST (pr-5) */}
+                          <td className="py-2.5 pl-2 pr-5 text-right align-middle overflow-hidden">
+                            <div className="font-mono font-bold text-xs text-amber-700 dark:text-amber-400 whitespace-nowrap truncate">
+                              Pend: {pending} {li.unit || 'Nos'}
+                            </div>
+                            <div className="font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap truncate mt-0.5">
+                              {canViewConfidentialMargins ? `${po.currency} ${unitCost.toFixed(2)}` : 'Restricted'}
+                            </div>
+                          </td>
+
+                          {/* 6. ACTIONS */}
+                          <td
+                            className="py-2.5 px-3.5 w-[155px] text-right whitespace-nowrap align-middle"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="inline-flex items-center justify-end gap-1">
                               <button
                                 type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onOpenCompany360(vCompId);
-                                }}
-                                className="text-left hover:text-indigo-600 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                                onClick={() => handleOpenGrnModal(po)}
+                                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-2xs transition cursor-pointer"
                               >
-                                <span>{vName}</span>
-                                <ArrowUpRight className="w-3 h-3 text-slate-400 shrink-0" />
+                                Receive GRN
                               </button>
-                            ) : (
-                              vName
-                            );
-                          })()}
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <div className="font-semibold text-slate-900">{li.item_name || li.description}</div>
-                          {li.part_no && <div className="text-[10px] font-mono text-slate-500">PN: {li.part_no}</div>}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-mono">{ordered} {li.unit}</td>
-                        <td className="py-2.5 px-3 text-right font-mono text-emerald-700">{received} {li.unit}</td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-700">{pending} {li.unit}</td>
-                        <td className="py-2.5 px-3 text-right font-mono text-slate-700">
-                          {po.currency} {Number(li.landed_unit_cost ?? li.unit_price ?? 0).toFixed(2)}
-                        </td>
-                        <td
-                          className="py-2.5 px-4 text-right whitespace-nowrap"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div className="inline-flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenGrnModal(po)}
-                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10.5px] font-bold cursor-pointer"
-                            >
-                              Receive Stock (GRN)
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenBillModal(po)}
-                              className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[10.5px] font-bold cursor-pointer"
-                            >
-                              Record Bill
-                            </button>
-                          </div>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenBillModal(po)}
+                                className="w-7 h-7 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition inline-flex items-center justify-center cursor-pointer"
+                                title="Record Supplier Bill"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {filteredGrnRows.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-12 px-4 text-center">
+                          {hasActiveFilter && allPendingGrnRows.length > 0 ? (
+                            <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                              <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+                                <Search className="w-5 h-5" />
+                              </div>
+                              <div className="text-sm font-bold text-slate-800">
+                                No Pending GRN Lines Match Your Filter
+                              </div>
+                              <p className="text-xs text-slate-500">
+                                Clear the active search or vendor filter to view all {allPendingGrnRows.length} pending stock receipt lines.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSearchQuery('');
+                                  setVendorFilter('ALL');
+                                }}
+                                className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition cursor-pointer"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Clear Search / Reset Filters</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                              <div className="w-11 h-11 rounded-2xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center">
+                                <PackageCheck className="w-5 h-5" />
+                              </div>
+                              <div className="text-sm font-bold text-slate-900">
+                                All Active Supplier POs Received into Stock
+                              </div>
+                              <p className="text-xs text-slate-500">
+                                There are no pending Goods Receipt Note (GRN) deliveries awaiting warehouse intake. Issue a new Supplier PO to schedule incoming stock.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewPoVendorId('');
+                                  setNewPoSupplierName('');
+                                  setNewPoEnquiryId('');
+                                  setNewPoExpectedDate('');
+                                  setNewPoLines([
+                                    { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
+                                  ]);
+                                  setShowCreatePoModal(true);
+                                }}
+                                className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>Create Supplier PO</span>
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
-                    );
-                  })}
-                  {filteredGrnRows.length === 0 && (
-                    <tr>
-                      <td colSpan={8} className="py-12 px-4 text-center">
-                        {hasActiveFilter && allPendingGrnRows.length > 0 ? (
-                          <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                            <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
-                              <Search className="w-5 h-5" />
-                            </div>
-                            <div className="text-sm font-bold text-slate-800">
-                              No Pending GRN Lines Match Your Filter
-                            </div>
-                            <p className="text-xs text-slate-500">
-                              Clear the active search or vendor filter to view all {allPendingGrnRows.length} pending stock receipt lines.
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSearchQuery('');
-                                setVendorFilter('ALL');
-                              }}
-                              className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition cursor-pointer"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                              <span>Clear Search / Reset Filters</span>
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                            <div className="w-11 h-11 rounded-2xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center">
-                              <PackageCheck className="w-5 h-5" />
-                            </div>
-                            <div className="text-sm font-bold text-slate-900">
-                              All Active Supplier POs Received into Stock
-                            </div>
-                            <p className="text-xs text-slate-500">
-                              There are no pending Goods Receipt Note (GRN) deliveries awaiting warehouse intake. Issue a new Supplier PO to schedule incoming stock.
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setNewPoVendorId('');
-                                setNewPoSupplierName('');
-                                setNewPoEnquiryId('');
-                                setNewPoExpectedDate('');
-                                setNewPoLines([
-                                  { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
-                                ]);
-                                setShowCreatePoModal(true);
-                              }}
-                              className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              <span>Create Supplier PO</span>
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {filteredGrnRows.length > 0 && (
-              <div className="px-4 py-3 bg-slate-50/70 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
-                <div className="flex items-center gap-3">
-                  <span>
-                    Showing <span className="font-mono font-bold text-slate-900">{(safePage - 1) * itemsPerPage + 1}</span>–
-                    <span className="font-mono font-bold text-slate-900">{Math.min(safePage * itemsPerPage, filteredGrnRows.length)}</span> of{' '}
-                    <span className="font-mono font-bold text-slate-900">{filteredGrnRows.length}</span> Pending GRN Lines
-                  </span>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {filteredGrnRows.length > 0 && (
+                <div className="px-4 py-3 bg-slate-50/70 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+                  <div className="flex items-center gap-3">
+                    <span>
+                      Showing <span className="font-mono font-bold text-slate-900">{(safePage - 1) * itemsPerPage + 1}</span>–
+                      <span className="font-mono font-bold text-slate-900">{Math.min(safePage * itemsPerPage, filteredGrnRows.length)}</span> of{' '}
+                      <span className="font-mono font-bold text-slate-900">{filteredGrnRows.length}</span> Pending GRN Lines
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-400">Rows:</span>
+                      <select
+                        value={itemsPerPage}
+                        onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-mono font-semibold text-slate-700 cursor-pointer"
+                      >
+                        <option value={25}>25</option>
+                        <option value={50}>50</option>
+                        <option value={100}>100</option>
+                      </select>
+                    </div>
+                  </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-slate-400">Rows:</span>
-                    <select
-                      value={itemsPerPage}
-                      onChange={(e) => setItemsPerPage(Number(e.target.value))}
-                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-mono font-semibold text-slate-700 cursor-pointer"
+                    <button
+                      type="button"
+                      disabled={safePage <= 1}
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
                     >
-                      <option value={25}>25</option>
-                      <option value={50}>50</option>
-                      <option value={100}>100</option>
-                    </select>
+                      <ChevronLeft className="w-3.5 h-3.5" /> Prev
+                    </button>
+                    <span className="px-2 font-mono text-xs font-semibold text-slate-700">
+                      Page {safePage} of {totalPages}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={safePage >= totalPages}
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      Next <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    disabled={safePage <= 1}
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" /> Prev
-                  </button>
-                  <span className="px-2 font-mono text-xs font-semibold text-slate-700">
-                    Page {safePage} of {totalPages}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={safePage >= totalPages}
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                    className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    Next <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
           </div>
         );
       })()}
@@ -2465,337 +2580,398 @@ export default function ProcurementPayablesHub({
                 setVendorFilter('ALL');
               }}
             />
-          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
-                    <th className="py-3 px-4">Bill # / Inv #</th>
-                    <th className="py-3 px-3">Vendor</th>
-                    <th className="py-3 px-3">PO Ref</th>
-                    <th className="py-3 px-3">3-Way Match</th>
-                    <th className="py-3 px-3">Approval / Hold</th>
-                    <th className="py-3 px-3 text-right">Bill Total</th>
-                    <th className="py-3 px-3 text-right">Balance Due</th>
-                    <th className="py-3 px-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {paginatedBills.map((bill) => {
-                    const hasVariance =
-                      bill.three_way_match_status === 'price_variance' ||
-                      bill.three_way_match_status === 'qty_variance' ||
-                      bill.three_way_match_status === 'both_variance';
-                    return (
-                      <tr
-                        key={bill.id}
-                        onClick={() => setViewingBillSummary(bill)}
-                        className="cursor-pointer hover:bg-slate-50/90 transition-colors"
-                      >
-                        <td className="py-3 px-4">
-                          <div className="font-mono font-bold text-slate-900">{bill.bill_number}</div>
-                          <div className="text-[10.5px] font-mono text-slate-500">
-                            Inv: {bill.vendor_invoice_no}
-                          </div>
-                          {bill.attachment?.url && (
-                            <a
-                              href={bill.attachment.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 text-[10px] text-blue-600 hover:underline mt-0.5"
-                            >
-                              <span>View Scan</span>
-                              {bill.attachment.original_size_bytes &&
-                                bill.attachment.compressed_size_bytes &&
-                                bill.attachment.compressed_size_bytes < bill.attachment.original_size_bytes && (
-                                  <span className="px-1 rounded bg-emerald-50 text-emerald-700 font-mono text-[9px]">
-                                    {formatByteSize(bill.attachment.compressed_size_bytes)}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs overflow-clip">
+              <div className="w-full overflow-x-clip">
+                <table className="w-full table-fixed text-left border-collapse text-xs font-sans">
+                  <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                    <tr>
+                      <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Bill / Inv #</th>
+                      <th className="py-3 px-3.5 w-[21%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Vendor &amp; Linked PO</th>
+                      <th className="py-3 px-3 w-[13%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Bill / Due Date</th>
+                      <th className="py-3 px-3 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Settlement Status</th>
+                      <th className="py-3 pl-2 pr-5 w-[14%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Total &amp; Balance</th>
+                      <th className="py-3 px-3.5 w-[225px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                    {paginatedBills.map((bill) => {
+                      const hasVariance =
+                        bill.three_way_match_status === 'price_variance' ||
+                        bill.three_way_match_status === 'qty_variance' ||
+                        bill.three_way_match_status === 'both_variance';
+                      const vCompId = resolveVendorCompanyId(bill.vendor_company_id, bill.vendor_name);
+                      const billDateStr = (bill.bill_date || '').slice(0, 10) || '—';
+                      const dueDateStr = (bill.due_date || '').slice(0, 10);
+                      const isOverdue = Boolean(
+                        dueDateStr &&
+                          Number(bill.balance_due || 0) > 0 &&
+                          new Date(dueDateStr).getTime() < Date.now()
+                      );
+                      const matchText =
+                        bill.three_way_match_status === 'matched'
+                          ? '3-Way Matched'
+                          : bill.three_way_match_status === 'price_variance'
+                          ? 'Price Variance'
+                          : bill.three_way_match_status === 'qty_variance'
+                          ? 'Qty Variance'
+                          : bill.three_way_match_status === 'both_variance'
+                          ? 'Price & Qty Var'
+                          : 'Direct Bill';
+
+                      const pillLabel = bill.is_on_hold
+                        ? 'ON HOLD'
+                        : Number(bill.balance_due || 0) <= 0
+                        ? 'Paid'
+                        : Number(bill.amount_paid || 0) > 0
+                        ? 'Partially Paid'
+                        : bill.approval_status === 'approved'
+                        ? 'Approved'
+                        : 'Pending Approval';
+
+                      const pillTone = bill.is_on_hold
+                        ? 'bg-rose-100 text-rose-800 border-rose-300'
+                        : Number(bill.balance_due || 0) <= 0
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : bill.approval_status === 'approved'
+                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                        : 'bg-amber-50 text-amber-800 border-amber-200';
+
+                      return (
+                        <tr
+                          key={bill.id}
+                          onClick={() => setViewingBillSummary(bill)}
+                          className="cursor-pointer border-l-2 border-l-transparent hover:border-l-amber-500 hover:bg-slate-50/90 dark:hover:bg-slate-800/50 transition-colors"
+                        >
+                          {/* 1. BILL / INV # (Max 2 Lines) */}
+                          <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100 truncate" title={bill.bill_number}>
+                                {bill.bill_number}
+                              </span>
+                              {bill.attachment?.url && (
+                                <a
+                                  href={bill.attachment.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[9.5px] font-semibold hover:bg-blue-100 shrink-0"
+                                  title="View Supplier Invoice Scan"
+                                >
+                                  PDF
+                                </a>
+                              )}
+                            </div>
+                            <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate mt-0.5" title={`Inv: ${bill.vendor_invoice_no}`}>
+                              Inv: {bill.vendor_invoice_no || '—'}
+                            </div>
+                          </td>
+
+                          {/* 2. VENDOR & LINKED PO (Max 2 Lines) */}
+                          <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                            <div className="flex items-center gap-1 min-w-0">
+                              {vCompId && onOpenCompany360 ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenCompany360(vCompId);
+                                  }}
+                                  className="text-left hover:text-indigo-600 hover:underline inline-flex items-center gap-1 max-w-full truncate cursor-pointer"
+                                  title={bill.vendor_name}
+                                >
+                                  <span className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate">
+                                    {bill.vendor_name}
                                   </span>
-                                )}
-                            </a>
-                          )}
-                        </td>
-                        <td className="py-3 px-3 font-semibold text-slate-800">
-                          {(() => {
-                            const vCompId = resolveVendorCompanyId(bill.vendor_company_id, bill.vendor_name);
-                            return vCompId && onOpenCompany360 ? (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onOpenCompany360(vCompId);
-                                }}
-                                className="text-left hover:text-indigo-600 hover:underline inline-flex items-center gap-1 cursor-pointer"
-                              >
-                                <span>{bill.vendor_name}</span>
-                                <ArrowUpRight className="w-3 h-3 text-slate-400 shrink-0" />
-                              </button>
-                            ) : (
-                              bill.vendor_name
-                            );
-                          })()}
-                        </td>
-                        <td className="py-3 px-3 font-mono text-indigo-700">{bill.po_ref || 'Direct Bill'}</td>
-                        <td className="py-3 px-3">
-                          <span
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                              bill.three_way_match_status === 'matched'
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : hasVariance
-                                ? 'bg-amber-50 text-amber-800 border-amber-300'
-                                : 'bg-slate-100 text-slate-600 border-slate-200'
-                            }`}
-                            title={formatBillVarianceSummary(bill)}
-                          >
-                            {hasVariance && <AlertTriangle className="w-3 h-3 text-amber-600" />}
-                            <span>
-                              {bill.three_way_match_status === 'matched'
-                                ? '3-Way Matched'
-                                : bill.three_way_match_status === 'price_variance'
-                                ? 'Price Variance'
-                                : bill.three_way_match_status === 'qty_variance'
-                                ? 'Qty Variance'
-                                : bill.three_way_match_status === 'both_variance'
-                                ? 'Price & Qty Variance'
-                                : 'No PO'}
-                            </span>
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 space-y-1">
-                          <div className="flex items-center gap-1.5">
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                                bill.approval_status === 'approved'
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                  : 'bg-amber-50 text-amber-800 border-amber-200'
+                                  <ArrowUpRight className="w-3 h-3 text-slate-400 shrink-0" />
+                                </button>
+                              ) : (
+                                <span className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate" title={bill.vendor_name}>
+                                  {bill.vendor_name}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] font-mono text-indigo-700 dark:text-indigo-400 truncate mt-0.5">
+                              {bill.po_ref ? `PO: ${bill.po_ref}` : 'Direct Bill (No PO)'}
+                            </div>
+                          </td>
+
+                          {/* 3. BILL / DUE DATE (Max 2 Lines) */}
+                          <td className="py-2.5 px-3 align-middle overflow-hidden">
+                            <div className="font-mono text-xs text-slate-700 dark:text-slate-200 whitespace-nowrap truncate">
+                              {billDateStr}
+                            </div>
+                            <div
+                              className={`text-[11px] font-mono whitespace-nowrap truncate mt-0.5 ${
+                                isOverdue ? 'text-rose-600 font-semibold' : 'text-slate-400 dark:text-slate-500'
                               }`}
                             >
-                              {bill.approval_status.toUpperCase()}
-                            </span>
-                            {bill.is_on_hold && (
+                              {dueDateStr ? `Due: ${dueDateStr}` : 'Immediate'}
+                            </div>
+                          </td>
+
+                          {/* 4. SETTLEMENT STATUS & 3-WAY MATCH (Max 2 Lines) */}
+                          <td className="py-2.5 px-3 align-middle overflow-hidden">
+                            <div className="flex flex-col items-start gap-1 min-w-0">
                               <span
-                                className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300 text-[10px] font-bold"
-                                title={bill.hold_reason}
+                                className={`px-2 py-0.5 rounded-full text-[10.5px] font-semibold border truncate max-w-full leading-tight ${pillTone}`}
+                                title={bill.hold_reason || ''}
                               >
-                                ON HOLD
+                                {pillLabel}
                               </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono font-semibold text-slate-800 whitespace-nowrap">
-                          {bill.currency} {Number(bill.grand_total || 0).toFixed(2)}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono font-bold text-rose-700 whitespace-nowrap">
-                          {bill.currency} {Number(bill.balance_due || 0).toFixed(2)}
-                        </td>
-                        <td
-                          className="py-3 px-4 text-right whitespace-nowrap"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div className="inline-flex items-center gap-1">
-                            {bill.approval_status !== 'approved' && (!hasVariance || userIsAdmin) && (
+                              <div
+                                className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-full"
+                                title={formatBillVarianceSummary(bill)}
+                              >
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                    bill.three_way_match_status === 'matched'
+                                      ? 'bg-emerald-500'
+                                      : hasVariance
+                                      ? 'bg-amber-500'
+                                      : 'bg-slate-400'
+                                  }`}
+                                />
+                                <span className={`truncate ${hasVariance ? 'text-amber-700 dark:text-amber-400 font-medium' : ''}`}>
+                                  {matchText}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* 5. TOTAL & BALANCE (Max 2 Lines, pr-5) */}
+                          <td className="py-2.5 pl-2 pr-5 text-right align-middle overflow-hidden">
+                            <div className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100 tabular-nums whitespace-nowrap truncate">
+                              {bill.currency}{' '}
+                              {Number(bill.grand_total || 0).toLocaleString('en-US', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                              })}
+                            </div>
+                            <div
+                              className={`font-mono text-[11px] tabular-nums whitespace-nowrap truncate mt-0.5 ${
+                                Number(bill.balance_due || 0) > 0
+                                  ? 'text-rose-600 dark:text-rose-400 font-semibold'
+                                  : 'text-emerald-600 dark:text-emerald-400'
+                              }`}
+                            >
+                              Bal: {bill.currency}{' '}
+                              {Number(bill.balance_due || 0).toLocaleString('en-US', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                              })}
+                            </div>
+                          </td>
+
+                          {/* 6. ACTIONS */}
+                          <td
+                            className="py-2.5 px-3.5 w-[225px] text-right whitespace-nowrap align-middle"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="inline-flex items-center justify-end gap-1">
+                              {bill.approval_status !== 'approved' && (!hasVariance || userIsAdmin) ? (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    await ProcurementRepository.save({
+                                      ...bill,
+                                      approval_status: 'approved',
+                                      is_on_hold: false,
+                                      variance_approved_by: user.full_name || user.email || 'Admin',
+                                      variance_approved_at: new Date().toISOString(),
+                                      updated_at: new Date().toISOString()
+                                    });
+                                    triggerToast?.(`Approved Supplier Bill ${bill.bill_number}.`, 'success');
+                                  }}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-2xs cursor-pointer"
+                                  title="Approve Supplier Bill for Settlement"
+                                >
+                                  Approve
+                                </button>
+                              ) : !bill.is_on_hold && bill.balance_due > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openCreatePvModal(bill)}
+                                  className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-2xs cursor-pointer"
+                                  title="Settle Bill via Outbound Payment Voucher (PV)"
+                                >
+                                  Pay
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setViewingBillSummary(bill)}
+                                  className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-semibold shadow-2xs cursor-pointer"
+                                >
+                                  Summary
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setViewingBillSummary(bill)}
+                                className="w-7 h-7 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition inline-flex items-center justify-center cursor-pointer"
+                                title="View / Print 3-Way Match Bill Summary"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                              </button>
                               <button
                                 type="button"
                                 onClick={async () => {
+                                  const nextHold = !bill.is_on_hold;
                                   await ProcurementRepository.save({
                                     ...bill,
-                                    approval_status: 'approved',
-                                    is_on_hold: false,
-                                    variance_approved_by: user.full_name || user.email || 'Admin',
-                                    variance_approved_at: new Date().toISOString(),
+                                    is_on_hold: nextHold,
+                                    hold_reason: nextHold ? 'Disputed / On Hold for Verification' : undefined,
                                     updated_at: new Date().toISOString()
                                   });
-                                  triggerToast?.(`Approved Supplier Bill ${bill.bill_number}.`, 'success');
+                                  triggerToast?.(
+                                    nextHold
+                                      ? `${bill.bill_number} placed on payment hold.`
+                                      : `${bill.bill_number} released from hold.`,
+                                    'info'
+                                  );
                                 }}
-                                className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold cursor-pointer"
-                                title="Approve Supplier Bill for Settlement"
+                                className={`w-7 h-7 rounded-lg border transition inline-flex items-center justify-center cursor-pointer ${
+                                  bill.is_on_hold
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                    : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                                }`}
+                                title={bill.is_on_hold ? 'Release Payment Hold' : 'Place Bill on Payment Hold'}
                               >
-                                Approve
+                                {bill.is_on_hold ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
                               </button>
-                            )}
-                            {!bill.is_on_hold && bill.balance_due > 0 && (
                               <button
                                 type="button"
-                                onClick={() => openCreatePvModal(bill)}
-                                className="px-2 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold cursor-pointer"
+                                onClick={() => handleOpenBillModal(undefined, bill)}
+                                className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition inline-flex items-center justify-center cursor-pointer"
+                                title="Edit Supplier Bill"
                               >
-                                Pay Bill (PV)
+                                <Edit2 className="w-3.5 h-3.5" />
                               </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => setViewingBillSummary(bill)}
-                              className="px-2 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[10px] font-bold cursor-pointer inline-flex items-center gap-1"
-                              title="View / Print 3-Way Match Bill Summary"
-                            >
-                              <Eye className="w-3 h-3" />
-                              <span>Summary</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const nextHold = !bill.is_on_hold;
-                                await ProcurementRepository.save({
-                                  ...bill,
-                                  is_on_hold: nextHold,
-                                  hold_reason: nextHold ? 'Disputed / On Hold for Verification' : undefined,
-                                  updated_at: new Date().toISOString()
-                                });
-                                triggerToast?.(
-                                  nextHold
-                                    ? `${bill.bill_number} placed on payment hold.`
-                                    : `${bill.bill_number} released from hold.`,
-                                  'info'
-                                );
-                              }}
-                              className={`px-2 py-1 rounded-lg border text-[10px] font-bold cursor-pointer ${
-                                bill.is_on_hold
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                  : 'bg-rose-50 text-rose-700 border-rose-200'
-                              }`}
-                            >
-                              {bill.is_on_hold ? 'Un-Hold' : 'Hold'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleIssueVendorReturn('debit_note', undefined, bill)}
-                              className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-semibold cursor-pointer"
-                            >
-                              + DN
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenBillModal(undefined, bill)}
-                              className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-semibold cursor-pointer"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setDeleteConfirmTarget({
-                                  type: 'bill',
-                                  id: bill.id,
-                                  refLabel: `${bill.bill_number} (Inv: ${bill.vendor_invoice_no})`,
-                                  vendorName: bill.vendor_name,
-                                  amountLabel: `${bill.currency} ${Number(bill.grand_total || 0).toFixed(2)}`
-                                });
-                              }}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
-                              title="Move Supplier Bill to Recycle Bin"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDeleteConfirmTarget({
+                                    type: 'bill',
+                                    id: bill.id,
+                                    refLabel: `${bill.bill_number} (Inv: ${bill.vendor_invoice_no})`,
+                                    vendorName: bill.vendor_name,
+                                    amountLabel: `${bill.currency} ${Number(bill.grand_total || 0).toFixed(2)}`
+                                  });
+                                }}
+                                className="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition inline-flex items-center justify-center cursor-pointer"
+                                title="Move Supplier Bill to Recycle Bin"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {filteredBills.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-12 px-4 text-center">
+                          {hasActiveFilter ? (
+                            <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                              <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+                                <Search className="w-5 h-5" />
+                              </div>
+                              <div className="text-sm font-bold text-slate-800">
+                                No Supplier Bills Match Your Filter
+                              </div>
+                              <p className="text-xs text-slate-500">
+                                No bills matched{' '}
+                                {searchQuery.trim() ? (
+                                  <span className="font-semibold text-slate-700">&ldquo;{searchQuery}&rdquo;</span>
+                                ) : (
+                                  <span className="font-semibold text-slate-700">{vendorFilter}</span>
+                                )}
+                                . Clear the active filter to view all {supplierBills.length} Supplier Bills.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSearchQuery('');
+                                  setVendorFilter('ALL');
+                                }}
+                                className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition cursor-pointer"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Clear Search / Reset Filters</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                              <div className="w-11 h-11 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center">
+                                <FileText className="w-5 h-5" />
+                              </div>
+                              <div className="text-sm font-bold text-slate-900">
+                                No Supplier Bills Recorded Yet
+                              </div>
+                              <p className="text-xs text-slate-500">
+                                Record incoming supplier tax invoices to run automated 3-Way Match verification against Purchase Orders and GRN receipts.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenBillModal()}
+                                className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>Record First Supplier Bill</span>
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
-                    );
-                  })}
-                  {filteredBills.length === 0 && (
-                    <tr>
-                      <td colSpan={8} className="py-12 px-4 text-center">
-                        {hasActiveFilter ? (
-                          <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                            <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
-                              <Search className="w-5 h-5" />
-                            </div>
-                            <div className="text-sm font-bold text-slate-800">
-                              No Supplier Bills Match Your Filter
-                            </div>
-                            <p className="text-xs text-slate-500">
-                              No bills matched{' '}
-                              {searchQuery.trim() ? (
-                                <span className="font-semibold text-slate-700">&ldquo;{searchQuery}&rdquo;</span>
-                              ) : (
-                                <span className="font-semibold text-slate-700">{vendorFilter}</span>
-                              )}
-                              . Clear the active filter to view all {supplierBills.length} Supplier Bills.
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSearchQuery('');
-                                setVendorFilter('ALL');
-                              }}
-                              className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition cursor-pointer"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                              <span>Clear Search / Reset Filters</span>
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                            <div className="w-11 h-11 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center">
-                              <FileText className="w-5 h-5" />
-                            </div>
-                            <div className="text-sm font-bold text-slate-900">
-                              No Supplier Bills Recorded Yet
-                            </div>
-                            <p className="text-xs text-slate-500">
-                              Record incoming supplier tax invoices to run automated 3-Way Match verification against Purchase Orders and GRN receipts.
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenBillModal()}
-                              className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              <span>Record First Supplier Bill</span>
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {filteredBills.length > 0 && (
-              <div className="px-4 py-3 bg-slate-50/70 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
-                <div className="flex items-center gap-3">
-                  <span>
-                    Showing <span className="font-mono font-bold text-slate-900">{(safePage - 1) * itemsPerPage + 1}</span>–
-                    <span className="font-mono font-bold text-slate-900">{Math.min(safePage * itemsPerPage, filteredBills.length)}</span> of{' '}
-                    <span className="font-mono font-bold text-slate-900">{filteredBills.length}</span> Supplier Bills
-                  </span>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {filteredBills.length > 0 && (
+                <div className="px-4 py-3 bg-slate-50/70 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+                  <div className="flex items-center gap-3">
+                    <span>
+                      Showing <span className="font-mono font-bold text-slate-900">{(safePage - 1) * itemsPerPage + 1}</span>–
+                      <span className="font-mono font-bold text-slate-900">{Math.min(safePage * itemsPerPage, filteredBills.length)}</span> of{' '}
+                      <span className="font-mono font-bold text-slate-900">{filteredBills.length}</span> Supplier Bills
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-400">Rows:</span>
+                      <select
+                        value={itemsPerPage}
+                        onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-mono font-semibold text-slate-700 cursor-pointer"
+                      >
+                        <option value={25}>25</option>
+                        <option value={50}>50</option>
+                        <option value={100}>100</option>
+                      </select>
+                    </div>
+                  </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-slate-400">Rows:</span>
-                    <select
-                      value={itemsPerPage}
-                      onChange={(e) => setItemsPerPage(Number(e.target.value))}
-                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-mono font-semibold text-slate-700 cursor-pointer"
+                    <button
+                      type="button"
+                      disabled={safePage <= 1}
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
                     >
-                      <option value={25}>25</option>
-                      <option value={50}>50</option>
-                      <option value={100}>100</option>
-                    </select>
+                      <ChevronLeft className="w-3.5 h-3.5" /> Prev
+                    </button>
+                    <span className="px-2 font-mono text-xs font-semibold text-slate-700">
+                      Page {safePage} of {totalPages}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={safePage >= totalPages}
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      Next <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    disabled={safePage <= 1}
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" /> Prev
-                  </button>
-                  <span className="px-2 font-mono text-xs font-semibold text-slate-700">
-                    Page {safePage} of {totalPages}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={safePage >= totalPages}
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                    className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    Next <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
           </div>
         );
       })()}
@@ -2839,269 +3015,322 @@ export default function ProcurementPayablesHub({
                 setVendorFilter('ALL');
               }}
             />
-          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-            <div className="p-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs font-bold text-slate-800">
-                Outbound Payment Vouchers (PV), Material Return Notes (MRN) &amp; Vendor Debit Notes (DN)
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleIssueVendorReturn('material_return_note')}
-                  className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer"
-                >
-                  + Material Return (MRN)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleIssueVendorReturn('debit_note')}
-                  className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer"
-                >
-                  + Vendor Debit Note (DN)
-                </button>
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs overflow-clip">
+              <div className="p-3 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  Outbound Payment Vouchers (PV), Material Return Notes (MRN) &amp; Vendor Debit Notes (DN)
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleIssueVendorReturn('material_return_note')}
+                    className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer"
+                  >
+                    + Material Return (MRN)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleIssueVendorReturn('debit_note')}
+                    className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer"
+                  >
+                    + Vendor Debit Note (DN)
+                  </button>
+                </div>
               </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
-                    <th className="py-3 px-4">Ref #</th>
-                    <th className="py-3 px-3">Type</th>
-                    <th className="py-3 px-3">Date</th>
-                    <th className="py-3 px-3">Vendor / Payee</th>
-                    <th className="py-3 px-3">Subject / Narration</th>
-                    <th className="py-3 px-3 text-right">Amount</th>
-                    <th className="py-3 px-4 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {paginatedVouchers.map((doc) => {
-                    const isPv = doc.document_type === 'payment_voucher';
-                    const isMrn =
-                      doc.document_type === 'material_return_note' ||
-                      (doc.document_type as string) === 'material_return';
-                    const amt = isPv
-                      ? Number(
-                          doc.payment_voucher_metadata?.amount_paid ??
-                            doc.financial_totals?.grand_total ??
-                            doc.grand_total ??
-                            0
-                        )
-                      : Number(doc.financial_totals?.grand_total ?? doc.grand_total ?? 0);
-                    return (
-                      <tr
-                        key={doc.id}
-                        onClick={() => handleOpenInStudio(doc)}
-                        className="cursor-pointer hover:bg-slate-50/90 transition-colors"
-                      >
-                        <td className="py-3 px-4 font-mono font-bold text-slate-900">
-                          {doc.formatted_quote_ref}
-                        </td>
-                        <td className="py-3 px-3">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                              isPv
-                                ? 'bg-amber-50 text-amber-800 border-amber-200'
+              <div className="w-full overflow-x-clip">
+                <table className="w-full table-fixed text-left border-collapse text-xs font-sans">
+                  <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                    <tr>
+                      <th className="py-3 px-3.5 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Voucher / Doc Ref</th>
+                      <th className="py-3 px-3.5 w-[25%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Payee / Vendor</th>
+                      <th className="py-3 px-3 w-[14%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Date &amp; Mode</th>
+                      <th className="py-3 px-3 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Status</th>
+                      <th className="py-3 pl-2 pr-5 w-[14%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Amount</th>
+                      <th className="py-3 px-3.5 w-[120px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                    {paginatedVouchers.map((doc) => {
+                      const isPv = doc.document_type === 'payment_voucher';
+                      const isMrn =
+                        doc.document_type === 'material_return_note' ||
+                        (doc.document_type as string) === 'material_return';
+                      const amt = isPv
+                        ? Number(
+                            doc.payment_voucher_metadata?.amount_paid ??
+                              doc.financial_totals?.grand_total ??
+                              doc.grand_total ??
+                              0
+                          )
+                        : Number(doc.financial_totals?.grand_total ?? doc.grand_total ?? 0);
+                      const vName =
+                        doc.payment_voucher_metadata?.payee_name ||
+                        doc.payment_voucher_metadata?.paid_to_vendor_name ||
+                        doc.vendor_return_metadata?.supplier_name ||
+                        doc.vendor_return_metadata?.vendor_name ||
+                        doc.client_snapshot?.entity_name ||
+                        'Vendor';
+                      const vCompId = resolveVendorCompanyId(
+                        doc.payment_voucher_metadata?.vendor_company_id ||
+                          doc.vendor_return_metadata?.vendor_company_id,
+                        vName
+                      );
+                      const docDateStr = (doc.quotation_date || '').slice(0, 10) || '—';
+                      const modeOrReason = isPv
+                        ? doc.payment_voucher_metadata?.payment_mode ||
+                          doc.payment_voucher_metadata?.payment_method ||
+                          'Bank Transfer'
+                        : doc.vendor_return_metadata?.return_reason || 'Vendor Return';
+                      const refSubText = isPv
+                        ? doc.payment_voucher_metadata?.transaction_reference ||
+                          doc.payment_voucher_metadata?.cheque_or_utr_no ||
+                          'Treasury Disbursed'
+                        : doc.vendor_return_metadata?.original_po_ref || 'Stock Adjusted';
+
+                      return (
+                        <tr
+                          key={doc.id}
+                          onClick={() => handleOpenInStudio(doc)}
+                          className="cursor-pointer border-l-2 border-l-transparent hover:border-l-indigo-500 hover:bg-slate-50/90 dark:hover:bg-slate-800/50 transition-colors"
+                        >
+                          {/* 1. VOUCHER / DOC REF (Max 2 Lines) */}
+                          <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                            <div className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100 truncate" title={doc.formatted_quote_ref}>
+                              {doc.formatted_quote_ref}
+                            </div>
+                            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                              {isPv
+                                ? 'Payment Voucher (PV)'
                                 : isMrn
-                                ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                : 'bg-rose-50 text-rose-700 border-rose-200'
-                            }`}
+                                ? 'Material Return (MRN)'
+                                : 'Debit Note (DN)'}
+                            </div>
+                          </td>
+
+                          {/* 2. PAYEE / VENDOR (Max 2 Lines) */}
+                          <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                            <div className="flex items-center gap-1 min-w-0">
+                              {vCompId && onOpenCompany360 ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenCompany360(vCompId);
+                                  }}
+                                  className="text-left hover:text-indigo-600 hover:underline inline-flex items-center gap-1 max-w-full truncate cursor-pointer"
+                                  title={vName}
+                                >
+                                  <span className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate">{vName}</span>
+                                  <ArrowUpRight className="w-3 h-3 text-slate-400 shrink-0" />
+                                </button>
+                              ) : (
+                                <span className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate" title={vName}>
+                                  {vName}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5" title={doc.quotation_subject || ''}>
+                              {doc.quotation_subject || '—'}
+                            </div>
+                          </td>
+
+                          {/* 3. DATE & MODE (Max 2 Lines) */}
+                          <td className="py-2.5 px-3 align-middle overflow-hidden">
+                            <div className="font-mono text-xs text-slate-700 dark:text-slate-200 whitespace-nowrap truncate">
+                              {docDateStr}
+                            </div>
+                            <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5" title={modeOrReason}>
+                              {modeOrReason}
+                            </div>
+                          </td>
+
+                          {/* 4. STATUS (Max 2 Lines) */}
+                          <td className="py-2.5 px-3 align-middle overflow-hidden">
+                            <div className="flex flex-col items-start gap-1 min-w-0">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10.5px] font-semibold border truncate max-w-full leading-tight ${
+                                  isPv
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : isMrn
+                                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                    : 'bg-rose-50 text-rose-700 border-rose-200'
+                                }`}
+                              >
+                                {isPv ? 'Settled' : isMrn ? 'Returned' : 'Credit Issued'}
+                              </span>
+                              <div className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-full">
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                    isPv ? 'bg-emerald-500' : isMrn ? 'bg-blue-500' : 'bg-rose-500'
+                                  }`}
+                                />
+                                <span className="truncate font-mono">{refSubText}</span>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* 5. AMOUNT (Max 2 Lines, pr-5) */}
+                          <td className="py-2.5 pl-2 pr-5 text-right align-middle overflow-hidden">
+                            <div className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100 tabular-nums whitespace-nowrap truncate">
+                              {isMrn
+                                ? 'Unpriced'
+                                : `${doc.currency} ${amt.toLocaleString('en-US', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                  })}`}
+                            </div>
+                            <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
+                              {isPv ? 'AP Disbursed' : isMrn ? 'Physical Return' : 'AP Deduction'}
+                            </div>
+                          </td>
+
+                          {/* 6. ACTIONS */}
+                          <td
+                            className="py-2.5 px-3.5 w-[120px] text-right whitespace-nowrap align-middle"
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            {isPv
-                              ? 'PAYMENT VOUCHER (PV)'
-                              : isMrn
-                              ? 'MATERIAL RETURN (MRN)'
-                              : 'DEBIT NOTE (DN)'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 font-mono text-slate-600">{doc.quotation_date}</td>
-                        <td className="py-3 px-3 font-semibold text-slate-800">
-                          {(() => {
-                            const vName =
-                              doc.payment_voucher_metadata?.payee_name ||
-                              doc.payment_voucher_metadata?.paid_to_vendor_name ||
-                              doc.vendor_return_metadata?.supplier_name ||
-                              doc.vendor_return_metadata?.vendor_name ||
-                              doc.client_snapshot?.entity_name ||
-                              'Vendor';
-                            const vCompId = resolveVendorCompanyId(
-                              doc.payment_voucher_metadata?.vendor_company_id ||
-                                doc.vendor_return_metadata?.vendor_company_id,
-                              vName
-                            );
-                            return vCompId && onOpenCompany360 ? (
+                            <div className="inline-flex items-center justify-end gap-1">
                               <button
                                 type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onOpenCompany360(vCompId);
-                                }}
-                                className="text-left hover:text-indigo-600 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                                onClick={() => handleOpenInStudio(doc)}
+                                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-indigo-50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-semibold shadow-2xs transition cursor-pointer"
+                                title="Open in A4 Studio"
                               >
-                                <span>{vName}</span>
-                                <ArrowUpRight className="w-3 h-3 text-slate-400 shrink-0" />
+                                Studio
                               </button>
-                            ) : (
-                              vName
-                            );
-                          })()}
-                        </td>
-                        <td className="py-3 px-3 text-slate-600 max-w-xs">
-                          <HoverScrollText text={doc.quotation_subject || ''} />
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono font-bold text-slate-900">
-                          {isMrn ? 'Unpriced' : `${doc.currency} ${amt.toFixed(2)}`}
-                        </td>
-                        <td
-                          className="py-3 px-4 text-right whitespace-nowrap"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div className="inline-flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenInStudio(doc)}
-                              className="px-3 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[10.5px] font-bold cursor-pointer"
-                            >
-                              Open in A4 Studio
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const vName =
-                                  doc.payment_voucher_metadata?.payee_name ||
-                                  doc.payment_voucher_metadata?.paid_to_vendor_name ||
-                                  doc.vendor_return_metadata?.supplier_name ||
-                                  doc.vendor_return_metadata?.vendor_name ||
-                                  doc.client_snapshot?.entity_name ||
-                                  'Vendor';
-                                setDeleteConfirmTarget({
-                                  type: 'voucher',
-                                  id: doc.id,
-                                  refLabel: doc.formatted_quote_ref || 'Voucher / Return',
-                                  vendorName: vName,
-                                  amountLabel: isMrn ? 'Unpriced' : `${doc.currency} ${amt.toFixed(2)}`
-                                });
-                              }}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
-                              title="Move Document to Recycle Bin"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDeleteConfirmTarget({
+                                    type: 'voucher',
+                                    id: doc.id,
+                                    refLabel: doc.formatted_quote_ref || 'Voucher / Return',
+                                    vendorName: vName,
+                                    amountLabel: isMrn ? 'Unpriced' : `${doc.currency} ${amt.toFixed(2)}`
+                                  });
+                                }}
+                                className="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition inline-flex items-center justify-center cursor-pointer"
+                                title="Move Document to Recycle Bin"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {filteredVouchers.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-12 px-4 text-center">
+                          {hasActiveFilter ? (
+                            <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                              <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
+                                <Search className="w-5 h-5" />
+                              </div>
+                              <div className="text-sm font-bold text-slate-800">
+                                No Payment Vouchers or Returns Match Your Filter
+                              </div>
+                              <p className="text-xs text-slate-500">
+                                Clear the active search or vendor filter to view all {paymentVouchersAndReturns.length} vouchers and returns.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSearchQuery('');
+                                  setVendorFilter('ALL');
+                                }}
+                                className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition cursor-pointer"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Clear Search / Reset Filters</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
+                              <div className="w-11 h-11 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center">
+                                <DollarSign className="w-5 h-5" />
+                              </div>
+                              <div className="text-sm font-bold text-slate-900">
+                                No Payment Vouchers or Vendor Returns Issued Yet
+                              </div>
+                              <p className="text-xs text-slate-500">
+                                Settle approved supplier bills with an Outbound Payment Voucher (PV), or issue a Material Return Note (MRN) / Debit Note (DN).
+                              </p>
+                              <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleIssuePaymentVoucher()}
+                                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  <span>Issue First Payment Voucher</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleIssueVendorReturn('material_return_note')}
+                                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition cursor-pointer"
+                                >
+                                  <span>Issue Material Return (MRN)</span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </td>
                       </tr>
-                    );
-                  })}
-                  {filteredVouchers.length === 0 && (
-                    <tr>
-                      <td colSpan={7} className="py-12 px-4 text-center">
-                        {hasActiveFilter ? (
-                          <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                            <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center">
-                              <Search className="w-5 h-5" />
-                            </div>
-                            <div className="text-sm font-bold text-slate-800">
-                              No Payment Vouchers or Returns Match Your Filter
-                            </div>
-                            <p className="text-xs text-slate-500">
-                              Clear the active search or vendor filter to view all {paymentVouchersAndReturns.length} vouchers and returns.
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSearchQuery('');
-                                setVendorFilter('ALL');
-                              }}
-                              className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition cursor-pointer"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                              <span>Clear Search / Reset Filters</span>
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="max-w-md mx-auto flex flex-col items-center gap-2.5">
-                            <div className="w-11 h-11 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center">
-                              <DollarSign className="w-5 h-5" />
-                            </div>
-                            <div className="text-sm font-bold text-slate-900">
-                              No Payment Vouchers or Vendor Returns Issued Yet
-                            </div>
-                            <p className="text-xs text-slate-500">
-                              Settle approved supplier bills with an Outbound Payment Voucher (PV), or issue a Material Return Note (MRN) / Debit Note (DN).
-                            </p>
-                            <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleIssuePaymentVoucher()}
-                                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
-                              >
-                                <Plus className="w-3.5 h-3.5" />
-                                <span>Issue First Payment Voucher</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleIssueVendorReturn('material_return_note')}
-                                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition cursor-pointer"
-                              >
-                                <span>Issue Material Return (MRN)</span>
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {filteredVouchers.length > 0 && (
-              <div className="px-4 py-3 bg-slate-50/70 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
-                <div className="flex items-center gap-3">
-                  <span>
-                    Showing <span className="font-mono font-bold text-slate-900">{(safePage - 1) * itemsPerPage + 1}</span>–
-                    <span className="font-mono font-bold text-slate-900">{Math.min(safePage * itemsPerPage, filteredVouchers.length)}</span> of{' '}
-                    <span className="font-mono font-bold text-slate-900">{filteredVouchers.length}</span> Vouchers &amp; Returns
-                  </span>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {filteredVouchers.length > 0 && (
+                <div className="px-4 py-3 bg-slate-50/70 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+                  <div className="flex items-center gap-3">
+                    <span>
+                      Showing <span className="font-mono font-bold text-slate-900">{(safePage - 1) * itemsPerPage + 1}</span>–
+                      <span className="font-mono font-bold text-slate-900">{Math.min(safePage * itemsPerPage, filteredVouchers.length)}</span> of{' '}
+                      <span className="font-mono font-bold text-slate-900">{filteredVouchers.length}</span> Vouchers &amp; Returns
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-400">Rows:</span>
+                      <select
+                        value={itemsPerPage}
+                        onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-mono font-semibold text-slate-700 cursor-pointer"
+                      >
+                        <option value={25}>25</option>
+                        <option value={50}>50</option>
+                        <option value={100}>100</option>
+                      </select>
+                    </div>
+                  </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-slate-400">Rows:</span>
-                    <select
-                      value={itemsPerPage}
-                      onChange={(e) => setItemsPerPage(Number(e.target.value))}
-                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-mono font-semibold text-slate-700 cursor-pointer"
+                    <button
+                      type="button"
+                      disabled={safePage <= 1}
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
                     >
-                      <option value={25}>25</option>
-                      <option value={50}>50</option>
-                      <option value={100}>100</option>
-                    </select>
+                      <ChevronLeft className="w-3.5 h-3.5" /> Prev
+                    </button>
+                    <span className="px-2 font-mono text-xs font-semibold text-slate-700">
+                      Page {safePage} of {totalPages}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={safePage >= totalPages}
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      Next <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    disabled={safePage <= 1}
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" /> Prev
-                  </button>
-                  <span className="px-2 font-mono text-xs font-semibold text-slate-700">
-                    Page {safePage} of {totalPages}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={safePage >= totalPages}
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                    className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    Next <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
           </div>
         );
       })()}
+        </>
+      )}
 
       {/* MODAL 1: CREATE NEW SUPPLIER PO */}
       {showCreatePoModal && (

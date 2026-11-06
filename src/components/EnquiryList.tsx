@@ -2460,12 +2460,12 @@ export default function EnquiryList({
       </div>
 
       {/* Main Table Layout */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-sm overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-sm overflow-clip">
         {filteredEnquiries.length > 0 ? (
           <>
-            <div className="w-full overflow-x-hidden max-h-[calc(100vh-250px)] overflow-y-auto relative border-b border-slate-200 dark:border-slate-800">
+            <div className="w-full overflow-x-clip relative border-b border-slate-200 dark:border-slate-800">
             <table className="w-full table-fixed text-left border-collapse">
-              <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 sticky top-0 z-20 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
+              <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 sticky top-[76px] z-20 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
                 <tr>
                   {isMarkingMode && (
                     <th className="py-2.5 px-2 w-9 text-center bg-slate-50 dark:bg-slate-900">

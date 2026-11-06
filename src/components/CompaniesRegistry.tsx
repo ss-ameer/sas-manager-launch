@@ -19,6 +19,7 @@ import {
 } from '../types';
 import { getReferenceId } from '../utils/refId';
 import GoogleSearchButton from './common/GoogleSearchButton';
+import { PhoneCall, Building2, Edit, Trash2, Search, RotateCcw, Users2, Plus, Phone } from 'lucide-react';
 import {
   formatRelativeOutreachDate,
   CompanyOutreachSummary,
@@ -318,17 +319,17 @@ export const CompaniesDirectoryTable: React.FC<CompaniesDirectoryTableProps> = (
   companyOutreachMap
 }) => {
   return (
-    <div className="w-full overflow-x-hidden max-h-[calc(100vh-250px)] overflow-y-auto relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
+    <div className="w-full overflow-x-clip relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
       <table className="w-full table-fixed text-left text-xs border-collapse font-sans">
-        <thead className="sticky top-0 z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+        <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
           <tr>
             <th className="py-3 px-3.5 w-[9%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Ref ID</th>
-            <th className="py-3 px-3.5 w-[27%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Company & Location</th>
+            <th className="py-3 px-3.5 w-[26%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Company & Location</th>
             <th className="py-3 px-3.5 w-[18%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Industry / Type</th>
             <th className="py-3 px-3.5 w-[13%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Relationship</th>
             <th className="py-3 px-3.5 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Contact Details</th>
             <th className="py-3 px-3.5 w-[10%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Activity</th>
-            <th className="py-3 px-3.5 w-[90px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Action</th>
+            <th className="py-3 px-3.5 w-[105px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Action</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
@@ -564,7 +565,7 @@ export const CompaniesDirectoryTable: React.FC<CompaniesDirectoryTableProps> = (
                 </td>
 
                 {/* 7. ACTION */}
-                <td className="py-2.5 px-3.5 w-[90px] text-right whitespace-nowrap align-middle">
+                <td className="py-2.5 px-3.5 w-[105px] text-right whitespace-nowrap align-middle">
                   <button
                     type="button"
                     onClick={(e) => {
@@ -585,8 +586,467 @@ export const CompaniesDirectoryTable: React.FC<CompaniesDirectoryTableProps> = (
   );
 };
 
+export interface ContactsDirectoryTableProps {
+  paginatedContacts: Array<Contact & { companyName?: string; location?: string }>;
+  filteredContacts: Array<Contact & { companyName?: string; location?: string }>;
+  isContactMarkingMode: boolean;
+  selectedContactIds: string[];
+  handleSelectAllContacts: () => void;
+  handleToggleSelectContact: (id: string) => void;
+  setSelectedContactDetail: (ct: any) => void;
+  handleInitiate: (payload: any) => void;
+  setSelectedCompanyId: (id: string) => void;
+  setViewMode: (mode: 'companies' | 'contacts' | 'phones') => void;
+  isEditable: boolean;
+  setContactToEdit: (ct: Contact | null) => void;
+  setSelectedCompanyForContact: (id: string) => void;
+  setContactModalOpen: (open: boolean) => void;
+  handleDeleteContact: (id: string) => void;
+  searchQuery: string;
+  setSearchQuery: (q: string) => void;
+  selectedCompanyId: string | null;
+}
+
+/**
+ * Standardized 2-line B2B SaaS People & Contacts Sub-Tab Table with sticky opaque header and table-fixed layout.
+ */
+export const ContactsDirectoryTable: React.FC<ContactsDirectoryTableProps> = ({
+  paginatedContacts,
+  filteredContacts,
+  isContactMarkingMode,
+  selectedContactIds,
+  handleSelectAllContacts,
+  handleToggleSelectContact,
+  setSelectedContactDetail,
+  handleInitiate,
+  setSelectedCompanyId,
+  setViewMode,
+  isEditable,
+  setContactToEdit,
+  setSelectedCompanyForContact,
+  setContactModalOpen,
+  handleDeleteContact,
+  searchQuery,
+  setSearchQuery,
+  selectedCompanyId
+}) => {
+  return (
+    <div className="w-full overflow-x-clip relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
+      <table className="w-full table-fixed text-left border-collapse text-xs font-sans">
+        <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+          <tr>
+            {isContactMarkingMode && (
+              <th className="py-3 px-2 w-9 text-center bg-slate-50 dark:bg-slate-900">
+                <input
+                  type="checkbox"
+                  checked={filteredContacts.length > 0 && filteredContacts.every((c) => c.id && selectedContactIds.includes(c.id))}
+                  onChange={handleSelectAllContacts}
+                  className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                  title="Select/Deselect All Filtered Contacts"
+                />
+              </th>
+            )}
+            <th className="py-3 px-3.5 w-[23%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Contact &amp; Role</th>
+            <th className="py-3 px-3.5 w-[22%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Company &amp; Location</th>
+            <th className="py-3 px-3.5 w-[14%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Mobile Phone</th>
+            <th className="py-3 px-3.5 w-[12%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Landline</th>
+            <th className="py-3 px-3.5 w-[18%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Email Address</th>
+            <th className="py-3 px-3.5 w-[120px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+          {paginatedContacts.map((ct) => {
+            const isContactSelected = Boolean(isContactMarkingMode && ct.id && selectedContactIds.includes(ct.id));
+            return (
+              <tr
+                key={ct.id}
+                onClick={() => setSelectedContactDetail(ct)}
+                className={`border-l-2 transition-colors group cursor-pointer ${
+                  isContactSelected
+                    ? 'border-l-blue-600 bg-blue-50/50 dark:bg-blue-950/30'
+                    : 'border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 dark:hover:bg-slate-800/50'
+                }`}
+              >
+                {isContactMarkingMode && (
+                  <td className="py-2.5 px-2 text-center align-middle" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={isContactSelected}
+                      onChange={() => ct.id && handleToggleSelectContact(ct.id)}
+                      className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                    />
+                  </td>
+                )}
+                <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate" title={ct.full_name}>
+                      {ct.full_name}
+                    </span>
+                    {ct.is_primary && (
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800 shrink-0 leading-none">
+                        Primary
+                      </span>
+                    )}
+                    {ct.is_dnc && (
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800 shrink-0 leading-none">
+                        DNC
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                    {ct.designation || '—'}
+                  </div>
+                </td>
+                <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                  <div className="font-semibold text-slate-800 dark:text-slate-200 text-xs truncate" title={ct.companyName}>
+                    {ct.companyName}
+                  </div>
+                  <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
+                    📍 {ct.location || 'UAE'}
+                  </div>
+                </td>
+                <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                  {ct.mobile ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        handleInitiate({
+                          companyId: ct.company_id,
+                          companyName: ct.companyName,
+                          contactId: ct.id,
+                          contactName: ct.full_name,
+                          contact: ct,
+                          targetType: 'contact',
+                          contactPhone: ct.mobile,
+                          channel: 'Call',
+                          externalUrl: `tel:${ct.mobile}`,
+                          e
+                        });
+                      }}
+                      className="font-mono text-xs text-blue-600 dark:text-blue-400 font-semibold hover:underline inline-flex items-center gap-1 max-w-full truncate cursor-pointer"
+                      title={ct.mobile}
+                    >
+                      <PhoneCall className="w-3 h-3 text-blue-500 shrink-0" />
+                      <span className="truncate">{ct.mobile}</span>
+                    </button>
+                  ) : (
+                    <span className="text-slate-400 dark:text-slate-500 text-xs select-none">—</span>
+                  )}
+                </td>
+                <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                  {ct.landline ? (
+                    <span className="font-mono text-slate-700 dark:text-slate-300 font-medium text-xs truncate block" title={ct.landline}>
+                      {ct.landline}
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 dark:text-slate-500 text-xs select-none">—</span>
+                  )}
+                </td>
+                <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                  {ct.email ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        handleInitiate({
+                          companyId: ct.company_id,
+                          companyName: ct.companyName,
+                          contactId: ct.id,
+                          contactName: ct.full_name,
+                          contact: ct,
+                          targetType: 'contact',
+                          contactEmail: ct.email,
+                          channel: 'Email',
+                          externalUrl: `mailto:${ct.email}`,
+                          e
+                        });
+                      }}
+                      className="text-slate-700 dark:text-slate-300 hover:text-blue-600 hover:underline font-mono text-[11px] cursor-pointer text-left truncate block max-w-full"
+                      title={ct.email}
+                    >
+                      {ct.email}
+                    </button>
+                  ) : (
+                    <span className="text-slate-400 dark:text-slate-500 text-xs select-none">—</span>
+                  )}
+                </td>
+                <td className="py-2.5 px-3.5 w-[120px] text-right whitespace-nowrap align-middle">
+                  <div className="inline-flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                    {ct.company_id && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCompanyId(ct.company_id!);
+                          setViewMode('companies');
+                        }}
+                        title="View Assigned Company"
+                        className="w-7 h-7 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center justify-center cursor-pointer"
+                      >
+                        <Building2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {isEditable && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setContactToEdit(ct);
+                            setContactModalOpen(true);
+                          }}
+                          className="w-7 h-7 rounded-lg bg-blue-50/70 hover:bg-blue-100/80 text-blue-700 border border-blue-200/80 transition inline-flex items-center justify-center cursor-pointer"
+                          title="Edit Contact"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteContact(ct.id!)}
+                          className="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition inline-flex items-center justify-center cursor-pointer"
+                          title="Delete Contact"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+
+          {filteredContacts.length === 0 && (
+            <tr>
+              <td colSpan={7} className="py-12 px-4 text-center">
+                {searchQuery.trim() ? (
+                  <div className="max-w-md mx-auto space-y-2.5">
+                    <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
+                      <Search className="w-5 h-5" />
+                    </div>
+                    <p className="text-sm font-bold text-slate-800">
+                      No contacts match &ldquo;{searchQuery.trim()}&rdquo;
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Try searching by another name, role, company, or phone number.
+                    </p>
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200/80 transition cursor-pointer"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Clear Search / Reset Filters</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="max-w-md mx-auto space-y-2.5">
+                    <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-200/60 flex items-center justify-center mx-auto">
+                      <Users2 className="w-5 h-5" />
+                    </div>
+                    <p className="text-sm font-bold text-slate-800">
+                      No contacts registered in this workspace yet
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Add key decision makers, engineers, and procurement contacts linked to your corporate accounts.
+                    </p>
+                    {isEditable && (
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setContactToEdit(null);
+                            setSelectedCompanyForContact(selectedCompanyId || '');
+                            setContactModalOpen(true);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow-2xs transition cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add First Contact</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+export interface PhonesDirectoryTableProps {
+  paginatedPhones: any[];
+  filteredPhones: any[];
+  searchQuery: string;
+  setSearchQuery: (q: string) => void;
+  setSelectedCompanyId: (id: string) => void;
+  setViewMode: (mode: 'companies' | 'contacts' | 'phones') => void;
+  handleInitiate: (payload: any) => void;
+}
+
+/**
+ * Standardized 2-line B2B SaaS Phone & Tel Directory Sub-Tab Table with sticky opaque header and table-fixed layout.
+ */
+export const PhonesDirectoryTable: React.FC<PhonesDirectoryTableProps> = ({
+  paginatedPhones,
+  filteredPhones,
+  searchQuery,
+  setSearchQuery,
+  setSelectedCompanyId,
+  setViewMode,
+  handleInitiate
+}) => {
+  return (
+    <div className="w-full overflow-x-clip relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
+      <table className="w-full table-fixed text-left border-collapse text-xs font-sans">
+        <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+          <tr>
+            <th className="py-3 px-3.5 w-[18%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Phone Number</th>
+            <th className="py-3 px-3.5 w-[12%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Type</th>
+            <th className="py-3 px-3.5 w-[26%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Associated Entity</th>
+            <th className="py-3 px-3.5 w-[20%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Role / Context</th>
+            <th className="py-3 px-3.5 w-[14%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Location</th>
+            <th className="py-3 px-3.5 w-[90px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Quick Dial</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+          {paginatedPhones.map((p) => {
+            const isRestricted = Boolean(p.restriction);
+            const badgeText = p.restriction === 'DNC' ? 'DNC' : 'INVALID';
+
+            return (
+              <tr
+                key={p.id}
+                onClick={() => {
+                  if (p.companyId) {
+                    setSelectedCompanyId(p.companyId);
+                    setViewMode('companies');
+                  }
+                }}
+                className="border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors group cursor-pointer"
+              >
+                <td className="py-2.5 px-3.5 font-mono text-xs font-semibold text-slate-900 dark:text-slate-100 align-middle overflow-hidden">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    {isRestricted ? (
+                      <span className="line-through text-slate-400 cursor-not-allowed truncate" title={`Restricted line (${badgeText})`}>
+                        {p.number}
+                      </span>
+                    ) : (
+                      <span className="truncate" title={p.number}>{p.number}</span>
+                    )}
+                    {isRestricted && (
+                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border shrink-0 leading-none ${
+                        p.restriction === 'Invalid'
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : 'bg-rose-50 text-rose-700 border-rose-200'
+                      }`}>
+                        {badgeText}
+                      </span>
+                    )}
+                  </div>
+                </td>
+                <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[11px] font-medium border inline-block truncate max-w-full ${
+                      p.type === 'Mobile'
+                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                        : p.type === 'Landline'
+                        ? 'bg-purple-50 text-purple-700 border-purple-200'
+                        : 'bg-slate-100 text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    {p.type}
+                  </span>
+                </td>
+                <td className="py-2.5 px-3.5 font-semibold text-slate-900 dark:text-slate-100 truncate align-middle" title={p.entityName}>
+                  {p.entityName}
+                </td>
+                <td className="py-2.5 px-3.5 text-slate-600 dark:text-slate-300 truncate align-middle" title={p.subText || ''}>
+                  {p.subText || <span className="text-slate-400 select-none">—</span>}
+                </td>
+                <td className="py-2.5 px-3.5 text-slate-500 dark:text-slate-400 truncate align-middle" title={p.location || ''}>
+                  {p.location || <span className="text-slate-400 select-none">—</span>}
+                </td>
+                <td className="py-2.5 px-3.5 w-[90px] text-right whitespace-nowrap align-middle" onClick={(e) => e.stopPropagation()}>
+                  {!isRestricted ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleInitiate({
+                          companyId: p.companyId,
+                          companyName: p.subText,
+                          contactId: p.contactId,
+                          contactName: p.contactId ? p.entityName : undefined,
+                          targetType: p.contactId ? 'contact' : 'company_mainline',
+                          contactPhone: p.number,
+                          channel: 'Call',
+                          externalUrl: `tel:${p.number}`,
+                          e
+                        });
+                      }}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-xs transition shadow-2xs cursor-pointer"
+                    >
+                      <PhoneCall className="w-3 h-3" />
+                      <span>Call</span>
+                    </button>
+                  ) : (
+                    <span className="text-xs text-slate-400 font-sans italic">Disabled</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+
+          {filteredPhones.length === 0 && (
+            <tr>
+              <td colSpan={6} className="py-12 px-4 text-center">
+                {searchQuery.trim() ? (
+                  <div className="max-w-md mx-auto space-y-2.5">
+                    <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
+                      <Search className="w-5 h-5" />
+                    </div>
+                    <p className="text-sm font-bold text-slate-800">
+                      No phone numbers match &ldquo;{searchQuery.trim()}&rdquo;
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Try searching by another digits sequence, person name, or company.
+                    </p>
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200/80 transition cursor-pointer"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Clear Search / Reset Filters</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="max-w-md mx-auto space-y-2.5">
+                    <div className="w-11 h-11 rounded-2xl bg-purple-50 text-purple-600 border border-purple-200/60 flex items-center justify-center mx-auto">
+                      <Phone className="w-5 h-5" />
+                    </div>
+                    <p className="text-sm font-bold text-slate-800">
+                      No phone numbers indexed yet
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Add phone numbers to your companies or contacts to populate the quick-dial directory.
+                    </p>
+                  </div>
+                )}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 export default CompanyModal;
 export * from './CompanyModal';
 export * from './CompanyCardView';
-
-

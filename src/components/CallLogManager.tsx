@@ -4239,35 +4239,35 @@ export default function CallLogManager({
               );
               })
             ) : (
-              <div className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto">
-                <table className="w-full text-left text-sm text-slate-600 dark:text-slate-400">
-                  <thead className="bg-slate-50 dark:bg-slate-950/50 text-xs uppercase font-semibold text-slate-500 border-b border-slate-200 dark:border-slate-800">
+              <div className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xs overflow-x-clip">
+                <table className="w-full table-fixed text-left border-collapse text-xs font-sans text-slate-600 dark:text-slate-400">
+                  <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
                     {historyActivityType === 'internal' ? (
                       <tr>
-                        {isMarkingMode && <th className="px-4 py-3 w-10"></th>}
-                        <th className="px-4 py-3">Date</th>
-                        <th className="px-4 py-3">Task Title & Notes</th>
-                        <th className="px-4 py-3">Category</th>
-                        <th className="px-4 py-3">Requester</th>
-                        <th className="px-4 py-3">Effort</th>
-                        <th className="px-4 py-3">Deliverable</th>
-                        <th className="px-4 py-3">Agent</th>
-                        <th className="px-4 py-3 text-right">Actions</th>
+                        {isMarkingMode && <th className="py-3 px-2 w-9 text-center bg-slate-50 dark:bg-slate-900"></th>}
+                        <th className="py-3 px-3.5 w-[13%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Date</th>
+                        <th className="py-3 px-3.5 w-[28%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Task Title &amp; Notes</th>
+                        <th className="py-3 px-3 w-[13%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Category</th>
+                        <th className="py-3 px-3 w-[13%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Requester</th>
+                        <th className="py-3 px-2.5 w-[9%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Effort</th>
+                        <th className="py-3 px-3 w-[14%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Deliverable</th>
+                        <th className="py-3 px-2.5 w-[7%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Agent</th>
+                        <th className="py-3 px-3.5 w-[112px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
                       </tr>
                     ) : (
                       <tr>
-                        {isMarkingMode && <th className="px-4 py-3 w-10"></th>}
-                        <th className="px-4 py-3">Date</th>
-                        <th className="px-4 py-3">Client</th>
-                        <th className="px-4 py-3 text-center">Temp</th>
-                        <th className="px-4 py-3">Contact</th>
-                        <th className="px-4 py-3">Status / Outcome</th>
-                        <th className="px-4 py-3">Agent</th>
-                        <th className="px-4 py-3 text-right">Actions</th>
+                        {isMarkingMode && <th className="py-3 px-2 w-9 text-center bg-slate-50 dark:bg-slate-900"></th>}
+                        <th className="py-3 px-3.5 w-[13%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Date</th>
+                        <th className="py-3 px-3.5 w-[26%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Client</th>
+                        <th className="py-3 px-2 w-[8%] text-center whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Temp</th>
+                        <th className="py-3 px-3.5 w-[20%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Contact</th>
+                        <th className="py-3 px-3 w-[17%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Status / Outcome</th>
+                        <th className="py-3 px-2.5 w-[7%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Agent</th>
+                        <th className="py-3 px-3.5 w-[112px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
                       </tr>
                     )}
                   </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
                     {paginatedLogs.map((log, index) => {
                       const prevLog = index > 0 ? paginatedLogs[index - 1] : null;
                       const prevDateKey = prevLog ? getDateKey(prevLog.date || prevLog.createdAt) : null;
@@ -4278,12 +4278,12 @@ export default function CallLogManager({
                       const isSelected = !!(log.id && selectedLogIds.includes(log.id));
                       const handledBy = getWorkspaceInitials(log.handled_by_team_member_name || log.logged_by || log.sales_person, salespersons, user, activeWorkspace);
                       const company = companies?.find(c => c.id === log.company_id);
-                      
+
                       return (
                         <React.Fragment key={log.id || `tr-log-${index}`}>
                           {isFirstInGroup && (
                             <tr key={`divider-row-${currentDateKey}-${index}`} className="bg-slate-50/80 dark:bg-slate-950/60 border-y border-slate-200 dark:border-slate-800">
-                              <td colSpan={historyActivityType === 'internal' ? (isMarkingMode ? 9 : 8) : (isMarkingMode ? 8 : 7)} className="px-4 py-2">
+                              <td colSpan={historyActivityType === 'internal' ? (isMarkingMode ? 9 : 8) : (isMarkingMode ? 8 : 7)} className="px-3.5 py-2">
                                 <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200 select-none">
                                   <Calendar className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                                   <span>{formatDateDivider(log.date || log.createdAt)}</span>
@@ -4294,11 +4294,11 @@ export default function CallLogManager({
                               </td>
                             </tr>
                           )}
-                          <tr key={log.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition ${isSelected && isMarkingMode ? (log.isInternalOps ? 'bg-indigo-50 dark:bg-indigo-900/20' : 'bg-blue-50 dark:bg-blue-900/20') : ''}`}>
+                          <tr key={log.id} className={`group border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/90 dark:hover:bg-slate-800/50 transition-colors ${isSelected && isMarkingMode ? (log.isInternalOps ? 'bg-indigo-50 dark:bg-indigo-900/20 border-l-indigo-600' : 'bg-blue-50 dark:bg-blue-900/20 border-l-blue-600') : ''}`}>
                           {log.isInternalOps ? (
                             <>
                               {isMarkingMode && (
-                                <td className="px-4 py-3">
+                                <td className="py-2.5 px-2 text-center align-middle">
                                   <input
                                     type="checkbox"
                                     checked={isSelected}
@@ -4311,84 +4311,78 @@ export default function CallLogManager({
                                   />
                                 </td>
                               )}
-                              <td className="px-4 py-3 font-mono text-xs whitespace-nowrap">
-                                <div className="flex items-center gap-1.5">
-                                  <span>{formatActivityDate(log.date || log.createdAt)}</span>
-                                  {(log.status === 'CANCELLED' || (log.status || '').toLowerCase() === 'cancelled' || (log.status || '').toLowerCase() === 'canceled' || (log.interaction_type || '').toLowerCase().includes('cancel')) && (
-                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 shadow-2xs font-sans">
-                                      [Cancelled]
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex flex-col gap-0.5 max-w-sm">
-                                  <span className="font-semibold text-slate-900 dark:text-slate-100 truncate text-xs sm:text-sm">
-                                    {log.title || 'Untitled Internal Task'}
+                              <td className="py-2.5 px-3.5 font-mono text-xs whitespace-nowrap align-middle overflow-hidden">
+                                <div className="truncate text-slate-700 dark:text-slate-200">{formatActivityDate(log.date || log.createdAt)}</div>
+                                {(log.status === 'CANCELLED' || (log.status || '').toLowerCase() === 'cancelled' || (log.status || '').toLowerCase() === 'canceled' || (log.interaction_type || '').toLowerCase().includes('cancel')) && (
+                                  <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 font-sans mt-0.5">
+                                    Cancelled
                                   </span>
-                                  {(log.requirement_notes || log.notes) && (
-                                    <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                      {log.requirement_notes || log.notes}
-                                    </span>
-                                  )}
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                                <div className="font-semibold text-slate-900 dark:text-slate-100 truncate text-xs" title={log.title || 'Untitled Internal Task'}>
+                                  {log.title || 'Untitled Internal Task'}
+                                </div>
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5" title={log.requirement_notes || log.notes || ''}>
+                                  {log.requirement_notes || log.notes || '—'}
                                 </div>
                               </td>
-                              <td className="px-4 py-3 whitespace-nowrap">
+                              <td className="py-2.5 px-3 align-middle overflow-hidden">
                                 {log.internalCategory ? (
-                                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${getCategoryBadgeStyle(log.internalCategory)}`}>
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-semibold border truncate max-w-full ${getCategoryBadgeStyle(log.internalCategory)}`}>
                                     {log.internalCategory}
                                   </span>
                                 ) : (
-                                  <span className="text-slate-400 text-xs">-</span>
+                                  <span className="text-slate-400 text-xs">—</span>
                                 )}
                               </td>
-                              <td className="px-4 py-3 whitespace-nowrap">
+                              <td className="py-2.5 px-3 align-middle overflow-hidden">
                                 {log.requester ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                    <User className="w-2.5 h-2.5 text-slate-400" />
-                                    <span>{log.requester}</span>
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 truncate max-w-full">
+                                    <User className="w-2.5 h-2.5 text-slate-400 shrink-0" />
+                                    <span className="truncate">{log.requester}</span>
                                   </span>
                                 ) : (
-                                  <span className="text-slate-400 text-xs">-</span>
+                                  <span className="text-slate-400 text-xs">—</span>
                                 )}
                               </td>
-                              <td className="px-4 py-3 whitespace-nowrap">
+                              <td className="py-2.5 px-2.5 whitespace-nowrap align-middle overflow-hidden">
                                 {typeof log.durationMinutes === 'number' && log.durationMinutes > 0 ? (
-                                  <span className="inline-flex items-center gap-1 text-xs font-mono font-medium text-slate-700 dark:text-slate-300">
-                                    <Clock className="w-3 h-3 text-indigo-500" />
+                                  <span className="inline-flex items-center gap-1 text-xs font-mono font-medium text-slate-700 dark:text-slate-300 truncate">
+                                    <Clock className="w-3 h-3 text-indigo-500 shrink-0" />
                                     <span>{log.durationMinutes >= 60 ? `${Math.floor(log.durationMinutes / 60)}h ${log.durationMinutes % 60 ? `${log.durationMinutes % 60}m` : ''}` : `${log.durationMinutes}m`}</span>
                                   </span>
                                 ) : (
-                                  <span className="text-slate-400 text-xs">-</span>
+                                  <span className="text-slate-400 text-xs">—</span>
                                 )}
                               </td>
-                              <td className="px-4 py-3 max-w-[180px]">
+                              <td className="py-2.5 px-3 align-middle overflow-hidden">
                                 {log.deliverableUrl ? (
                                   <a
                                     href={log.deliverableUrl.startsWith('http') ? log.deliverableUrl : `https://${log.deliverableUrl}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline truncate"
+                                    className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline truncate max-w-full"
                                     title={log.deliverableUrl}
                                   >
                                     <ExternalLink className="w-3 h-3 shrink-0" />
                                     <span className="truncate">{log.deliverableUrl.replace(/^https?:\/\//, '')}</span>
                                   </a>
                                 ) : (
-                                  <span className="text-slate-400 text-xs">-</span>
+                                  <span className="text-slate-400 text-xs">—</span>
                                 )}
                               </td>
-                              <td className="px-4 py-3 whitespace-nowrap">
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                              <td className="py-2.5 px-2.5 whitespace-nowrap align-middle overflow-hidden">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                                   {handledBy}
                                 </span>
                               </td>
-                              <td className="px-4 py-3 text-right whitespace-nowrap">
-                                <div className="flex items-center justify-end space-x-1">
+                              <td className="py-2.5 px-3.5 w-[112px] text-right whitespace-nowrap align-middle">
+                                <div className="inline-flex items-center justify-end gap-1">
                                   <button
                                     onClick={() => setSelectedDetailEntry(log)}
                                     title="View Details"
-                                    className="p-1.5 text-slate-400 hover:text-indigo-600 transition bg-slate-50 dark:bg-slate-800/80 hover:bg-indigo-50 rounded-lg cursor-pointer"
+                                    className="w-7 h-7 text-slate-500 hover:text-indigo-600 transition bg-slate-50 dark:bg-slate-800/80 hover:bg-indigo-50 border border-slate-200/80 dark:border-slate-700 rounded-lg inline-flex items-center justify-center cursor-pointer"
                                   >
                                     <Eye className="w-3.5 h-3.5" />
                                   </button>
@@ -4409,7 +4403,7 @@ export default function CallLogManager({
                                       }
                                     }}
                                     title="Edit Internal Task"
-                                    className="p-1.5 text-slate-400 hover:text-indigo-600 transition bg-slate-50 dark:bg-slate-800/80 hover:bg-indigo-50 rounded-lg cursor-pointer"
+                                    className="w-7 h-7 text-slate-500 hover:text-indigo-600 transition bg-slate-50 dark:bg-slate-800/80 hover:bg-indigo-50 border border-slate-200/80 dark:border-slate-700 rounded-lg inline-flex items-center justify-center cursor-pointer"
                                   >
                                     <Pencil className="w-3.5 h-3.5" />
                                   </button>
@@ -4422,7 +4416,7 @@ export default function CallLogManager({
                                         });
                                       }}
                                       title="Delete"
-                                      className="p-1.5 text-slate-400 hover:text-rose-600 transition bg-slate-50 dark:bg-slate-800/80 hover:bg-rose-50 rounded-lg cursor-pointer"
+                                      className="w-7 h-7 text-slate-400 hover:text-rose-600 transition hover:bg-rose-50 border border-transparent hover:border-rose-200 rounded-lg inline-flex items-center justify-center cursor-pointer"
                                     >
                                       <Trash2 className="w-3.5 h-3.5" />
                                     </button>
@@ -4433,7 +4427,7 @@ export default function CallLogManager({
                           ) : (
                             <>
                           {isMarkingMode && (
-                            <td className="px-4 py-3">
+                            <td className="py-2.5 px-2 text-center align-middle">
                               <input
                                 type="checkbox"
                                 checked={isSelected}
@@ -4446,43 +4440,46 @@ export default function CallLogManager({
                               />
                             </td>
                           )}
-                          <td className="px-4 py-3 font-mono text-xs whitespace-nowrap">
-                            <div className="flex items-center gap-1.5">
-                              <span>{formatActivityDate(log.date || log.createdAt)}</span>
-                              {(log.status === 'CANCELLED' || (log.status || '').toLowerCase() === 'cancelled' || (log.status || '').toLowerCase() === 'canceled' || (log.interaction_type || '').toLowerCase().includes('cancel')) && (
-                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 shadow-2xs font-sans">
-                                  [Cancelled]
-                                </span>
-                              )}
-                            </div>
+                          <td className="py-2.5 px-3.5 font-mono text-xs whitespace-nowrap align-middle overflow-hidden">
+                            <div className="truncate text-slate-700 dark:text-slate-200">{formatActivityDate(log.date || log.createdAt)}</div>
+                            {(log.status === 'CANCELLED' || (log.status || '').toLowerCase() === 'cancelled' || (log.status || '').toLowerCase() === 'canceled' || (log.interaction_type || '').toLowerCase().includes('cancel')) && (
+                              <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 font-sans mt-0.5">
+                                Cancelled
+                              </span>
+                            )}
                           </td>
-                          <td 
-                            className={`px-4 py-3 font-semibold hover:text-blue-600 transition cursor-pointer ${log.company_name || log.company_id ? 'text-slate-900 dark:text-slate-100' : 'text-slate-500'}`}
+                          <td
+                            className={`py-2.5 px-3.5 align-middle overflow-hidden cursor-pointer ${log.company_name || log.company_id ? 'text-slate-900 dark:text-slate-100' : 'text-slate-500'}`}
                             onClick={() => handleOpenCompany360ForLog(log)}
                             title={`View 360° details for ${getResolvedCompanyName(log)}`}
                           >
-                            <div className="flex items-center space-x-2">
-                              <span>{getResolvedCompanyName(log) || 'Unlinked'}</span>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="font-semibold text-xs hover:text-blue-600 transition truncate">
+                                {getResolvedCompanyName(log) || 'Unlinked'}
+                              </span>
+                              {(() => {
+                                const rel = (company?.relationship || '').toLowerCase();
+                                const isVend = rel.includes('vendor') || rel.includes('supplier') || rel.includes('both');
+                                return isVend ? (
+                                  <span className="px-1.5 py-0.2 rounded text-[9.5px] font-bold bg-amber-50 text-amber-700 border border-amber-200 uppercase tracking-wider shrink-0">
+                                    Vendor
+                                  </span>
+                                ) : null;
+                              })()}
                               {getResolvedCompanyName(log) && getResolvedCompanyName(log) !== 'Unlinked' && (
                                 <GoogleSearchButton
                                   companyName={getResolvedCompanyName(log)}
                                   location={log.company_id ? companyMap.get(log.company_id)?.city : undefined}
                                   size="xs"
+                                  className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                                 />
                               )}
-                              {(() => {
-                                const rel = (company?.relationship || '').toLowerCase();
-                                const isVend = rel.includes('vendor') || rel.includes('supplier') || rel.includes('both');
-                                return isVend ? (
-                                  <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 uppercase tracking-wider shrink-0">
-                                    Vendor
-                                  </span>
-                                ) : null;
-                              })()}
+                            </div>
+                            <div className="mt-0.5 truncate max-w-full">
                               <IndustryBadge company={company} size="sm" />
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-center">
+                          <td className="py-2.5 px-2 text-center align-middle">
                             {log.company_id ? (
                               <div className="flex items-center justify-center">
                                 <TemperatureBadge
@@ -4496,10 +4493,10 @@ export default function CallLogManager({
                                 />
                               </div>
                             ) : (
-                              <span className="text-slate-300 dark:text-slate-600 text-xs font-mono">-</span>
+                              <span className="text-slate-400 dark:text-slate-600 text-xs font-mono">—</span>
                             )}
                           </td>
-                          <td className={`px-4 py-3 ${log.status === 'Invalid Number' ? 'line-through text-red-400' : ''}`}>
+                          <td className={`py-2.5 px-3.5 align-middle overflow-hidden ${log.status === 'Invalid Number' ? 'line-through text-red-400' : ''}`}>
                             {(() => {
                               const channelLower = (log.channel || log.interaction_type || '').toLowerCase();
                               const isEmail = channelLower.includes('email') || channelLower === 'mail' || Boolean(log.contact_phone && log.contact_phone.includes('@'));
@@ -4513,38 +4510,32 @@ export default function CallLogManager({
                                 rawContact.toLowerCase() === 'mainline' ||
                                 rawContact.toLowerCase() === 'unassigned';
 
-                              const comp = log.company_id ? companyMap.get(log.company_id) : null;
-                              const compPhones = comp ? getCompanyPhones(comp) : [];
-                              const matchedPhone = compPhones.find((p) => (p.value && rawPhone && isSamePhoneNumber(p.value, rawPhone)) || p.value === rawPhone || p.number === rawPhone);
-                              const phoneLabel = matchedPhone?.label || (log as any).phone_label || (log as any).phoneLabel || 'Phone';
-
-                              if (isEmail) {
-                                return (
-                                  <span className="inline-flex items-center space-x-1.5 text-xs text-slate-700 dark:text-slate-300">
-                                    <Mail className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-                                    <span className="truncate max-w-[200px]" title={rawEmail || rawContact}>
-                                      {!isMainline ? `Contact: ${rawContact} ${rawEmail ? `(${rawEmail})` : ''}` : (rawEmail ? `Mainline (Email: ${rawEmail})` : 'Email Outreach')}
-                                    </span>
-                                  </span>
-                                );
-                              }
+                              const primaryContactLabel = !isMainline ? rawContact : 'Company Mainline';
+                              const secondaryDetail = isEmail
+                                ? rawEmail || 'Email Outreach'
+                                : rawPhone || '—';
 
                               return (
-                                <span className="text-xs text-slate-700 dark:text-slate-300">
-                                  {!isMainline ? `Contact: ${rawContact} ${rawPhone ? `(${rawPhone})` : ''}` : (rawPhone ? `Mainline (${phoneLabel || 'Phone'}: ${rawPhone})` : '-')}
-                                </span>
+                                <div className="flex flex-col min-w-0">
+                                  <span className="font-semibold text-xs text-slate-800 dark:text-slate-200 truncate" title={primaryContactLabel}>
+                                    {primaryContactLabel}
+                                  </span>
+                                  <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5" title={secondaryDetail}>
+                                    {secondaryDetail}
+                                  </span>
+                                </div>
                               );
                             })()}
                           </td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-col gap-1">
+                          <td className="py-2.5 px-3 align-middle overflow-hidden">
+                            <div className="flex flex-col items-start gap-1 min-w-0">
                               {(() => {
                                 const normStatus = normalizeStatusBadgeLabel(log.status, log.channel || log.interaction_type || 'Phone Call');
                                 const isCancelled = log.status === 'CANCELLED' || normStatus === 'Cancelled' || normStatus === 'Canceled' || (log.status || '').toLowerCase() === 'cancelled';
                                 if (isCancelled) {
                                   return (
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border w-fit bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60 shadow-2xs font-sans">
-                                      [Cancelled]
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-semibold border bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60 truncate max-w-full">
+                                      Cancelled
                                     </span>
                                   );
                                 }
@@ -4562,28 +4553,30 @@ export default function CallLogManager({
                                 }
 
                                 return (
-                                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border w-fit ${pillStyle}`}>
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-semibold border truncate max-w-full leading-tight ${pillStyle}`}>
                                     {normStatus}
                                   </span>
                                 );
                               })()}
-                              <span className="text-[10px] text-slate-500">{log.outcome || '-'}</span>
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-full" title={log.outcome || ''}>
+                                {log.outcome || '—'}
+                              </span>
                             </div>
                           </td>
-                          <td className="px-4 py-3">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                          <td className="py-2.5 px-2.5 whitespace-nowrap align-middle overflow-hidden">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                               {handledBy}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-right">
+                          <td className="py-2.5 px-3.5 w-[112px] text-right whitespace-nowrap align-middle">
                           {canUserClickRecord(user, log, salespersons, activeWorkspace?.id) ? (
-                              <div className="flex items-center justify-end space-x-1">
+                              <div className="inline-flex items-center justify-end gap-1">
                                 <button
                                   onClick={() => {
                                     setSelectedDetailEntry(log);
                                   }}
                                   title="View Details"
-                                  className="p-1.5 text-slate-400 hover:text-blue-600 transition bg-slate-50 hover:bg-blue-50 rounded-lg cursor-pointer"
+                                  className="w-7 h-7 text-slate-500 hover:text-blue-600 transition bg-slate-50 dark:bg-slate-800 hover:bg-blue-50 border border-slate-200/80 dark:border-slate-700 rounded-lg inline-flex items-center justify-center cursor-pointer"
                                 >
                                   <Eye className="w-3.5 h-3.5" />
                                 </button>
@@ -4592,8 +4585,8 @@ export default function CallLogManager({
                                     setEditingLog(log);
                                     setDrawerMode('edit');
                                     if (onOpenActivityDrawer) {
-                                      onOpenActivityDrawer({ 
-                                        channel: log.channel || 'Call', 
+                                      onOpenActivityDrawer({
+                                        channel: log.channel || 'Call',
                                         drawerMode: 'edit',
                                         existingLog: log,
                                         logToEdit: log,
@@ -4604,7 +4597,7 @@ export default function CallLogManager({
                                     }
                                   }}
                                   title="Edit"
-                                  className="p-1.5 text-slate-400 hover:text-blue-600 transition bg-slate-50 hover:bg-blue-50 rounded-lg cursor-pointer"
+                                  className="w-7 h-7 text-slate-500 hover:text-blue-600 transition bg-slate-50 dark:bg-slate-800 hover:bg-blue-50 border border-slate-200/80 dark:border-slate-700 rounded-lg inline-flex items-center justify-center cursor-pointer"
                                 >
                                   <Edit3 className="w-3.5 h-3.5" />
                                 </button>
@@ -4617,14 +4610,14 @@ export default function CallLogManager({
                                       });
                                     }}
                                     title="Delete"
-                                    className="p-1.5 text-slate-400 hover:text-rose-600 transition bg-slate-50 hover:bg-rose-50 rounded-lg cursor-pointer"
+                                    className="w-7 h-7 text-slate-400 hover:text-rose-600 transition hover:bg-rose-50 border border-transparent hover:border-rose-200 rounded-lg inline-flex items-center justify-center cursor-pointer"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
                                 )}
                               </div>
                             ) : (
-                              <span className="text-[10px] text-slate-400 font-semibold">Restricted</span>
+                              <span className="text-[11px] text-slate-400 font-semibold">Restricted</span>
                             )}
                           </td>
                             </>

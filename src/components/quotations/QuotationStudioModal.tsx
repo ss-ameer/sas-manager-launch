@@ -1817,12 +1817,28 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   const [focusedBlockStyleTarget, setFocusedBlockStyleTarget] = useState<string>('block:acceptance');
 
   const handleCanvasSelectSection = (section: StudioSelectedSection, subTarget?: string) => {
+    const legacyVoucherBlockMap: Record<string, StudioSelectedSection> = {
+      receipt_amount_banner: 'rec_amount_banner',
+      receipt_instrument_card: 'rec_payment_instrument',
+      receipt_instrument_grid: 'rec_payment_instrument',
+      receipt_balance_card: 'rec_balance_statement',
+      receipt_allocation_card: 'rec_balance_statement',
+      pv_amount_banner: 'pv_disbursed_banner',
+      pv_allocation_table: 'pv_bill_allocation'
+    };
+
+    const mappedVoucherBlock = subTarget ? legacyVoucherBlockMap[subTarget] : undefined;
+
     const normalizedSection: StudioSelectedSection =
-      section === 'signatories'
+      mappedVoucherBlock
+        ? mappedVoucherBlock
+        : section === 'signatories'
         ? 'signatory'
         : section === 'recipient_meta'
         ? 'recipient_info'
         : section;
+
+    const effectiveSubTarget = mappedVoucherBlock ? `block:${mappedVoucherBlock}` : subTarget;
 
     if (
       normalizedSection &&
@@ -1841,25 +1857,25 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       });
     }
 
-    if (subTarget) {
-      if (normalizedSection === 'recipient_info' && subTarget.startsWith('recipient_')) {
-        setFocusedRecipientStyleTarget(subTarget);
+    if (effectiveSubTarget) {
+      if (normalizedSection === 'recipient_info' && effectiveSubTarget.startsWith('recipient_')) {
+        setFocusedRecipientStyleTarget(effectiveSubTarget);
       } else if (
         normalizedSection === 'quote_meta' &&
-        (subTarget.startsWith('offer_') ||
-          subTarget.startsWith('receipt_') ||
-          subTarget.startsWith('pv_'))
+        (effectiveSubTarget.startsWith('offer_') ||
+          effectiveSubTarget.startsWith('receipt_') ||
+          effectiveSubTarget.startsWith('pv_'))
       ) {
-        setFocusedOfferStyleTarget(subTarget);
+        setFocusedOfferStyleTarget(effectiveSubTarget);
       } else if (
-        subTarget.startsWith('block:') ||
-        subTarget.startsWith('do_signoff_') ||
-        subTarget === 'pv_approval_matrix' ||
-        subTarget.startsWith('return_signoff_')
+        effectiveSubTarget.startsWith('block:') ||
+        effectiveSubTarget.startsWith('do_signoff_') ||
+        effectiveSubTarget === 'pv_approval_matrix' ||
+        effectiveSubTarget.startsWith('return_signoff_')
       ) {
-        setFocusedBlockStyleTarget(subTarget);
+        setFocusedBlockStyleTarget(effectiveSubTarget);
       }
-      setInspectorSubTarget(`${subTarget}::${Date.now()}`);
+      setInspectorSubTarget(`${effectiveSubTarget}::${Date.now()}`);
     } else {
       if (normalizedSection === 'recipient_info') {
         setFocusedRecipientStyleTarget('recipient_card');

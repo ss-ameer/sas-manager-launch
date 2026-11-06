@@ -919,9 +919,9 @@ export default function ProjectRegistry({
         />
 
         {/* Standalone Table Card */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs overflow-clip">
           {/* Projects Table */}
-          <div className="w-full overflow-x-hidden max-h-[calc(100vh-250px)] overflow-y-auto relative">
+          <div className="w-full overflow-x-clip relative">
             {filteredProjects.length === 0 ? (
               <div className="py-16 px-4 text-center font-sans">
                 {searchTerm.trim() || statusFilter !== 'All' ? (
@@ -971,15 +971,15 @@ export default function ProjectRegistry({
               </div>
             ) : (
               <table className="w-full table-fixed text-left border-collapse font-sans">
-                <thead className="sticky top-0 z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
                   <tr>
                     <th className="py-3 px-3.5 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Project / Ref</th>
-                    <th className="py-3 px-3.5 w-[24%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Client &amp; Site</th>
+                    <th className="py-3 px-3.5 w-[22%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Client &amp; Site</th>
                     <th className="py-3 px-3.5 w-[14%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Stage / Status</th>
                     <th className="py-3 px-3.5 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Fulfillment / Progress</th>
                     <th className="py-3 pl-2 pr-5 w-[13%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Contract Value</th>
                     <th className="py-3 px-3 w-[9%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Owner / Timeline</th>
-                    <th className="py-3 px-3.5 w-[110px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                    <th className="py-3 px-3.5 w-[124px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 text-xs bg-white dark:bg-slate-900">
@@ -1246,7 +1246,7 @@ export default function ProjectRegistry({
                           </td>
 
                           {/* 7. ACTIONS */}
-                          <td className="py-2.5 px-3.5 w-[110px] text-right whitespace-nowrap align-middle">
+                          <td className="py-2.5 px-3.5 w-[124px] text-right whitespace-nowrap align-middle">
                             <div className="inline-flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                               <button
                                 type="button"

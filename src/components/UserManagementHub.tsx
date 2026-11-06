@@ -885,19 +885,19 @@ export default function UserManagementHub({
       </div>
 
       {/* Unified Team & Access Table */}
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50/80 border-b border-slate-200/80 text-2xs font-bold text-slate-500 uppercase tracking-wider font-sans">
-                <th className="py-3.5 px-4">Member Identity</th>
-                <th className="py-3.5 px-4">Linked Sales Rep Profile</th>
-                <th className="py-3.5 px-4">3-Tier Access Role</th>
-                <th className="py-3.5 px-4">Active Deals</th>
-                <th className="py-3.5 px-4 text-right">Actions</th>
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-x-clip shadow-2xs">
+        <div className="w-full overflow-x-clip">
+          <table className="w-full table-fixed text-left border-collapse text-xs font-sans">
+            <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider select-none">
+              <tr>
+                <th className="py-3 px-4 w-[28%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Member Identity</th>
+                <th className="py-3 px-3.5 w-[24%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Linked Sales Rep Profile</th>
+                <th className="py-3 px-3.5 w-[20%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">3-Tier Access Role</th>
+                <th className="py-3 px-3.5 w-[13%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Active Deals</th>
+                <th className="py-3 px-4 w-[190px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-xs font-sans">
+            <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 text-xs font-sans bg-white dark:bg-slate-900">
               {filteredMembers.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="py-12 text-center text-slate-400">
@@ -918,127 +918,120 @@ export default function UserManagementHub({
                   return (
                     <tr
                       key={member.uid}
-                      className={`hover:bg-slate-50/60 transition-colors ${
-                        member.isCurrentUser ? 'bg-blue-50/20' : ''
+                      className={`border-l-2 border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors ${
+                        member.isCurrentUser ? 'bg-blue-50/20 border-l-blue-500' : ''
                       }`}
                     >
-                      {/* 1. Member Identity */}
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center space-x-3">
-                          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                      {/* 1. Member Identity (Max 2 Lines) */}
+                      <td className="py-3 px-4 align-middle overflow-hidden">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs">
                             {getInitials(member.name || member.email)}
                           </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <HoverScrollText
-                                text={member.name}
-                                className="font-semibold text-slate-900 max-w-[180px]"
-                              />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span
+                                className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate"
+                                title={member.name}
+                              >
+                                {member.name}
+                              </span>
                               {member.isOwner && (
                                 <span
                                   title="Workspace Owner: Immutable permissions"
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-md text-2xs font-bold shrink-0"
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-md text-[10px] font-bold shrink-0 leading-none"
                                 >
                                   <Crown className="w-2.5 h-2.5 text-amber-600" />
                                   Owner
                                 </span>
                               )}
                               {member.isCurrentUser && (
-                                <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-md text-2xs font-bold shrink-0">
+                                <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-md text-[10px] font-bold shrink-0 leading-none">
                                   You
                                 </span>
                               )}
                             </div>
-                            <HoverScrollText
-                              text={member.email}
-                              className="text-2xs text-slate-400 font-mono max-w-[200px] block"
-                            />
+                            <div
+                              className="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate mt-0.5"
+                              title={member.email}
+                            >
+                              {member.email}
+                            </div>
                           </div>
                         </div>
                       </td>
 
                       {/* 2. Linked Salesperson Profile */}
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center space-x-2">
-                          <div className="relative flex-1 min-w-[160px] max-w-[220px]">
-                            <select
-                              value={member.salesperson_id || ''}
-                              disabled={isUpdatingSalesperson}
-                              onChange={(e) => handleLinkSalesperson(member, e.target.value)}
-                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 font-medium focus:outline-none focus:border-blue-500 disabled:opacity-50 cursor-pointer"
-                            >
-                              <option value="">— Unlinked / Direct User —</option>
-                              {salespersons.map((sp) => (
-                                <option key={sp.id} value={sp.id}>
-                                  {sp.full_name} ({sp.initials || sp.role || 'Sales Rep'})
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
+                      <td className="py-3 px-3.5 align-middle overflow-hidden">
+                        <select
+                          value={member.salesperson_id || ''}
+                          disabled={isUpdatingSalesperson}
+                          onChange={(e) => handleLinkSalesperson(member, e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-700 dark:text-slate-200 font-medium focus:outline-none focus:border-blue-500 disabled:opacity-50 cursor-pointer truncate"
+                        >
+                          <option value="">— Unlinked / Direct User —</option>
+                          {salespersons.map((sp) => (
+                            <option key={sp.id} value={sp.id}>
+                              {sp.full_name} ({sp.initials || sp.role || 'Sales Rep'})
+                            </option>
+                          ))}
+                        </select>
                       </td>
 
                       {/* 3. 3-Tier Access Role Selector */}
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center space-x-2">
-                          {member.isOwner ? (
-                            <div
-                              title="Workspace Owner: Use Handover Wizard to transfer ownership"
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-xl text-xs font-bold"
-                            >
-                              <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
-                              <span>Admin (Owner)</span>
-                            </div>
-                          ) : member.isCurrentUser ? (
-                            <div
-                              title="Self-Demotion Guard: You cannot change your own role"
-                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 border rounded-xl text-xs font-bold ${getRoleBadge(
-                                member.role
-                              )}`}
-                            >
-                              <Shield className="w-3.5 h-3.5" />
-                              <span>{member.role}</span>
-                              <span className="text-2xs opacity-75 font-normal ml-0.5">(Protected)</span>
-                            </div>
-                          ) : (
-                            <div className="relative">
-                              <select
-                                value={member.role}
-                                disabled={isUpdatingRole}
-                                onChange={(e) => handleRoleChange(member, e.target.value as WorkspaceRole)}
-                                className={`px-3 py-1.5 border rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer disabled:opacity-50 ${getRoleBadge(
-                                  member.role
-                                )}`}
-                              >
-                                <option value="Admin">Admin (Full Control)</option>
-                                <option value="Member">Member (Operations)</option>
-                                <option value="Viewer">Viewer (Read-Only)</option>
-                              </select>
-                            </div>
-                          )}
-                        </div>
+                      <td className="py-3 px-3.5 align-middle overflow-hidden">
+                        {member.isOwner ? (
+                          <div
+                            title="Workspace Owner: Use Handover Wizard to transfer ownership"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-xl text-xs font-bold truncate max-w-full"
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                            <span className="truncate">Admin (Owner)</span>
+                          </div>
+                        ) : member.isCurrentUser ? (
+                          <div
+                            title="Self-Demotion Guard: You cannot change your own role"
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 border rounded-xl text-xs font-bold truncate max-w-full ${getRoleBadge(
+                              member.role
+                            )}`}
+                          >
+                            <Shield className="w-3.5 h-3.5 shrink-0" />
+                            <span className="truncate">{member.role}</span>
+                            <span className="text-[10.5px] opacity-75 font-normal ml-0.5 shrink-0">(Protected)</span>
+                          </div>
+                        ) : (
+                          <select
+                            value={member.role}
+                            disabled={isUpdatingRole}
+                            onChange={(e) => handleRoleChange(member, e.target.value as WorkspaceRole)}
+                            className={`w-full px-2.5 py-1.5 border rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer disabled:opacity-50 truncate ${getRoleBadge(
+                              member.role
+                            )}`}
+                          >
+                            <option value="Admin">Admin (Full Control)</option>
+                            <option value="Member">Member (Operations)</option>
+                            <option value="Viewer">Viewer (Read-Only)</option>
+                          </select>
+                        )}
                       </td>
 
                       {/* 4. Active Records Pill */}
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center">
-                          {count > 0 ? (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-full text-2xs font-semibold">
-                              <Briefcase className="w-3 h-3 text-emerald-600" />
-                              <span>{count} open deal{count === 1 ? '' : 's'}</span>
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-500 rounded-full text-2xs font-medium">
-                              <span>0 active deals</span>
-                            </span>
-                          )}
-                        </div>
+                      <td className="py-3 px-3.5 align-middle overflow-hidden">
+                        {count > 0 ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-full text-[11px] font-semibold truncate max-w-full">
+                            <Briefcase className="w-3 h-3 text-emerald-600 shrink-0" />
+                            <span className="truncate">{count} open deal{count === 1 ? '' : 's'}</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-500 rounded-full text-[11px] font-medium truncate max-w-full">
+                            <span className="truncate">0 active deals</span>
+                          </span>
+                        )}
                       </td>
 
                       {/* 5. Actions */}
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end space-x-1.5">
-                          {/* Reassign Deals Button */}
+                      <td className="py-3 px-4 w-[190px] text-right whitespace-nowrap align-middle">
+                        <div className="inline-flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => {
                               setReassignModalMember(member);
@@ -1046,29 +1039,28 @@ export default function UserManagementHub({
                               setSelectedTargetUid(otherMembers[0]?.uid || '');
                             }}
                             title="Reassign deals to another team member"
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-xl border border-slate-200 hover:border-blue-200 transition cursor-pointer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg border border-slate-200 hover:border-blue-200 transition cursor-pointer"
                           >
-                            <ArrowRightLeft className="w-3.5 h-3.5" />
+                            <ArrowRightLeft className="w-3.5 h-3.5 shrink-0" />
                             <span>Reassign</span>
                           </button>
 
-                          {/* Revoke Access Button */}
                           {!member.isOwner && !member.isCurrentUser ? (
                             <button
                               onClick={() => setRevokeConfirmMember(member)}
                               title="Revoke workspace membership"
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:text-white hover:bg-rose-600 rounded-xl border border-rose-200 hover:border-rose-600 transition cursor-pointer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-600 hover:text-white hover:bg-rose-600 rounded-lg border border-rose-200 hover:border-rose-600 transition cursor-pointer"
                             >
-                              <UserMinus className="w-3.5 h-3.5" />
+                              <UserMinus className="w-3.5 h-3.5 shrink-0" />
                               <span>Revoke</span>
                             </button>
                           ) : member.isOwner && onOpenHandoverWizard ? (
                             <button
                               onClick={onOpenHandoverWizard}
                               title="Handover workspace ownership wizard"
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-2xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-xl border border-amber-200 transition cursor-pointer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg border border-amber-200 transition cursor-pointer"
                             >
-                              <KeyRound className="w-3 h-3" />
+                              <KeyRound className="w-3 h-3 shrink-0" />
                               <span>Handover</span>
                             </button>
                           ) : null}
