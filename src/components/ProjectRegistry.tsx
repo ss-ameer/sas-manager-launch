@@ -919,9 +919,9 @@ export default function ProjectRegistry({
         />
 
         {/* Standalone Table Card */}
-        <div className="bg-white border border-slate-200/80 rounded-2xl shadow-xs overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
           {/* Projects Table */}
-          <div className="overflow-x-auto">
+          <div className="w-full overflow-x-hidden max-h-[calc(100vh-250px)] overflow-y-auto relative">
             {filteredProjects.length === 0 ? (
               <div className="py-16 px-4 text-center font-sans">
                 {searchTerm.trim() || statusFilter !== 'All' ? (
@@ -929,17 +929,17 @@ export default function ProjectRegistry({
                     <div className="w-11 h-11 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
                       <Search className="w-5 h-5" />
                     </div>
-                    <h4 className="text-sm font-bold text-slate-900">
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
                       No Projects Match Your Filter
                     </h4>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
                       {searchTerm.trim() ? (
                         <>
-                          No projects match <span className="font-semibold text-slate-800">&ldquo;{searchTerm.trim()}&rdquo;</span>
+                          No projects match <span className="font-semibold text-slate-800 dark:text-slate-200">&ldquo;{searchTerm.trim()}&rdquo;</span>
                           {statusFilter !== 'All' ? ` (${statusFilter})` : ''}.
                         </>
                       ) : (
-                        <>No projects found in the <span className="font-semibold text-slate-800">{statusFilter}</span> stage.</>
+                        <>No projects found in the <span className="font-semibold text-slate-800 dark:text-slate-200">{statusFilter}</span> stage.</>
                       )}{' '}
                       Clear your search or status filter to view all {workspaceProjects.length} projects.
                     </p>
@@ -960,29 +960,29 @@ export default function ProjectRegistry({
                     <div className="w-12 h-12 rounded-2xl bg-slate-100 border border-slate-200 text-slate-500 flex items-center justify-center">
                       <Briefcase className="w-6 h-6" />
                     </div>
-                    <h4 className="text-sm font-bold text-slate-900">
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
                       No Active Projects Yet
                     </h4>
-                    <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
                       Projects are instantiated when Won enquiries are converted via the &ldquo;Convert to Project / Fulfillment&rdquo; action in the Enquiries Log.
                     </p>
                   </div>
                 )}
               </div>
             ) : (
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500">
+              <table className="w-full table-fixed text-left border-collapse font-sans">
+                <thead className="sticky top-0 z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
                   <tr>
-                    <th className="py-3 px-4 w-36 whitespace-nowrap">Project Ref</th>
-                    <th className="py-3 px-4 min-w-[200px]">Client & Title</th>
-                    <th className="py-3 px-4 w-32 whitespace-nowrap">Type</th>
-                    <th className="py-3 px-4 text-right w-36 whitespace-nowrap">Value (AED)</th>
-                    <th className="py-3 px-4 text-center w-40 whitespace-nowrap">Fulfillment Status</th>
-                    <th className="py-3 px-4 text-center w-36 whitespace-nowrap">Dispatch</th>
-                    <th className="py-3 px-4 text-right w-24 whitespace-nowrap">Action</th>
+                    <th className="py-3 px-3.5 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Project / Ref</th>
+                    <th className="py-3 px-3.5 w-[24%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Client &amp; Site</th>
+                    <th className="py-3 px-3.5 w-[14%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Stage / Status</th>
+                    <th className="py-3 px-3.5 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Fulfillment / Progress</th>
+                    <th className="py-3 pl-2 pr-5 w-[13%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Contract Value</th>
+                    <th className="py-3 px-3 w-[9%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Owner / Timeline</th>
+                    <th className="py-3 px-3.5 w-[110px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200/80 text-xs">
+                <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 text-xs bg-white dark:bg-slate-900">
                   {filteredProjects
                     .slice(
                       (Math.min(currentPage, Math.max(1, Math.ceil(filteredProjects.length / itemsPerPage))) - 1) *
@@ -991,118 +991,283 @@ export default function ProjectRegistry({
                         itemsPerPage
                     )
                     .map((project) => {
-                    const isDelivered = project.status === 'Delivered' || project.status === 'Completed';
-                    const isSelected = selectedProject?.id && selectedProject.id === project.id;
-                    const inventoriedCount = (project.line_items || []).filter((it) => {
-                      if (!it.product_id) return false;
-                      const p = productMap?.get(it.product_id);
-                      return p ? Boolean(p.is_inventoried) : false;
-                    }).length;
-                    const totalLinesCount = (project.line_items || []).length;
-                    const didDeductStock = Boolean(
-                      (project as any).stock_deducted &&
-                      ((project as any).dispatched_items_count ?? (inventoriedCount > 0 ? 1 : 0)) > 0
-                    );
+                      const isDelivered = project.status === 'Delivered' || project.status === 'Completed';
+                      const isSelected = selectedProject?.id && selectedProject.id === project.id;
+                      const parentEnq = project.enquiry_id
+                        ? enquiries.find((eq) => eq.id === project.enquiry_id)
+                        : undefined;
+                      const lpoNumber =
+                        (project as any).customer_po_no ||
+                        (project as any).lpo_no ||
+                        (parentEnq as any)?.customer_po_no ||
+                        (parentEnq as any)?.lpo_no ||
+                        (parentEnq as any)?.po_number ||
+                        '';
 
-                    return (
-                      <tr
-                        key={project.id || project.project_number}
-                        className={`border-l-2 transition-colors cursor-pointer ${
-                          isSelected
-                            ? 'border-l-blue-600 bg-blue-50/50'
-                            : 'border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80'
-                        }`}
-                        onClick={() => setSelectedProject(project)}
-                      >
-                        <td className="py-3 px-4 font-mono font-bold text-blue-600 whitespace-nowrap">
-                          {project.project_number}
-                        </td>
-                        <td className="py-3 px-4">
-                          <HoverScrollText
-                            text={project.title}
-                            className="font-bold text-slate-900 font-sans max-w-xs md:max-w-sm block"
-                          />
-                          <div className="text-[11px] text-slate-500 flex items-center space-x-1 mt-0.5">
-                            <Building className="w-3 h-3 text-slate-400 shrink-0" />
-                            <HoverScrollText
-                              text={project.client_name}
-                              className="max-w-[220px]"
-                            />
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 whitespace-nowrap">
-                          <span className="px-2 py-0.5 rounded-lg text-[10px] font-mono font-medium bg-slate-100 text-slate-700 border border-slate-200">
-                            {project.project_type}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 tabular-nums whitespace-nowrap">
-                          {Number(project.contract_value).toLocaleString('en-US', {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                          })}
-                        </td>
-                        <td className="py-3 px-4 text-center whitespace-nowrap">
-                          {getStatusBadge(project.status, didDeductStock)}
-                        </td>
-                        <td className="py-3 px-4 text-center whitespace-nowrap">
-                          {project.status === 'Cancelled' ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-100 text-slate-400">
-                              Cancelled
-                            </span>
-                          ) : isDelivered ? (
-                            didDeductStock ? (
-                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800">
-                                <Check className="w-3 h-3" />
-                                <span>STOCK OUT</span>
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                                <CheckCircle2 className="w-3 h-3" />
-                                <span>FULFILLED</span>
-                              </span>
-                            )
-                          ) : inventoriedCount > 0 ? (
-                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono text-amber-700 bg-amber-50">
-                              <Boxes className="w-3 h-3" />
-                              <span>{inventoriedCount} Reserved</span>
-                            </span>
-                          ) : totalLinesCount > 0 ? (
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-medium text-slate-500 bg-slate-100">
-                              Non-Stock Scope
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-slate-400 italic">No Items</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <div className="inline-flex items-center justify-end gap-1.5">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedProject(project);
-                              }}
-                              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition inline-flex items-center gap-1 cursor-pointer"
+                      const inventoriedCount = (project.line_items || []).filter((it) => {
+                        if (!it.product_id) return false;
+                        const p = productMap?.get(it.product_id);
+                        return p ? Boolean(p.is_inventoried) : false;
+                      }).length;
+                      const totalLinesCount = (project.line_items || []).length;
+                      const didDeductStock = Boolean(
+                        (project as any).stock_deducted &&
+                          ((project as any).dispatched_items_count ?? (inventoriedCount > 0 ? 1 : 0)) > 0
+                      );
+
+                      // Linked DOs & POs counts
+                      const linkedDocs = workspaceProcurementDocs.filter(
+                        (d) =>
+                          !d.is_deleted &&
+                          ((project.id && (d as any).project_id === project.id) ||
+                            (project.enquiry_id && d.enquiry_id === project.enquiry_id))
+                      );
+                      const rawDoCount = linkedDocs.filter((d) => d.document_type === 'DO').length;
+                      const doCount = rawDoCount > 0 ? rawDoCount : didDeductStock ? 1 : 0;
+                      const poCount = linkedDocs.filter((d) => d.document_type === 'PO').length;
+
+                      // Progress percentage
+                      const totalMs = project.milestones?.length || 0;
+                      const completedMs =
+                        project.milestones?.filter((m) => m.status === 'Completed').length || 0;
+                      const progressPct =
+                        project.status === 'Cancelled'
+                          ? 0
+                          : isDelivered
+                          ? 100
+                          : totalMs > 0
+                          ? Math.round((completedMs / totalMs) * 100)
+                          : didDeductStock
+                          ? 75
+                          : poCount > 0
+                          ? 40
+                          : 15;
+
+                      // Stage Pill & Sub-status indicator
+                      const isOverdue = Boolean(
+                        project.target_delivery_date &&
+                          !isDelivered &&
+                          project.status !== 'Cancelled' &&
+                          new Date(project.target_delivery_date).getTime() < Date.now()
+                      );
+
+                      const stageLabel =
+                        project.status === 'Cancelled'
+                          ? 'Cancelled'
+                          : project.status === 'Completed'
+                          ? 'Completed'
+                          : project.status === 'Delivered'
+                          ? 'Delivered'
+                          : project.status === 'In Progress'
+                          ? poCount > 0
+                            ? 'In Procurement'
+                            : 'In Progress'
+                          : 'Order Confirmed';
+
+                      const stagePillClass =
+                        project.status === 'Cancelled'
+                          ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800'
+                          : project.status === 'Completed'
+                          ? 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/50 dark:text-teal-300 dark:border-teal-800'
+                          : project.status === 'Delivered'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
+                          : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800';
+
+                      const subStatusDotClass =
+                        project.status === 'Cancelled'
+                          ? 'bg-rose-500'
+                          : isOverdue
+                          ? 'bg-amber-500'
+                          : 'bg-emerald-500';
+                      const subStatusText =
+                        project.status === 'Cancelled'
+                          ? 'Voided'
+                          : isOverdue
+                          ? 'Delayed'
+                          : isDelivered
+                          ? didDeductStock
+                            ? 'Stock Out'
+                            : 'Fulfilled'
+                          : 'On Track';
+
+                      // Confidential margin calculation (only used when canViewConfidentialMargins is true)
+                      let marginSubline = `${totalLinesCount} ${totalLinesCount === 1 ? 'item' : 'items'}`;
+                      if (canViewConfidentialMargins) {
+                        const estCatalogCost = (project.line_items || []).reduce((s, li) => {
+                          const qty = Number(li.quantity) || 1;
+                          const prod = li.product_id ? productMap.get(li.product_id) : null;
+                          const unitCost =
+                            li.cost_price !== undefined && Number(li.cost_price) > 0
+                              ? Number(li.cost_price)
+                              : Number(prod?.cost_price) || 0;
+                          return s + qty * unitCost;
+                        }, 0);
+                        const rollup = ProcurementRepository.computeProcurementRollup({
+                          enquiryId: project.enquiry_id,
+                          projectId: project.id,
+                          clientContractValueAed: Number(project.contract_value) || 0,
+                          estimatedCatalogCostAed: estCatalogCost,
+                          procurementDocs: workspaceProcurementDocs,
+                          supplierBills: workspaceSupplierBills
+                        });
+                        marginSubline = `Margin: ${rollup.realizedNetMarginPct}%`;
+                      }
+
+                      const engineerDisplay = resolveEngineerDisplayName(project);
+                      const timelineDateStr = project.target_delivery_date
+                        ? new Date(project.target_delivery_date).toLocaleDateString('en-GB', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: '2-digit'
+                          })
+                        : project.created_at
+                        ? new Date(project.created_at).toLocaleDateString('en-GB', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: '2-digit'
+                          })
+                        : '—';
+
+                      const siteOrTitleLine = [
+                        project.title && project.title !== project.client_name ? project.title : null,
+                        project.site_location ? `📍 ${project.site_location}` : null
+                      ]
+                        .filter(Boolean)
+                        .join(' · ') || project.project_type || 'Standard Scope';
+
+                      return (
+                        <tr
+                          key={project.id || project.project_number}
+                          className={`border-l-2 transition-colors cursor-pointer group ${
+                            isSelected
+                              ? 'border-l-blue-600 bg-blue-50/50 dark:bg-blue-950/30'
+                              : 'border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 dark:hover:bg-slate-800/50'
+                          }`}
+                          onClick={() => setSelectedProject(project)}
+                        >
+                          {/* 1. PROJECT / REF */}
+                          <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                            <div
+                              className="font-mono text-xs font-semibold text-blue-600 dark:text-blue-400 truncate"
+                              title={project.project_number}
                             >
-                              <Eye className="w-3.5 h-3.5" />
-                              <span>View</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDeleteConfirmTarget(project);
-                              }}
-                              title="Move project to Recycle Bin"
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition cursor-pointer"
+                              {project.project_number}
+                            </div>
+                            <div className="text-[11px] text-slate-400 dark:text-slate-500 font-mono truncate mt-0.5">
+                              {lpoNumber
+                                ? `LPO: #${lpoNumber}`
+                                : parentEnq?.sn
+                                ? `S/N #${parentEnq.sn} · ${project.project_type || 'Supply'}`
+                                : project.project_type || 'Supply'}
+                            </div>
+                          </td>
+
+                          {/* 2. CLIENT & SITE */}
+                          <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                            <div
+                              className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate"
+                              title={project.client_name}
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                              {project.client_name}
+                            </div>
+                            <div
+                              className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5"
+                              title={siteOrTitleLine}
+                            >
+                              {siteOrTitleLine}
+                            </div>
+                          </td>
+
+                          {/* 3. STAGE / STATUS */}
+                          <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                            <div className="flex flex-col items-start gap-1 min-w-0">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border truncate max-w-full leading-tight ${stagePillClass}`}
+                              >
+                                {stageLabel}
+                              </span>
+                              <div className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500 truncate max-w-full">
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${subStatusDotClass}`} />
+                                <span className="truncate">{subStatusText}</span>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* 4. FULFILLMENT / PROGRESS */}
+                          <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="flex-1 max-w-[96px] bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                                <div
+                                  className={`h-1.5 rounded-full transition-all ${
+                                    project.status === 'Cancelled'
+                                      ? 'bg-rose-400'
+                                      : isDelivered
+                                      ? 'bg-emerald-500'
+                                      : 'bg-blue-500'
+                                  }`}
+                                  style={{ width: `${progressPct}%` }}
+                                />
+                              </div>
+                              <span className="font-mono text-[11px] font-semibold text-slate-700 dark:text-slate-300 tabular-nums shrink-0">
+                                {progressPct}%
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-1 font-mono">
+                              {doCount} DOs · {poCount} POs
+                              {inventoriedCount > 0 && !isDelivered ? ` · ${inventoriedCount} Rsv` : ''}
+                            </div>
+                          </td>
+
+                          {/* 5. CONTRACT VALUE */}
+                          <td className="py-2.5 pl-2 pr-5 text-right align-middle overflow-hidden">
+                            <div className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100 tabular-nums truncate">
+                              AED{' '}
+                              {Number(project.contract_value || 0).toLocaleString('en-US', {
+                                minimumFractionDigits: 0,
+                                maximumFractionDigits: 2
+                              })}
+                            </div>
+                            <div className="text-[11px] text-slate-400 dark:text-slate-500 font-mono truncate mt-0.5">
+                              {marginSubline}
+                            </div>
+                          </td>
+
+                          {/* 6. OWNER / TIMELINE */}
+                          <td className="py-2.5 px-3 align-middle overflow-hidden">
+                            <div
+                              className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate"
+                              title={engineerDisplay}
+                            >
+                              {engineerDisplay}
+                            </div>
+                            <div className="text-[11px] font-mono text-slate-400 dark:text-slate-500 truncate mt-0.5">
+                              {timelineDateStr}
+                            </div>
+                          </td>
+
+                          {/* 7. ACTIONS */}
+                          <td className="py-2.5 px-3.5 w-[110px] text-right whitespace-nowrap align-middle">
+                            <div className="inline-flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedProject(project)}
+                                className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center cursor-pointer"
+                              >
+                                Open
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteConfirmTarget(project)}
+                                title="Move project to Recycle Bin"
+                                className="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 dark:hover:border-rose-800 transition inline-flex items-center justify-center cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             )}
