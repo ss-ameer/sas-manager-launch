@@ -2721,7 +2721,7 @@ export default function CompanyModal({
           ) : (
             <div className="w-full overflow-x-clip relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
               <table className="w-full table-fixed text-left border-collapse text-xs font-sans">
-                <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                <thead className="sticky top-0 z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
                   <tr>
                     {isContactMarkingMode && (
                       <th className="py-3 px-2 w-9 text-center bg-slate-50 dark:bg-slate-900">
@@ -3017,7 +3017,7 @@ export default function CompanyModal({
 
           <div className="w-full overflow-x-clip relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
             <table className="w-full table-fixed text-left border-collapse text-xs font-sans">
-              <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+              <thead className="sticky top-0 z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
                 <tr>
                   <th className="py-3 px-3.5 w-[18%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Phone Number</th>
                   <th className="py-3 px-3.5 w-[12%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Type</th>

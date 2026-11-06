@@ -3616,16 +3616,16 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     }
 
     if (fmt.textAlign === 'center') {
-      cls.push('text-center quotation-fmt-align-center');
+      cls.push('text-center quotation-fmt-align quotation-fmt-align-center');
       st.textAlign = 'center';
     } else if (fmt.textAlign === 'right') {
-      cls.push('text-right quotation-fmt-align-right');
+      cls.push('text-right quotation-fmt-align quotation-fmt-align-right');
       st.textAlign = 'right';
     } else if (fmt.textAlign === 'justify') {
-      cls.push('text-justify quotation-fmt-align-justify');
+      cls.push('text-justify quotation-fmt-align quotation-fmt-align-justify');
       st.textAlign = 'justify';
     } else if (fmt.textAlign === 'left') {
-      cls.push('text-left quotation-fmt-align-left');
+      cls.push('text-left quotation-fmt-align quotation-fmt-align-left');
       st.textAlign = 'left';
     }
 
@@ -11080,54 +11080,99 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     >
       {/* Scoped Print & Formatting Inheritance Stylesheet */}
       <style>{`
-        .quotation-fmt-size *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+        .quotation-fmt-size span:not(.quotation-no-cascade),
+        .quotation-fmt-size p:not(.quotation-no-cascade),
+        .quotation-fmt-size div:not(.quotation-no-cascade),
+        .quotation-fmt-size *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *):not(.quotation-no-cascade) {
           font-size: inherit !important;
         }
         .quotation-fmt-bold,
-        .quotation-fmt-bold *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+        .quotation-fmt-bold span:not(.quotation-no-cascade),
+        .quotation-fmt-bold p:not(.quotation-no-cascade),
+        .quotation-fmt-bold div:not(.quotation-no-cascade),
+        .quotation-fmt-bold *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *):not(.quotation-no-cascade) {
           font-weight: 700 !important;
         }
         .quotation-fmt-semibold,
-        .quotation-fmt-semibold *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+        .quotation-fmt-semibold span:not(.quotation-no-cascade),
+        .quotation-fmt-semibold p:not(.quotation-no-cascade),
+        .quotation-fmt-semibold div:not(.quotation-no-cascade),
+        .quotation-fmt-semibold *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *):not(.quotation-no-cascade) {
           font-weight: 600 !important;
         }
         .quotation-fmt-medium,
-        .quotation-fmt-medium *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+        .quotation-fmt-medium span:not(.quotation-no-cascade),
+        .quotation-fmt-medium p:not(.quotation-no-cascade),
+        .quotation-fmt-medium div:not(.quotation-no-cascade),
+        .quotation-fmt-medium *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *):not(.quotation-no-cascade) {
           font-weight: 500 !important;
         }
         .quotation-fmt-normal,
-        .quotation-fmt-normal *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+        .quotation-fmt-normal span:not(.quotation-no-cascade),
+        .quotation-fmt-normal p:not(.quotation-no-cascade),
+        .quotation-fmt-normal div:not(.quotation-no-cascade),
+        .quotation-fmt-normal *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *):not(.quotation-no-cascade) {
           font-weight: 400 !important;
         }
         .quotation-fmt-italic,
-        .quotation-fmt-italic *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+        .quotation-fmt-italic span:not(.quotation-no-cascade),
+        .quotation-fmt-italic p:not(.quotation-no-cascade),
+        .quotation-fmt-italic div:not(.quotation-no-cascade),
+        .quotation-fmt-italic *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *):not(.quotation-no-cascade) {
           font-style: italic !important;
         }
         .quotation-fmt-underline,
-        .quotation-fmt-underline *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+        .quotation-fmt-underline span:not(.quotation-no-cascade),
+        .quotation-fmt-underline p:not(.quotation-no-cascade),
+        .quotation-fmt-underline div:not(.quotation-no-cascade),
+        .quotation-fmt-underline *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *):not(.quotation-no-cascade) {
           text-decoration: underline !important;
         }
         .quotation-fmt-uppercase,
-        .quotation-fmt-uppercase *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+        .quotation-fmt-uppercase span:not(.quotation-no-cascade),
+        .quotation-fmt-uppercase p:not(.quotation-no-cascade),
+        .quotation-fmt-uppercase div:not(.quotation-no-cascade),
+        .quotation-fmt-uppercase *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *):not(.quotation-no-cascade) {
           text-transform: uppercase !important;
         }
+        .quotation-fmt-align span:not(.quotation-no-cascade),
+        .quotation-fmt-align p:not(.quotation-no-cascade),
+        .quotation-fmt-align div:not(.quotation-no-cascade),
+        .quotation-fmt-align *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *):not(.quotation-no-cascade) {
+          text-align: inherit !important;
+        }
         .quotation-fmt-align-left,
-        .quotation-fmt-align-left *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+        .quotation-fmt-align-left span:not(.quotation-no-cascade),
+        .quotation-fmt-align-left p:not(.quotation-no-cascade),
+        .quotation-fmt-align-left div:not(.quotation-no-cascade),
+        .quotation-fmt-align-left *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *):not(.quotation-no-cascade) {
           text-align: left !important;
         }
         .quotation-fmt-align-center,
-        .quotation-fmt-align-center *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+        .quotation-fmt-align-center span:not(.quotation-no-cascade),
+        .quotation-fmt-align-center p:not(.quotation-no-cascade),
+        .quotation-fmt-align-center div:not(.quotation-no-cascade),
+        .quotation-fmt-align-center *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *):not(.quotation-no-cascade) {
           text-align: center !important;
         }
         .quotation-fmt-align-right,
-        .quotation-fmt-align-right *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+        .quotation-fmt-align-right span:not(.quotation-no-cascade),
+        .quotation-fmt-align-right p:not(.quotation-no-cascade),
+        .quotation-fmt-align-right div:not(.quotation-no-cascade),
+        .quotation-fmt-align-right *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *):not(.quotation-no-cascade) {
           text-align: right !important;
         }
         .quotation-fmt-align-justify,
-        .quotation-fmt-align-justify *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+        .quotation-fmt-align-justify span:not(.quotation-no-cascade),
+        .quotation-fmt-align-justify p:not(.quotation-no-cascade),
+        .quotation-fmt-align-justify div:not(.quotation-no-cascade),
+        .quotation-fmt-align-justify *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *):not(.quotation-no-cascade) {
           text-align: justify !important;
         }
-        .quotation-fmt-color *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *) {
+        .quotation-fmt-color span:not(.quotation-no-cascade),
+        .quotation-fmt-color p:not(.quotation-no-cascade),
+        .quotation-fmt-color div:not(.quotation-no-cascade),
+        .quotation-fmt-color *:not(.quotation-canvas-guide):not(.quotation-canvas-guide *):not(.quotation-no-cascade) {
           color: inherit !important;
         }
         @media print {

@@ -126,10 +126,15 @@ export class QuotationRepository {
   public static sanitizeCanonicalQuoteRef(rawRef?: string | null): string {
     if (!rawRef) return '';
     let cleaned = String(rawRef).trim();
-    // Strip one or more leading auxiliary prefixes (DO-, REC-, PO-, PV-, MRN-, DN-, PI-, INV-, LPO-, STK-)
+    const hadAuxPrefix = /^(?:DO|REC|PO|PV|MRN|DN|PI|INV|LPO|STK)-/i.test(cleaned);
     cleaned = cleaned.replace(/^(?:(?:DO|REC|PO|PV|MRN|DN|PI|INV|LPO|STK)-)+/i, '');
-    // Strip any intermediate 2-digit auxiliary sequence (-01) before -R1 / /Rev.1 / (Rev 1)
-    cleaned = cleaned.replace(/-\d{2}(?=(?:-R\d+|\/Rev\.\d+|\s*\(Rev\s*\d+\))?$)/i, '');
+    if (hadAuxPrefix) {
+      cleaned = cleaned
+        .replace(/(\/\d+)-\d{2}(?=(?:-R\d+|\/Rev\.\d+|\s*\(Rev\s*\d+\))?$)/i, '$1')
+        .replace(/(?<!-(?:19|20)\d{2})-\d{2}(?=(?:-R\d+|\/Rev\.\d+|\s*\(Rev\s*\d+\))?$)/i, '');
+    } else {
+      cleaned = cleaned.replace(/(\/\d+)-\d{2}(?=(?:-R\d+|\/Rev\.\d+|\s*\(Rev\s*\d+\))?$)/i, '$1');
+    }
     return cleaned.trim();
   }
 

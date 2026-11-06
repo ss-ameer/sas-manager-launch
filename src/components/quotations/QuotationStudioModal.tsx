@@ -3878,6 +3878,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     if (nextType === documentType) return;
     const prevType = documentType;
     setDocumentType(nextType);
+    if (selectedSection) {
+      const normalizedSectionId = String(selectedSection).replace(/^block:/, '');
+      if (
+        !isBlockRelevantForDocumentType({ id: selectedSection } as any, nextType) ||
+        !isBlockRelevantForDocumentType({ id: normalizedSectionId } as any, nextType)
+      ) {
+        setSelectedSection('quote_meta');
+        setInspectorSubTarget(null);
+      }
+    }
     if (nextType !== 'quotation') {
       setActiveLeftTab('content');
       setIsLeftDrawerOpen(true);
