@@ -688,12 +688,11 @@ export function formatRelativeOutreachDate(timestamp: number | null | undefined)
   if (diffDays === 0) return 'Today';
   if (diffDays === 1) return 'Yesterday';
 
-  const isSameYear = now.getFullYear() === date.getFullYear();
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const month = monthNames[date.getMonth()];
   const day = date.getDate();
 
-  return isSameYear ? `${month} ${day}` : `${month} ${day}, ${date.getFullYear()}`;
+  return `${month} ${day}, ${date.getFullYear()}`;
 }
 
 /**

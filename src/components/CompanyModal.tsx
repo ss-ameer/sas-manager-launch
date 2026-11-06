@@ -251,28 +251,28 @@ const DirectoryPaginationBar: React.FC<DirectoryPaginationProps> = ({
   onPageChange,
   onPageSizeChange
 }) => {
-  const totalPages = Math.ceil(totalItems / pageSize) || 1;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   const startItem = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1;
   const endItem = Math.min(currentPage * pageSize, totalItems);
 
   return (
-    <div className="px-5 py-3.5 bg-slate-50/60 border-t border-slate-200/80 rounded-b-2xl flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
-      <div className="text-xs font-mono text-slate-600">
-        Showing <span className="font-bold text-slate-900">{startItem}</span> to{' '}
-        <span className="font-bold text-slate-900">{endItem}</span> of{' '}
-        <span className="font-bold text-slate-900">{totalItems}</span> {itemLabel}
+    <div className="px-4 py-3 bg-slate-50/60 dark:bg-slate-900/60 border-t border-slate-200/80 dark:border-slate-800 rounded-b-2xl flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
+      <div className="text-xs font-mono text-slate-600 dark:text-slate-400">
+        Showing <span className="font-bold tabular-nums text-slate-900 dark:text-white">{startItem}</span> to{' '}
+        <span className="font-bold tabular-nums text-slate-900 dark:text-white">{endItem}</span> of{' '}
+        <span className="font-bold tabular-nums text-slate-900 dark:text-white">{totalItems}</span> {itemLabel}
       </div>
 
       <div className="flex items-center space-x-4">
         <div className="flex items-center space-x-2">
-          <span className="text-xs text-slate-500 font-sans">Rows per page:</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Rows per page:</span>
           <select
             value={pageSize}
             onChange={(e) => {
               onPageSizeChange(Number(e.target.value));
               onPageChange(1);
             }}
-            className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 focus:outline-none cursor-pointer"
+            className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
           >
             <option value={25}>25</option>
             <option value={50}>50</option>
@@ -285,21 +285,21 @@ const DirectoryPaginationBar: React.FC<DirectoryPaginationProps> = ({
             type="button"
             onClick={() => onPageChange(Math.max(currentPage - 1, 1))}
             disabled={currentPage <= 1}
-            className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+            className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
             title="Previous Page"
           >
             <ChevronLeft className="w-3.5 h-3.5" />
             <span>Prev</span>
           </button>
-          <span className="text-xs font-mono px-2.5 text-slate-600">
-            Page <span className="font-bold text-slate-900">{currentPage}</span> of{' '}
-            <span className="font-bold text-slate-900">{totalPages}</span>
+          <span className="text-xs font-mono px-2.5 text-slate-600 dark:text-slate-400">
+            Page <span className="font-bold tabular-nums text-slate-900 dark:text-white">{currentPage}</span> of{' '}
+            <span className="font-bold tabular-nums text-slate-900 dark:text-white">{totalPages}</span>
           </span>
           <button
             type="button"
             onClick={() => onPageChange(Math.min(currentPage + 1, totalPages))}
             disabled={currentPage >= totalPages}
-            className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+            className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
             title="Next Page"
           >
             <span>Next</span>
@@ -2339,8 +2339,19 @@ export default function CompanyModal({
                   searchQuery={searchQuery}
                   searchEvaluationMap={searchEvaluationMap}
                   companyOutreachMap={companyOutreachMap}
+                  paginationFooter={
+                    <DirectoryPaginationBar
+                      currentPage={currentPage}
+                      pageSize={pageSize}
+                      totalItems={filteredCompanies.length}
+                      itemLabel="companies"
+                      onPageChange={setCurrentPage}
+                      onPageSizeChange={setPageSize}
+                    />
+                  }
                 />
               ) : (
+                <>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {paginatedCompanies.map((c) => {
                       const isSelected = selectedCompanyId === c.id;
@@ -2365,18 +2376,18 @@ export default function CompanyModal({
                       );
                     })}
                   </div>
-                )}
-
-                {filteredCompanies.length > 0 && (
-                  <DirectoryPaginationBar
-                    currentPage={currentPage}
-                    pageSize={pageSize}
-                    totalItems={filteredCompanies.length}
-                    itemLabel="companies"
-                    onPageChange={setCurrentPage}
-                    onPageSizeChange={setPageSize}
-                  />
-                )}
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
+                    <DirectoryPaginationBar
+                      currentPage={currentPage}
+                      pageSize={pageSize}
+                      totalItems={filteredCompanies.length}
+                      itemLabel="companies"
+                      onPageChange={setCurrentPage}
+                      onPageSizeChange={setPageSize}
+                    />
+                  </div>
+                </>
+              )}
               </>
             ) : (
                 <div className="py-12 px-4 text-center bg-white border border-slate-200/80 rounded-2xl shadow-xs font-sans">
@@ -2949,18 +2960,30 @@ export default function CompanyModal({
                   )}
                 </tbody>
               </table>
+              {filteredContacts.length > 0 && (
+                <DirectoryPaginationBar
+                  currentPage={currentPage}
+                  pageSize={pageSize}
+                  totalItems={filteredContacts.length}
+                  itemLabel="contacts"
+                  onPageChange={setCurrentPage}
+                  onPageSizeChange={setPageSize}
+                />
+              )}
             </div>
           )}
 
-          {filteredContacts.length > 0 && (
-            <DirectoryPaginationBar
-              currentPage={currentPage}
-              pageSize={pageSize}
-              totalItems={filteredContacts.length}
-              itemLabel="contacts"
-              onPageChange={setCurrentPage}
-              onPageSizeChange={setPageSize}
-            />
+          {contactViewStyle === 'cards' && filteredContacts.length > 0 && (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
+              <DirectoryPaginationBar
+                currentPage={currentPage}
+                pageSize={pageSize}
+                totalItems={filteredContacts.length}
+                itemLabel="contacts"
+                onPageChange={setCurrentPage}
+                onPageSizeChange={setPageSize}
+              />
+            </div>
           )}
         </div>
       )}
@@ -3136,18 +3159,17 @@ export default function CompanyModal({
                 )}
               </tbody>
             </table>
+            {filteredPhones.length > 0 && (
+              <DirectoryPaginationBar
+                currentPage={currentPage}
+                pageSize={pageSize}
+                totalItems={filteredPhones.length}
+                itemLabel="phone numbers"
+                onPageChange={setCurrentPage}
+                onPageSizeChange={setPageSize}
+              />
+            )}
           </div>
-
-          {filteredPhones.length > 0 && (
-            <DirectoryPaginationBar
-              currentPage={currentPage}
-              pageSize={pageSize}
-              totalItems={filteredPhones.length}
-              itemLabel="phone numbers"
-              onPageChange={setCurrentPage}
-              onPageSizeChange={setPageSize}
-            />
-          )}
         </div>
       )}
 

@@ -770,7 +770,8 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                 const sellSum = calcItems.reduce((s, li) => s + (Number(li.total_price) || (Number(li.quantity) || 0) * (Number(li.unit_price) || 0)), 0);
                 const costSum = calcItems.reduce((s, li) => s + (Number(li.quantity) || 0) * (Number(li.cost_price) || 0), 0);
                 if (sellSum > 0) {
-                  marginText = `${(((sellSum - costSum) / sellSum) * 100).toFixed(0)}% margin`;
+                  const pct = (((sellSum - costSum) / sellSum) * 100).toFixed(0);
+                  marginText = fileCount > 0 ? `${pct}% mgn` : `${pct}% margin`;
                 }
               }
             }
@@ -2497,7 +2498,7 @@ export default function EnquiryList({
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-3 w-[23%] truncate bg-slate-50 dark:bg-slate-900">Company Account</th>
+                  <th className="py-2.5 px-3 w-[22%] truncate bg-slate-50 dark:bg-slate-900">Company Account</th>
                   <th className="py-2.5 px-2.5 w-[19%] truncate bg-slate-50 dark:bg-slate-900">Quote Ref No</th>
                   <th className="py-2.5 px-1.5 w-[6%] text-center truncate bg-slate-50 dark:bg-slate-900">Rep</th>
                   <th onClick={() => handleSort('enquiry_date')} className="py-2.5 px-2 w-[10%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition whitespace-nowrap bg-slate-50 dark:bg-slate-900">
@@ -2506,8 +2507,8 @@ export default function EnquiryList({
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-2 w-[13%] truncate bg-slate-50 dark:bg-slate-900">Status</th>
-                  <th onClick={() => handleSort('value_aed')} className="py-2.5 pl-2 pr-5 w-[11%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">
+                  <th className="py-2.5 px-2 w-[12%] truncate bg-slate-50 dark:bg-slate-900">Status</th>
+                  <th onClick={() => handleSort('value_aed')} className="py-2.5 pl-2 pr-5 w-[13%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">
                     <div className="flex items-center space-x-1 justify-end">
                       <span>Value</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
@@ -2578,16 +2579,16 @@ export default function EnquiryList({
           </div>
           {/* Pagination Controls */}
           {totalItems > 0 && (
-            <div className="px-5 py-3.5 bg-slate-50/60 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
-              <div className="text-xs font-mono text-slate-600">
-                Showing <span className="font-bold text-slate-900">{Math.min((currentPage - 1) * (itemsPerPage === 'All' ? totalItems : itemsPerPage) + 1, totalItems)}</span> to{' '}
-                <span className="font-bold text-slate-900">{Math.min(currentPage * (itemsPerPage === 'All' ? totalItems : itemsPerPage), totalItems)}</span> of{' '}
-                <span className="font-bold text-slate-900">{totalItems}</span> enquiries
+            <div className="px-4 py-3 bg-slate-50/60 dark:bg-slate-900/60 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
+              <div className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400">
+                Showing <span className="font-bold text-slate-900 dark:text-slate-100">{Math.min((currentPage - 1) * (itemsPerPage === 'All' ? totalItems : itemsPerPage) + 1, totalItems)}</span> to{' '}
+                <span className="font-bold text-slate-900 dark:text-slate-100">{Math.min(currentPage * (itemsPerPage === 'All' ? totalItems : itemsPerPage), totalItems)}</span> of{' '}
+                <span className="font-bold text-slate-900 dark:text-slate-100">{totalItems}</span> enquiries
               </div>
 
               <div className="flex items-center space-x-4">
                 <div className="flex items-center space-x-2">
-                  <span className="text-xs text-slate-500 font-sans">Rows per page:</span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Rows per page:</span>
                   <select
                     value={itemsPerPage}
                     onChange={(e) => {
@@ -2595,7 +2596,7 @@ export default function EnquiryList({
                       setItemsPerPage(val === 'All' ? 'All' : Number(val));
                       setCurrentPage(1);
                     }}
-                    className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 focus:outline-none cursor-pointer"
+                    className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
                   >
                     <option value={25}>25</option>
                     <option value={50}>50</option>
@@ -2606,36 +2607,34 @@ export default function EnquiryList({
                   </select>
                 </div>
 
-                {totalPages > 1 && itemsPerPage !== 'All' && (
-                  <div className="flex items-center space-x-1">
-                    <button
-                      type="button"
-                      onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-                      disabled={currentPage === 1}
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
-                      title="Previous Page"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                      <span>Prev</span>
-                    </button>
+                <div className="flex items-center space-x-1">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                    disabled={currentPage <= 1 || itemsPerPage === 'All'}
+                    className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                    title="Previous Page"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <span>Prev</span>
+                  </button>
 
-                    <span className="text-xs font-mono px-2.5 text-slate-600">
-                      Page <span className="font-bold text-slate-900">{currentPage}</span> of{' '}
-                      <span className="font-bold text-slate-900">{totalPages}</span>
-                    </span>
+                  <span className="text-xs font-mono tabular-nums px-2.5 text-slate-600 dark:text-slate-400">
+                    Page <span className="font-bold text-slate-900 dark:text-slate-100">{itemsPerPage === 'All' ? 1 : currentPage}</span> of{' '}
+                    <span className="font-bold text-slate-900 dark:text-slate-100">{itemsPerPage === 'All' ? 1 : Math.max(1, totalPages)}</span>
+                  </span>
 
-                    <button
-                      type="button"
-                      onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
-                      disabled={currentPage === totalPages}
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
-                      title="Next Page"
-                    >
-                      <span>Next</span>
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                )}
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((prev) => Math.min(prev + 1, Math.max(1, totalPages)))}
+                    disabled={itemsPerPage === 'All' || currentPage >= Math.max(1, totalPages)}
+                    className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                    title="Next Page"
+                  >
+                    <span>Next</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
           )}

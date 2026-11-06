@@ -773,7 +773,7 @@ export default function SalespersonProfiles({
   return (
     <>
       <PageHeader
-        title="Sales Team & Performance Roster"
+        title="Sales Team Roster"
         subtitle="Monitor sales representative proposal pipelines, conversion rates, and team assignment rosters."
         icon={Users2}
         badge={{ text: `${deduplicatedSalespersons.length} Reps Active`, variant: 'blue' }}
@@ -1180,7 +1180,7 @@ export default function SalespersonProfiles({
 
               {paginatedEnquiries.length > 0 ? (
                 <div className="space-y-3">
-                  <div className="space-y-2.5 max-h-[450px] overflow-y-auto pr-1 scrollbar-thin">
+                  <div className="space-y-2.5">
                     {paginatedEnquiries.map((e) => {
                       const canViewRepFinances = canSeeSpFinancialMetrics(selectedSalesperson);
                       const isExplicitlySharedOrOwned = isEnquiryExplicitlySharedOrOwnedByViewer(e);
@@ -1188,6 +1188,22 @@ export default function SalespersonProfiles({
                         canViewRepFinances ||
                         (isExplicitlySharedOrOwned && canAccessEnquiry(currentUser, e, activeWorkspace));
                       const showSharedBadge = !canViewRepFinances && canViewRowAndValue;
+
+                      const rawDesc = (e.description || e.project_name || e.remarks || '').trim();
+                      const cleanDesc = rawDesc && !/^no description$/i.test(rawDesc) ? rawDesc : '';
+                      const itemCount = Array.isArray((e as any).items)
+                        ? (e as any).items.length
+                        : Array.isArray((e as any).line_items)
+                        ? (e as any).line_items.length
+                        : Number((e as any).items_count) || 0;
+                      const formattedEnqDate = (() => {
+                        const rawDate = e.enquiry_date || (e as any).date || (e as any).created_at;
+                        if (!rawDate) return '';
+                        const d = new Date(rawDate);
+                        if (isNaN(d.getTime())) return String(rawDate);
+                        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                        return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+                      })();
 
                       return (
                         <div
@@ -1216,8 +1232,22 @@ export default function SalespersonProfiles({
                                 </span>
                               )}
                             </div>
-                            <p className="text-xs text-slate-500 truncate max-w-[420px] font-sans">
-                              {e.quote_ref_no} — {e.description || e.project_name || e.remarks || 'No description'}
+                            <p className="text-xs text-slate-500 truncate max-w-[480px] font-sans flex items-center gap-1.5">
+                              <span className="font-mono font-medium text-slate-600">{e.quote_ref_no || `ENQ-${e.sn}`}</span>
+                              {formattedEnqDate && (
+                                <>
+                                  <span className="text-slate-300">&middot;</span>
+                                  <span>{formattedEnqDate}</span>
+                                </>
+                              )}
+                              <span className="text-slate-300">&middot;</span>
+                              <span>{itemCount} {itemCount === 1 ? 'item' : 'items'}</span>
+                              {cleanDesc && (
+                                <>
+                                  <span className="text-slate-300">&middot;</span>
+                                  <span className="truncate">{cleanDesc}</span>
+                                </>
+                              )}
                             </p>
                           </div>
 
@@ -1276,40 +1306,41 @@ export default function SalespersonProfiles({
                     })}
                   </div>
 
-                  {/* Pagination Footer */}
-                  {totalPages > 1 && (
-                    <div className="flex items-center justify-between pt-4 border-t border-slate-100 font-sans text-xs">
-                      <span className="text-slate-500">
-                        Showing <span className="font-semibold text-slate-700">{(currentPage - 1) * itemsPerPage + 1}</span> to{' '}
-                        <span className="font-semibold text-slate-700">
-                          {Math.min(currentPage * itemsPerPage, filteredEnquiries.length)}
-                        </span>{' '}
-                        of <span className="font-semibold text-slate-700">{filteredEnquiries.length}</span> logs
-                      </span>
+                  {/* Canonical Pagination Footer */}
+                  <div className="px-4 py-3 bg-slate-50/60 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
+                    <span className="font-mono text-xs text-slate-600 dark:text-slate-400">
+                      Showing <span className="font-bold tabular-nums text-slate-900 dark:text-white">{(currentPage - 1) * itemsPerPage + 1}</span> to{' '}
+                      <span className="font-bold tabular-nums text-slate-900 dark:text-white">
+                        {Math.min(currentPage * itemsPerPage, filteredEnquiries.length)}
+                      </span>{' '}
+                      of <span className="font-bold tabular-nums text-slate-900 dark:text-white">{filteredEnquiries.length}</span> enquiries
+                    </span>
 
-                      <div className="flex items-center space-x-1">
-                        <button
-                          type="button"
-                          onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
-                          disabled={currentPage === 1}
-                          className="p-1.5 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 rounded-lg text-slate-500 hover:text-slate-700 transition"
-                        >
-                          <ChevronLeft className="w-3.5 h-3.5" />
-                        </button>
-                        <span className="text-slate-600 font-medium px-2">
-                          Page {currentPage} of {totalPages}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
-                          disabled={currentPage === totalPages}
-                          className="p-1.5 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 rounded-lg text-slate-500 hover:text-slate-700 transition"
-                        >
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                        disabled={currentPage <= 1}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                        <span>Prev</span>
+                      </button>
+                      <span className="text-xs font-mono px-2.5 text-slate-600 dark:text-slate-400">
+                        Page <span className="font-bold tabular-nums text-slate-900 dark:text-white">{currentPage}</span> of{' '}
+                        <span className="font-bold tabular-nums text-slate-900 dark:text-white">{Math.max(1, totalPages)}</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage((p) => Math.min(p + 1, Math.max(1, totalPages)))}
+                        disabled={currentPage >= Math.max(1, totalPages)}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                      >
+                        <span>Next</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
                     </div>
-                  )}
+                  </div>
                 </div>
               ) : (
                 <div className="py-10 px-4 text-center font-sans">

@@ -91,7 +91,7 @@ export default function Sidebar({
     { id: 'projects', label: 'Projects / Operations', icon: Briefcase, role: 'Viewer' },
     { id: 'procurement', label: 'Procurement & Payables', icon: ShoppingBag, role: 'Viewer' },
     { id: 'companies', label: 'Companies & Contacts', icon: Building2, role: 'Viewer' },
-    { id: 'salespersons', label: 'Team', icon: Users2, role: 'Viewer' },
+    { id: 'salespersons', label: 'Sales Team Roster', icon: Users2, role: 'Viewer' },
     { id: 'products', label: 'Products Catalog', icon: Package, role: 'Viewer' },
     { id: 'settings', label: 'Settings & System', icon: Settings, role: 'Viewer' }
   ];

@@ -23,6 +23,7 @@ import {
   User,
   Globe,
   FileText,
+  ChevronLeft,
   ChevronRight,
   PhoneOff,
   Edit3,
@@ -112,6 +113,29 @@ export function formatActivityDate(dateStr?: string): string {
     }
   } catch {
     return dateStr;
+  }
+}
+
+export function formatActivityDateParts(dateStr?: string): { datePart: string; timePart: string | null } {
+  if (!dateStr) return { datePart: '—', timePart: null };
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return { datePart: dateStr, timePart: null };
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = months[d.getMonth()];
+    const day = d.getDate();
+    const year = d.getFullYear();
+    const datePart = `${month} ${day}, ${year}`;
+    const hasTime = dateStr.includes('T') || dateStr.includes(':');
+    if (!hasTime) return { datePart, timePart: null };
+    let hours = d.getHours();
+    const minutes = d.getMinutes().toString().padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    return { datePart, timePart: `${hours}:${minutes} ${ampm}` };
+  } catch {
+    return { datePart: dateStr, timePart: null };
   }
 }
 
@@ -2637,10 +2661,10 @@ export default function CallLogManager({
   return (
     <>
       <PageHeader
-        title="Call Operations & Queue Engine"
+        title="Call Center & Activity Logs"
         subtitle="Operator queue, phone-number resolution flow, DNC suppression, and history tracking."
         icon={PhoneCall}
-        badge={{ text: activeWorkspace.name, variant: 'blue' }}
+        badge={{ text: `${workspaceCallLogs.length} Logs`, variant: 'blue' }}
         currentUser={user}
         onOpenSidebar={onOpenMobileMenu}
         primaryAction={{
@@ -3320,32 +3344,57 @@ export default function CallLogManager({
                 )}
               </div>
 
-              {/* View Mode Toggle: Cards vs Table */}
-              <div className="flex items-center space-x-2 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-lg self-start sm:self-auto">
+              {/* Right Controls: Select Rows Toggle + View Mode Toggle (Cards vs Table) */}
+              <div className="flex items-center gap-2 self-start sm:self-auto">
                 <button
                   type="button"
-                  onClick={() => { setViewMode('card'); localStorage.setItem('callLogViewMode', 'card'); }}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center space-x-1.5 transition cursor-pointer ${
-                    viewMode === 'card'
-                      ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                  onClick={() => {
+                    const next = !isMarkingMode;
+                    setIsMarkingMode(next);
+                    if (!next) setSelectedLogIds([]);
+                  }}
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer ${
+                    isMarkingMode
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                      : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
                   }`}
+                  title="Toggle row selection checkboxes for bulk actions"
                 >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                  <span>Cards</span>
+                  <CheckSquare className="w-3.5 h-3.5" />
+                  <span>{isMarkingMode ? 'Done Selecting' : 'Select Rows'}</span>
+                  {isMarkingMode && selectedLogIds.length > 0 && (
+                    <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white text-blue-700 text-[10px] font-mono leading-none">
+                      {selectedLogIds.length}
+                    </span>
+                  )}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => { setViewMode('table'); localStorage.setItem('callLogViewMode', 'table'); }}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center space-x-1.5 transition cursor-pointer ${
-                    viewMode === 'table'
-                      ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
-                  }`}
-                >
-                  <List className="w-3.5 h-3.5" />
-                  <span>Table</span>
-                </button>
+
+                <div className="flex items-center space-x-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => { setViewMode('card'); localStorage.setItem('callLogViewMode', 'card'); }}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center space-x-1.5 transition cursor-pointer ${
+                      viewMode === 'card'
+                        ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    <span>Cards</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setViewMode('table'); localStorage.setItem('callLogViewMode', 'table'); }}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center space-x-1.5 transition cursor-pointer ${
+                      viewMode === 'table'
+                        ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <List className="w-3.5 h-3.5" />
+                    <span>Table</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -3597,33 +3646,10 @@ export default function CallLogManager({
           </div>
 
           <div className="space-y-3">
-            {/* Select All & Batch Actions Bar */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-500">
-              <div className="flex items-center space-x-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = !isMarkingMode;
-                    setIsMarkingMode(next);
-                    if (!next) setSelectedLogIds([]);
-                  }}
-                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer ${
-                    isMarkingMode
-                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                      : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }`}
-                  title="Toggle row selection checkboxes for bulk actions"
-                >
-                  <CheckSquare className="w-3.5 h-3.5" />
-                  <span>{isMarkingMode ? 'Done Marking' : 'Marking Mode'}</span>
-                  {isMarkingMode && selectedLogIds.length > 0 && (
-                    <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white text-blue-700 text-[10px] font-mono leading-none">
-                      {selectedLogIds.length}
-                    </span>
-                  )}
-                </button>
-
-                {isMarkingMode && (
+            {/* Conditional Bulk Actions Bar (Only visible when Marking Mode is active) */}
+            {isMarkingMode && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-2.5 bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200">
+                <div className="flex items-center space-x-3">
                   <label className="flex items-center space-x-2 cursor-pointer">
                     <input
                       type="checkbox"
@@ -3643,68 +3669,76 @@ export default function CallLogManager({
                     />
                     <span>Select All ({filteredHistoryLogs.length})</span>
                   </label>
-                )}
 
-                {isMarkingMode && selectedLogIds.length > 0 && (
-                  <span className="text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/40 px-2.5 py-0.5 rounded-full font-mono">
-                    {selectedLogIds.length} Selected
-                  </span>
-                )}
-              </div>
+                  {selectedLogIds.length > 0 && (
+                    <span className="text-xs font-bold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/60 px-2.5 py-0.5 rounded-full font-mono">
+                      {selectedLogIds.length} Selected
+                    </span>
+                  )}
+                </div>
 
-              {isMarkingMode && selectedLogIds.length > 0 ? (
                 <div className="flex items-center space-x-2">
-                  <span className="text-xs font-bold text-slate-600 dark:text-slate-400 mr-1">Batch Actions:</span>
-                  
+                  {selectedLogIds.length > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerToast(`Batch Reassign queued for ${selectedLogIds.length} logs`, 'info');
+                        }}
+                        className="px-3 py-1 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer"
+                      >
+                        <Users2 className="w-3.5 h-3.5 text-blue-500" />
+                        <span>Reassign ({selectedLogIds.length})</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace) === 'Viewer') {
+                            triggerToast('Read-only viewers cannot delete records.', 'error');
+                            return;
+                          }
+                          const confirmDelete = await askConfirm(
+                            'Batch Delete Logs',
+                            `Are you sure you want to permanently delete ${selectedLogIds.length} log(s)? This action cannot be undone.`,
+                            true,
+                            'Delete Logs',
+                            'Cancel'
+                          );
+                          if (!confirmDelete) return;
+
+                          try {
+                            for (const id of selectedLogIds) {
+                              const targetItem = logs.find((l) => l.id === id) || { id };
+                              await handleDeleteLog(targetItem, { hardDelete: true, skipConfirm: true, silentToast: true });
+                            }
+                            setSelectedLogIds([]);
+                            triggerToast(`Successfully deleted ${selectedLogIds.length} interaction log(s)`, 'success');
+                          } catch (err: any) {
+                            console.error('Error in batch delete:', err);
+                            triggerToast('Failed to delete selected logs: ' + (err?.message || err), 'error');
+                          }
+                        }}
+                        className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer shadow-xs"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete ({selectedLogIds.length})</span>
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
-                      triggerToast(`Batch Reassign queued for ${selectedLogIds.length} logs`, 'info');
+                      setIsMarkingMode(false);
+                      setSelectedLogIds([]);
                     }}
-                    className="px-3 py-1 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer"
+                    className="px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white cursor-pointer"
                   >
-                    <Users2 className="w-3.5 h-3.5 text-blue-500" />
-                    <span>Reassign ({selectedLogIds.length})</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (getUserWorkspaceRole(user, activeWorkspace?.id, activeWorkspace) === 'Viewer') {
-                        triggerToast('Read-only viewers cannot delete records.', 'error');
-                        return;
-                      }
-                      const confirmDelete = await askConfirm(
-                        'Batch Delete Logs',
-                        `Are you sure you want to permanently delete ${selectedLogIds.length} log(s)? This action cannot be undone.`,
-                        true,
-                        'Delete Logs',
-                        'Cancel'
-                      );
-                      if (!confirmDelete) return;
-
-                      try {
-                        for (const id of selectedLogIds) {
-                          const targetItem = logs.find((l) => l.id === id) || { id };
-                          await handleDeleteLog(targetItem, { hardDelete: true, skipConfirm: true, silentToast: true });
-                        }
-                        setSelectedLogIds([]);
-                        triggerToast(`Successfully deleted ${selectedLogIds.length} interaction log(s)`, 'success');
-                      } catch (err: any) {
-                        console.error('Error in batch delete:', err);
-                        triggerToast('Failed to delete selected logs: ' + (err?.message || err), 'error');
-                      }
-                    }}
-                    className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer shadow-xs"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Delete ({selectedLogIds.length})</span>
+                    Done
                   </button>
                 </div>
-              ) : (
-                <span>Showing {filteredHistoryLogs.length} interaction logs</span>
-              )}
-            </div>
+              </div>
+            )}
             
             {viewMode === 'card' ? (
               paginatedLogs.map((log, index) => {
@@ -4245,8 +4279,8 @@ export default function CallLogManager({
                     {historyActivityType === 'internal' ? (
                       <tr>
                         {isMarkingMode && <th className="py-3 px-2 w-9 text-center bg-slate-50 dark:bg-slate-900"></th>}
-                        <th className="py-3 px-3.5 w-[13%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Date</th>
-                        <th className="py-3 px-3.5 w-[28%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Task Title &amp; Notes</th>
+                        <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Date</th>
+                        <th className="py-3 px-3.5 w-[26%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Task Title &amp; Notes</th>
                         <th className="py-3 px-3 w-[13%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Category</th>
                         <th className="py-3 px-3 w-[13%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Requester</th>
                         <th className="py-3 px-2.5 w-[9%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Effort</th>
@@ -4257,9 +4291,8 @@ export default function CallLogManager({
                     ) : (
                       <tr>
                         {isMarkingMode && <th className="py-3 px-2 w-9 text-center bg-slate-50 dark:bg-slate-900"></th>}
-                        <th className="py-3 px-3.5 w-[13%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Date</th>
-                        <th className="py-3 px-3.5 w-[26%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Client</th>
-                        <th className="py-3 px-2 w-[8%] text-center whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Temp</th>
+                        <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Date</th>
+                        <th className="py-3 px-3.5 w-[32%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Client</th>
                         <th className="py-3 px-3.5 w-[20%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Contact</th>
                         <th className="py-3 px-3 w-[17%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Status / Outcome</th>
                         <th className="py-3 px-2.5 w-[7%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Agent</th>
@@ -4283,7 +4316,7 @@ export default function CallLogManager({
                         <React.Fragment key={log.id || `tr-log-${index}`}>
                           {isFirstInGroup && (
                             <tr key={`divider-row-${currentDateKey}-${index}`} className="bg-slate-50/80 dark:bg-slate-950/60 border-y border-slate-200 dark:border-slate-800">
-                              <td colSpan={historyActivityType === 'internal' ? (isMarkingMode ? 9 : 8) : (isMarkingMode ? 8 : 7)} className="px-3.5 py-2">
+                              <td colSpan={historyActivityType === 'internal' ? (isMarkingMode ? 9 : 8) : (isMarkingMode ? 7 : 6)} className="px-3.5 py-2">
                                 <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200 select-none">
                                   <Calendar className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                                   <span>{formatDateDivider(log.date || log.createdAt)}</span>
@@ -4311,13 +4344,28 @@ export default function CallLogManager({
                                   />
                                 </td>
                               )}
-                              <td className="py-2.5 px-3.5 font-mono text-xs whitespace-nowrap align-middle overflow-hidden">
-                                <div className="truncate text-slate-700 dark:text-slate-200">{formatActivityDate(log.date || log.createdAt)}</div>
-                                {(log.status === 'CANCELLED' || (log.status || '').toLowerCase() === 'cancelled' || (log.status || '').toLowerCase() === 'canceled' || (log.interaction_type || '').toLowerCase().includes('cancel')) && (
-                                  <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 font-sans mt-0.5">
-                                    Cancelled
-                                  </span>
-                                )}
+                              <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                                {(() => {
+                                  const { datePart, timePart } = formatActivityDateParts(log.date || log.createdAt);
+                                  const isCancelled = log.status === 'CANCELLED' || (log.status || '').toLowerCase() === 'cancelled' || (log.status || '').toLowerCase() === 'canceled' || (log.interaction_type || '').toLowerCase().includes('cancel');
+                                  return (
+                                    <div className="flex flex-col min-w-0">
+                                      <span className="text-xs font-medium text-slate-700 dark:text-slate-200 whitespace-nowrap truncate">
+                                        {datePart}
+                                      </span>
+                                      <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                                        <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 whitespace-nowrap truncate">
+                                          {timePart || '—'}
+                                        </span>
+                                        {isCancelled && (
+                                          <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 font-sans shrink-0">
+                                            Cancelled
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </td>
                               <td className="py-2.5 px-3.5 align-middle overflow-hidden">
                                 <div className="font-semibold text-slate-900 dark:text-slate-100 truncate text-xs" title={log.title || 'Untitled Internal Task'}>
@@ -4440,13 +4488,28 @@ export default function CallLogManager({
                               />
                             </td>
                           )}
-                          <td className="py-2.5 px-3.5 font-mono text-xs whitespace-nowrap align-middle overflow-hidden">
-                            <div className="truncate text-slate-700 dark:text-slate-200">{formatActivityDate(log.date || log.createdAt)}</div>
-                            {(log.status === 'CANCELLED' || (log.status || '').toLowerCase() === 'cancelled' || (log.status || '').toLowerCase() === 'canceled' || (log.interaction_type || '').toLowerCase().includes('cancel')) && (
-                              <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 font-sans mt-0.5">
-                                Cancelled
-                              </span>
-                            )}
+                          <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                            {(() => {
+                              const { datePart, timePart } = formatActivityDateParts(log.date || log.createdAt);
+                              const isCancelled = log.status === 'CANCELLED' || (log.status || '').toLowerCase() === 'cancelled' || (log.status || '').toLowerCase() === 'canceled' || (log.interaction_type || '').toLowerCase().includes('cancel');
+                              return (
+                                <div className="flex flex-col min-w-0">
+                                  <span className="text-xs font-medium text-slate-700 dark:text-slate-200 whitespace-nowrap truncate">
+                                    {datePart}
+                                  </span>
+                                  <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                                    <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 whitespace-nowrap truncate">
+                                      {timePart || '—'}
+                                    </span>
+                                    {isCancelled && (
+                                      <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 font-sans shrink-0">
+                                        Cancelled
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </td>
                           <td
                             className={`py-2.5 px-3.5 align-middle overflow-hidden cursor-pointer ${log.company_name || log.company_id ? 'text-slate-900 dark:text-slate-100' : 'text-slate-500'}`}
@@ -4454,7 +4517,7 @@ export default function CallLogManager({
                             title={`View 360° details for ${getResolvedCompanyName(log)}`}
                           >
                             <div className="flex items-center gap-1.5 min-w-0">
-                              <span className="font-semibold text-xs hover:text-blue-600 transition truncate">
+                              <span className="font-semibold text-sm text-slate-900 dark:text-slate-100 hover:text-blue-600 transition truncate">
                                 {getResolvedCompanyName(log) || 'Unlinked'}
                               </span>
                               {(() => {
@@ -4475,26 +4538,40 @@ export default function CallLogManager({
                                 />
                               )}
                             </div>
-                            <div className="mt-0.5 truncate max-w-full">
-                              <IndustryBadge company={company} size="sm" />
-                            </div>
-                          </td>
-                          <td className="py-2.5 px-2 text-center align-middle">
-                            {log.company_id ? (
-                              <div className="flex items-center justify-center">
-                                <TemperatureBadge
-                                  companyId={log.company_id}
-                                  temperature={company?.temperature}
-                                  isDnc={company?.is_dnc}
-                                  variant="icon"
-                                  size="sm"
-                                  companies={companies}
-                                  setCompanies={setCompanies}
-                                />
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 dark:text-slate-600 text-xs font-mono">—</span>
-                            )}
+                            {(() => {
+                              const effectiveDnc = Boolean(company?.is_dnc || (company as any)?.dnc || company?.temperature === 'DNC');
+                              const rawTemp = effectiveDnc ? 'DNC' : (company?.temperature || 'Cold');
+                              const tempNorm = rawTemp.toLowerCase() === 'dnc'
+                                ? 'DNC'
+                                : rawTemp.toLowerCase() === 'hot'
+                                ? 'Hot'
+                                : rawTemp.toLowerCase() === 'warm'
+                                ? 'Warm'
+                                : 'Cold';
+                              const tempDotClass = tempNorm === 'DNC'
+                                ? 'bg-rose-600'
+                                : tempNorm === 'Hot'
+                                ? 'bg-rose-500'
+                                : tempNorm === 'Warm'
+                                ? 'bg-amber-500'
+                                : 'bg-sky-400';
+
+                              const rawIndustry = (company?.business_type_raw || company?.industry || company?.industry_type || '').trim();
+                              const cleanIndustry = rawIndustry && !/^none$/i.test(rawIndustry) && !/to be added later/i.test(rawIndustry) && !/^unspecified$/i.test(rawIndustry)
+                                ? rawIndustry
+                                : '';
+                              const channelFallback = log.channel || log.interaction_type || 'Phone Outreach';
+                              const secondaryLabel = cleanIndustry || channelFallback;
+
+                              return (
+                                <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5 flex items-center gap-1.5 min-w-0">
+                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${tempDotClass}`} />
+                                  <span className="font-medium text-slate-600 dark:text-slate-300 shrink-0">{tempNorm}</span>
+                                  <span className="text-slate-300 dark:text-slate-600 shrink-0">&middot;</span>
+                                  <span className="truncate">{secondaryLabel}</span>
+                                </div>
+                              );
+                            })()}
                           </td>
                           <td className={`py-2.5 px-3.5 align-middle overflow-hidden ${log.status === 'Invalid Number' ? 'line-through text-red-400' : ''}`}>
                             {(() => {
@@ -4628,6 +4705,65 @@ export default function CallLogManager({
                     })}
                   </tbody>
                 </table>
+                {paginatedLogs.length > 0 && (() => {
+                  const totalPages = itemsPerPage === 'All' ? 1 : Math.max(1, Math.ceil(totalItems / itemsPerPage));
+                  const startIdx = totalItems === 0 ? 0 : Math.min((currentPage - 1) * (itemsPerPage === 'All' ? totalItems : itemsPerPage) + 1, totalItems);
+                  const endIdx = Math.min(currentPage * (itemsPerPage === 'All' ? totalItems : itemsPerPage), totalItems);
+                  return (
+                    <div className="px-4 py-3 bg-slate-50/60 dark:bg-slate-900/60 border-t border-slate-200/80 dark:border-slate-800 rounded-b-2xl flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
+                      <div className="text-xs font-mono text-slate-600 dark:text-slate-400">
+                        Showing <span className="font-bold tabular-nums text-slate-900 dark:text-white">{startIdx}</span> to{' '}
+                        <span className="font-bold tabular-nums text-slate-900 dark:text-white">{endIdx}</span> of{' '}
+                        <span className="font-bold tabular-nums text-slate-900 dark:text-white">{totalItems}</span> logs
+                      </div>
+                      <div className="flex items-center space-x-4">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Rows per page:</span>
+                          <select
+                            value={itemsPerPage}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setItemsPerPage(val === 'All' ? 'All' : Number(val));
+                              setCurrentPage(1);
+                            }}
+                            className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+                          >
+                            <option value={25}>25</option>
+                            <option value={50}>50</option>
+                            <option value={100}>100</option>
+                            <option value={200}>200</option>
+                            <option value={500}>500</option>
+                            <option value="All">All</option>
+                          </select>
+                        </div>
+                        <div className="flex items-center space-x-1">
+                          <button
+                            type="button"
+                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                            disabled={currentPage <= 1}
+                            className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                          >
+                            <ChevronLeft className="w-3.5 h-3.5" />
+                            <span>Prev</span>
+                          </button>
+                          <span className="text-xs font-mono px-2.5 text-slate-600 dark:text-slate-400">
+                            Page <span className="font-bold tabular-nums text-slate-900 dark:text-white">{currentPage}</span> of{' '}
+                            <span className="font-bold tabular-nums text-slate-900 dark:text-white">{totalPages}</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                            disabled={itemsPerPage === 'All' || currentPage >= totalPages}
+                            className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                          >
+                            <span>Next</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
             
@@ -4716,57 +4852,67 @@ export default function CallLogManager({
               </div>
             )}
             
-            {paginatedLogs.length > 0 && (
-              <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl mt-4 gap-4">
-                <div className="text-xs font-mono text-slate-500 dark:text-slate-400">
-                  Showing <span className="font-bold text-slate-950 dark:text-slate-100">{Math.min((currentPage - 1) * (itemsPerPage === 'All' ? totalItems : itemsPerPage) + 1, totalItems)}</span> to{' '}
-                  <span className="font-bold text-slate-950 dark:text-slate-100">{Math.min(currentPage * (itemsPerPage === 'All' ? totalItems : itemsPerPage), totalItems)}</span> of{' '}
-                  <span className="font-bold text-slate-950 dark:text-slate-100">{totalItems}</span> logs
-                </div>
-                
-                <div className="flex items-center space-x-4">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Show:</span>
-                    <select
-                      value={itemsPerPage}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setItemsPerPage(val === 'All' ? 'All' : Number(val));
-                        setCurrentPage(1);
-                      }}
-                      className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
-                    >
-                      <option value={25}>25</option>
-                      <option value={50}>50</option>
-                      <option value={100}>100</option>
-                      <option value={200}>200</option>
-                      <option value={500}>500</option>
-                      <option value="All">All</option>
-                    </select>
+            {viewMode === 'card' && paginatedLogs.length > 0 && (() => {
+              const totalPages = itemsPerPage === 'All' ? 1 : Math.max(1, Math.ceil(totalItems / itemsPerPage));
+              const startIdx = totalItems === 0 ? 0 : Math.min((currentPage - 1) * (itemsPerPage === 'All' ? totalItems : itemsPerPage) + 1, totalItems);
+              const endIdx = Math.min(currentPage * (itemsPerPage === 'All' ? totalItems : itemsPerPage), totalItems);
+              return (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
+                  <div className="px-4 py-3 bg-slate-50/60 dark:bg-slate-900/60 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
+                    <div className="text-xs font-mono text-slate-600 dark:text-slate-400">
+                      Showing <span className="font-bold tabular-nums text-slate-900 dark:text-white">{startIdx}</span> to{' '}
+                      <span className="font-bold tabular-nums text-slate-900 dark:text-white">{endIdx}</span> of{' '}
+                      <span className="font-bold tabular-nums text-slate-900 dark:text-white">{totalItems}</span> logs
+                    </div>
+                    <div className="flex items-center space-x-4">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Rows per page:</span>
+                        <select
+                          value={itemsPerPage}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setItemsPerPage(val === 'All' ? 'All' : Number(val));
+                            setCurrentPage(1);
+                          }}
+                          className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+                        >
+                          <option value={25}>25</option>
+                          <option value={50}>50</option>
+                          <option value={100}>100</option>
+                          <option value={200}>200</option>
+                          <option value={500}>500</option>
+                          <option value="All">All</option>
+                        </select>
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                          disabled={currentPage <= 1}
+                          className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                          <span>Prev</span>
+                        </button>
+                        <span className="text-xs font-mono px-2.5 text-slate-600 dark:text-slate-400">
+                          Page <span className="font-bold tabular-nums text-slate-900 dark:text-white">{currentPage}</span> of{' '}
+                          <span className="font-bold tabular-nums text-slate-900 dark:text-white">{totalPages}</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                          disabled={itemsPerPage === 'All' || currentPage >= totalPages}
+                          className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                        >
+                          <span>Next</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
-
-                  <div className="flex items-center space-x-1">
-                    <button
-                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                      disabled={currentPage === 1}
-                      className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition cursor-pointer"
-                    >
-                      <ChevronRight className="w-4 h-4 rotate-180" />
-                    </button>
-                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 min-w-[3rem] text-center">
-                      {currentPage} / {itemsPerPage === 'All' ? 1 : Math.ceil(totalItems / itemsPerPage) || 1}
-                    </span>
-                    <button
-                      onClick={() => setCurrentPage(p => p + 1)}
-                      disabled={itemsPerPage === 'All' || currentPage >= Math.ceil(totalItems / itemsPerPage)}
-                      className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition cursor-pointer"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </div>
       )}

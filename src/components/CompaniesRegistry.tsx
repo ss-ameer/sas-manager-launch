@@ -301,6 +301,7 @@ export interface CompaniesDirectoryTableProps {
   searchQuery: string;
   searchEvaluationMap: Map<string, CompanySearchMatchResult>;
   companyOutreachMap: Map<string, CompanyOutreachSummary>;
+  paginationFooter?: React.ReactNode;
 }
 
 /**
@@ -316,7 +317,8 @@ export const CompaniesDirectoryTable: React.FC<CompaniesDirectoryTableProps> = (
   setCompanies,
   searchQuery,
   searchEvaluationMap,
-  companyOutreachMap
+  companyOutreachMap,
+  paginationFooter
 }) => {
   return (
     <div className="w-full overflow-x-clip relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
@@ -582,6 +584,7 @@ export const CompaniesDirectoryTable: React.FC<CompaniesDirectoryTableProps> = (
           })}
         </tbody>
       </table>
+      {paginationFooter}
     </div>
   );
 };
@@ -605,6 +608,7 @@ export interface ContactsDirectoryTableProps {
   searchQuery: string;
   setSearchQuery: (q: string) => void;
   selectedCompanyId: string | null;
+  paginationFooter?: React.ReactNode;
 }
 
 /**
@@ -628,7 +632,8 @@ export const ContactsDirectoryTable: React.FC<ContactsDirectoryTableProps> = ({
   handleDeleteContact,
   searchQuery,
   setSearchQuery,
-  selectedCompanyId
+  selectedCompanyId,
+  paginationFooter
 }) => {
   return (
     <div className="w-full overflow-x-clip relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
@@ -872,6 +877,7 @@ export const ContactsDirectoryTable: React.FC<ContactsDirectoryTableProps> = ({
           )}
         </tbody>
       </table>
+      {paginationFooter}
     </div>
   );
 };
@@ -884,6 +890,7 @@ export interface PhonesDirectoryTableProps {
   setSelectedCompanyId: (id: string) => void;
   setViewMode: (mode: 'companies' | 'contacts' | 'phones') => void;
   handleInitiate: (payload: any) => void;
+  paginationFooter?: React.ReactNode;
 }
 
 /**
@@ -896,7 +903,8 @@ export const PhonesDirectoryTable: React.FC<PhonesDirectoryTableProps> = ({
   setSearchQuery,
   setSelectedCompanyId,
   setViewMode,
-  handleInitiate
+  handleInitiate,
+  paginationFooter
 }) => {
   return (
     <div className="w-full overflow-x-clip relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
@@ -1043,6 +1051,7 @@ export const PhonesDirectoryTable: React.FC<PhonesDirectoryTableProps> = ({
           )}
         </tbody>
       </table>
+      {paginationFooter}
     </div>
   );
 };

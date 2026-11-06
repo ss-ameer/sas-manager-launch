@@ -1922,7 +1922,27 @@ export default function App() {
                 );
               })()}
               <span>/</span>
-              <span className="text-slate-900 capitalize font-sans">{currentTab === 'salespersons' ? 'Team Roster' : currentTab === 'call_log' ? 'Call Center & Logs' : currentTab === 'projects' ? 'Projects / Operations' : currentTab.replace('_', ' ')}</span>
+              <span className="text-slate-900 font-sans">
+                {currentTab === 'dashboard'
+                  ? 'Dashboard'
+                  : currentTab === 'call_log'
+                  ? 'Call Center & Logs'
+                  : currentTab === 'enquiries'
+                  ? 'Enquiries & Quotes'
+                  : currentTab === 'projects'
+                  ? 'Projects / Operations'
+                  : currentTab === 'procurement'
+                  ? 'Procurement & Payables'
+                  : currentTab === 'companies'
+                  ? 'Companies & Contacts'
+                  : currentTab === 'salespersons'
+                  ? 'Sales Team Roster'
+                  : currentTab === 'products'
+                  ? 'Products Catalog'
+                  : currentTab === 'settings'
+                  ? 'Settings & System'
+                  : currentTab.replace('_', ' ')}
+              </span>
             </span>
           </div>
 

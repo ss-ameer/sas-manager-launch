@@ -1699,12 +1699,34 @@ export default function ProcurementPayablesHub({
     }
   };
 
+  const formatProcurementDate = (raw?: string | null): string => {
+    if (!raw || raw === '—') return '—';
+    const clean = String(raw).trim().slice(0, 10);
+    if (!clean) return '—';
+    const parts = clean.split('-');
+    if (parts.length === 3) {
+      const y = Number(parts[0]);
+      const m = Number(parts[1]) - 1;
+      const d = Number(parts[2]);
+      const dt = new Date(y, m, d);
+      if (!isNaN(dt.getTime())) {
+        return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      }
+    }
+    const parsed = new Date(raw);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    return clean;
+  };
+
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-slate-50/50">
       <PageHeader
-        title="Procurement, Stock Receiving (GRN) & Vendor Payables"
+        title="Procurement & Payables"
         subtitle="Manage Outbound Supplier POs, Warehouse GRN Landed Cost Allocation, 3-Way Bill Matching, and Outbound Payment Vouchers"
         icon={ShoppingBag}
+        badge={{ text: `${kpiStats.openPoCount} Open POs`, variant: 'indigo' }}
         currentUser={user}
         onOpenSidebar={onOpenMobileMenu}
         primaryAction={{
@@ -1941,8 +1963,8 @@ export default function ProcurementPayablesHub({
                       const recStatus = meta?.receiving_status || 'Pending Receipt';
                       const linkedEnq = enquiries.find((e) => e.id === po.enquiry_id);
                       const poRefText = meta?.po_ref || po.formatted_quote_ref || 'PO-DRAFT';
-                      const poDateStr = (meta?.po_date || po.quotation_date || '').slice(0, 10) || '—';
-                      const expDateStr = (meta?.expected_delivery_date || '').slice(0, 10);
+                      const poDateStr = formatProcurementDate(meta?.po_date || po.quotation_date);
+                      const expDateStr = meta?.expected_delivery_date ? formatProcurementDate(meta.expected_delivery_date) : '';
                       const vName = meta?.supplier_name || po.client_snapshot?.entity_name || 'Vendor';
                       const vCompId = resolveVendorCompanyId(meta?.vendor_company_id, vName);
                       const lineItems = po.line_items || [];
@@ -2204,46 +2226,54 @@ export default function ProcurementPayablesHub({
                 </table>
               </div>
               {filteredPos.length > 0 && (
-                <div className="px-4 py-3 bg-slate-50/70 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
-                  <div className="flex items-center gap-3">
-                    <span>
-                      Showing <span className="font-mono font-bold text-slate-900">{(safePage - 1) * itemsPerPage + 1}</span>–
-                      <span className="font-mono font-bold text-slate-900">{Math.min(safePage * itemsPerPage, filteredPos.length)}</span> of{' '}
-                      <span className="font-mono font-bold text-slate-900">{filteredPos.length}</span> Supplier POs
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-slate-400">Rows:</span>
+                <div className="px-4 py-3 bg-slate-50/60 dark:bg-slate-900/60 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
+                  <div className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400">
+                    Showing <span className="font-bold text-slate-900 dark:text-slate-100">{(safePage - 1) * itemsPerPage + 1}</span> to{' '}
+                    <span className="font-bold text-slate-900 dark:text-slate-100">{Math.min(safePage * itemsPerPage, filteredPos.length)}</span> of{' '}
+                    <span className="font-bold text-slate-900 dark:text-slate-100">{filteredPos.length}</span> Supplier POs
+                  </div>
+                  <div className="flex items-center space-x-4">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Rows per page:</span>
                       <select
                         value={itemsPerPage}
-                        onChange={(e) => setItemsPerPage(Number(e.target.value))}
-                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-mono font-semibold text-slate-700 cursor-pointer"
+                        onChange={(e) => {
+                          setItemsPerPage(Number(e.target.value));
+                          setCurrentPage(1);
+                        }}
+                        className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
                       >
                         <option value={25}>25</option>
                         <option value={50}>50</option>
                         <option value={100}>100</option>
                       </select>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      disabled={safePage <= 1}
-                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" /> Prev
-                    </button>
-                    <span className="px-2 font-mono text-xs font-semibold text-slate-700">
-                      Page {safePage} of {totalPages}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={safePage >= totalPages}
-                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-                    >
-                      Next <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        type="button"
+                        disabled={safePage <= 1}
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                        title="Previous Page"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                        <span>Prev</span>
+                      </button>
+                      <span className="text-xs font-mono tabular-nums px-2.5 text-slate-600 dark:text-slate-400">
+                        Page <span className="font-bold text-slate-900 dark:text-slate-100">{safePage}</span> of{' '}
+                        <span className="font-bold text-slate-900 dark:text-slate-100">{totalPages}</span>
+                      </span>
+                      <button
+                        type="button"
+                        disabled={safePage >= totalPages}
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                        title="Next Page"
+                      >
+                        <span>Next</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -2324,7 +2354,7 @@ export default function ProcurementPayablesHub({
                       const received = Number(li.qty_received) || 0;
                       const pending = Math.max(0, ordered - received);
                       const poRefText = po.purchase_order_metadata?.po_ref || po.formatted_quote_ref || 'PO';
-                      const poDateStr = (po.purchase_order_metadata?.po_date || po.quotation_date || '').slice(0, 10) || '—';
+                      const poDateStr = formatProcurementDate(po.purchase_order_metadata?.po_date || po.quotation_date);
                       const vName =
                         po.purchase_order_metadata?.supplier_name ||
                         po.client_snapshot?.entity_name ||
@@ -2499,46 +2529,54 @@ export default function ProcurementPayablesHub({
                 </table>
               </div>
               {filteredGrnRows.length > 0 && (
-                <div className="px-4 py-3 bg-slate-50/70 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
-                  <div className="flex items-center gap-3">
-                    <span>
-                      Showing <span className="font-mono font-bold text-slate-900">{(safePage - 1) * itemsPerPage + 1}</span>–
-                      <span className="font-mono font-bold text-slate-900">{Math.min(safePage * itemsPerPage, filteredGrnRows.length)}</span> of{' '}
-                      <span className="font-mono font-bold text-slate-900">{filteredGrnRows.length}</span> Pending GRN Lines
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-slate-400">Rows:</span>
+                <div className="px-4 py-3 bg-slate-50/60 dark:bg-slate-900/60 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
+                  <div className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400">
+                    Showing <span className="font-bold text-slate-900 dark:text-slate-100">{(safePage - 1) * itemsPerPage + 1}</span> to{' '}
+                    <span className="font-bold text-slate-900 dark:text-slate-100">{Math.min(safePage * itemsPerPage, filteredGrnRows.length)}</span> of{' '}
+                    <span className="font-bold text-slate-900 dark:text-slate-100">{filteredGrnRows.length}</span> Pending GRN Lines
+                  </div>
+                  <div className="flex items-center space-x-4">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Rows per page:</span>
                       <select
                         value={itemsPerPage}
-                        onChange={(e) => setItemsPerPage(Number(e.target.value))}
-                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-mono font-semibold text-slate-700 cursor-pointer"
+                        onChange={(e) => {
+                          setItemsPerPage(Number(e.target.value));
+                          setCurrentPage(1);
+                        }}
+                        className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
                       >
                         <option value={25}>25</option>
                         <option value={50}>50</option>
                         <option value={100}>100</option>
                       </select>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      disabled={safePage <= 1}
-                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" /> Prev
-                    </button>
-                    <span className="px-2 font-mono text-xs font-semibold text-slate-700">
-                      Page {safePage} of {totalPages}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={safePage >= totalPages}
-                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-                    >
-                      Next <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        type="button"
+                        disabled={safePage <= 1}
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                        title="Previous Page"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                        <span>Prev</span>
+                      </button>
+                      <span className="text-xs font-mono tabular-nums px-2.5 text-slate-600 dark:text-slate-400">
+                        Page <span className="font-bold text-slate-900 dark:text-slate-100">{safePage}</span> of{' '}
+                        <span className="font-bold text-slate-900 dark:text-slate-100">{totalPages}</span>
+                      </span>
+                      <button
+                        type="button"
+                        disabled={safePage >= totalPages}
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                        title="Next Page"
+                      >
+                        <span>Next</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -2600,12 +2638,13 @@ export default function ProcurementPayablesHub({
                         bill.three_way_match_status === 'qty_variance' ||
                         bill.three_way_match_status === 'both_variance';
                       const vCompId = resolveVendorCompanyId(bill.vendor_company_id, bill.vendor_name);
-                      const billDateStr = (bill.bill_date || '').slice(0, 10) || '—';
-                      const dueDateStr = (bill.due_date || '').slice(0, 10);
+                      const rawDueDateIso = (bill.due_date || '').slice(0, 10);
+                      const billDateStr = formatProcurementDate(bill.bill_date);
+                      const dueDateStr = bill.due_date ? formatProcurementDate(bill.due_date) : '';
                       const isOverdue = Boolean(
-                        dueDateStr &&
+                        rawDueDateIso &&
                           Number(bill.balance_due || 0) > 0 &&
-                          new Date(dueDateStr).getTime() < Date.now()
+                          new Date(rawDueDateIso).getTime() < Date.now()
                       );
                       const matchText =
                         bill.three_way_match_status === 'matched'
@@ -2928,46 +2967,54 @@ export default function ProcurementPayablesHub({
                 </table>
               </div>
               {filteredBills.length > 0 && (
-                <div className="px-4 py-3 bg-slate-50/70 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
-                  <div className="flex items-center gap-3">
-                    <span>
-                      Showing <span className="font-mono font-bold text-slate-900">{(safePage - 1) * itemsPerPage + 1}</span>–
-                      <span className="font-mono font-bold text-slate-900">{Math.min(safePage * itemsPerPage, filteredBills.length)}</span> of{' '}
-                      <span className="font-mono font-bold text-slate-900">{filteredBills.length}</span> Supplier Bills
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-slate-400">Rows:</span>
+                <div className="px-4 py-3 bg-slate-50/60 dark:bg-slate-900/60 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
+                  <div className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400">
+                    Showing <span className="font-bold text-slate-900 dark:text-slate-100">{(safePage - 1) * itemsPerPage + 1}</span> to{' '}
+                    <span className="font-bold text-slate-900 dark:text-slate-100">{Math.min(safePage * itemsPerPage, filteredBills.length)}</span> of{' '}
+                    <span className="font-bold text-slate-900 dark:text-slate-100">{filteredBills.length}</span> Supplier Bills
+                  </div>
+                  <div className="flex items-center space-x-4">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Rows per page:</span>
                       <select
                         value={itemsPerPage}
-                        onChange={(e) => setItemsPerPage(Number(e.target.value))}
-                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-mono font-semibold text-slate-700 cursor-pointer"
+                        onChange={(e) => {
+                          setItemsPerPage(Number(e.target.value));
+                          setCurrentPage(1);
+                        }}
+                        className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
                       >
                         <option value={25}>25</option>
                         <option value={50}>50</option>
                         <option value={100}>100</option>
                       </select>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      disabled={safePage <= 1}
-                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" /> Prev
-                    </button>
-                    <span className="px-2 font-mono text-xs font-semibold text-slate-700">
-                      Page {safePage} of {totalPages}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={safePage >= totalPages}
-                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-                    >
-                      Next <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        type="button"
+                        disabled={safePage <= 1}
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                        title="Previous Page"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                        <span>Prev</span>
+                      </button>
+                      <span className="text-xs font-mono tabular-nums px-2.5 text-slate-600 dark:text-slate-400">
+                        Page <span className="font-bold text-slate-900 dark:text-slate-100">{safePage}</span> of{' '}
+                        <span className="font-bold text-slate-900 dark:text-slate-100">{totalPages}</span>
+                      </span>
+                      <button
+                        type="button"
+                        disabled={safePage >= totalPages}
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                        title="Next Page"
+                      >
+                        <span>Next</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -3075,7 +3122,7 @@ export default function ProcurementPayablesHub({
                           doc.vendor_return_metadata?.vendor_company_id,
                         vName
                       );
-                      const docDateStr = (doc.quotation_date || '').slice(0, 10) || '—';
+                      const docDateStr = formatProcurementDate(doc.quotation_date);
                       const modeOrReason = isPv
                         ? doc.payment_voucher_metadata?.payment_mode ||
                           doc.payment_voucher_metadata?.payment_method ||
@@ -3282,46 +3329,54 @@ export default function ProcurementPayablesHub({
                 </table>
               </div>
               {filteredVouchers.length > 0 && (
-                <div className="px-4 py-3 bg-slate-50/70 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
-                  <div className="flex items-center gap-3">
-                    <span>
-                      Showing <span className="font-mono font-bold text-slate-900">{(safePage - 1) * itemsPerPage + 1}</span>–
-                      <span className="font-mono font-bold text-slate-900">{Math.min(safePage * itemsPerPage, filteredVouchers.length)}</span> of{' '}
-                      <span className="font-mono font-bold text-slate-900">{filteredVouchers.length}</span> Vouchers &amp; Returns
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-slate-400">Rows:</span>
+                <div className="px-4 py-3 bg-slate-50/60 dark:bg-slate-900/60 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
+                  <div className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400">
+                    Showing <span className="font-bold text-slate-900 dark:text-slate-100">{(safePage - 1) * itemsPerPage + 1}</span> to{' '}
+                    <span className="font-bold text-slate-900 dark:text-slate-100">{Math.min(safePage * itemsPerPage, filteredVouchers.length)}</span> of{' '}
+                    <span className="font-bold text-slate-900 dark:text-slate-100">{filteredVouchers.length}</span> Vouchers &amp; Returns
+                  </div>
+                  <div className="flex items-center space-x-4">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">Rows per page:</span>
                       <select
                         value={itemsPerPage}
-                        onChange={(e) => setItemsPerPage(Number(e.target.value))}
-                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-mono font-semibold text-slate-700 cursor-pointer"
+                        onChange={(e) => {
+                          setItemsPerPage(Number(e.target.value));
+                          setCurrentPage(1);
+                        }}
+                        className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
                       >
                         <option value={25}>25</option>
                         <option value={50}>50</option>
                         <option value={100}>100</option>
                       </select>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      disabled={safePage <= 1}
-                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" /> Prev
-                    </button>
-                    <span className="px-2 font-mono text-xs font-semibold text-slate-700">
-                      Page {safePage} of {totalPages}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={safePage >= totalPages}
-                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-                    >
-                      Next <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        type="button"
+                        disabled={safePage <= 1}
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                        title="Previous Page"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                        <span>Prev</span>
+                      </button>
+                      <span className="text-xs font-mono tabular-nums px-2.5 text-slate-600 dark:text-slate-400">
+                        Page <span className="font-bold text-slate-900 dark:text-slate-100">{safePage}</span> of{' '}
+                        <span className="font-bold text-slate-900 dark:text-slate-100">{totalPages}</span>
+                      </span>
+                      <button
+                        type="button"
+                        disabled={safePage >= totalPages}
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                        title="Next Page"
+                      >
+                        <span>Next</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}

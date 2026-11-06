@@ -37,6 +37,8 @@ import {
   RotateCcw,
   AlertTriangle,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Boxes,
   ArrowDownToLine,
   History,
@@ -1235,7 +1237,7 @@ export default function ProductManager({
   return (
     <div className="w-full">
       <PageHeader
-        title="Product Catalog"
+        title="Products Catalog"
         subtitle="Manage quotation template products, images, technical datasheets, pricing, and live inventory."
         icon={Package}
         badge={{ text: `${activeCatalogProducts.length} Products`, variant: 'blue' }}
@@ -1499,7 +1501,8 @@ export default function ProductManager({
                       }
 
                       // Brand & SKU 2-line strings
-                      const brandLabel = (p.brand_make || '').trim() || '—';
+                      const hasBrand = Boolean((p.brand_make || '').trim());
+                      const brandLabel = hasBrand ? (p.brand_make || '').trim() : '—';
                       const skuStr = (p.sku || '').trim();
                       const modelStr = (p.model_part_no || '').trim();
                       const skuModelParts = [
@@ -1684,18 +1687,34 @@ export default function ProductManager({
                             {/* 3. BRAND & SKU (Max 2 Lines) */}
                             <td className="py-3 px-2.5 overflow-hidden align-middle">
                               <div className="flex flex-col gap-0.5 min-w-0 overflow-hidden">
-                                <span
-                                  className="font-semibold text-xs text-slate-800 dark:text-slate-200 truncate"
-                                  title={brandLabel}
-                                >
-                                  {brandLabel}
-                                </span>
-                                <span
-                                  className="font-mono text-[11px] text-slate-500 dark:text-slate-400 truncate"
-                                  title={skuModelLine}
-                                >
-                                  {skuModelLine}
-                                </span>
+                                {!hasBrand && skuModelLine !== '—' ? (
+                                  <>
+                                    <span
+                                      className="font-mono text-xs font-medium text-slate-700 dark:text-slate-300 truncate"
+                                      title={skuModelLine}
+                                    >
+                                      {skuModelLine}
+                                    </span>
+                                    <span className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
+                                      No brand set
+                                    </span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span
+                                      className="font-semibold text-xs text-slate-800 dark:text-slate-200 truncate"
+                                      title={brandLabel}
+                                    >
+                                      {brandLabel}
+                                    </span>
+                                    <span
+                                      className="font-mono text-[11px] text-slate-500 dark:text-slate-400 truncate"
+                                      title={skuModelLine}
+                                    >
+                                      {skuModelLine}
+                                    </span>
+                                  </>
+                                )}
                               </div>
                             </td>
 
@@ -1845,8 +1864,8 @@ export default function ProductManager({
               </div>
 
               {/* Pagination controls */}
-              <div className="px-5 py-3.5 bg-slate-50/60 dark:bg-slate-900/60 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
-                <div className="text-xs font-mono text-slate-600 dark:text-slate-400">
+              <div className="px-4 py-3 bg-slate-50/60 dark:bg-slate-900/60 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
+                <div className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-400">
                   Showing{' '}
                   <span className="font-bold text-slate-900 dark:text-slate-100">
                     {Math.min((currentPage - 1) * (itemsPerPage === 'All' ? totalItems : itemsPerPage) + 1, totalItems)}
@@ -1878,30 +1897,32 @@ export default function ProductManager({
                     </select>
                   </div>
 
-                  {totalPages > 1 && itemsPerPage !== 'All' && (
-                    <div className="flex items-center space-x-1">
-                      <button
-                        type="button"
-                        onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-                        disabled={currentPage === 1}
-                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold"
-                      >
-                        Prev
-                      </button>
-                      <span className="text-xs font-mono px-2.5 text-slate-600 dark:text-slate-400">
-                        Page <span className="font-bold text-slate-900 dark:text-slate-100">{currentPage}</span> of{' '}
-                        <span className="font-bold text-slate-900 dark:text-slate-100">{totalPages}</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
-                        disabled={currentPage === totalPages}
-                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold"
-                      >
-                        Next
-                      </button>
-                    </div>
-                  )}
+                  <div className="flex items-center space-x-1">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                      disabled={currentPage <= 1 || itemsPerPage === 'All'}
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                      title="Previous Page"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>Prev</span>
+                    </button>
+                    <span className="text-xs font-mono tabular-nums px-2.5 text-slate-600 dark:text-slate-400">
+                      Page <span className="font-bold text-slate-900 dark:text-slate-100">{itemsPerPage === 'All' ? 1 : currentPage}</span> of{' '}
+                      <span className="font-bold text-slate-900 dark:text-slate-100">{itemsPerPage === 'All' ? 1 : Math.max(1, totalPages)}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((prev) => Math.min(prev + 1, Math.max(1, totalPages)))}
+                      disabled={itemsPerPage === 'All' || currentPage >= Math.max(1, totalPages)}
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                      title="Next Page"
+                    >
+                      <span>Next</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             </>
