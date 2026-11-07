@@ -28,10 +28,9 @@ import {
   Lock,
   RefreshCw
 } from 'lucide-react';
-import SearchResultCounter from './common/SearchResultCounter';
 import HoverScrollText from './common/HoverScrollText';
 import { FieldLabel } from './common/FieldHelpHint';
-import { PageHeader, PageBody, CardPanel } from './layout/UiContainer';
+import { PageHeader, PageBody } from './layout/UiContainer';
 import { isSuperAdmin, isAdmin, canAccessEnquiry, isRecordOwner, getUserWorkspaceRole } from '../utils/permissions';
 import { isWonStatus, isLostOrCancelledStatus } from '../services/inventoryService';
 
@@ -71,13 +70,13 @@ export default function SalespersonProfiles({
   const [enquirySortBy, setEnquirySortBy] = useState<'newest' | 'highest_value' | 'updated'>('newest');
   const [isDeduplicating, setIsDeduplicating] = useState(false);
 
-  // Pagination states for linked enquiries list
+  // Pagination states for linked enquiries table
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 6;
+  const [pageSize, setPageSize] = useState(10);
 
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [selectedSalespersonId, enquirySearchQuery, enquiryStatusFilter, enquirySortBy]);
+  }, [selectedSalespersonId, enquirySearchQuery, enquiryStatusFilter, enquirySortBy, pageSize]);
 
   // Form states
   const [showFormModal, setShowFormModal] = useState(false);
@@ -200,16 +199,16 @@ export default function SalespersonProfiles({
         (e.sales_person_id && e.sales_person_id === sp.id)
       );
     });
-    const activeVal = personalEnqs
-      .filter((e) => !isWonStatus(e.status) && !isLostOrCancelledStatus(e.status) && e.status !== 'Dead')
-      .reduce((sum, e) => sum + (Number(e.value_aed) || 0), 0);
+    const activeEnqs = personalEnqs.filter(
+      (e) => !isWonStatus(e.status) && !isLostOrCancelledStatus(e.status) && e.status !== 'Dead'
+    );
+    const activeVal = activeEnqs.reduce((sum, e) => sum + (Number(e.value_aed) || 0), 0);
 
-    const wonVal = personalEnqs
-      .filter((e) => isWonStatus(e.status))
-      .reduce((sum, e) => sum + (Number(e.value_aed) || 0), 0);
+    const wonEnqs = personalEnqs.filter((e) => isWonStatus(e.status));
+    const wonVal = wonEnqs.reduce((sum, e) => sum + (Number(e.value_aed) || 0), 0);
 
     const totalClosed = personalEnqs.filter((e) => isWonStatus(e.status) || isLostOrCancelledStatus(e.status));
-    const wonCount = personalEnqs.filter((e) => isWonStatus(e.status)).length;
+    const wonCount = wonEnqs.length;
     const winRate = totalClosed.length > 0 ? Math.round((wonCount / totalClosed.length) * 100) : 0;
 
     const todayStr = new Date().toISOString().split('T')[0];
@@ -219,6 +218,9 @@ export default function SalespersonProfiles({
 
     return {
       totalCount: personalEnqs.length,
+      activeCount: activeEnqs.length,
+      wonCount,
+      closedCount: totalClosed.length,
       activeVal,
       wonVal,
       winRate,
@@ -707,7 +709,7 @@ export default function SalespersonProfiles({
     }
 
     // Fallback standard delete confirm if no open records
-    let message = `Are you sure you want to remove ${s.full_name}?`;
+    const message = `Are you sure you want to remove ${s.full_name}?`;
 
     setConfirmDialog({
       isOpen: true,
@@ -764,11 +766,11 @@ export default function SalespersonProfiles({
 
   // Paginated subset of linked enquiries
   const paginatedEnquiries = React.useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    return filteredEnquiries.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredEnquiries, currentPage]);
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredEnquiries.slice(startIndex, startIndex + pageSize);
+  }, [filteredEnquiries, currentPage, pageSize]);
 
-  const totalPages = Math.ceil(filteredEnquiries.length / itemsPerPage);
+  const totalPages = Math.max(1, Math.ceil(filteredEnquiries.length / pageSize));
 
   return (
     <>
@@ -791,13 +793,17 @@ export default function SalespersonProfiles({
       />
 
       <PageBody>
-      <div id="sales-tab" className="text-slate-800 flex flex-col lg:flex-row gap-8">
-      {/* Left panel: List of all Salespersons */}
-      <div className="w-full lg:w-1/3 bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs h-fit">
-        <div className="flex items-center justify-between mb-4 pb-4 border-b border-slate-100">
-          <div className="flex items-center space-x-3">
-            <Users2 className="w-6 h-6 text-blue-600" />
-            <h2 className="text-xl font-bold text-slate-900 font-sans">Team Roster</h2>
+      <div id="sales-tab" className="text-slate-800 dark:text-slate-200 flex flex-col lg:flex-row gap-6 items-start">
+      {/* Left panel: Clean Directory Roster */}
+      <div className="w-full lg:w-[320px] xl:w-[340px] shrink-0 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
+        <div className="px-4 py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Team Directory
+            </span>
+            <span className="text-xs font-mono tabular-nums text-slate-400 dark:text-slate-500">
+              &middot; {deduplicatedSalespersons.length}
+            </span>
           </div>
           {canManageTeam && onDeduplicateSalespersons && (
             <button
@@ -812,7 +818,7 @@ export default function SalespersonProfiles({
                 }
               }}
               title="Merge duplicate salesperson entries by name or initials"
-              className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 transition inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-700 transition inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
             >
               <RefreshCw className={`w-3 h-3 ${isDeduplicating ? 'animate-spin text-blue-600' : 'text-slate-400'}`} />
               <span>Deduplicate</span>
@@ -820,129 +826,81 @@ export default function SalespersonProfiles({
           )}
         </div>
 
-        {/* Current User Roster Status Banner / Add Myself Trigger */}
-        <div className="mb-4">
-          {!currentUserInRoster && currentUser ? (
+        {/* Self-Onboarding Trigger (Only shown when current user is missing from roster) */}
+        {!currentUserInRoster && currentUser && (
+          <div className="p-3 border-b border-slate-100 dark:border-slate-800 bg-emerald-50/40 dark:bg-emerald-950/20">
             <button
               type="button"
               onClick={handleAddMyselfToRoster}
               disabled={isSubmitting || !activeWorkspace?.id}
-              className="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-2 shadow-xs cursor-pointer"
+              className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-2xs cursor-pointer"
             >
-              <UserPlus className="w-4 h-4" />
-              <span>Add Myself ({currentUser.full_name || currentUser.username}) to Team Roster</span>
+              <UserPlus className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Add Myself ({currentUser.full_name || currentUser.username})</span>
             </button>
-          ) : currentUserInRoster ? (
-            <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs text-emerald-900">
-              <div className="flex items-center space-x-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span className="font-semibold">You are on Team Roster ({currentUserInRoster.initials})</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => openEditModal(currentUserInRoster)}
-                className="text-emerald-700 hover:text-emerald-900 font-bold underline text-[11px] cursor-pointer"
-              >
-                Edit
-              </button>
-            </div>
-          ) : null}
-        </div>
+          </div>
+        )}
 
-        <div className="space-y-3">
+        <div className="p-2.5 space-y-1.5">
           {deduplicatedSalespersons.map((s, idx) => {
             const m = getSalespersonMetrics(s);
             const isSelected = selectedSalespersonId === s.id || selectedSalespersonId === s.initials;
             const isUserSelf = isOwnProfile(s);
             return (
-              <div
+              <button
                 key={s.id || `${s.initials}-${s.full_name}-${idx}`}
-                className={`w-full flex items-center justify-between p-4 rounded-xl border transition duration-150 group/item ${
+                type="button"
+                onClick={() => setSelectedSalespersonId(s.id || s.initials || null)}
+                className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl border text-left transition duration-150 cursor-pointer focus:outline-none ${
                   isSelected
-                    ? isUserSelf
-                      ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-700 text-slate-950 shadow-sm ring-1 ring-emerald-400/40'
-                      : 'bg-blue-50 border-blue-200 text-slate-950 shadow-sm'
-                    : isUserSelf
-                    ? 'bg-emerald-50/30 dark:bg-emerald-950/10 border-emerald-200/80 dark:border-emerald-800/50 hover:border-emerald-300 text-slate-700'
-                    : 'bg-white border-slate-200 hover:border-slate-300 text-slate-600'
+                    ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800/80 text-slate-950 dark:text-white shadow-2xs'
+                    : 'bg-white dark:bg-slate-900 border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/60 hover:border-slate-200/80 dark:hover:border-slate-700/80 text-slate-700 dark:text-slate-300'
                 }`}
               >
-                <button
-                  onClick={() => setSelectedSalespersonId(s.id || s.initials || null)}
-                  className="flex items-center space-x-3 flex-1 text-left focus:outline-none cursor-pointer min-w-0"
-                >
-                  <div className={`w-9 h-9 rounded-lg font-mono font-bold flex items-center justify-center border text-xs shrink-0 ${
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className={`w-9 h-9 rounded-lg font-mono font-bold flex items-center justify-center border text-xs shrink-0 transition-colors ${
                     isSelected
-                      ? isUserSelf
-                        ? 'bg-emerald-600 border-emerald-500 text-white shadow-xs'
-                        : 'bg-blue-600 border-blue-400 text-white'
-                      : isUserSelf
-                      ? 'bg-emerald-100 dark:bg-emerald-900/60 border-emerald-200 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200'
-                      : 'bg-slate-50 border-slate-200 text-slate-500'
+                      ? 'bg-blue-600 border-blue-500 text-white shadow-2xs'
+                      : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
                   }`}>
                     {s.initials || getInitials(s.full_name)}
                   </div>
-                  <div className="overflow-hidden min-w-0">
-                    <div className="flex items-center space-x-1.5 min-w-0">
+                  <div className="overflow-hidden min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 min-w-0">
                       <HoverScrollText
                         text={s.full_name}
-                        className="text-sm font-semibold font-sans text-slate-900"
+                        className="text-sm font-semibold font-sans text-slate-900 dark:text-slate-100"
                       />
                       {isUserSelf && (
-                        <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/50 shrink-0">
-                          You
+                        <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">
+                          &middot; You
                         </span>
                       )}
                     </div>
-                    <span className="text-[10px] text-slate-400 font-mono block mt-0.5 truncate">
+                    <span className="text-xs text-slate-500 dark:text-slate-400 block truncate">
                       {s.role?.trim() || 'Sales Representative'}
                     </span>
                   </div>
-                </button>
-
-                <div className="flex items-center space-x-3 text-right shrink-0">
-                  <div className="hidden sm:block group-hover/item:hidden">
-                    <span className="text-xs font-mono font-semibold text-slate-700 block">
-                      {m.enquiries.length} {m.enquiries.length === 1 ? 'Job' : 'Jobs'}
-                    </span>
-                    <span className="text-[9px] font-mono text-emerald-600 block mt-0.5">
-                      {m.winRate}% Won
-                    </span>
-                  </div>
-                  {/* Hover action edit/delete triggers for salesperson */}
-                  {(canEditSp(s) || canDeleteSp(s)) && (
-                    <div className="flex items-center space-x-1.5 opacity-0 group-hover/item:opacity-100 transition-opacity">
-                      {canEditSp(s) && (
-                        <button
-                          onClick={() => openEditModal(s)}
-                          className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-slate-700 transition cursor-pointer"
-                          title="Edit Profile"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                      {canDeleteSp(s) && (
-                        <button
-                          onClick={() => handleDeleteSalesperson(s)}
-                          className="p-1 hover:bg-red-50 rounded-md text-slate-400 hover:text-red-600 transition cursor-pointer"
-                          title="Delete Representative"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  )}
                 </div>
-              </div>
+
+                <div className="text-right shrink-0">
+                  <span className="text-xs font-mono font-semibold tabular-nums text-slate-800 dark:text-slate-200 block">
+                    {m.enquiries.length} {m.enquiries.length === 1 ? 'Enq' : 'Enqs'}
+                  </span>
+                  <span className="text-[11px] font-mono tabular-nums text-emerald-600 dark:text-emerald-400 block">
+                    {m.winRate}% Won
+                  </span>
+                </div>
+              </button>
             );
           })}
           {deduplicatedSalespersons.length === 0 && (
-            <div className="p-6 text-center bg-white border border-dashed border-slate-200 rounded-2xl space-y-2.5">
-              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+            <div className="p-6 text-center bg-slate-50/50 dark:bg-slate-900/50 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl space-y-2.5">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto">
                 <Users className="w-5 h-5" />
               </div>
-              <div className="text-xs font-bold text-slate-800">No Team Members Registered</div>
-              <p className="text-[11px] text-slate-500">
+              <div className="text-xs font-bold text-slate-800 dark:text-slate-200">No Team Members Registered</div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Add sales representatives to attribute enquiries, quotations, and call activities.
               </p>
               {canManageTeam && (
@@ -960,150 +918,189 @@ export default function SalespersonProfiles({
         </div>
       </div>
 
-      {/* Right panel: Specific Salesperson Profile Sheet */}
-      <div className="flex-1 space-y-6">
+      {/* Right panel: Two Clean Single-Elevation Surfaces */}
+      <div className="flex-1 min-w-0 space-y-5 w-full">
         {selectedSalesperson && metrics ? (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-6">
-            {/* Header Block */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-100">
-              <div className="flex items-center space-x-4">
-                <div className="w-16 h-16 bg-blue-50 border border-blue-100 text-blue-600 font-mono text-xl font-bold flex items-center justify-center rounded-2xl shadow-sm">
-                  {selectedSalesperson.initials || getInitials(selectedSalesperson.full_name)}
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center space-x-2.5 pt-0.5">
-                    <HoverScrollText
-                      as="h3"
-                      text={selectedSalesperson.full_name}
-                      className="text-2xl font-bold text-slate-900 dark:text-white font-sans leading-snug"
-                    />
-                    {isOwnProfile(selectedSalesperson) && (
-                      <span className="px-2 py-0.5 text-xs font-bold rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0">
-                        Your Profile (You)
-                      </span>
-                    )}
+          <>
+            {/* Surface A: Executive Rep Profile & Unified KPI Strip */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
+              {/* Top Row: Identity & Dedicated Actions */}
+              <div className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <div className="w-12 h-12 bg-blue-50 dark:bg-blue-950/60 border border-blue-200/80 dark:border-blue-800/70 text-blue-600 dark:text-blue-400 font-mono text-base font-bold flex items-center justify-center rounded-xl shrink-0">
+                    {selectedSalesperson.initials || getInitials(selectedSalesperson.full_name)}
                   </div>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5 text-xs text-slate-500 font-sans">
-                    <p className="font-medium text-slate-700">
-                      {selectedSalesperson.role?.trim() || 'Sales Representative'}
-                    </p>
-                    {canSeeSpAdvancedDetails(selectedSalesperson) ? (
-                      <>
-                        {selectedSalesperson.email && (
-                          <div className="flex items-center space-x-1 text-slate-600">
-                            <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                            <span>{selectedSalesperson.email}</span>
-                          </div>
-                        )}
-                        {selectedSalesperson.phone && (
-                          <div className="flex items-center space-x-1 text-slate-600">
-                            <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                            <span>{selectedSalesperson.phone}</span>
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <span className="text-[11px] text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md font-medium">
-                        Basic View Tier
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <HoverScrollText
+                        as="h3"
+                        text={selectedSalesperson.full_name}
+                        className="text-lg font-bold text-slate-900 dark:text-white font-sans leading-snug"
+                      />
+                      <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">&middot;</span>
+                      <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                        {selectedSalesperson.role?.trim() || 'Sales Representative'}
                       </span>
-                    )}
+                      {isOwnProfile(selectedSalesperson) && (
+                        <>
+                          <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">&middot;</span>
+                          <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                            Your Profile
+                          </span>
+                        </>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-1 text-xs text-slate-500 dark:text-slate-400 font-sans">
+                      {canSeeSpAdvancedDetails(selectedSalesperson) ? (
+                        <>
+                          {selectedSalesperson.email ? (
+                            <span className="inline-flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
+                              <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span>{selectedSalesperson.email}</span>
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 dark:text-slate-500">No email on file</span>
+                          )}
+                          {selectedSalesperson.phone && (
+                            <>
+                              <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">&middot;</span>
+                              <span className="inline-flex items-center gap-1.5 text-slate-600 dark:text-slate-300 font-mono tabular-nums">
+                                <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                <span>{selectedSalesperson.phone}</span>
+                              </span>
+                            </>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-xs font-medium text-purple-700 dark:text-purple-400">
+                          Basic View Tier
+                        </span>
+                      )}
+                      <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">&middot;</span>
+                      <span className="font-mono tabular-nums text-slate-600 dark:text-slate-300">
+                        {metrics.totalCount} total {metrics.totalCount === 1 ? 'proposal' : 'proposals'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Action Cluster */}
+                {(canEditSp(selectedSalesperson) || canDeleteSp(selectedSalesperson)) && (
+                  <div className="flex items-center gap-2 shrink-0">
                     {canEditSp(selectedSalesperson) && (
                       <button
+                        type="button"
                         onClick={() => openEditModal(selectedSalesperson)}
-                        className="text-xs text-blue-600 hover:text-blue-700 font-semibold flex items-center space-x-1 cursor-pointer"
+                        className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap"
                       >
-                        <Edit2 className="w-3 h-3" />
+                        <Edit2 className="w-3.5 h-3.5 text-slate-400" />
                         <span>Edit Profile</span>
                       </button>
                     )}
                     {canDeleteSp(selectedSalesperson) && (
                       <button
+                        type="button"
                         onClick={() => handleDeleteSalesperson(selectedSalesperson)}
-                        className="text-xs text-rose-600 hover:text-rose-700 font-semibold flex items-center space-x-1 cursor-pointer ml-1"
+                        className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:border-rose-200 dark:hover:border-rose-800 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition cursor-pointer"
+                        title="Remove Sales Representative"
                       >
-                        <Trash2 className="w-3 h-3" />
-                        <span>Delete Rep</span>
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     )}
                   </div>
-                </div>
+                )}
               </div>
 
-              <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-right">
-                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Total Proposals</span>
-                <span className="text-lg font-bold font-mono text-slate-800">{metrics.totalCount} enquiries</span>
+              {/* Bottom Row: Unified 4-Column Divided KPI Strip */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 dark:divide-slate-800 bg-slate-50/40 dark:bg-slate-900/40">
+                <div className="px-5 py-3.5">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                      <Briefcase className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                      <span>Active Pipeline</span>
+                    </span>
+                    {!canSeeSpFinancialMetrics(selectedSalesperson) && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+                        <Lock className="w-2.5 h-2.5" />
+                        <span>Confidential</span>
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-base font-bold font-mono tabular-nums text-slate-900 dark:text-white">
+                    {canSeeSpFinancialMetrics(selectedSalesperson) ? formatCurrency(metrics.activeVal) : 'AED ••••••'}
+                  </div>
+                  <div className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 mt-0.5">
+                    {metrics.activeCount} active {metrics.activeCount === 1 ? 'enquiry' : 'enquiries'}
+                  </div>
+                </div>
+
+                <div className="px-5 py-3.5">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                      <DollarSign className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span>Closed Won Value</span>
+                    </span>
+                    {!canSeeSpFinancialMetrics(selectedSalesperson) && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+                        <Lock className="w-2.5 h-2.5" />
+                        <span>Confidential</span>
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-base font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400">
+                    {canSeeSpFinancialMetrics(selectedSalesperson) ? formatCurrency(metrics.wonVal) : 'AED ••••••'}
+                  </div>
+                  <div className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 mt-0.5">
+                    {metrics.wonCount} won {metrics.wonCount === 1 ? 'order' : 'orders'}
+                  </div>
+                </div>
+
+                <div className="px-5 py-3.5">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">
+                    <Award className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+                    <span>Conversion Rate</span>
+                  </div>
+                  <div className="text-base font-bold font-mono tabular-nums text-slate-900 dark:text-white">
+                    {metrics.winRate}%
+                  </div>
+                  <div className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 mt-0.5">
+                    {metrics.wonCount} won of {metrics.closedCount} closed
+                  </div>
+                </div>
+
+                <div className="px-5 py-3.5">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">
+                    <AlertTriangle className={`w-3.5 h-3.5 shrink-0 ${metrics.overdueCount > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400'}`} />
+                    <span>Follow-Up Health</span>
+                  </div>
+                  <div className={`text-base font-bold font-mono tabular-nums ${metrics.overdueCount > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
+                    {metrics.overdueCount} Overdue
+                  </div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    {metrics.overdueCount > 0 ? 'Needs immediate follow-up' : 'All follow-ups on schedule'}
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* Metrics cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-slate-50 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800/60 rounded-xl p-4">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center space-x-2.5 text-xs text-slate-500 dark:text-slate-400 font-sans">
-                    <Briefcase className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                    <span>Active Value</span>
-                  </div>
-                  {!canSeeSpFinancialMetrics(selectedSalesperson) && (
-                    <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50">
-                      <Lock className="w-2.5 h-2.5" />
-                      <span>Confidential</span>
+            {/* Surface B: Standardized Linked Enquiries Table Card */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs overflow-clip">
+              {/* Single-Row Table Toolbar */}
+              <div className="px-5 py-3.5 border-b border-slate-200/80 dark:border-slate-800 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+                <div className="flex items-center flex-wrap gap-3">
+                  <div className="flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-slate-400 shrink-0" />
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-white font-sans">
+                      Linked Enquiries
+                    </h4>
+                    <span className="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                      ({filteredEnquiries.length}{filteredEnquiries.length !== metrics.totalCount ? ` of ${metrics.totalCount}` : ''})
                     </span>
-                  )}
-                </div>
-                <div className="text-lg font-bold font-mono text-slate-800 dark:text-slate-200 mt-1">
-                  {canSeeSpFinancialMetrics(selectedSalesperson) ? formatCurrency(metrics.activeVal) : 'AED ••••••'}
-                </div>
-              </div>
-
-              <div className="bg-slate-50 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800/60 rounded-xl p-4">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center space-x-2.5 text-xs text-slate-500 dark:text-slate-400 font-sans">
-                    <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                    <span>Closed Wins</span>
                   </div>
-                  {!canSeeSpFinancialMetrics(selectedSalesperson) && (
-                    <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50">
-                      <Lock className="w-2.5 h-2.5" />
-                      <span>Confidential</span>
-                    </span>
-                  )}
-                </div>
-                <div className="text-lg font-bold font-mono text-slate-800 dark:text-slate-200 mt-1">
-                  {canSeeSpFinancialMetrics(selectedSalesperson) ? formatCurrency(metrics.wonVal) : 'AED ••••••'}
-                </div>
-              </div>
 
-              <div className="bg-slate-50 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800/60 rounded-xl p-4">
-                <div className="flex items-center space-x-2.5 text-xs text-slate-500 dark:text-slate-400 mb-1 font-sans">
-                  <Award className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                  <span>Win Rate Ratio</span>
-                </div>
-                <div className="text-lg font-bold font-mono text-slate-800 dark:text-slate-200 mt-1">
-                  {metrics.winRate}%
-                </div>
-              </div>
-
-              <div className="bg-slate-50 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800/60 rounded-xl p-4">
-                <div className="flex items-center space-x-2.5 text-xs text-slate-500 dark:text-slate-400 mb-1 font-sans">
-                  <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
-                  <span>Overdue Tasks</span>
-                </div>
-                <div className={`text-lg font-bold font-mono mt-1 ${metrics.overdueCount > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-200'}`}>
-                  {metrics.overdueCount}
-                </div>
-              </div>
-            </div>
-
-            {/* List of their Enquiries */}
-            <div className="space-y-4 pt-4">
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between border-b border-slate-100 pb-3 gap-3">
-                <div className="flex items-center flex-wrap gap-2.5">
-                  <h4 className="text-base font-bold text-slate-900 font-sans flex items-center space-x-2">
-                    <Layers className="w-4 h-4 text-slate-400" />
-                    <span>Linked Enquiries ({filteredEnquiries.length})</span>
-                  </h4>
-                  {/* Pipeline Status Quick Filters */}
-                  <div className="inline-flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200/80">
+                  {/* Pipeline Status Segmented Controls */}
+                  <div className="inline-flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200/80 dark:border-slate-700">
                     {(
                       [
                         { id: 'ALL', label: 'All' },
@@ -1116,10 +1113,10 @@ export default function SalespersonProfiles({
                         key={pill.id}
                         type="button"
                         onClick={() => setEnquiryStatusFilter(pill.id)}
-                        className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer whitespace-nowrap ${
                           enquiryStatusFilter === pill.id
-                            ? 'bg-white text-blue-600 shadow-2xs'
-                            : 'text-slate-600 hover:text-slate-900'
+                            ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                         }`}
                       >
                         {pill.label}
@@ -1133,7 +1130,7 @@ export default function SalespersonProfiles({
                   <select
                     value={enquirySortBy}
                     onChange={(e) => setEnquirySortBy(e.target.value as any)}
-                    className="bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 focus:outline-none cursor-pointer"
+                    className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
                     title="Sort Linked Enquiries"
                   >
                     <option value="newest">Sort: Newest SN</option>
@@ -1143,20 +1140,20 @@ export default function SalespersonProfiles({
                     <option value="updated">Sort: Recently Updated</option>
                   </select>
 
-                  <div className="relative w-full sm:w-60">
+                  <div className="relative w-full sm:w-64">
                     <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
                     <input
                       type="text"
-                      placeholder="Filter by SN, Ref or Client..."
+                      placeholder="Filter by SN, Ref, or Client..."
                       value={enquirySearchQuery}
                       onChange={(e) => setEnquirySearchQuery(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-lg pl-8 pr-7 py-1.5 text-xs text-slate-700 focus:outline-none"
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-blue-500 rounded-lg pl-8 pr-7 py-1.5 text-xs text-slate-700 dark:text-slate-200 focus:outline-none"
                     />
                     {enquirySearchQuery && (
                       <button
                         type="button"
                         onClick={() => setEnquirySearchQuery('')}
-                        className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600"
+                        className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -1165,214 +1162,243 @@ export default function SalespersonProfiles({
                 </div>
               </div>
 
-              {/* Standard Search Result Counter for Salesperson Linked Enquiries */}
-              <SearchResultCounter
-                totalCount={metrics.enquiries.length}
-                filteredCount={filteredEnquiries.length}
-                searchQuery={enquirySearchQuery}
-                entityLabel="Linked Enquiries"
-                singularEntityLabel="Linked Enquiry"
-                onClear={() => {
-                  setEnquirySearchQuery('');
-                  setEnquiryStatusFilter('ALL');
-                }}
-              />
-
               {paginatedEnquiries.length > 0 ? (
-                <div className="space-y-3">
-                  <div className="space-y-2.5">
-                    {paginatedEnquiries.map((e) => {
-                      const canViewRepFinances = canSeeSpFinancialMetrics(selectedSalesperson);
-                      const isExplicitlySharedOrOwned = isEnquiryExplicitlySharedOrOwnedByViewer(e);
-                      const canViewRowAndValue =
-                        canViewRepFinances ||
-                        (isExplicitlySharedOrOwned && canAccessEnquiry(currentUser, e, activeWorkspace));
-                      const showSharedBadge = !canViewRepFinances && canViewRowAndValue;
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="table-fixed w-full text-left border-collapse min-w-[680px]">
+                      <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)]">
+                        <tr className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                          <th className="w-[16%] py-2.5 pl-5 pr-3 whitespace-nowrap">SN / Date</th>
+                          <th className="w-[36%] py-2.5 px-3 whitespace-nowrap">Client &amp; Project</th>
+                          <th className="w-[22%] py-2.5 px-3 whitespace-nowrap">Quote Ref &amp; Items</th>
+                          <th className="w-[18%] py-2.5 px-3 text-right whitespace-nowrap">Value &amp; Stage</th>
+                          <th className="w-[84px] py-2.5 pl-3 pr-5 text-right whitespace-nowrap">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70 text-xs">
+                        {paginatedEnquiries.map((e) => {
+                          const canViewRepFinances = canSeeSpFinancialMetrics(selectedSalesperson);
+                          const isExplicitlySharedOrOwned = isEnquiryExplicitlySharedOrOwnedByViewer(e);
+                          const canViewRowAndValue =
+                            canViewRepFinances ||
+                            (isExplicitlySharedOrOwned && canAccessEnquiry(currentUser, e, activeWorkspace));
+                          const showSharedBadge = !canViewRepFinances && canViewRowAndValue;
 
-                      const rawDesc = (e.description || e.project_name || e.remarks || '').trim();
-                      const cleanDesc = rawDesc && !/^no description$/i.test(rawDesc) ? rawDesc : '';
-                      const itemCount = Array.isArray((e as any).items)
-                        ? (e as any).items.length
-                        : Array.isArray((e as any).line_items)
-                        ? (e as any).line_items.length
-                        : Number((e as any).items_count) || 0;
-                      const formattedEnqDate = (() => {
-                        const rawDate = e.enquiry_date || (e as any).date || (e as any).created_at;
-                        if (!rawDate) return '';
-                        const d = new Date(rawDate);
-                        if (isNaN(d.getTime())) return String(rawDate);
-                        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                        return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
-                      })();
+                          const rawDesc = (e.description || e.project_name || e.remarks || '').trim();
+                          const cleanDesc = rawDesc && !/^no description$/i.test(rawDesc) ? rawDesc : '';
+                          const itemCount = Array.isArray((e as any).items)
+                            ? (e as any).items.length
+                            : Array.isArray((e as any).line_items)
+                            ? (e as any).line_items.length
+                            : Number((e as any).items_count) || 0;
+                          const formattedEnqDate = (() => {
+                            const rawDate = e.enquiry_date || (e as any).date || (e as any).created_at;
+                            if (!rawDate) return '—';
+                            const d = new Date(rawDate);
+                            if (isNaN(d.getTime())) return String(rawDate);
+                            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                            return `${String(d.getDate()).padStart(2, '0')} ${months[d.getMonth()]} ${d.getFullYear()}`;
+                          })();
 
-                      return (
-                        <div
-                          key={e.id}
-                          onClick={() => {
-                            if (canViewRowAndValue && e.id) {
-                              onSelectEnquiry(e.id);
-                            }
-                          }}
-                          className={`bg-slate-50 border border-slate-200/70 p-3.5 rounded-xl transition duration-100 flex flex-col md:flex-row md:items-center justify-between gap-3 group ${
-                            canViewRowAndValue
-                              ? 'hover:border-blue-300 hover:bg-blue-50/30 cursor-pointer'
-                              : 'opacity-90 cursor-default'
-                          }`}
-                        >
-                          <div className="space-y-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-xs font-mono font-bold text-slate-400">#{e.sn}</span>
-                              <span className="text-sm font-semibold text-slate-800 font-sans truncate">
-                                {companyMap.get(e.company_id) || e.company_name || 'Client Enquiry'}
-                              </span>
-                              {showSharedBadge && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                  <Users2 className="w-2.5 h-2.5" />
-                                  <span>Shared with You</span>
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-xs text-slate-500 truncate max-w-[480px] font-sans flex items-center gap-1.5">
-                              <span className="font-mono font-medium text-slate-600">{e.quote_ref_no || `ENQ-${e.sn}`}</span>
-                              {formattedEnqDate && (
-                                <>
-                                  <span className="text-slate-300">&middot;</span>
-                                  <span>{formattedEnqDate}</span>
-                                </>
-                              )}
-                              <span className="text-slate-300">&middot;</span>
-                              <span>{itemCount} {itemCount === 1 ? 'item' : 'items'}</span>
-                              {cleanDesc && (
-                                <>
-                                  <span className="text-slate-300">&middot;</span>
-                                  <span className="truncate">{cleanDesc}</span>
-                                </>
-                              )}
-                            </p>
-                          </div>
+                          return (
+                            <tr
+                              key={e.id}
+                              onClick={() => {
+                                if (canViewRowAndValue && e.id) {
+                                  onSelectEnquiry(e.id);
+                                }
+                              }}
+                              className={`group transition-colors ${
+                                canViewRowAndValue
+                                  ? 'hover:bg-blue-50/40 dark:hover:bg-slate-800/50 cursor-pointer'
+                                  : 'opacity-85 cursor-default'
+                              }`}
+                            >
+                              {/* Col 1: SN / Date */}
+                              <td className="py-3 pl-5 pr-3 align-middle">
+                                <div className="font-mono font-bold tabular-nums text-slate-900 dark:text-slate-100 truncate">
+                                  #{e.sn}
+                                </div>
+                                <div className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                                  {formattedEnqDate}
+                                </div>
+                              </td>
 
-                          <div className="flex items-center space-x-4 justify-between md:justify-end shrink-0">
-                            <div className="text-right">
-                              {canViewRowAndValue ? (
-                                <span className="text-xs font-mono font-bold text-slate-800 block">
-                                  {formatCurrency(Number(e.value_aed) || 0)}
-                                </span>
-                              ) : (
-                                <span
-                                  className="inline-flex items-center gap-1 text-xs font-mono font-bold text-amber-700 bg-amber-50 border border-amber-200/80 px-2 py-0.5 rounded-md"
-                                  title="Deal value is confidential to this representative and workspace admins"
+                              {/* Col 2: Client & Project */}
+                              <td className="py-3 px-3 align-middle">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+                                    {companyMap.get(e.company_id) || e.company_name || 'Client Enquiry'}
+                                  </span>
+                                  {showSharedBadge && (
+                                    <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 shrink-0">
+                                      &middot; Shared
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                                  {cleanDesc || '—'}
+                                </div>
+                              </td>
+
+                              {/* Col 3: Quote Ref & Items */}
+                              <td className="py-3 px-3 align-middle">
+                                <div className="font-mono font-semibold text-slate-800 dark:text-slate-200 truncate">
+                                  {e.quote_ref_no || `ENQ-${e.sn}`}
+                                </div>
+                                <div className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                                  {itemCount} {itemCount === 1 ? 'line item' : 'line items'}
+                                </div>
+                              </td>
+
+                              {/* Col 4: Value & Stage */}
+                              <td className="py-3 px-3 align-middle text-right">
+                                {canViewRowAndValue ? (
+                                  <div className="font-mono font-bold tabular-nums text-slate-900 dark:text-slate-100 truncate">
+                                    {formatCurrency(Number(e.value_aed) || 0)}
+                                  </div>
+                                ) : (
+                                  <div
+                                    className="inline-flex items-center justify-end gap-1 font-mono font-semibold text-amber-700 dark:text-amber-400"
+                                    title="Deal value is confidential to this representative and workspace admins"
+                                  >
+                                    <Lock className="w-3 h-3 shrink-0" />
+                                    <span>AED ••••</span>
+                                  </div>
+                                )}
+                                <div
+                                  className={`text-[10px] font-mono font-bold uppercase tracking-wider truncate mt-0.5 ${
+                                    isWonStatus(e.status)
+                                      ? 'text-emerald-600 dark:text-emerald-400'
+                                      : isLostOrCancelledStatus(e.status)
+                                      ? 'text-rose-600 dark:text-rose-400'
+                                      : 'text-slate-500 dark:text-slate-400'
+                                  }`}
                                 >
-                                  <Lock className="w-2.5 h-2.5 shrink-0" />
-                                  <span>AED ••••</span>
-                                </span>
-                              )}
-                              <span
-                                className={`text-[10px] font-mono font-bold block mt-0.5 uppercase ${
-                                  isWonStatus(e.status)
-                                    ? 'text-emerald-600'
-                                    : isLostOrCancelledStatus(e.status)
-                                    ? 'text-rose-500'
-                                    : 'text-slate-500'
-                                }`}
-                              >
-                                {e.status}
-                              </span>
-                            </div>
+                                  {e.status || 'Active'}
+                                </div>
+                              </td>
 
-                            {canViewRowAndValue ? (
-                              <button
-                                type="button"
-                                onClick={(ev) => {
-                                  ev.stopPropagation();
-                                  if (e.id) onSelectEnquiry(e.id);
-                                }}
-                                className="p-2 bg-white border border-slate-200 group-hover:border-blue-300 rounded-lg text-slate-400 group-hover:text-blue-600 transition duration-150 flex items-center justify-center shadow-2xs cursor-pointer"
-                                title="Open Enquiry Details"
-                              >
-                                <ArrowUpRight className="w-4 h-4" />
-                              </button>
-                            ) : (
-                              <div
-                                className="px-2.5 py-1.5 bg-slate-100 border border-slate-200 rounded-lg text-[11px] font-semibold text-slate-500 flex items-center space-x-1 cursor-not-allowed select-none"
-                                title="Confidential: Only the assigned representative, collaborators, or Admins can open this enquiry"
-                              >
-                                <Lock className="w-3 h-3 text-slate-400" />
-                                <span>Confidential</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
+                              {/* Col 5: Action */}
+                              <td className="py-3 pl-3 pr-5 align-middle text-right">
+                                <div className="flex items-center justify-end">
+                                  {canViewRowAndValue ? (
+                                    <button
+                                      type="button"
+                                      onClick={(ev) => {
+                                        ev.stopPropagation();
+                                        if (e.id) onSelectEnquiry(e.id);
+                                      }}
+                                      className="w-7 h-7 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 group-hover:border-blue-300 dark:group-hover:border-blue-700 text-slate-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition inline-flex items-center justify-center cursor-pointer"
+                                      title="Open Enquiry Details"
+                                    >
+                                      <ArrowUpRight className="w-3.5 h-3.5" />
+                                    </button>
+                                  ) : (
+                                    <span
+                                      className="w-7 h-7 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 text-slate-400 inline-flex items-center justify-center cursor-not-allowed"
+                                      title="Confidential: Only the assigned representative, collaborators, or Admins can open this enquiry"
+                                    >
+                                      <Lock className="w-3.5 h-3.5" />
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
 
-                  {/* Canonical Pagination Footer */}
-                  <div className="px-4 py-3 bg-slate-50/60 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
+                  {/* Canonical Attached Pagination Footer */}
+                  <div className="bg-slate-50/50 dark:bg-slate-900/50 border-t border-slate-200/80 dark:border-slate-800 px-5 py-3 flex flex-wrap items-center justify-between gap-4 text-xs text-slate-600 dark:text-slate-400">
                     <span className="font-mono text-xs text-slate-600 dark:text-slate-400">
-                      Showing <span className="font-bold tabular-nums text-slate-900 dark:text-white">{(currentPage - 1) * itemsPerPage + 1}</span> to{' '}
+                      Showing <span className="font-bold tabular-nums text-slate-900 dark:text-white">{(currentPage - 1) * pageSize + 1}</span> to{' '}
                       <span className="font-bold tabular-nums text-slate-900 dark:text-white">
-                        {Math.min(currentPage * itemsPerPage, filteredEnquiries.length)}
+                        {Math.min(currentPage * pageSize, filteredEnquiries.length)}
                       </span>{' '}
                       of <span className="font-bold tabular-nums text-slate-900 dark:text-white">{filteredEnquiries.length}</span> enquiries
                     </span>
 
-                    <div className="flex items-center space-x-1">
-                      <button
-                        type="button"
-                        onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
-                        disabled={currentPage <= 1}
-                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
-                      >
-                        <ChevronLeft className="w-3.5 h-3.5" />
-                        <span>Prev</span>
-                      </button>
-                      <span className="text-xs font-mono px-2.5 text-slate-600 dark:text-slate-400">
-                        Page <span className="font-bold tabular-nums text-slate-900 dark:text-white">{currentPage}</span> of{' '}
-                        <span className="font-bold tabular-nums text-slate-900 dark:text-white">{Math.max(1, totalPages)}</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setCurrentPage((p) => Math.min(p + 1, Math.max(1, totalPages)))}
-                        disabled={currentPage >= Math.max(1, totalPages)}
-                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
-                      >
-                        <span>Next</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-slate-500 dark:text-slate-400">Rows:</span>
+                        <select
+                          value={pageSize}
+                          onChange={(e) => {
+                            setPageSize(Number(e.target.value));
+                            setCurrentPage(1);
+                          }}
+                          className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-mono font-semibold text-slate-700 dark:text-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer"
+                        >
+                          <option value={10}>10</option>
+                          <option value={25}>25</option>
+                          <option value={50}>50</option>
+                        </select>
+                      </div>
+
+                      <div className="flex items-center space-x-1">
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                          disabled={currentPage <= 1}
+                          className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                          <span>Prev</span>
+                        </button>
+                        <span className="text-xs font-mono px-2.5 text-slate-600 dark:text-slate-400">
+                          Page <span className="font-bold tabular-nums text-slate-900 dark:text-white">{currentPage}</span> of{' '}
+                          <span className="font-bold tabular-nums text-slate-900 dark:text-white">{totalPages}</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                          disabled={currentPage >= totalPages}
+                          className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-semibold inline-flex items-center gap-1"
+                        >
+                          <span>Next</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
+                </>
               ) : (
-                <div className="py-10 px-4 text-center font-sans">
-                  {enquirySearchQuery.trim() ? (
+                <div className="py-12 px-4 text-center font-sans">
+                  {enquirySearchQuery.trim() || enquiryStatusFilter !== 'ALL' ? (
                     <div className="max-w-sm mx-auto flex flex-col items-center gap-2">
-                      <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
+                      <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-100 dark:border-blue-800/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
                         <Search className="w-4 h-4" />
                       </div>
-                      <div className="text-xs font-bold text-slate-800">
-                        No Enquiries Match &ldquo;{enquirySearchQuery.trim()}&rdquo;
+                      <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                        No Matching Enquiries Found
                       </div>
-                      <p className="text-[11px] text-slate-500">
-                        Clear the search filter to restore all {metrics.enquiries.length} enquiries attributed to {selectedSalesperson.full_name}.
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Reset your search or status filter to view all {metrics.enquiries.length} enquiries attributed to {selectedSalesperson.full_name}.
                       </p>
                       <button
                         type="button"
-                        onClick={() => setEnquirySearchQuery('')}
-                        className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold transition cursor-pointer"
+                        onClick={() => {
+                          setEnquirySearchQuery('');
+                          setEnquiryStatusFilter('ALL');
+                        }}
+                        className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold transition cursor-pointer"
                       >
                         <X className="w-3.5 h-3.5" />
-                        <span>Clear Search Filter</span>
+                        <span>Reset Filters</span>
                       </button>
                     </div>
                   ) : (
                     <div className="max-w-sm mx-auto flex flex-col items-center gap-2">
-                      <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 text-slate-500 flex items-center justify-center">
+                      <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center">
                         <Briefcase className="w-4 h-4" />
                       </div>
-                      <div className="text-xs font-bold text-slate-800">
+                      <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
                         No Linked Enquiries Yet
                       </div>
-                      <p className="text-[11px] text-slate-500">
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
                         Enquiries assigned to {selectedSalesperson.full_name} ({selectedSalesperson.initials}) will appear here automatically.
                       </p>
                     </div>
@@ -1380,16 +1406,16 @@ export default function SalespersonProfiles({
                 </div>
               )}
             </div>
-          </div>
+          </>
         ) : (
-          <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center font-sans shadow-sm flex flex-col items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-12 text-center font-sans shadow-xs flex flex-col items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/60 border border-blue-100 dark:border-blue-800/70 text-blue-600 dark:text-blue-400 flex items-center justify-center">
               <Users className="w-6 h-6" />
             </div>
-            <div className="text-sm font-bold text-slate-800">
+            <div className="text-sm font-bold text-slate-800 dark:text-slate-200">
               Select a Team Member to View Performance
             </div>
-            <p className="text-xs text-slate-500 max-w-sm">
+            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm">
               Choose a representative from the left roster to inspect their personal pipeline, conversion metrics, and attributed enquiries.
             </p>
             {canManageTeam && deduplicatedSalespersons.length === 0 && (
