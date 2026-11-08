@@ -442,7 +442,7 @@ export default function EnquiryForm({
     return list;
   }, [activeUnits, unitsSort]);
 
-  // Tiny sort micro-button helper
+  // Clear micro-pill sort button helper (Sort / A–Z / Z–A)
   const renderSortButton = (
     currentSort: 'default' | 'asc' | 'desc',
     setSort: (val: 'default' | 'asc' | 'desc') => void,
@@ -454,16 +454,24 @@ export default function EnquiryForm({
       else setSort('default');
     };
 
+    const label = currentSort === 'asc' ? 'A–Z' : currentSort === 'desc' ? 'Z–A' : 'Sort';
+    const isActive = currentSort !== 'default';
+
     return (
       <button
         type="button"
         onClick={cycleSort}
-        className="ml-1 p-0.5 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded transition inline-flex items-center align-middle"
-        title={`Change sort order: ${title} (Current: ${currentSort})`}
+        className={`ml-1 px-1.5 py-0.5 rounded-md text-[10px] font-mono font-semibold border transition inline-flex items-center gap-0.5 align-middle cursor-pointer shrink-0 ${
+          isActive
+            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800'
+            : 'bg-slate-100/80 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200/80 dark:border-slate-700 hover:text-blue-600 dark:hover:text-blue-400 hover:border-blue-200 dark:hover:border-blue-800'
+        }`}
+        title={`Change sort order for ${title} (Current: ${label})`}
       >
-        {currentSort === 'default' && <ArrowUpDown className="w-3.5 h-3.5" />}
-        {currentSort === 'asc' && <ArrowUp className="w-3.5 h-3.5 text-blue-600 font-bold" />}
-        {currentSort === 'desc' && <ArrowDown className="w-3.5 h-3.5 text-blue-600 font-bold" />}
+        {currentSort === 'default' && <ArrowUpDown className="w-2.5 h-2.5 shrink-0" />}
+        {currentSort === 'asc' && <ArrowUp className="w-2.5 h-2.5 shrink-0" />}
+        {currentSort === 'desc' && <ArrowDown className="w-2.5 h-2.5 shrink-0" />}
+        <span>{label}</span>
       </button>
     );
   };
@@ -736,7 +744,43 @@ export default function EnquiryForm({
       window.removeEventListener('paste', handleGlobalPaste);
     };
   }, []);
+  const [activeFormSection, setActiveFormSection] = useState<'company' | 'country' | 'line_items' | 'value'>('company');
+
+  const handleFormScroll = (e: React.UIEvent<HTMLFieldSetElement>) => {
+    const container = e.currentTarget;
+    const containerRect = container.getBoundingClientRect();
+    const sectionOrder: Array<{ key: 'company' | 'country' | 'line_items' | 'value'; id: string }> = [
+      { key: 'company', id: 'field-company' },
+      { key: 'country', id: 'field-country' },
+      { key: 'line_items', id: 'field-line_items' },
+      { key: 'value', id: 'field-value' }
+    ];
+
+    // If scrolled near the bottom of the drawer, highlight section 4
+    if (container.scrollHeight - container.scrollTop - container.clientHeight <= 48) {
+      if (activeFormSection !== 'value') setActiveFormSection('value');
+      return;
+    }
+
+    let current: 'company' | 'country' | 'line_items' | 'value' = 'company';
+    for (const sec of sectionOrder) {
+      const el = document.getElementById(sec.id);
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        if (rect.top - containerRect.top <= 140) {
+          current = sec.key;
+        }
+      }
+    }
+    if (current !== activeFormSection) {
+      setActiveFormSection(current);
+    }
+  };
+
   const scrollToField = (fieldKey: string) => {
+    if (fieldKey === 'company' || fieldKey === 'country' || fieldKey === 'line_items' || fieldKey === 'value') {
+      setActiveFormSection(fieldKey);
+    }
     setHighlightedField(fieldKey);
     setGlowingField(fieldKey);
 
@@ -757,7 +801,8 @@ export default function EnquiryForm({
     const targetId = idMap[fieldKey] || `field-${fieldKey}`;
     const el = document.getElementById(targetId);
     if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const isSectionJump = fieldKey === 'company' || fieldKey === 'country' || fieldKey === 'line_items' || fieldKey === 'value';
+      el.scrollIntoView({ behavior: 'smooth', block: isSectionJump ? 'start' : 'center' });
     }
 
     setTimeout(() => {
@@ -4233,25 +4278,38 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
             {/* Sticky Quick-Jump Section Bar */}
             <div className="px-6 py-2 bg-slate-50/90 dark:bg-slate-900/90 border-b border-slate-200/80 dark:border-slate-800 flex items-center gap-1.5 overflow-x-auto shrink-0 z-10">
-              {[
-                { label: '1. Metadata & Client', target: 'company' },
-                { label: '2. Scope & Specs', target: 'country' },
-                { label: `3. Line Items (${lineItems.length})`, target: 'line_items' },
-                { label: `4. Terms & Files (${attachments.length})`, target: 'value' }
-              ].map((sec) => (
-                <button
-                  key={sec.target}
-                  type="button"
-                  onClick={() => scrollToField(sec.target)}
-                  className="px-2.5 py-1 rounded-lg text-[11px] font-semibold font-sans bg-white dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 border border-slate-200/80 dark:border-slate-700 transition whitespace-nowrap cursor-pointer shadow-2xs"
-                >
-                  {sec.label}
-                </button>
-              ))}
+              {(
+                [
+                  { label: '1. Metadata & Client', target: 'company' },
+                  { label: '2. Scope & Specs', target: 'country' },
+                  { label: `3. Line Items (${lineItems.length})`, target: 'line_items' },
+                  { label: `4. Terms & Files (${attachments.length})`, target: 'value' }
+                ] as const
+              ).map((sec) => {
+                const isActive = activeFormSection === sec.target;
+                return (
+                  <button
+                    key={sec.target}
+                    type="button"
+                    onClick={() => scrollToField(sec.target)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold font-sans border transition whitespace-nowrap cursor-pointer ${
+                      isActive
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs ring-2 ring-blue-500/20'
+                        : 'bg-white dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 border-slate-200/80 dark:border-slate-700 shadow-2xs'
+                    }`}
+                  >
+                    {sec.label}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Scrollable Form body */}
-            <fieldset disabled={isReadOnly} className="flex-1 overflow-x-hidden overflow-y-auto p-6 space-y-6 bg-slate-50/40 dark:bg-slate-950/40 border-0 m-0 min-w-0">
+            <fieldset
+              disabled={isReadOnly}
+              onScroll={handleFormScroll}
+              className="flex-1 overflow-x-hidden overflow-y-auto p-6 pb-24 space-y-6 bg-slate-50/40 dark:bg-slate-950/40 border-0 m-0 min-w-0"
+            >
             
             {/* Section 1: Standard Metadata */}
             <div className="bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4">
@@ -4286,26 +4344,26 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   </div>
 
                   <div id="field-received_date">
-                    <MarqueeLabel required className="text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center gap-1" title="Received Date (YYYY-MM-DD)">Received Date</MarqueeLabel>
+                    <MarqueeLabel required className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1" title="Received Date (YYYY-MM-DD)">Received Date</MarqueeLabel>
                     <input
                       type="date"
                       required
                       placeholder="YYYY-MM-DD"
                       value={enquiryDate || ''}
                       onChange={(e) => setEnquiryDate(e.target.value)}
-                      className={`w-full bg-white border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 px-3 py-2 transition-all font-mono ${getHighlightClasses('received_date')}`}
+                      className={`dark:[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono ${getHighlightClasses('received_date')}`}
                     />
                   </div>
 
                   <div>
-                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center gap-1" title="Logged Date (YYYY-MM-DD)">Logged Date</MarqueeLabel>
+                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1" title="Logged Date (YYYY-MM-DD)">Logged Date</MarqueeLabel>
                     <input
                       type="date"
                       required
                       placeholder="YYYY-MM-DD"
                       value={loggedDate || ''}
                       onChange={(e) => setLoggedDate(e.target.value)}
-                      className="w-full bg-white border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 px-3 py-2 transition-all font-mono"
+                      className="dark:[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono"
                     />
                   </div>
 
@@ -4667,7 +4725,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           )}
 
           {/* Section 2: Account and Contact selection */}
-          <div id="field-company" className={`bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 transition-all duration-300 ${getHighlightClasses('company')}`}>
+          <div id="field-company" className={`scroll-mt-4 bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 transition-all duration-300 ${getHighlightClasses('company')}`}>
             <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
               <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
                 <span>🏢 Account & Contact Pairing</span>
@@ -4695,80 +4753,64 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     </span>
                     {renderConfidenceBadge('company_name')}
                   </div>
-                  
-                  {/* Action Menu Dropdown */}
-                  <div className="relative inline-block z-20 shrink-0">
+
+                  {/* Explicit Inline Company Actions */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {companyId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCompanyMenuOpen(false);
+                          const comp = companies.find((c) => c.id === companyId);
+                          if (comp) {
+                            let baseName = comp.display_name;
+                            if (comp.legal_suffix && comp.legal_suffix !== 'None / Other') {
+                              if (comp.display_name.endsWith(comp.legal_suffix)) {
+                                baseName = comp.display_name.slice(0, -comp.legal_suffix.length).trim();
+                              }
+                            }
+                            setSubCompanyName(baseName);
+                            setSubLegalSuffix(comp.legal_suffix || 'None / To Be Added Later');
+                            setSubCompanyCode(comp.company_code || '');
+                            setSubCountryCode(comp.country_code || '');
+                            setSubCity(comp.city);
+                            setSubCountry(comp.country);
+                            setSubGeneralPhone(comp.general_phone || '');
+                            setSubGeneralEmail(comp.general_email || '');
+                            setSubNotes(comp.notes || '');
+                            setIsEditingCompany(true);
+                            setNewCompanyModal(true);
+                          }
+                        }}
+                        className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-md text-[10px] font-semibold inline-flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+                        title="Edit selected Company"
+                      >
+                        <Pencil className="w-2.5 h-2.5" />
+                        <span>Edit</span>
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => setCompanyMenuOpen(!companyMenuOpen)}
-                      className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center cursor-pointer"
-                      title="Company Actions"
+                      onClick={() => {
+                        setCompanyMenuOpen(false);
+                        setSubCompanyName(companySearch);
+                        setSubLegalSuffix('None / To Be Added Later');
+                        setSubCompanyCode('');
+                        setSubCountryCode('');
+                        setSubCity('');
+                        setSubCountry('UAE');
+                        setSubGeneralPhone('');
+                        setSubGeneralEmail('');
+                        setSubNotes('');
+                        setIsEditingCompany(false);
+                        setNewCompanyModal(true);
+                      }}
+                      className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-md text-[10px] font-semibold inline-flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+                      title="Register a new Company"
                     >
-                      <MoreVertical className="w-4 h-4" />
+                      <Plus className="w-2.5 h-2.5" />
+                      <span>+ New</span>
                     </button>
-                    {companyMenuOpen && (
-                      <>
-                        <div 
-                          className="fixed inset-0 z-40" 
-                          onClick={() => setCompanyMenuOpen(false)} 
-                        />
-                        <div className="absolute right-0 top-full mt-1.5 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 py-1 text-xs animate-in fade-in slide-in-from-top-1 duration-100">
-                          {companyId && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setCompanyMenuOpen(false);
-                                const comp = companies.find((c) => c.id === companyId);
-                                if (comp) {
-                                  let baseName = comp.display_name;
-                                  if (comp.legal_suffix && comp.legal_suffix !== 'None / Other') {
-                                    if (comp.display_name.endsWith(comp.legal_suffix)) {
-                                      baseName = comp.display_name.slice(0, -comp.legal_suffix.length).trim();
-                                    }
-                                  }
-                                  setSubCompanyName(baseName);
-                                  setSubLegalSuffix(comp.legal_suffix || 'None / To Be Added Later');
-                                  setSubCompanyCode(comp.company_code || '');
-                                  setSubCountryCode(comp.country_code || '');
-                                  setSubCity(comp.city);
-                                  setSubCountry(comp.country);
-                                  setSubGeneralPhone(comp.general_phone || '');
-                                  setSubGeneralEmail(comp.general_email || '');
-                                  setSubNotes(comp.notes || '');
-                                  setIsEditingCompany(true);
-                                  setNewCompanyModal(true);
-                                }
-                              }}
-                              className="w-full text-left px-3 py-2 text-xs font-sans text-emerald-700 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold flex items-center space-x-1.5 cursor-pointer"
-                              title="Edit selected Company"
-                            >
-                              <span>Edit Details</span>
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCompanyMenuOpen(false);
-                              setSubCompanyName(companySearch);
-                              setSubLegalSuffix('None / To Be Added Later');
-                              setSubCompanyCode('');
-                              setSubCountryCode('');
-                              setSubCity('');
-                              setSubCountry('UAE');
-                              setSubGeneralPhone('');
-                              setSubGeneralEmail('');
-                              setSubNotes('');
-                              setIsEditingCompany(false);
-                              setNewCompanyModal(true);
-                            }}
-                            className="w-full text-left px-3 py-2 text-xs font-sans text-blue-600 dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold flex items-center space-x-1.5 cursor-pointer"
-                            title="Add new Company"
-                          >
-                            <span>+ Add New Company</span>
-                          </button>
-                        </div>
-                      </>
-                    )}
                   </div>
                 </div>
                 <div className="flex gap-2 items-center min-w-0">
@@ -4886,97 +4928,56 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     {renderConfidenceBadge('contact_name')}
                   </div>
 
-                  <div className="flex items-center gap-1 shrink-0">
-                    {companyId && (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {companyId && contactId && (
                       <button
                         type="button"
                         onClick={() => {
-                          setSubContactName('');
-                          setSubContactDesignation('');
-                          setSubContactMobile('');
-                          setSubContactEmail('');
-                          setSubContactIsPrimary(false);
-                          setIsEditingContact(false);
-                          setShowNewContactModal(true);
+                          setShowContactMenu(false);
+                          const ct = contacts.find((c) => c.id === contactId);
+                          if (ct) {
+                            setSubContactName(ct.full_name);
+                            setSubContactDesignation(ct.designation || '');
+                            setSubContactMobile(ct.mobile || '');
+                            setSubContactEmail(ct.email || '');
+                            setSubContactIsPrimary(ct.is_primary || false);
+                            setIsEditingContact(true);
+                            setShowNewContactModal(true);
+                          }
                         }}
-                        className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-md text-[10px] font-semibold flex items-center gap-1 shrink-0 transition cursor-pointer whitespace-nowrap"
-                        title="Open New Contact modal"
+                        className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-md text-[10px] font-semibold inline-flex items-center gap-1 shrink-0 transition cursor-pointer whitespace-nowrap"
+                        title="Edit selected contact"
                       >
-                        <UserPlus className="w-3 h-3 text-blue-600" />
-                        <span>+ New</span>
+                        <Pencil className="w-2.5 h-2.5" />
+                        <span>Edit</span>
                       </button>
                     )}
-
-                    {/* Contact Action Menu Dropdown */}
-                    <div className="relative inline-block z-20 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setShowContactMenu(!showContactMenu)}
-                        className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center cursor-pointer"
-                        title="Contact Actions"
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
-                      {showContactMenu && (
-                        <>
-                          <div
-                            className="fixed inset-0 z-40"
-                            onClick={() => setShowContactMenu(false)}
-                          />
-                          <div className="absolute right-0 top-full mt-1.5 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 py-1 text-xs animate-in fade-in slide-in-from-top-1 duration-100">
-                            {companyId && contactId && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setShowContactMenu(false);
-                                  const ct = contacts.find((c) => c.id === contactId);
-                                  if (ct) {
-                                    setSubContactName(ct.full_name);
-                                    setSubContactDesignation(ct.designation || '');
-                                    setSubContactMobile(ct.mobile || '');
-                                    setSubContactEmail(ct.email || '');
-                                    setSubContactIsPrimary(ct.is_primary || false);
-                                    setIsEditingContact(true);
-                                    setShowNewContactModal(true);
-                                  }
-                                }}
-                                className="w-full text-left px-3 py-2 text-xs font-sans text-emerald-700 dark:text-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold flex items-center space-x-1.5 cursor-pointer"
-                                title="Edit selected contact"
-                              >
-                                <Pencil className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                                <span>Edit Contact Details</span>
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowContactMenu(false);
-                                if (!companyId) {
-                                  if (triggerToast) {
-                                    triggerToast('Please search or select a Company first before adding a contact person.', 'info');
-                                  } else {
-                                    alert('Please search or select a Company first before adding a contact person.');
-                                  }
-                                  return;
-                                }
-                                setSubContactName('');
-                                setSubContactDesignation('');
-                                setSubContactMobile('');
-                                setSubContactEmail('');
-                                setSubContactIsPrimary(false);
-                                setIsEditingContact(false);
-                                setShowNewContactModal(true);
-                              }}
-                              className="w-full text-left px-3 py-2 text-xs font-sans text-blue-600 dark:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold flex items-center space-x-1.5 cursor-pointer"
-                              title="Add a new contact person for this account"
-                            >
-                              <UserPlus className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                              <span>+ Add New Contact</span>
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowContactMenu(false);
+                        if (!companyId) {
+                          if (triggerToast) {
+                            triggerToast('Please search or select a Company first before adding a contact person.', 'info');
+                          } else {
+                            alert('Please search or select a Company first before adding a contact person.');
+                          }
+                          return;
+                        }
+                        setSubContactName('');
+                        setSubContactDesignation('');
+                        setSubContactMobile('');
+                        setSubContactEmail('');
+                        setSubContactIsPrimary(false);
+                        setIsEditingContact(false);
+                        setShowNewContactModal(true);
+                      }}
+                      className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-md text-[10px] font-semibold inline-flex items-center gap-1 shrink-0 transition cursor-pointer whitespace-nowrap"
+                      title="Add a new contact person for this account"
+                    >
+                      <UserPlus className="w-2.5 h-2.5" />
+                      <span>+ New</span>
+                    </button>
                   </div>
                 </div>
                 <div className="space-y-1.5 min-w-0">
@@ -5029,7 +5030,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              <div id="field-country">
+              <div id="field-country" className="scroll-mt-4">
                 <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Country</MarqueeLabel>
                 <input
                   type="text"
@@ -5531,7 +5532,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           </div>
 
           {/* Section 4: Line Items Table */}
-          <div id="field-line_items" className={`bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 ${getHighlightClasses('line_items')}`}>
+          <div id="field-line_items" className={`scroll-mt-4 bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 ${getHighlightClasses('line_items')}`}>
             <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
               <div className="flex items-center gap-2 min-w-0 flex-wrap">
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5 whitespace-nowrap">
@@ -6398,19 +6399,58 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       </div>
                     )}
 
-                    <div className="flex items-center justify-end text-right text-xs font-mono text-slate-400 dark:text-slate-500 space-x-1.5 flex-wrap gap-y-1 pt-1 border-t border-slate-100 dark:border-slate-800">
-                      <span className="shrink-0 text-slate-600 dark:text-slate-400 font-bold">Line Total ({formCurrency}):</span>
-                      <FormattedNumberInput
-                        value={item.total_price}
-                        onChange={(val: number) => handleLineItemChange(index, 'total_price', val)}
-                        className="w-32 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1 px-2.5 text-xs font-bold text-slate-900 dark:text-white text-right focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shrink-0"
-                      />
-                      {formCurrency === 'USD' ? (
-                        <span className="text-blue-600 dark:text-blue-400 font-semibold ml-1.5 whitespace-nowrap shrink-0">(≈ AED {Number((Number(item.total_price) || 0) * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
-                      ) : (
-                        <span className="text-blue-600 dark:text-blue-400 font-semibold ml-1.5 whitespace-nowrap shrink-0">(≈ ${Number((Number(item.total_price) || 0) / 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD)</span>
-                      )}
-                    </div>
+                    {/* Structured Line Item Total Footer Bar */}
+                    {(() => {
+                      const qtyVal = Number(item.quantity) || 0;
+                      const unitVal = Number(item.unit_price) || 0;
+                      const calcTotal = Number((qtyVal * unitVal).toFixed(2));
+                      const currentTotal = Number(item.total_price) || 0;
+                      const isOverridden =
+                        !item.is_composite_set &&
+                        !(item.sub_components && item.sub_components.length > 0) &&
+                        Math.abs(currentTotal - calcTotal) > 0.01;
+                      const cleanUom = !item.unit || String(item.unit).toLowerCase() === 'custom unit' ? 'Nos' : item.unit;
+
+                      return (
+                        <div className="bg-slate-50/90 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 mt-2">
+                          <div className="flex items-center gap-2 flex-wrap text-xs font-mono tabular-nums">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                              Line Total ({formCurrency})
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                              {qtyVal} {cleanUom} &times; {formCurrency} {unitVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                            {isOverridden && (
+                              <button
+                                type="button"
+                                onClick={() => handleLineItemChange(index, 'total_price', calcTotal)}
+                                className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-[10px] font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-100 transition cursor-pointer"
+                                title="Line total was manually overridden. Click to reset to Qty × Unit Price."
+                              >
+                                Manual Override &middot; Reset
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 font-mono tabular-nums">
+                            <FormattedNumberInput
+                              value={item.total_price}
+                              onChange={(val: number) => handleLineItemChange(index, 'total_price', val)}
+                              className="w-32 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1 px-2.5 text-xs font-bold text-slate-900 dark:text-white text-right focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shrink-0"
+                            />
+                            {formCurrency === 'USD' ? (
+                              <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap shrink-0">
+                                &approx; AED {Number(currentTotal * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap shrink-0">
+                                &approx; ${Number(currentTotal / 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}
@@ -6432,20 +6472,26 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   if (isDisc) return sum;
                   return sum + (Number(li.quantity) || 0) * (Number(li.cost_price) || 0);
                 }, 0);
-                const vatAmount = Math.round(totalSelling * 0.05 * 100) / 100;
-                const grandTotalInclVat = totalSelling + vatAmount;
+                const effectiveSubtotal = isLumpSum ? (Number(manualValue) || 0) : totalSelling;
+                const vatAmount = Math.round(effectiveSubtotal * 0.05 * 100) / 100;
+                const grandTotalInclVat = effectiveSubtotal + vatAmount;
                 const hasAnyCost = calcList.some((li) => (Number(li.cost_price) || 0) > 0);
-                const grossProfit = totalSelling - totalCost;
-                const marginPct = totalSelling > 0 && hasAnyCost ? (grossProfit / totalSelling) * 100 : null;
+                const grossProfit = effectiveSubtotal - totalCost;
+                const marginPct = effectiveSubtotal > 0 && hasAnyCost ? (grossProfit / effectiveSubtotal) * 100 : null;
 
                 return (
                   <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 space-y-2.5 shadow-2xs">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200 font-mono">
-                          Deal Profitability & VAT Summary
+                          Deal Profitability &amp; VAT Summary
                         </span>
+                        {isLumpSum && (
+                          <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-[10px] font-mono font-bold text-amber-700 dark:text-amber-300">
+                            Lump-Sum Override Active
+                          </span>
+                        )}
                       </div>
                       {marginPct !== null && (
                         <div className="flex items-center gap-2 text-xs font-mono tabular-nums">
@@ -6479,9 +6525,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         </span>
                       </div>
                       <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
-                        <span className="text-[10px] text-slate-400 uppercase block truncate">Subtotal (Excl. VAT)</span>
+                        <span className="text-[10px] text-slate-400 uppercase block truncate">
+                          Net Proposal Total (Excl. VAT)
+                        </span>
                         <span className="font-bold text-slate-900 dark:text-white">
-                          {formCurrency} {totalSelling.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {formCurrency} {effectiveSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       </div>
                       <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
@@ -6502,25 +6550,39 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               })()}
               </div>
             ) : (
-              <div className="border border-dashed border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 overflow-hidden">
-                <table className="w-full">
-                  <thead className="text-left text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700">
-                    <tr>
-                      <th className="px-4 py-2.5 font-bold">Item Description</th>
-                      <th className="px-4 py-2.5 font-bold">Proposed Size</th>
-                      <th className="px-4 py-2.5 font-bold">Qty</th>
-                      <th className="px-4 py-2.5 font-bold">Unit Price ({formCurrency})</th>
-                      <th className="px-4 py-2.5 font-bold">Total ({formCurrency})</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td colSpan={5} className="py-8 text-center text-slate-400 dark:text-slate-500 text-xs italic">
-                        No items added. Click 'Add Item Line' or use AI to extract specs.
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+              <div className="border border-dashed border-slate-300 dark:border-slate-700 rounded-xl bg-white/90 dark:bg-slate-900/70 p-8 text-center space-y-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/50 border border-blue-200/80 dark:border-blue-800/70 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto">
+                  <Package className="w-5 h-5" />
+                </div>
+                <div className="space-y-1 max-w-md mx-auto">
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 font-sans">
+                    No Proposal Line Items Added Yet
+                  </h4>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-sans">
+                    Add custom equipment lines, insert pre-configured items from the product catalog, or paste an RFQ above for AI extraction.
+                  </p>
+                </div>
+                <div className="flex items-center justify-center gap-2.5 pt-1 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={handleAddLineItem}
+                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold font-sans transition inline-flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Add Item Line</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLinkingLineIndex(null);
+                      setShowCatalogModal(true);
+                    }}
+                    className="px-3.5 py-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold font-sans transition inline-flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                  >
+                    <Search className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                    <span>Browse Catalog</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -6579,8 +6641,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   placeholder="YYYY-MM-DD"
                   value={projectedOrderDate}
                   onChange={(e) => setProjectedOrderDate(e.target.value)}
-                  style={{ colorScheme: 'dark' }}
-                  className="[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
+                  className="dark:[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
                 />
               </div>
 
@@ -6593,16 +6654,15 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   placeholder="YYYY-MM-DD"
                   value={nextFollowupDate}
                   onChange={(e) => setNextFollowupDate(e.target.value)}
-                  style={{ colorScheme: 'dark' }}
-                  className="[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
+                  className="dark:[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
                 />
               </div>
 
               {/* Package total value */}
-              <div id="field-value" className="flex flex-col min-w-0">
+              <div id="field-value" className="scroll-mt-4 flex flex-col min-w-0">
                 <div className="flex items-center justify-between gap-2 mb-1.5 min-w-0">
                   <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                    Package Total ({formCurrency})
+                    Net Proposal Total ({formCurrency})
                   </span>
                   {formCurrency === 'USD' ? (
                     <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] font-mono tabular-nums whitespace-nowrap shrink-0">
@@ -7789,28 +7849,28 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       {/* Product Catalog Modal */}
       {showCatalogModal && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl max-w-4xl w-full border border-slate-200 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-4xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-150">
             {/* Header */}
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between shrink-0">
+            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
               <div>
-                <h3 className="text-lg font-bold text-slate-900 font-sans">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white font-sans">
                   {BRAND_CONFIG.catalogTitle}
                 </h3>
-                <p className="text-xs text-slate-400 font-sans mt-0.5">
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-sans mt-0.5">
                   Select a pre-configured component with specs, standard pricing, and availability.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowCatalogModal(false)}
-                className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-slate-600 transition"
+                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Filter and Search Bar */}
-            <div className="p-4 bg-slate-50 border-b border-slate-100 flex flex-col sm:flex-row gap-3 shrink-0 font-sans">
+            <div className="p-4 bg-slate-50 dark:bg-slate-950/50 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row gap-3 shrink-0 font-sans">
               <div className="relative flex-1">
                 <Search className="w-4 h-4 absolute left-3 top-3.5 text-slate-400" />
                 <input
@@ -7818,12 +7878,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   placeholder="Search by product name or description..."
                   value={catalogSearch}
                   onChange={(e) => setCatalogSearch(e.target.value)}
-                  className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-9 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-xl py-2 px-9 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none"
                 />
                 {catalogSearch && (
                   <button
                     onClick={() => setCatalogSearch('')}
-                    className="absolute right-3 top-3 text-slate-400 hover:text-slate-600"
+                    className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -7834,7 +7894,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <select
                   value={catalogCategory}
                   onChange={(e) => setCatalogCategory(e.target.value)}
-                  className="w-full bg-white border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-xl py-2 px-3 text-sm text-slate-700 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-xl py-2 px-3 text-sm text-slate-700 dark:text-slate-200 focus:outline-none"
                 >
                   <option value="All">All Categories</option>
                   {sortedCategories.map((cat) => (
@@ -7843,7 +7903,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 </select>
               </div>
 
-              <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-1 shrink-0">
+              <div className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-1 shrink-0">
                 {[
                   { id: 'all', label: 'All Stock' },
                   { id: 'in_stock', label: 'In Stock' },
@@ -7856,7 +7916,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
                       catalogStockFilter === tab.id
                         ? 'bg-blue-600 text-white shadow-2xs'
-                        : 'text-slate-600 hover:bg-slate-100'
+                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
                     }`}
                   >
                     {tab.label}
@@ -7866,7 +7926,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             </div>
 
             {/* Catalog Grid/List */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50">
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50 dark:bg-slate-950/60">
               {filteredCatalog.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {filteredCatalog.map((item) => {
@@ -7878,7 +7938,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     return (
                       <div
                         key={item.id || item.name}
-                        className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs hover:border-blue-300 hover:shadow-md transition duration-150 flex flex-col justify-between"
+                        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-xs hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-md transition duration-150 flex flex-col justify-between"
                       >
                         <div className="space-y-2.5">
                           <div className="flex items-start justify-between gap-3">
@@ -7887,21 +7947,21 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 <img
                                   src={item.image_url}
                                   alt={item.name}
-                                  className="w-12 h-12 rounded-xl object-contain bg-white border border-slate-200 p-0.5 shrink-0"
+                                  className="w-12 h-12 rounded-xl object-contain bg-white border border-slate-200 dark:border-slate-700 p-0.5 shrink-0"
                                   referrerPolicy="no-referrer"
                                 />
                               ) : (
-                                <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
+                                <div className="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 shrink-0">
                                   <Package className="w-5 h-5" />
                                 </div>
                               )}
                               <div className="min-w-0">
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="inline-block px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[9px] font-mono uppercase font-bold whitespace-nowrap">
+                                  <span className="inline-block px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 rounded text-[9px] font-mono uppercase font-bold whitespace-nowrap">
                                     {item.product_type}
                                   </span>
                                   {item.is_composite_set && Array.isArray(item.sub_components) && item.sub_components.length > 0 && (
-                                    <span className="inline-block px-2 py-0.5 rounded text-[9px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 whitespace-nowrap">
+                                    <span className="inline-block px-2 py-0.5 rounded text-[9px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 whitespace-nowrap">
                                       📦 Kit / BOM ({item.sub_components.length} parts)
                                     </span>
                                   )}
@@ -7909,28 +7969,28 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     <span
                                       className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-mono font-bold ${
                                         isLowStock
-                                          ? 'bg-amber-100 text-amber-800'
-                                          : 'bg-emerald-100 text-emerald-800'
+                                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                          : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
                                       }`}
                                     >
                                       Avail: {availStock} {cleanUom}
                                     </span>
                                   ) : (
-                                    <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-mono bg-slate-100 text-slate-600">
+                                    <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
                                       {item.lead_time_note || 'Order / Non-Stock'}
                                     </span>
                                   )}
                                   {item.datasheet_attachment?.url && (
-                                    <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                    <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                                       Datasheet
                                     </span>
                                   )}
                                 </div>
-                                <h4 className="text-sm font-bold text-slate-900 mt-1 font-sans truncate" title={item.name}>
+                                <h4 className="text-sm font-bold text-slate-900 dark:text-white mt-1 font-sans truncate" title={item.name}>
                                   {item.name}
                                 </h4>
                                 {(item.brand_make || item.model_part_no || item.sku) && (
-                                  <div className="text-[10px] font-mono text-slate-500 flex items-center gap-1.5 flex-wrap mt-0.5">
+                                  <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 flex items-center gap-1.5 flex-wrap mt-0.5">
                                     {item.brand_make && <span>{item.brand_make}</span>}
                                     {item.model_part_no && <span>• {item.model_part_no}</span>}
                                     {item.sku && <span>• SKU: {item.sku}</span>}
@@ -7940,20 +8000,28 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             </div>
                             <div className="text-right font-mono tabular-nums shrink-0">
                               <span className="text-[10px] text-slate-400 block">Unit Price</span>
-                              <span className="text-sm font-bold text-emerald-600 block">
-                                {priceAed > 0
-                                  ? `${formCurrency} ${Number(convertedPrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                  : `${formCurrency} 0.00 (Custom)`}
-                              </span>
+                              {priceAed > 0 ? (
+                                <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 block">
+                                  {formCurrency}{' '}
+                                  {Number(convertedPrice || 0).toLocaleString(undefined, {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                  })}
+                                </span>
+                              ) : (
+                                <span className="inline-block mt-0.5 px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-[10px] font-sans font-semibold text-amber-700 dark:text-amber-300">
+                                  Price on Request
+                                </span>
+                              )}
                               {item.cost_price_aed && item.cost_price_aed > 0 && priceAed > 0 && (
-                                <span className="text-[10px] text-slate-500 block mt-0.5">
+                                <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-0.5">
                                   Margin: {(((priceAed - item.cost_price_aed) / priceAed) * 100).toFixed(0)}%
                                 </span>
                               )}
                             </div>
                           </div>
 
-                          <p className="text-xs text-slate-500 font-sans line-clamp-2">
+                          <p className="text-xs text-slate-500 dark:text-slate-400 font-sans line-clamp-2">
                             {item.description}
                           </p>
 
@@ -7965,7 +8033,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 .map((attr, aIdx) => (
                                   <span
                                     key={aIdx}
-                                    className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-mono border border-slate-200/80"
+                                    className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-mono border border-slate-200/80 dark:border-slate-700"
                                   >
                                     {attr.key}: {attr.value}
                                   </span>
@@ -7973,14 +8041,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             </div>
                           )}
 
-                          <div className="grid grid-cols-2 gap-2 pt-2 text-[10px] border-t border-slate-100 font-mono text-slate-400">
+                          <div className="grid grid-cols-2 gap-2 pt-2 text-[10px] border-t border-slate-100 dark:border-slate-800 font-mono text-slate-400">
                             <div>
-                              <span className="font-semibold text-slate-500">Unit:</span> {cleanUom}
+                              <span className="font-semibold text-slate-500 dark:text-slate-400">Unit:</span> {cleanUom}
                               {item.country_of_origin ? ` • Origin: ${item.country_of_origin}` : ''}
                             </div>
                             {item.lead_time_note && (
                               <div className="truncate text-right">
-                                <span className="font-semibold text-slate-500">Lead Time:</span> {item.lead_time_note}
+                                <span className="font-semibold text-slate-500 dark:text-slate-400">Lead Time:</span> {item.lead_time_note}
                               </div>
                             )}
                           </div>
@@ -8006,12 +8074,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             </div>
 
             {/* Footer */}
-            <div className="p-4 bg-slate-100 border-t border-slate-200 flex items-center justify-between shrink-0 font-mono text-[10px] text-slate-400">
+            <div className="p-4 bg-slate-100 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0 font-mono text-[10px] text-slate-400">
               <span>* Pricing converted in real-time from AED to USD if USD is selected.</span>
               <button
                 type="button"
                 onClick={() => setShowCatalogModal(false)}
-                className="py-2 px-4 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-slate-700 font-semibold font-sans text-xs transition"
+                className="py-2 px-4 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-200 font-semibold font-sans text-xs transition cursor-pointer"
               >
                 Close Catalog
               </button>
@@ -8023,38 +8091,38 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       {/* Raw Excel Row / RFQ Text AI Paste Modal */}
       {rawTextModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center space-x-2">
-                <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
-                <h3 className="text-base font-bold text-slate-800 font-sans">
+                <FileSpreadsheet className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                <h3 className="text-base font-bold text-slate-800 dark:text-white font-sans">
                   AI Paste Raw Excel Row / RFQ Text
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setRawTextModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <p className="text-xs text-slate-600 leading-relaxed font-sans">
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-sans">
               Copy a row directly from Excel or paste any raw RFQ text below. The AI will parse tab-delimited columns (Serial No, Quote Ref, Dates, Company, Contact Name, Email, Phone, Country, Location), specifications, and multi-line commercial pricing tables directly into structured form fields.
             </p>
 
             <div className="space-y-2">
               <div className="flex justify-between items-center">
-                <label className="text-[11px] font-mono text-slate-500 uppercase font-semibold">
+                <label className="text-[11px] font-mono text-slate-500 dark:text-slate-400 uppercase font-semibold">
                   Raw Text / Tab-Delimited Excel Row
                 </label>
                 <button
                   type="button"
                   onClick={() => setRawTextInput(SAMPLE_EXCEL_ROW)}
-                  className="text-[11px] font-sans font-semibold text-blue-600 hover:text-blue-700 hover:underline flex items-center space-x-1"
+                  className="text-[11px] font-sans font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:underline flex items-center space-x-1 cursor-pointer"
                 >
-                  <Sparkles className="w-3 h-3 text-blue-600" />
+                  <Sparkles className="w-3 h-3 text-blue-600 dark:text-blue-400" />
                   <span>Load Sample Excel Row</span>
                 </button>
               </div>
@@ -8063,7 +8131,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 value={rawTextInput}
                 onChange={(e) => setRawTextInput(e.target.value)}
                 placeholder="Paste raw Excel row or RFQ text here (e.g. 2792  2751-300626AA  Jul-2026...)"
-                className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 rounded-xl p-3 font-mono text-xs text-slate-800 focus:outline-none resize-y"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 rounded-xl p-3 font-mono text-xs text-slate-800 dark:text-slate-100 focus:outline-none resize-y"
               />
             </div>
 
@@ -8071,7 +8139,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               <button
                 type="button"
                 onClick={() => setRawTextInput('')}
-                className="px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-700 font-sans"
+                className="px-3 py-2 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 font-sans cursor-pointer"
               >
                 Clear
               </button>
@@ -8080,7 +8148,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <button
                   type="button"
                   onClick={() => setRawTextModalOpen(false)}
-                  className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold text-xs rounded-xl transition"
+                  className="px-4 py-2 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold text-xs rounded-xl transition cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -8088,7 +8156,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   type="button"
                   onClick={() => handleExtractFromRawText()}
                   disabled={isExtracting || !rawTextInput.trim()}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-xl shadow-sm transition flex items-center space-x-1.5 disabled:opacity-50"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-xl shadow-sm transition flex items-center space-x-1.5 disabled:opacity-50 cursor-pointer"
                 >
                   {isExtracting ? (
                     <>

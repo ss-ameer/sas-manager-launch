@@ -1334,9 +1334,11 @@ export default function EnquiryList({
           pending++;
           pendingQuotesValueAed += valAed;
         }
+        if (!hasFormal) {
+          unquoted++;
+        }
       }
 
-      if (!hasFormal) unquoted++;
       if (!isWon && !isLost && e.next_followup_date && e.next_followup_date < today) {
         overdueFollowups++;
       }
@@ -1460,11 +1462,23 @@ export default function EnquiryList({
           e.status === 'Lost';
       } else if (quoteLifecycleFilter === 'unquoted') {
         const quote = e.id ? activeQuotationByEnquiryId.get(e.id) : null;
+        const normStatus = normalizeEnquiryStatus(e.status);
+        const isWon =
+          quote?.status === 'Approved' ||
+          normStatus === 'Won / Order Confirmed' ||
+          normStatus === 'Won / Approved' ||
+          e.status === 'Won / Order Confirmed' ||
+          e.status === 'Won / Approved';
+        const isLost =
+          quote?.status === 'Declined' ||
+          normStatus === 'Lost / Cancelled' ||
+          e.status === 'Lost / Cancelled' ||
+          e.status === 'Lost';
         const hasFormal =
           (quote && quote.status !== 'Draft') ||
           e.attachments?.some((a) => a.name?.startsWith('QT-') && a.name?.endsWith('.pdf')) ||
           Boolean(e.quote_ref_no && /^QT-\d+/i.test(e.quote_ref_no));
-        matchQuoteLifecycle = !hasFormal;
+        matchQuoteLifecycle = !isWon && !isLost && !hasFormal;
       }
 
       return matchText && matchStatus && matchRep && matchUrgency && matchSource && matchQuoteLifecycle;
@@ -2135,7 +2149,7 @@ export default function EnquiryList({
   return (
     <>
       <PageHeader
-        title="Enquiries Registry"
+        title="Enquiries & Quotes"
         subtitle={`Maintain ${BRAND_CONFIG.shortName} sales proposals, track delivery lead times, and update customer status.`}
         icon={FileText}
         badge={{ text: `${authorizedEnquiries.length} Proposals`, variant: 'blue' }}
@@ -2302,11 +2316,11 @@ export default function EnquiryList({
 
         <div className="flex flex-wrap items-center gap-2 w-full">
           {/* Text search */}
-          <div className="relative flex-1 min-w-[220px]">
+          <div className="relative flex-[1.6] min-w-[260px]">
             <Search className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search by SN, quote reference, account name..."
+              placeholder="Search SN, quote ref, client..."
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               className="w-full h-11 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl py-2.5 pl-10 pr-4 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition"
@@ -3011,14 +3025,14 @@ export default function EnquiryList({
       {/* Custom Confirmation Dialog Overlay */}
       {confirmDialog.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-150">
-            <h3 className="text-lg font-bold text-slate-900 font-sans mb-2">{confirmDialog.title}</h3>
-            <p className="text-sm text-slate-500 font-sans mb-6">{confirmDialog.message}</p>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-150">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white font-sans mb-2">{confirmDialog.title}</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 font-sans mb-6">{confirmDialog.message}</p>
             <div className="flex items-center justify-end space-x-3 font-sans">
               <button
                 type="button"
                 onClick={() => setConfirmDialog((prev) => ({ ...prev, isOpen: false }))}
-                className="py-2 px-4 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 transition cursor-pointer"
+                className="py-2 px-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 transition cursor-pointer"
               >
                 {confirmDialog.cancelText || 'Cancel'}
               </button>
@@ -3033,7 +3047,7 @@ export default function EnquiryList({
                     ? 'bg-amber-600 hover:bg-amber-700'
                     : confirmDialog.isDestructive
                     ? 'bg-rose-600 hover:bg-rose-700'
-                    : 'bg-slate-900 hover:bg-slate-800'
+                    : 'bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-700'
                 }`}
               >
                 {confirmDialog.confirmText || 'Confirm'}
@@ -3166,7 +3180,7 @@ export default function EnquiryList({
                   type="date"
                   value={reserveGapDate}
                   onChange={(e) => setReserveGapDate(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition"
+                  className="dark:[color-scheme:dark] w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition"
                 />
               </div>
 

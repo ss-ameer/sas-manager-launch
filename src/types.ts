@@ -1158,19 +1158,19 @@ export interface IndustryTaxonomySector {
 }
 
 export const CATEGORY_SUGGESTED_ATTRIBUTES: Record<string, string[]> = {
-  'General Equipment': ['Brand / Make', 'Model', 'Capacity / Rating', 'Material / Grade', 'Dimensions'],
-  'Instrumentation & Controls': ['Brand / Make', 'Model', 'Signal / Protocol', 'Voltage', 'Enclosure Rating'],
-  'Hardware & Fasteners': ['Brand / Make', 'Size / Dimension', 'Material Grade', 'Connection Type', 'Pressure Rating'],
-  'Consumables & Spares': ['Brand / Make', 'Part Number', 'Specification', 'Packaging Unit'],
-  'Custom Fabrication': ['Brand / Make', 'Material Grade', 'Surface Finish', 'Dimensions', 'Drawing Ref'],
-  'Turnkey / Services': ['Scope Reference', 'Duration / Lead Time', 'Warranty', 'Location'],
-  'Valves': ['Brand / Make', 'Size', 'Body Material', 'Actuator Type', 'Connection Type'],
-  'Pressure Vessels': ['Brand / Make', 'Shell Material', 'Design Temp', 'Volume', 'Design Pressure'],
-  'Dosing Pumps': ['Brand / Make', 'Flow Rate', 'Pressure', 'Voltage', 'Control Type'],
-  'Chemicals': ['Brand / Make', 'Form', 'Concentration', 'Packaging Type'],
-  'Frames/Fabrication': ['Brand / Make', 'Material Grade', 'Surface Finish', 'Dimensions'],
-  'Various': ['Brand / Make', 'Model/Specification'],
-  'Other': ['Brand / Make', 'Specification']
+  'General Equipment': ['Capacity / Rating', 'Material / Grade', 'Operating Pressure', 'Dimensions', 'Power Supply'],
+  'Instrumentation & Controls': ['Measurement Range', 'Signal / Protocol', 'Voltage', 'Enclosure Rating', 'Process Connection'],
+  'Hardware & Fasteners': ['Size / Dimension', 'Material Grade', 'Connection Type', 'Pressure Rating', 'Thread Standard'],
+  'Consumables & Spares': ['Material / Grade', 'Dimensions', 'Specification', 'Packaging Unit', 'Shelf Life'],
+  'Custom Fabrication': ['Material Grade', 'Surface Finish', 'Dimensions', 'Wall Thickness', 'Drawing Ref'],
+  'Turnkey / Services': ['Scope Reference', 'Duration / Lead Time', 'Warranty', 'Location', 'Compliance Standard'],
+  'Valves': ['Size / DN', 'Body Material', 'Actuator Type', 'Connection Type', 'Pressure Rating'],
+  'Pressure Vessels': ['Shell Material', 'Design Temp', 'Volume / Capacity', 'Design Pressure', 'Corrosion Allowance'],
+  'Dosing Pumps': ['Flow Rate', 'Operating Pressure', 'Wetted Material', 'Voltage', 'Control Type'],
+  'Chemicals': ['Physical Form', 'Concentration', 'Packaging Type', 'Purity / Grade', 'Storage Temp'],
+  'Frames/Fabrication': ['Material Grade', 'Surface Finish', 'Dimensions', 'Load Rating'],
+  'Various': ['Capacity / Rating', 'Material / Grade', 'Dimensions', 'Operating Pressure'],
+  'Other': ['Capacity / Rating', 'Material / Grade', 'Dimensions', 'Specification']
 };
 
 /**

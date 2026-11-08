@@ -1179,14 +1179,20 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                       </div>
                     </div>
                     <div className="text-right font-mono tabular-nums shrink-0">
-                      <span className="text-xs font-bold text-emerald-700 block">
-                        {currency}{' '}
-                        {priceConv.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </span>
-                      <span className="text-[10px] text-blue-600 font-sans font-semibold">
+                      {priceConv > 0 ? (
+                        <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 block">
+                          {currency}{' '}
+                          {priceConv.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
+                      ) : (
+                        <span className="inline-block px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-[10px] font-sans font-semibold text-amber-700 dark:text-amber-300">
+                          Price on Request
+                        </span>
+                      )}
+                      <span className="text-[10px] text-blue-600 dark:text-blue-400 font-sans font-semibold block mt-0.5">
                         Select
                       </span>
                     </div>
@@ -1216,10 +1222,10 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                 onClick={() =>
                   setShowCatalogPickerForRow((prev) => (prev === 'NEW' ? null : 'NEW'))
                 }
-                className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold flex items-center gap-1 transition cursor-pointer"
+                className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold flex items-center gap-1 transition cursor-pointer"
               >
-                <Link2 className="w-3.5 h-3.5" />
-                <span>Link Catalog SKU</span>
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Add from Catalog</span>
               </button>
             )}
             <button
