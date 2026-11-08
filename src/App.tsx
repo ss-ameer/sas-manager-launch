@@ -1936,7 +1936,7 @@ export default function App() {
                   : currentTab === 'companies'
                   ? 'Companies & Contacts'
                   : currentTab === 'salespersons'
-                  ? 'Sales Team Roster'
+                  ? 'Team Roster'
                   : currentTab === 'products'
                   ? 'Products Catalog'
                   : currentTab === 'settings'
@@ -2167,6 +2167,7 @@ export default function App() {
           <SalespersonProfiles
             key={activeWorkspace.id}
             salespersons={workspaceSalespersons}
+            workspaceMembers={workspaceMembers}
             enquiries={visibleEnquiries}
             companies={workspaceCompanies}
             onSelectEnquiry={setSelectedEnquiryId}
