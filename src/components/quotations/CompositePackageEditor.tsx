@@ -1129,20 +1129,20 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                     key={prod.id}
                     type="button"
                     onClick={() => handleSelectCatalogProductForSub(prod, showCatalogPickerForRow)}
-                    className="text-left p-2 rounded-lg bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-400 flex items-center justify-between gap-2 transition cursor-pointer"
+                    className="text-left p-2 rounded-lg bg-white dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-slate-800/80 border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 flex items-center justify-between gap-2 transition cursor-pointer"
                   >
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <div className="text-xs font-bold text-slate-800 truncate">
+                        <div className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
                           {prod.name || prod.product_type}
                         </div>
                         {vInfo?.isVariant && (
-                          <span className="text-[9px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.2 rounded">
+                          <span className="text-[9px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 px-1.5 py-0.2 rounded">
                             Variant • {vInfo.siblingCount} SKUs
                           </span>
                         )}
                       </div>
-                      <div className="text-[10px] font-mono text-slate-500 truncate">
+                      <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate">
                         {[prod.sku ? `SKU: ${prod.sku}` : '', prod.brand_make, prod.model_part_no]
                           .filter(Boolean)
                           .join(' · ') || prod.product_type}
@@ -1152,8 +1152,8 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                           <span
                             className={`inline-block text-[9.5px] font-mono font-bold px-1.5 py-0.2 rounded ${
                               avail > 0
-                                ? 'bg-emerald-50 text-emerald-700'
-                                : 'bg-amber-50 text-amber-700'
+                                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                                : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
                             }`}
                           >
                             Avail: {avail} {cleanUnit}
@@ -1163,7 +1163,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                           ? vInfo.differentiatingAttributes.slice(0, 2).map((attr, aIdx) => (
                               <span
                                 key={aIdx}
-                                className="text-[9px] font-mono font-bold bg-indigo-100/90 border border-indigo-300 text-indigo-900 px-1.5 py-0.2 rounded truncate max-w-[120px]"
+                                className="text-[9px] font-mono font-bold bg-indigo-100/90 dark:bg-indigo-950/60 border border-indigo-300 dark:border-indigo-800 text-indigo-900 dark:text-indigo-200 px-1.5 py-0.2 rounded truncate max-w-[120px]"
                               >
                                 {attr.key}: {attr.value}
                               </span>
@@ -1171,7 +1171,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                           : (prod.attributes || []).slice(0, 2).map((attr, aIdx) => (
                               <span
                                 key={aIdx}
-                                className="text-[9px] font-mono bg-slate-50 border border-slate-200 text-slate-600 px-1 py-0.2 rounded truncate max-w-[110px]"
+                                className="text-[9px] font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 px-1 py-0.2 rounded truncate max-w-[110px]"
                               >
                                 {attr.key}: {attr.value}
                               </span>
@@ -1225,7 +1225,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                 className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold flex items-center gap-1 transition cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>+ Add from Catalog</span>
+                <span>Add from Catalog</span>
               </button>
             )}
             <button
@@ -1515,7 +1515,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
           })}
           {pricedComponents.length === 0 && (
             <div className="py-4 text-center text-slate-400 italic text-xs">
-              No priced sub-components added yet. Click "Add Priced Sub-Component" or "Link Catalog SKU".
+              No priced sub-components added yet. Click "Add Priced Sub-Component" or "Add from Catalog".
             </div>
           )}
         </div>

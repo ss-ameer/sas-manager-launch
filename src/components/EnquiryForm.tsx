@@ -4,7 +4,7 @@ import { prepareAttachmentsForSave, resolveAttachmentUrl, getAttachmentStorageKe
 import mammoth from 'mammoth';
 import { PdfViewer } from './PdfViewer';
 import { MarqueeLabel } from './MarqueeLabel';
-import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductType, UnitType, EnquiryStatus, Product, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, DropdownOption, Workspace, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, LegalSuffix, PIPELINE_STATUS_GROUPS, WorkspaceSequenceCounters, resolveCountryCode, sanitizeCompanyCode } from '../types';
+import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductType, UnitType, EnquiryStatus, Product, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, DropdownOption, Workspace, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, LegalSuffix, PIPELINE_STATUS_GROUPS, WorkspaceSequenceCounters, resolveCountryCode, sanitizeCompanyCode, LineItemImageDisplayOverride, LineItemImageSizeOverride, LineItemImageAspectOverride } from '../types';
 import { db } from '../firebase';
 import { writeBatch, doc, updateDoc } from 'firebase/firestore';
 import { safeAddDoc, safeUpdateDoc, uploadAttachmentWithProgress } from '../firebase';
@@ -19,7 +19,7 @@ import { extractEnquiryClientSide, AVAILABLE_GEMINI_MODELS } from '../utils/aiEx
 import { getUserWorkspaceRole, canEditEnquiry } from '../utils/permissions';
 import CompositePackageEditor from './quotations/CompositePackageEditor';
 import { cloneLineItemToNextOption, recalculateCompositeItemTotals } from '../utils/compositeBomUtils';
-import LineItemImageOptionsPopover from './common/LineItemImageOptionsPopover';
+import { ImageLightboxModal } from './common/ImageLightboxModal';
 import {
   FileText,
   Building,
@@ -37,6 +37,7 @@ import {
   FileCheck,
   Search,
   ChevronDown,
+  ChevronUp,
   ChevronRight,
   Sparkles,
   Loader2,
@@ -65,6 +66,9 @@ import {
   Wrench,
   Link2,
   RefreshCw,
+  RotateCw,
+  Upload,
+  Image as ImageIcon,
   Scissors,
   BookmarkPlus
 } from 'lucide-react';
@@ -75,7 +79,547 @@ import SaveToCatalogModal, {
   compileDescriptionWithSpecs
 } from './SaveToCatalogModal';
 
-// Cache to store generated Blob URLs from Base64 data URLs to prevent memory leaks and multiple allocations
+interface LineItemTier3BMediaGridProps {
+  index: number;
+  item: LineItem;
+  matchedProd: Product | null | undefined;
+  effectiveImageUrl: string;
+  effectiveDatasheet: any;
+  activeWorkspace: any;
+  triggerToast?: (msg: string, type?: 'success' | 'error' | 'info') => void;
+  onSyncToCatalog?: () => Promise<void> | void;
+  handleLineItemChange: (index: number, field: keyof LineItem, value: any) => void;
+  onPatchMedia: (patch: Partial<LineItem>) => void;
+}
+
+const LineItemTier3BMediaGrid: React.FC<LineItemTier3BMediaGridProps> = ({
+  index,
+  item,
+  matchedProd,
+  effectiveImageUrl,
+  effectiveDatasheet,
+  activeWorkspace,
+  triggerToast,
+  onSyncToCatalog,
+  handleLineItemChange,
+  onPatchMedia
+}) => {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const [isLightboxOpen, setIsLightboxOpen] = React.useState(false);
+  const [isUploadingPrimary, setIsUploadingPrimary] = React.useState(false);
+  const [isUploadingSecondary, setIsUploadingSecondary] = React.useState(false);
+  const [isSyncingCatalog, setIsSyncingCatalog] = React.useState(false);
+  const [syncSuccess, setSyncSuccess] = React.useState(false);
+
+  const primaryInputRef = React.useRef<HTMLInputElement | null>(null);
+  const secondaryInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const secondaryImageUrl = item.secondary_image_url || matchedProd?.secondary_image_url || '';
+  const imageCaption = item.image_caption ?? matchedProd?.image_caption ?? '';
+  const secondaryImageCaption = item.secondary_image_caption ?? matchedProd?.secondary_image_caption ?? '';
+  const imageAdjustments = item.image_adjustments || matchedProd?.image_adjustments;
+  const displayOverride = item.image_display_override || 'inherit';
+  const sizeOverride = item.image_size_override || 'inherit';
+  const aspectOverride = item.image_aspect_override || 'inherit';
+
+  const hasCustomOverrides =
+    Boolean(secondaryImageUrl) ||
+    Boolean(imageCaption.trim()) ||
+    Boolean(secondaryImageCaption.trim()) ||
+    (displayOverride && displayOverride !== 'inherit') ||
+    (sizeOverride && sizeOverride !== 'inherit') ||
+    (aspectOverride && aspectOverride !== 'inherit') ||
+    Boolean(imageAdjustments?.rotation);
+
+  const handleUploadFile = async (file: File, target: 'primary' | 'secondary') => {
+    try {
+      if (target === 'primary') setIsUploadingPrimary(true);
+      else setIsUploadingSecondary(true);
+
+      const storageTarget = (activeWorkspace as any)?.settings || activeWorkspace || null;
+      const uploaded = await uploadWorkspaceMediaAsset(file, 'products/images', storageTarget, {
+        compressImage: true,
+        maxDimension: 1200,
+        quality: 0.85
+      });
+      const url = uploaded.url;
+      if (target === 'primary') {
+        onPatchMedia({ image_url: url });
+        triggerToast?.('Primary product photo uploaded', 'success');
+      } else {
+        onPatchMedia({ secondary_image_url: url });
+        triggerToast?.('Secondary technical diagram uploaded', 'success');
+      }
+    } catch (err) {
+      console.error('Failed to upload line item image:', err);
+      triggerToast?.('Failed to upload image', 'error');
+    } finally {
+      if (target === 'primary') setIsUploadingPrimary(false);
+      else setIsUploadingSecondary(false);
+    }
+  };
+
+  const handlePasteOnMedia = async (e: React.ClipboardEvent) => {
+    const clipItems = e.clipboardData?.items;
+    if (!clipItems) return;
+    for (let i = 0; i < clipItems.length; i++) {
+      if (clipItems[i].type.startsWith('image/')) {
+        const file = clipItems[i].getAsFile();
+        if (file) {
+          e.preventDefault();
+          e.stopPropagation();
+          const target = effectiveImageUrl && isOpen && !secondaryImageUrl ? 'secondary' : 'primary';
+          await handleUploadFile(file, target);
+          break;
+        }
+      }
+    }
+  };
+
+  const handleQuickRotate = () => {
+    const current = imageAdjustments?.rotation || 0;
+    const next = ((((current + 90) % 360) + 360) % 360) as 0 | 90 | 180 | 270;
+    onPatchMedia({
+      image_adjustments: {
+        ...imageAdjustments,
+        rotation: next
+      }
+    });
+  };
+
+  const handleTriggerSyncCatalog = async () => {
+    if (!onSyncToCatalog) return;
+    try {
+      setIsSyncingCatalog(true);
+      await onSyncToCatalog();
+      setSyncSuccess(true);
+      setTimeout(() => setSyncSuccess(false), 2500);
+    } catch (err) {
+      console.error('Failed to sync media to catalog:', err);
+    } finally {
+      setIsSyncingCatalog(false);
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-12 gap-3 pt-1" onPaste={handlePasteOnMedia}>
+      <div className="col-span-1 sm:col-span-3 min-w-0">
+        <div className="flex items-center justify-between h-5 mb-1">
+          <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
+            Brand / Make
+          </label>
+        </div>
+        <input
+          type="text"
+          placeholder="e.g. Siemens, ABB, Schneider"
+          value={item.brand_make ?? matchedProd?.brand_make ?? ''}
+          onChange={(e) => handleLineItemChange(index, 'brand_make', e.target.value)}
+          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+        />
+      </div>
+
+      <div className="col-span-1 sm:col-span-3 min-w-0">
+        <div className="flex items-center justify-between h-5 mb-1">
+          <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
+            Model / Part No.
+          </label>
+        </div>
+        <input
+          type="text"
+          placeholder="e.g. MOD-200X"
+          value={item.model_part_no ?? matchedProd?.model_part_no ?? ''}
+          onChange={(e) => handleLineItemChange(index, 'model_part_no', e.target.value)}
+          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs font-mono text-slate-900 dark:text-white focus:outline-none"
+        />
+      </div>
+
+      <div className="col-span-1 sm:col-span-2 min-w-0">
+        <div className="flex items-center justify-between h-5 mb-1">
+          <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
+            Origin
+          </label>
+        </div>
+        <input
+          type="text"
+          placeholder="e.g. USA, UAE"
+          value={item.country_of_origin ?? matchedProd?.country_of_origin ?? ''}
+          onChange={(e) => handleLineItemChange(index, 'country_of_origin', e.target.value)}
+          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+        />
+      </div>
+
+      <div className="col-span-2 sm:col-span-4 min-w-0">
+        <div className="flex items-center justify-between h-5 mb-1 gap-2">
+          <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
+            Media &amp; Datasheet
+          </label>
+          {effectiveDatasheet && (
+            <label className="flex items-center gap-1 text-[10px] text-indigo-700 dark:text-indigo-300 font-semibold cursor-pointer truncate shrink-0">
+              <input
+                type="checkbox"
+                checked={item.include_datasheet_in_quote !== false}
+                onChange={(e) =>
+                  handleLineItemChange(index, 'include_datasheet_in_quote', e.target.checked)
+                }
+                className="w-3 h-3 rounded text-indigo-600"
+              />
+              <span className="truncate" title={effectiveDatasheet.name}>
+                Annex PDF
+              </span>
+            </label>
+          )}
+        </div>
+
+        {/* Trigger Row inside 4th column */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <div
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const file = e.dataTransfer.files?.[0];
+              if (file && file.type.startsWith('image/')) {
+                handleUploadFile(file, 'primary');
+              }
+            }}
+            className="relative group w-8 h-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden flex items-center justify-center shrink-0 transition hover:border-blue-400"
+            title={
+              effectiveImageUrl
+                ? 'Click to Zoom / Adjust • Drop file or Ctrl+V to replace'
+                : 'Click to upload photo • Drop file or focus & Ctrl+V to paste'
+            }
+          >
+            {effectiveImageUrl ? (
+              <>
+                <img
+                  src={effectiveImageUrl}
+                  alt={item.item_name || item.description || `Item #${index + 1}`}
+                  onClick={() => setIsLightboxOpen(true)}
+                  className="w-full h-full object-contain p-0.5 cursor-zoom-in"
+                  style={{
+                    transform: `rotate(${imageAdjustments?.rotation || 0}deg) scale(${imageAdjustments?.scale || 1})`
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setIsLightboxOpen(true)}
+                  className="absolute inset-0 bg-slate-900/50 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition cursor-pointer"
+                  title="Inspect & Adjust Image"
+                >
+                  <Maximize2 className="w-3 h-3" />
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => primaryInputRef.current?.click()}
+                disabled={isUploadingPrimary}
+                className="w-full h-full flex flex-col items-center justify-center text-slate-400 hover:text-blue-600 transition cursor-pointer"
+              >
+                <ImageIcon className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {secondaryImageUrl && (
+            <div
+              onClick={() => setIsLightboxOpen(true)}
+              className="relative group w-8 h-8 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/40 dark:bg-blue-950/40 overflow-hidden flex items-center justify-center shrink-0 cursor-zoom-in"
+              title="2nd Technical Diagram attached (Click to zoom)"
+            >
+              <img
+                src={secondaryImageUrl}
+                alt="2nd Diagram"
+                className="w-full h-full object-contain p-0.5"
+              />
+              <span className="absolute bottom-0 right-0 px-1 bg-blue-600 text-white text-[7px] font-bold leading-tight rounded-tl">
+                2nd
+              </span>
+            </div>
+          )}
+
+          <input
+            ref={primaryInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleUploadFile(file, 'primary');
+              e.target.value = '';
+            }}
+          />
+          <input
+            ref={secondaryInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleUploadFile(file, 'secondary');
+              e.target.value = '';
+            }}
+          />
+
+          <button
+            type="button"
+            onClick={() => primaryInputRef.current?.click()}
+            disabled={isUploadingPrimary}
+            className="px-2 py-1 rounded-md text-[11px] font-semibold bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+            title="Upload or Replace Primary Image (or press Ctrl+V)"
+          >
+            <Upload className="w-3 h-3 text-slate-500" />
+            <span>{isUploadingPrimary ? 'Uploading...' : effectiveImageUrl ? 'Replace' : 'Upload Photo'}</span>
+          </button>
+
+          {effectiveImageUrl && (
+            <button
+              type="button"
+              onClick={() => setIsLightboxOpen(true)}
+              className="px-2 py-1 rounded-md text-[11px] font-semibold bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+              title="Open Lightbox Zoom & Rotate"
+            >
+              <Maximize2 className="w-3 h-3 text-blue-600" />
+              <span>Zoom</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setIsOpen((prev) => !prev)}
+            className={`px-2 py-1 rounded-md text-[11px] font-semibold border flex items-center gap-1 transition cursor-pointer whitespace-nowrap ${
+              isOpen || hasCustomOverrides
+                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                : 'bg-slate-100/80 dark:bg-slate-800 hover:bg-slate-200/70 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+            }`}
+            title="Configure Per-Item Image Placement, Size, 2nd Diagram & Caption"
+          >
+            <Sliders className="w-3 h-3" />
+            <span>Image Options</span>
+            {hasCustomOverrides && (
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-600 dark:bg-blue-400" />
+            )}
+            {isOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
+
+          {effectiveImageUrl && (
+            <button
+              type="button"
+              onClick={() => onPatchMedia({ image_url: '' })}
+              className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+              title="Remove Primary Image"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Full-Width Expanded Per-Item Visual Overrides & Secondary Diagram Panel */}
+      {isOpen && (
+        <div className="col-span-full mt-1 p-3.5 rounded-xl bg-slate-50/95 dark:bg-slate-800/70 border border-slate-200/90 dark:border-slate-700 space-y-3 text-xs animate-in fade-in duration-150">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200/80 dark:border-slate-700">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+              <Sliders className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span>Per-Item Visual Overrides &amp; Secondary Diagram</span>
+            </span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {effectiveImageUrl && (
+                <button
+                  type="button"
+                  onClick={handleQuickRotate}
+                  className="px-2.5 py-1 rounded-md bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1 cursor-pointer"
+                  title="Rotate 90°"
+                >
+                  <RotateCw className="w-2.5 h-2.5" />
+                  <span>Rotate ({imageAdjustments?.rotation || 0}°)</span>
+                </button>
+              )}
+              {Boolean(matchedProd) && onSyncToCatalog && (
+                <button
+                  type="button"
+                  onClick={handleTriggerSyncCatalog}
+                  disabled={isSyncingCatalog}
+                  className={`px-2.5 py-1 rounded-md border text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer ${
+                    syncSuccess
+                      ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                      : 'bg-white dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                  }`}
+                  title="Save these images, captions, and adjustments back to the Master Product Catalog"
+                >
+                  {syncSuccess ? (
+                    <>
+                      <Check className="w-2.5 h-2.5" />
+                      <span>Synced to Catalog</span>
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className={`w-2.5 h-2.5 ${isSyncingCatalog ? 'animate-spin' : ''}`} />
+                      <span>Sync to Catalog</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Unclipped 3-Column Grid for All 6 Controls */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="min-w-0">
+              <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                Placement Override
+              </label>
+              <select
+                value={displayOverride}
+                onChange={(e) =>
+                  onPatchMedia({
+                    image_display_override: e.target.value as LineItemImageDisplayOverride
+                  })
+                }
+                className="w-full px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              >
+                <option value="inherit">Inherit Table Default</option>
+                <option value="column">Dedicated Column</option>
+                <option value="inline_left">Inline Left (Beside Specs)</option>
+                <option value="inline_right">Inline Right (Floated)</option>
+                <option value="below_specs">Below Specs (Diagram Banner)</option>
+                <option value="hidden">Hide Image for This Row</option>
+              </select>
+            </div>
+
+            <div className="min-w-0">
+              <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                Size Override
+              </label>
+              <select
+                value={sizeOverride}
+                onChange={(e) =>
+                  onPatchMedia({
+                    image_size_override: e.target.value as LineItemImageSizeOverride
+                  })
+                }
+                className="w-full px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              >
+                <option value="inherit">Inherit Table Size</option>
+                <option value="xs">XS (32px Micro)</option>
+                <option value="sm">SM (48px Compact)</option>
+                <option value="md">MD (72px Standard)</option>
+                <option value="lg">LG (110px Feature)</option>
+                <option value="xl">XL (160px Showcase)</option>
+              </select>
+            </div>
+
+            <div className="min-w-0">
+              <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                Aspect Ratio Override
+              </label>
+              <select
+                value={aspectOverride}
+                onChange={(e) =>
+                  onPatchMedia({
+                    image_aspect_override: e.target.value as LineItemImageAspectOverride
+                  })
+                }
+                className="w-full px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              >
+                <option value="inherit">Inherit Table Ratio</option>
+                <option value="1:1">1:1 Square</option>
+                <option value="4:3">4:3 Standard</option>
+                <option value="16:9">16:9 Wide Diagram</option>
+                <option value="auto">Auto (Natural Fit)</option>
+              </select>
+            </div>
+
+            <div className="min-w-0">
+              <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                2nd Image (Technical Drawing)
+              </label>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => secondaryInputRef.current?.click()}
+                  disabled={isUploadingSecondary}
+                  className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-center gap-1.5 cursor-pointer transition"
+                >
+                  <Layers className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                  <span className="truncate">
+                    {isUploadingSecondary
+                      ? 'Uploading...'
+                      : secondaryImageUrl
+                      ? 'Replace 2nd Diagram'
+                      : 'Add 2nd Diagram'}
+                  </span>
+                </button>
+                {secondaryImageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => onPatchMedia({ secondary_image_url: '' })}
+                    className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 hover:bg-rose-100 border border-rose-200 dark:border-rose-800 shrink-0 cursor-pointer"
+                    title="Remove 2nd Diagram"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="min-w-0">
+              <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                Primary Photo Caption (Optional)
+              </label>
+              <input
+                type="text"
+                value={imageCaption}
+                onChange={(e) => onPatchMedia({ image_caption: e.target.value })}
+                placeholder="e.g., Fig 1.1: General Arrangement..."
+                className="w-full px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+            </div>
+
+            <div className="min-w-0">
+              <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                2nd Diagram Caption (Optional)
+              </label>
+              <input
+                type="text"
+                value={secondaryImageCaption}
+                onChange={(e) => onPatchMedia({ secondary_image_caption: e.target.value })}
+                placeholder="e.g., Fig 1.2: Dimensional P&ID..."
+                className="w-full px-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ImageLightboxModal
+        isOpen={isLightboxOpen}
+        onClose={() => setIsLightboxOpen(false)}
+        imageUrl={effectiveImageUrl}
+        secondaryImageUrl={secondaryImageUrl}
+        title={item.item_name || item.description || `Item #${index + 1}`}
+        sku={item.sku}
+        caption={imageCaption}
+        secondaryCaption={secondaryImageCaption}
+        adjustments={imageAdjustments}
+        activeWorkspace={activeWorkspace}
+        triggerToast={triggerToast}
+        onUpdateImage={(newUrl, slot) => {
+          if (slot === 'primary') onPatchMedia({ image_url: newUrl });
+          else onPatchMedia({ secondary_image_url: newUrl });
+        }}
+        onRemoveImage={(slot) => {
+          if (slot === 'primary') onPatchMedia({ image_url: '' });
+          else onPatchMedia({ secondary_image_url: '' });
+        }}
+        onUpdateCaption={(newCap, slot) => {
+          if (slot === 'primary') onPatchMedia({ image_caption: newCap });
+          else onPatchMedia({ secondary_image_caption: newCap });
+        }}
+        onUpdateAdjustments={(adj) => onPatchMedia({ image_adjustments: adj })}
+      />
+    </div>
+  );
+};
 
 const DEFAULT_QUICK_ATTRIBUTES = [
   'Flow Rate',
@@ -442,7 +986,7 @@ export default function EnquiryForm({
     return list;
   }, [activeUnits, unitsSort]);
 
-  // Clear micro-pill sort button helper (Sort / A–Z / Z–A)
+  // Ultra-subtle sort button helper (Sort / A–Z / Z–A)
   const renderSortButton = (
     currentSort: 'default' | 'asc' | 'desc',
     setSort: (val: 'default' | 'asc' | 'desc') => void,
@@ -461,10 +1005,10 @@ export default function EnquiryForm({
       <button
         type="button"
         onClick={cycleSort}
-        className={`ml-1 px-1.5 py-0.5 rounded-md text-[10px] font-mono font-semibold border transition inline-flex items-center gap-0.5 align-middle cursor-pointer shrink-0 ${
+        className={`ml-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium border transition inline-flex items-center gap-0.5 align-middle cursor-pointer shrink-0 ${
           isActive
-            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800'
-            : 'bg-slate-100/80 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200/80 dark:border-slate-700 hover:text-blue-600 dark:hover:text-blue-400 hover:border-blue-200 dark:hover:border-blue-800'
+            ? 'bg-blue-50/80 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border-blue-200/80 dark:border-blue-800 font-semibold'
+            : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 bg-transparent border-transparent hover:bg-slate-100 dark:hover:bg-slate-800'
         }`}
         title={`Change sort order for ${title} (Current: ${label})`}
       >
@@ -4386,7 +4930,16 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   )}
 
                   <div>
-                    <MarqueeLabel badge={renderSortButton(salespersonsSort, setSalespersonsSort, 'Salespersons')} className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">Salesperson</MarqueeLabel>
+                    <MarqueeLabel
+                      badge={
+                        user?.role === 'Admin' || allowUserSalespersonSelection
+                          ? renderSortButton(salespersonsSort, setSalespersonsSort, 'Salespersons')
+                          : undefined
+                      }
+                      className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between"
+                    >
+                      Salesperson
+                    </MarqueeLabel>
                     <select
                       value={salesPerson}
                       onChange={(e) => setSalesPerson(e.target.value)}
@@ -4809,7 +5362,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       title="Register a new Company"
                     >
                       <Plus className="w-2.5 h-2.5" />
-                      <span>+ New</span>
+                      <span>New</span>
                     </button>
                   </div>
                 </div>
@@ -4896,7 +5449,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           <Plus className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
                         )}
                         <span className="truncate">
-                          + Create New Company: <strong className="underline underline-offset-2">"{companySearch.trim()}"</strong>
+                          Create New Company: <strong className="underline underline-offset-2">"{companySearch.trim()}"</strong>
                         </span>
                       </button>
                     ) : (
@@ -4909,7 +5462,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         >
                           <Plus className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                           <span className="truncate">
-                            + Create New Company: <strong>"{companySearch.trim()}"</strong>
+                            Create New Company: <strong>"{companySearch.trim()}"</strong>
                           </span>
                         </button>
                       )
@@ -4976,7 +5529,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       title="Add a new contact person for this account"
                     >
                       <UserPlus className="w-2.5 h-2.5" />
-                      <span>+ New</span>
+                      <span>New</span>
                     </button>
                   </div>
                 </div>
@@ -6101,110 +6654,39 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       const effectiveImageUrl = item.image_url || matchedProd?.image_url || '';
                       const effectiveDatasheet = item.datasheet_attachment || matchedProd?.datasheet_attachment;
                       return (
-                        <div className="grid grid-cols-2 sm:grid-cols-12 gap-3 pt-1">
-                          <div className="col-span-1 sm:col-span-3 min-w-0">
-                            <div className="flex items-center justify-between h-5 mb-1">
-                              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate">
-                                Brand / Make
-                              </label>
-                            </div>
-                            <input
-                              type="text"
-                              placeholder="e.g. Siemens, ABB, Schneider"
-                              value={item.brand_make ?? matchedProd?.brand_make ?? ''}
-                              onChange={(e) => handleLineItemChange(index, 'brand_make', e.target.value)}
-                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-                            />
-                          </div>
-                          <div className="col-span-1 sm:col-span-3 min-w-0">
-                            <div className="flex items-center justify-between h-5 mb-1">
-                              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate">
-                                Model / Part No.
-                              </label>
-                            </div>
-                            <input
-                              type="text"
-                              placeholder="e.g. MOD-200X"
-                              value={item.model_part_no ?? matchedProd?.model_part_no ?? ''}
-                              onChange={(e) => handleLineItemChange(index, 'model_part_no', e.target.value)}
-                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs font-mono text-slate-900 dark:text-white focus:outline-none"
-                            />
-                          </div>
-                          <div className="col-span-1 sm:col-span-2 min-w-0">
-                            <div className="flex items-center justify-between h-5 mb-1">
-                              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate">
-                                Origin
-                              </label>
-                            </div>
-                            <input
-                              type="text"
-                              placeholder="e.g. USA, UAE"
-                              value={item.country_of_origin ?? matchedProd?.country_of_origin ?? ''}
-                              onChange={(e) => handleLineItemChange(index, 'country_of_origin', e.target.value)}
-                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-                            />
-                          </div>
-                          <div className="col-span-2 sm:col-span-4 min-w-0">
-                            <div className="flex items-center justify-between h-5 mb-1 gap-2">
-                              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate">
-                                Media &amp; Datasheet
-                              </label>
-                              {effectiveDatasheet && (
-                                <label className="flex items-center gap-1 text-[10px] text-indigo-700 font-semibold cursor-pointer truncate shrink-0">
-                                  <input
-                                    type="checkbox"
-                                    checked={item.include_datasheet_in_quote !== false}
-                                    onChange={(e) =>
-                                      handleLineItemChange(index, 'include_datasheet_in_quote', e.target.checked)
-                                    }
-                                    className="w-3 h-3 rounded text-indigo-600"
-                                  />
-                                  <span className="truncate" title={effectiveDatasheet.name}>
-                                    Annex PDF
-                                  </span>
-                                </label>
-                              )}
-                            </div>
-                            <LineItemImageOptionsPopover
-                              itemTitle={item.item_name || item.description || `Item #${index + 1}`}
-                              imageUrl={effectiveImageUrl}
-                              secondaryImageUrl={item.secondary_image_url || matchedProd?.secondary_image_url}
-                              imageCaption={item.image_caption ?? matchedProd?.image_caption}
-                              secondaryImageCaption={item.secondary_image_caption ?? matchedProd?.secondary_image_caption}
-                              imageAdjustments={item.image_adjustments || matchedProd?.image_adjustments}
-                              displayOverride={item.image_display_override || 'inherit'}
-                              sizeOverride={item.image_size_override || 'inherit'}
-                              aspectOverride={item.image_aspect_override || 'inherit'}
-                              activeWorkspace={activeWorkspace}
-                              triggerToast={triggerToast}
-                              showOverrideControls={true}
-                              canSyncToCatalog={Boolean(matchedProd)}
-                              onSyncToCatalog={
-                                matchedProd
-                                  ? async () => {
-                                      await syncLineItemToCatalogProduct(
-                                        item,
-                                        matchedProd,
-                                        setProducts,
-                                        triggerToast,
-                                        formCurrency
-                                      );
-                                    }
-                                  : undefined
-                              }
-                              onChange={(patch) => {
-                                setLineItems((prev) => {
-                                  const next = [...prev];
-                                  next[index] = {
-                                    ...next[index],
-                                    ...patch
-                                  };
-                                  return next;
-                                });
-                              }}
-                            />
-                          </div>
-                        </div>
+                        <LineItemTier3BMediaGrid
+                          index={index}
+                          item={item}
+                          matchedProd={matchedProd}
+                          effectiveImageUrl={effectiveImageUrl}
+                          effectiveDatasheet={effectiveDatasheet}
+                          activeWorkspace={activeWorkspace}
+                          triggerToast={triggerToast}
+                          handleLineItemChange={handleLineItemChange}
+                          onSyncToCatalog={
+                            matchedProd
+                              ? async () => {
+                                  await syncLineItemToCatalogProduct(
+                                    item,
+                                    matchedProd,
+                                    setProducts,
+                                    triggerToast,
+                                    formCurrency
+                                  );
+                                }
+                              : undefined
+                          }
+                          onPatchMedia={(patch) => {
+                            setLineItems((prev) => {
+                              const next = [...prev];
+                              next[index] = {
+                                ...next[index],
+                                ...patch
+                              };
+                              return next;
+                            });
+                          }}
+                        />
                       );
                     })()}
 
@@ -6275,13 +6757,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               const showCustomInput = isCustom || attr.key === '__custom_editing__' || suggestedKeys.length === 0;
 
                               return (
-                                <div key={attrIdx} className="flex items-center space-x-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-1.5 rounded-lg shadow-2xs">
+                                <div key={attrIdx} className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-1.5 rounded-lg shadow-2xs">
                                   {showCustomInput ? (
-                                    <div className="min-w-[120px] max-w-[160px] flex-shrink-0 flex items-center space-x-1 bg-transparent">
+                                    <div className="min-w-[130px] max-w-[175px] flex-shrink-0 flex items-center gap-1 bg-slate-100/80 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-medium text-xs px-2.5 py-1.5 rounded-md border border-slate-200/80 dark:border-slate-700 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition-colors">
                                       <input
                                         type="text"
                                         value={attr.key === '__custom_editing__' ? '' : (attr.key ?? '')}
-                                        placeholder="Key"
+                                        placeholder="Attribute Key"
                                         onChange={(e) => {
                                           const updated = [...lineItems];
                                           const attrList = [...(updated[index].attributes || [])];
@@ -6302,7 +6784,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                             updated[index] = { ...updated[index], attributes: attrList };
                                             setLineItems(updated);
                                           }}
-                                          className="text-[9px] text-blue-500 hover:text-blue-700 font-bold px-0.5 shrink-0 cursor-pointer"
+                                          className="text-[9px] text-blue-600 dark:text-blue-400 hover:underline font-bold px-0.5 shrink-0 cursor-pointer"
                                         >
                                           List
                                         </button>
@@ -6324,20 +6806,19 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                         updated[index] = { ...updated[index], attributes: attrList };
                                         setLineItems(updated);
                                       }}
-                                      className="min-w-[120px] max-w-[160px] flex-shrink-0 bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-800 dark:text-slate-200 font-semibold cursor-pointer focus:outline-none truncate"
+                                      className="min-w-[130px] max-w-[175px] flex-shrink-0 bg-slate-100/80 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-medium text-xs px-2.5 py-1.5 rounded-md border border-slate-200/80 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors cursor-pointer truncate"
                                     >
-                                      <option value="">Select...</option>
+                                      <option value="">Select Key...</option>
                                       {suggestedKeys.map((k) => (
                                         <option key={k} value={k}>{k}</option>
                                       ))}
-                                      <option value="__custom__">+ Custom...</option>
+                                      <option value="__custom__">+ Custom Key...</option>
                                     </select>
                                   )}
-                                  <span className="text-slate-300 dark:text-slate-600 text-xs shrink-0">:</span>
                                   <input
                                     type="text"
                                     value={attr.value ?? ''}
-                                    placeholder="Value (e.g. 10m3)"
+                                    placeholder="Value (e.g. 10m3 / SS316)"
                                     onChange={(e) => {
                                       const updated = [...lineItems];
                                       const attrList = [...(updated[index].attributes || [])];
@@ -6345,7 +6826,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                       updated[index] = { ...updated[index], attributes: attrList };
                                       setLineItems(updated);
                                     }}
-                                    className="flex-1 min-w-0 bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-700 dark:text-slate-300 focus:outline-none"
+                                    className="flex-1 min-w-0 bg-transparent border-0 focus:ring-0 px-1.5 py-1 text-xs text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none"
                                   />
                                   <button
                                     type="button"
@@ -6355,7 +6836,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                       updated[index] = { ...updated[index], attributes: attrList };
                                       setLineItems(updated);
                                     }}
-                                    className="p-0.5 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded transition shrink-0 cursor-pointer"
+                                    className="p-1 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-md transition shrink-0 cursor-pointer"
                                   >
                                     <X className="w-3.5 h-3.5" />
                                   </button>
@@ -6418,7 +6899,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               Line Total ({formCurrency})
                             </span>
                             <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] font-medium text-slate-600 dark:text-slate-300">
-                              {qtyVal} {cleanUom} &times; {formCurrency} {unitVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              {qtyVal} {cleanUom} × {formCurrency} {unitVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </span>
                             {isOverridden && (
                               <button
@@ -6427,7 +6908,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-[10px] font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-100 transition cursor-pointer"
                                 title="Line total was manually overridden. Click to reset to Qty × Unit Price."
                               >
-                                Manual Override &middot; Reset
+                                Manual Override · Reset
                               </button>
                             )}
                           </div>
@@ -6440,11 +6921,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             />
                             {formCurrency === 'USD' ? (
                               <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap shrink-0">
-                                &approx; AED {Number(currentTotal * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                ≈ AED {Number(currentTotal * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </span>
                             ) : (
                               <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap shrink-0">
-                                &approx; ${Number(currentTotal / 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                                ≈ ${Number(currentTotal / 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                               </span>
                             )}
                           </div>
@@ -6454,100 +6935,6 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   </div>
                 );
               })}
-
-              {/* Deal Profitability & Gross Margin Summary Strip */}
-              {(() => {
-                const baselineList = lineItems.filter((li) => {
-                  const opt = String((li as any).option_designation || li.option || 'Default / Included').trim();
-                  return !opt || opt === 'Default / Included' || opt === 'Baseline / All' || opt === 'Option A' || opt.startsWith('Option A ');
-                });
-                const calcList = baselineList.length > 0 ? baselineList : lineItems;
-                const totalSelling = calcList.reduce((sum, li) => {
-                  const isDisc = li.item_type === 'discount' || (li as any).classification === 'Discount / Rebate';
-                  const lineVal = Number(li.total_price) || (Number(li.quantity) || 0) * (Number(li.unit_price) || 0);
-                  return isDisc ? sum - Math.abs(lineVal) : sum + lineVal;
-                }, 0);
-                const totalCost = calcList.reduce((sum, li) => {
-                  const isDisc = li.item_type === 'discount' || (li as any).classification === 'Discount / Rebate';
-                  if (isDisc) return sum;
-                  return sum + (Number(li.quantity) || 0) * (Number(li.cost_price) || 0);
-                }, 0);
-                const effectiveSubtotal = isLumpSum ? (Number(manualValue) || 0) : totalSelling;
-                const vatAmount = Math.round(effectiveSubtotal * 0.05 * 100) / 100;
-                const grandTotalInclVat = effectiveSubtotal + vatAmount;
-                const hasAnyCost = calcList.some((li) => (Number(li.cost_price) || 0) > 0);
-                const grossProfit = effectiveSubtotal - totalCost;
-                const marginPct = effectiveSubtotal > 0 && hasAnyCost ? (grossProfit / effectiveSubtotal) * 100 : null;
-
-                return (
-                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 space-y-2.5 shadow-2xs">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                        <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200 font-mono">
-                          Deal Profitability &amp; VAT Summary
-                        </span>
-                        {isLumpSum && (
-                          <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-[10px] font-mono font-bold text-amber-700 dark:text-amber-300">
-                            Lump-Sum Override Active
-                          </span>
-                        )}
-                      </div>
-                      {marginPct !== null && (
-                        <div className="flex items-center gap-2 text-xs font-mono tabular-nums">
-                          <span>
-                            <span className="text-slate-400 mr-1">Est. Profit:</span>
-                            <span className={`font-bold ${grossProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                              {formCurrency} {grossProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                          </span>
-                          <span
-                            className={`px-2 py-0.5 rounded-md font-bold text-[11px] ${
-                              marginPct >= 20
-                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60'
-                                : marginPct >= 0
-                                ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
-                                : 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60'
-                            }`}
-                          >
-                            {marginPct.toFixed(1)}% Gross Margin
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs font-mono tabular-nums">
-                      <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
-                        <span className="text-[10px] text-slate-400 uppercase block truncate">Total Cost</span>
-                        <span className="font-semibold text-slate-700 dark:text-slate-200">
-                          {hasAnyCost
-                            ? `${formCurrency} ${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                            : '—'}
-                        </span>
-                      </div>
-                      <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
-                        <span className="text-[10px] text-slate-400 uppercase block truncate">
-                          Net Proposal Total (Excl. VAT)
-                        </span>
-                        <span className="font-bold text-slate-900 dark:text-white">
-                          {formCurrency} {effectiveSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
-                        <span className="text-[10px] text-slate-400 uppercase block truncate">5% VAT</span>
-                        <span className="font-semibold text-slate-700 dark:text-slate-200">
-                          {formCurrency} {vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      <div className="bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg px-2.5 py-1.5">
-                        <span className="text-[10px] text-blue-600 dark:text-blue-400 uppercase font-bold block truncate">Grand Total (Incl. VAT)</span>
-                        <span className="font-bold text-blue-700 dark:text-blue-300">
-                          {formCurrency} {grandTotalInclVat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
               </div>
             ) : (
               <div className="border border-dashed border-slate-300 dark:border-slate-700 rounded-xl bg-white/90 dark:bg-slate-900/70 p-8 text-center space-y-3">
@@ -6569,7 +6956,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold font-sans transition inline-flex items-center gap-1.5 shadow-2xs cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>+ Add Item Line</span>
+                    <span>Add Item Line</span>
                   </button>
                   <button
                     type="button"
@@ -6587,12 +6974,17 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             )}
           </div>
 
-          {/* Section 5: Value AED, status, follow-up dates */}
-          <div className="bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+          {/* Section 5: Proposal State, Evaluation & Integrated Deal Profitability / VAT Summary */}
+          <div id="field-value" className="scroll-mt-4 bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
               <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
-                <span>📊 Proposal State & Evaluation</span>
+                <span>📊 Proposal State &amp; Evaluation</span>
               </span>
+              {isLumpSum && (
+                <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-[10px] font-mono font-bold text-amber-700 dark:text-amber-300">
+                  Lump-Sum Override Active
+                </span>
+              )}
             </div>
 
             <div className={`grid grid-cols-1 sm:grid-cols-2 ${isPreviewActive ? '' : 'xl:grid-cols-4'} gap-4`}>
@@ -6658,8 +7050,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 />
               </div>
 
-              {/* Package total value */}
-              <div id="field-value" className="scroll-mt-4 flex flex-col min-w-0">
+              {/* Net Proposal Total & Manual Lump-Sum Override */}
+              <div className="flex flex-col min-w-0">
                 <div className="flex items-center justify-between gap-2 mb-1.5 min-w-0">
                   <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
                     Net Proposal Total ({formCurrency})
@@ -6697,33 +7089,128 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     Manual Lump-sum Override
                   </label>
                 </div>
-
-                {/* Subtotal Breakdown Summary Pills */}
-                {((optionBreakdown?.optionTotals && Object.keys(optionBreakdown.optionTotals).length > 0) || Number(optionBreakdown?.optionalAddonsTotal || 0) > 0) && (
-                  <div className="mt-2 pt-1.5 border-t border-slate-200/70 dark:border-slate-800 flex flex-wrap items-center gap-1.5">
-                    {Object.entries(optionBreakdown?.optionTotals || {}).map(([optName, optTotal]) => (
-                      <span
-                        key={optName}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60"
-                        title={`${optName} Alternative Subtotal`}
-                      >
-                        <span className="font-semibold">{optName}:</span>
-                        <span>{formCurrency} {Number(optTotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                      </span>
-                    ))}
-                    {Number(optionBreakdown?.optionalAddonsTotal || 0) > 0 && (
-                      <span
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60"
-                        title="Optional / Add-On Electives Total"
-                      >
-                        <span className="font-semibold">Optionals:</span>
-                        <span>+{formCurrency} {Number(optionBreakdown?.optionalAddonsTotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                      </span>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
+
+            {/* Integrated Deal Profitability & VAT Summary Strip */}
+            {(() => {
+              const baselineList = lineItems.filter((li) => {
+                const opt = String((li as any).option_designation || li.option || 'Default / Included').trim();
+                return !opt || opt === 'Default / Included' || opt === 'Baseline / All' || opt === 'Option A' || opt.startsWith('Option A ');
+              });
+              const calcList = baselineList.length > 0 ? baselineList : lineItems;
+              const totalSelling = calcList.reduce((sum, li) => {
+                const isDisc = li.item_type === 'discount' || (li as any).classification === 'Discount / Rebate';
+                const lineVal = Number(li.total_price) || (Number(li.quantity) || 0) * (Number(li.unit_price) || 0);
+                return isDisc ? sum - Math.abs(lineVal) : sum + lineVal;
+              }, 0);
+              const totalCost = calcList.reduce((sum, li) => {
+                const isDisc = li.item_type === 'discount' || (li as any).classification === 'Discount / Rebate';
+                if (isDisc) return sum;
+                return sum + (Number(li.quantity) || 0) * (Number(li.cost_price) || 0);
+              }, 0);
+              const effectiveSubtotal = isLumpSum ? (Number(manualValue) || 0) : totalSelling;
+              const vatAmount = Math.round(effectiveSubtotal * 0.05 * 100) / 100;
+              const grandTotalInclVat = effectiveSubtotal + vatAmount;
+              const hasAnyCost = calcList.some((li) => (Number(li.cost_price) || 0) > 0);
+              const grossProfit = effectiveSubtotal - totalCost;
+              const marginPct = effectiveSubtotal > 0 && hasAnyCost ? (grossProfit / effectiveSubtotal) * 100 : null;
+
+              return (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-3.5 space-y-2.5 shadow-2xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200 font-mono">
+                        Deal Profitability &amp; VAT Summary
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500">
+                        ({isLumpSum ? 'Lump-Sum Basis' : `${lineItems.length} Line Item${lineItems.length === 1 ? '' : 's'}`})
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {((optionBreakdown?.optionTotals && Object.keys(optionBreakdown.optionTotals).length > 0) || Number(optionBreakdown?.optionalAddonsTotal || 0) > 0) && (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {Object.entries(optionBreakdown?.optionTotals || {}).map(([optName, optTotal]) => (
+                            <span
+                              key={optName}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60"
+                              title={`${optName} Alternative Subtotal`}
+                            >
+                              <span className="font-semibold">{optName}:</span>
+                              <span>{formCurrency} {Number(optTotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </span>
+                          ))}
+                          {Number(optionBreakdown?.optionalAddonsTotal || 0) > 0 && (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60"
+                              title="Optional / Add-On Electives Total"
+                            >
+                              <span className="font-semibold">Optionals:</span>
+                              <span>+{formCurrency} {Number(optionBreakdown?.optionalAddonsTotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {marginPct !== null && (
+                        <div className="flex items-center gap-2 text-xs font-mono tabular-nums">
+                          <span>
+                            <span className="text-slate-400 mr-1">Est. Profit:</span>
+                            <span className={`font-bold ${grossProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                              {formCurrency} {grossProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-md font-bold text-[11px] ${
+                              marginPct >= 20
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60'
+                                : marginPct >= 0
+                                ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
+                                : 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60'
+                            }`}
+                          >
+                            {marginPct.toFixed(1)}% Gross Margin
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs font-mono tabular-nums">
+                    <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
+                      <span className="text-[10px] text-slate-400 uppercase block truncate">Total Cost</span>
+                      <span className="font-semibold text-slate-700 dark:text-slate-200">
+                        {hasAnyCost
+                          ? `${formCurrency} ${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                          : `${formCurrency} 0.00`}
+                      </span>
+                    </div>
+                    <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
+                      <span className="text-[10px] text-slate-400 uppercase block truncate">
+                        Net Proposal Total (Excl. VAT)
+                      </span>
+                      <span className="font-bold text-slate-900 dark:text-white">
+                        {formCurrency} {effectiveSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
+                      <span className="text-[10px] text-slate-400 uppercase block truncate">5% VAT</span>
+                      <span className="font-semibold text-slate-700 dark:text-slate-200">
+                        {formCurrency} {vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg px-2.5 py-1.5">
+                      <span className="text-[10px] text-blue-600 dark:text-blue-400 uppercase font-bold block truncate">Grand Total (Incl. VAT)</span>
+                      <span className="font-bold text-blue-700 dark:text-blue-300">
+                        {formCurrency} {grandTotalInclVat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Section 6: Remarks & Payment Terms */}
