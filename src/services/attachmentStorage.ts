@@ -326,6 +326,102 @@ function ensurePdfJsLoaded(): Promise<any> {
   return sharedPdfJsPromise;
 }
 
+export interface RasterizedPdfPage {
+  pageNumber: number;
+  totalPages: number;
+  dataUrl: string;
+  file: File;
+  width: number;
+  height: number;
+}
+
+/**
+ * Rasterizes a PDF File or URL/DataURI into high-resolution A4 page JPEG images
+ * using PDF.js offscreen canvas rendering so PDF cover/annex pages render and print natively.
+ */
+export async function rasterizePdfToPageImages(
+  pdfFileOrUrl: File | string,
+  options?: { maxPages?: number; scale?: number; quality?: number }
+): Promise<RasterizedPdfPage[]> {
+  const maxPages = options?.maxPages ?? 12;
+  const scale = options?.scale ?? 1.75;
+  const quality = options?.quality ?? 0.86;
+
+  const pdfjsLib = await ensurePdfJsLoaded();
+
+  let docParam: any;
+  let baseFileName = 'pdf-page';
+
+  if (typeof pdfFileOrUrl !== 'string') {
+    baseFileName = (pdfFileOrUrl.name || 'pdf-page').replace(/\.pdf$/i, '');
+    const arrayBuffer = await pdfFileOrUrl.arrayBuffer();
+    docParam = { data: arrayBuffer };
+  } else {
+    const trimmed = pdfFileOrUrl.trim();
+    if (/^data:application\/pdf/i.test(trimmed)) {
+      const commaIdx = trimmed.indexOf(',');
+      const base64 = commaIdx >= 0 ? trimmed.slice(commaIdx + 1) : trimmed;
+      const binaryString = atob(base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      docParam = { data: bytes };
+    } else {
+      docParam = { url: trimmed, withCredentials: false };
+    }
+  }
+
+  const loadingTask = pdfjsLib.getDocument(docParam);
+  const pdfDoc = await loadingTask.promise;
+  const totalPages: number = pdfDoc.numPages || 1;
+  const pagesToRender = Math.min(totalPages, Math.max(1, maxPages));
+
+  const results: RasterizedPdfPage[] = [];
+
+  for (let p = 1; p <= pagesToRender; p++) {
+    const page = await pdfDoc.getPage(p);
+    const viewport = page.getViewport({ scale });
+    const width = Math.max(1, Math.round(viewport.width));
+    const height = Math.max(1, Math.round(viewport.height));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('Could not initialize 2D canvas context for PDF page rasterization');
+    }
+
+    // Solid white background for transparent PDF layers
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    await page.render({
+      canvasContext: ctx,
+      viewport
+    }).promise;
+
+    const dataUrl = canvas.toDataURL('image/jpeg', quality);
+    const pageFileName =
+      totalPages === 1
+        ? `${baseFileName}.jpg`
+        : `${baseFileName}-page-${p}.jpg`;
+    const pageFile = dataUrlToFile(dataUrl, pageFileName);
+
+    results.push({
+      pageNumber: p,
+      totalPages,
+      dataUrl,
+      file: pageFile,
+      width,
+      height
+    });
+  }
+
+  return results;
+}
+
 /**
  * In-App Acrobat-Style PDF Compression (5 MB -> ~200 KB)
  * Uses PDF.js canvas rendering + jsPDF JPEG page assembly when a PDF exceeds 300 KB.

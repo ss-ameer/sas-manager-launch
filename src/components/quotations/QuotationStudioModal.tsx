@@ -50,7 +50,8 @@ import {
   VendorReturnMetadata,
   Company,
   Contact,
-  SupplierBill
+  SupplierBill,
+  SignatoryPreset
 } from '../../types';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
 import { ProcurementRepository } from '../../services/repositories/ProcurementRepository';
@@ -58,7 +59,8 @@ import { CompanyRepository } from '../../services/repositories/CompanyRepository
 import { processVendorReturnStockDeduction } from '../../services/inventoryService';
 import {
   uploadWorkspaceMediaAsset,
-  deleteFromStorageBucket
+  deleteFromStorageBucket,
+  rasterizePdfToPageImages
 } from '../../services/attachmentStorage';
 import SaveToCatalogModal, {
   parseLineItemTitleAndSpec,
@@ -72,6 +74,7 @@ import { safeGetDocs, safeAddDoc, safeUpdateDoc } from '../../firebase';
 import { where } from 'firebase/firestore';
 import {
   QuotationDocument,
+  PdfOrImageSheetRenderer,
   QUOTATION_THEMES,
   DEFAULT_QUOTATION_BLOCKS,
   DEFAULT_HEADER_CONFIG,
@@ -2224,8 +2227,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   };
 
   // Signatory & Remittance choices
-  const [signatoryType, setSignatoryType] = useState<'single' | 'dual'>(
-    editingQuotation?.signatory_type ||
+  const [signatoryType, setSignatoryType] = useState<'single' | 'dual' | 'stamp_only'>(
+    (editingQuotation?.signatory_type as 'single' | 'dual' | 'stamp_only') ||
       (editingQuotation?.signatories && editingQuotation.signatories.length > 1 ? 'dual' : 'single')
   );
   const [signatoryMode, setSignatoryMode] = useState<QuotationSignatoryMode>(
@@ -2812,7 +2815,75 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     e.target.value = '';
     for (let idx = 0; idx < fileList.length; idx++) {
       const file = fileList[idx];
+      const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
       const isImage = file.type.startsWith('image/');
+      const cleanBaseName =
+        file.name.replace(/\.[^/.]+$/, '').trim() ||
+        `Annex Datasheet ${flyerAttachments.length + idx + 1}`;
+
+      if (isPdf) {
+        try {
+          const pages = await rasterizePdfToPageImages(file, {
+            maxPages: 12,
+            scale: 1.75,
+            quality: 0.86
+          });
+          if (pages.length > 0) {
+            const newPageAttachments: Attachment[] = [];
+            for (const page of pages) {
+              let assetUrl = page.dataUrl;
+              let assetStoragePath: string | undefined = undefined;
+              let assetSize = page.file.size;
+              try {
+                const uploadedPage = await uploadWorkspaceMediaAsset(
+                  page.file,
+                  'quotations/annexes',
+                  activeWorkspace,
+                  {
+                    maxWidth: 1600,
+                    maxHeight: 2200,
+                    quality: 0.86,
+                    preserveTransparency: false
+                  }
+                );
+                if (uploadedPage?.url) {
+                  assetUrl = uploadedPage.url;
+                  assetStoragePath = uploadedPage.storagePath;
+                  assetSize = uploadedPage.size || page.file.size;
+                }
+              } catch {
+                assetUrl = page.dataUrl;
+              }
+              const pageTitle =
+                pages.length === 1
+                  ? cleanBaseName
+                  : `${cleanBaseName} (Page ${page.pageNumber}/${page.totalPages})`;
+              newPageAttachments.push({
+                id: `annex_${Date.now()}_${idx}_p${page.pageNumber}_${Math.random().toString(36).slice(2, 6)}`,
+                name: pageTitle,
+                url: assetUrl,
+                storagePath: assetStoragePath,
+                type: 'image/jpeg',
+                size: assetSize,
+                uploadedAt: new Date().toISOString(),
+                page_placement:
+                  pages.length === 1 && /cover/i.test(cleanBaseName)
+                    ? 'cover_before'
+                    : 'annex_after',
+                render_as_annex_page: true,
+                full_bleed: false,
+                exclude_from_page_count: false,
+                show_title_on_annex: QuotationRepository.resolveShowTitleOnAnnex({ name: pageTitle })
+              });
+            }
+            setFlyerAttachments((prev) => [...prev, ...newPageAttachments]);
+            continue;
+          }
+        } catch (pdfErr) {
+          console.warn('[QuotationStudioModal] PDF rasterization fallback to raw upload:', pdfErr);
+        }
+      }
+
       try {
         const uploaded = await uploadWorkspaceMediaAsset(file, 'quotations/annexes', activeWorkspace, {
           maxWidth: 1200,
@@ -2821,21 +2892,19 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           preserveTransparency: false
         });
         if (!uploaded.url) continue;
-        const cleanTitle = file.name.replace(/\.[^/.]+$/, '');
-        const resolvedTitle = cleanTitle || `Annex Datasheet ${flyerAttachments.length + idx + 1}`;
         const newAtt: Attachment = {
           id: `annex_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
-          name: resolvedTitle,
+          name: cleanBaseName,
           url: uploaded.url,
           storagePath: uploaded.storagePath,
           type: file.type || (isImage ? 'image/jpeg' : 'application/pdf'),
           size: uploaded.size || file.size,
           uploadedAt: new Date().toISOString(),
-          page_placement: isImage ? 'annex_after' : 'index_only',
-          render_as_annex_page: isImage,
+          page_placement: isImage || isPdf ? 'annex_after' : 'index_only',
+          render_as_annex_page: isImage || isPdf,
           full_bleed: false,
           exclude_from_page_count: false,
-          show_title_on_annex: QuotationRepository.resolveShowTitleOnAnnex({ name: resolvedTitle })
+          show_title_on_annex: QuotationRepository.resolveShowTitleOnAnnex({ name: cleanBaseName })
         };
         setFlyerAttachments((prev) => [...prev, newAtt]);
       } catch (err) {
@@ -3034,8 +3103,355 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     }
   }, [activeProfile, selectedBankId, editingQuotation]);
 
-  // Apply chosen preset (Full Phase 1 & Phase 2 Snapshot Hydration)
-  const applyPreset = (preset: QuotationPreset) => {
+  const [tableInspectorTab, setTableInspectorTab] = useState<'specs' | 'columns' | 'media' | 'pagination'>('specs');
+
+  // Dedicated Signatory Presets State & Built-in Definitions (Decoupled from Document Layout Presets)
+  const [customSignatoryPresets, setCustomSignatoryPresets] = useState<SignatoryPreset[]>(() => {
+    const fromProfile = workspaceProfile?.signatory_presets || profile?.signatory_presets;
+    if (Array.isArray(fromProfile) && fromProfile.length > 0) {
+      return fromProfile.filter((p) => !p.is_builtin);
+    }
+    try {
+      const raw = localStorage.getItem('sas_signatory_presets_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.filter((p) => !p.is_builtin);
+      }
+    } catch {
+      // ignore localStorage read errors
+    }
+    return [];
+  });
+
+  const [selectedSignatoryPresetId, setSelectedSignatoryPresetId] = useState<string>(() => {
+    return (
+      workspaceProfile?.default_signatory_preset_id ||
+      profile?.default_signatory_preset_id ||
+      'builtin_assigned_rep'
+    );
+  });
+  const [isSavingSignatoryPresetInline, setIsSavingSignatoryPresetInline] = useState<boolean>(false);
+  const [newSignatoryPresetName, setNewSignatoryPresetName] = useState<string>('');
+
+  useEffect(() => {
+    if (Array.isArray(activeProfile?.signatory_presets) && activeProfile!.signatory_presets!.length > 0) {
+      setCustomSignatoryPresets(activeProfile!.signatory_presets!.filter((p) => !p.is_builtin));
+    }
+  }, [activeProfile?.signatory_presets]);
+
+  const builtinSignatoryPresets = useMemo<SignatoryPreset[]>(() => {
+    const resolvedAssignedRepName =
+      preparedBy ||
+      resolveRepFullName(
+        salespersonName ||
+          enquiry?.sales_representative ||
+          enquiry?.salesperson ||
+          activeProfile?.primary_signatory_name
+      );
+    const resolvedAssignedRepRole =
+      (enquiry as any)?.salesperson_role ||
+      (enquiry as any)?.sales_representative_title ||
+      activeProfile?.primary_signatory_title ||
+      'Sales & Commercial Representative';
+    const execName =
+      activeProfile?.default_signatory_name ||
+      activeProfile?.primary_signatory_name ||
+      activeProfile?.secondary_signatory_name ||
+      'Authorized Director';
+    const execTitle =
+      activeProfile?.default_signatory_title ||
+      activeProfile?.primary_signatory_title ||
+      activeProfile?.secondary_signatory_title ||
+      'Managing Director';
+
+    return [
+      {
+        id: 'builtin_assigned_rep',
+        name: 'Assigned Sales Rep (Single)',
+        is_builtin: true,
+        signatory_mode: 'signature_and_stamp',
+        signatory_type: 'single',
+        signature_style: 'line',
+        use_assigned_rep_as_primary: true,
+        signatory_name: resolvedAssignedRepName,
+        signatory_title: resolvedAssignedRepRole,
+        show_company_seal: true
+      },
+      {
+        id: 'builtin_dual_rep_director',
+        name: 'Dual: Sales Rep + Authorized Director',
+        is_builtin: true,
+        signatory_mode: 'signature_and_stamp',
+        signatory_type: 'dual',
+        signature_style: 'line',
+        use_assigned_rep_as_primary: true,
+        signatory_name: resolvedAssignedRepName,
+        signatory_title: resolvedAssignedRepRole,
+        secondary_signatory_name: activeProfile?.secondary_signatory_name || execName || 'Authorized Director',
+        secondary_signatory_title: activeProfile?.secondary_signatory_title || 'Authorized Director',
+        show_company_seal: true
+      },
+      {
+        id: 'builtin_executive_only',
+        name: 'Executive / Management Sign-Off',
+        is_builtin: true,
+        signatory_mode: 'signature_and_stamp',
+        signatory_type: 'single',
+        signature_style: 'line',
+        signatory_name: execName,
+        signatory_title: execTitle,
+        show_company_seal: true
+      },
+      {
+        id: 'builtin_stamp_only',
+        name: 'Company Stamp Only (No Signature)',
+        is_builtin: true,
+        signatory_mode: 'stamp_only',
+        signatory_type: 'stamp_only',
+        signature_style: 'digital_stamp',
+        signatory_name: '',
+        signatory_title: 'Official Company Stamp',
+        show_company_seal: true
+      }
+    ];
+  }, [preparedBy, salespersonName, enquiry, activeProfile]);
+
+  const allSignatoryPresets = useMemo<SignatoryPreset[]>(
+    () => [...builtinSignatoryPresets, ...customSignatoryPresets],
+    [builtinSignatoryPresets, customSignatoryPresets]
+  );
+
+  const persistSignatoryPresets = useCallback(
+    async (nextCustomList: SignatoryPreset[], nextDefaultId?: string) => {
+      setCustomSignatoryPresets(nextCustomList);
+      try {
+        localStorage.setItem('sas_signatory_presets_v1', JSON.stringify(nextCustomList));
+      } catch {
+        // ignore storage quota errors
+      }
+      if (activeProfile) {
+        try {
+          const updatedProf = await QuotationRepository.saveWorkspaceDocumentProfile({
+            ...activeProfile,
+            id: activeProfile.id || `doc_prof_${activeWorkspaceId}`,
+            workspace_id: activeWorkspaceId || activeProfile.workspace_id || 'default',
+            signatory_presets: nextCustomList,
+            ...(nextDefaultId ? { default_signatory_preset_id: nextDefaultId } : {})
+          });
+          setWorkspaceProfile(updatedProf);
+        } catch {
+          // non-blocking profile sync
+        }
+      }
+    },
+    [activeProfile, activeWorkspaceId]
+  );
+
+  const applySignatoryPreset = useCallback(
+    (presetId: string) => {
+      const found = allSignatoryPresets.find((p) => p.id === presetId);
+      if (!found) return;
+      setSelectedSignatoryPresetId(found.id);
+
+      const resolvedAssignedRepName =
+        preparedBy ||
+        resolveRepFullName(
+          salespersonName ||
+            enquiry?.sales_representative ||
+            enquiry?.salesperson ||
+            activeProfile?.primary_signatory_name
+        );
+
+      if (found.signatory_type === 'stamp_only' || found.signatory_mode === 'stamp_only') {
+        setSignatoryType('stamp_only');
+        setSignatoryMode('stamp_only');
+        setShowCompanySeal(true);
+      } else if (found.signatory_type === 'dual') {
+        setSignatoryType('dual');
+        setSignatoryMode('dual');
+        if (typeof found.show_company_seal === 'boolean') {
+          setShowCompanySeal(found.show_company_seal);
+        }
+      } else {
+        setSignatoryType('single');
+        setSignatoryMode('single');
+        if (typeof found.show_company_seal === 'boolean') {
+          setShowCompanySeal(found.show_company_seal);
+        }
+      }
+
+      if (found.signature_style) {
+        const mappedStyle: QuotationSignatureStyle =
+          found.signature_style === 'boxed' || found.signature_style === 'digital_stamp'
+            ? 'image'
+            : 'line';
+        setSignatureStyle(mappedStyle);
+      }
+
+      if (found.use_assigned_rep_as_primary) {
+        setSignatoryName(resolvedAssignedRepName);
+        if (found.signatory_title) setSignatoryTitle(found.signatory_title);
+      } else {
+        if (found.signatory_name !== undefined) setSignatoryName(found.signatory_name);
+        if (found.signatory_title !== undefined) setSignatoryTitle(found.signatory_title);
+      }
+
+      if (found.secondary_signatory_name !== undefined) {
+        setSecondarySignatoryName(found.secondary_signatory_name);
+      }
+      if (found.secondary_signatory_title !== undefined) {
+        setSecondarySignatoryTitle(found.secondary_signatory_title);
+      }
+      if (found.signature_image_url !== undefined) {
+        setSignatureImageUrl(found.signature_image_url);
+      }
+      if (found.company_seal_url !== undefined) {
+        setCompanySealUrl(found.company_seal_url);
+      }
+      if (typeof found.customer_acceptance_enabled === 'boolean') {
+        setCustomerAcceptanceEnabled(found.customer_acceptance_enabled);
+      }
+    },
+    [allSignatoryPresets, preparedBy, salespersonName, enquiry, activeProfile]
+  );
+
+  const handleSaveCurrentSignatoryPreset = async () => {
+    const trimmed = newSignatoryPresetName.trim();
+    if (!trimmed) {
+      triggerToast?.('Enter a name for the Signatory Preset.', 'error');
+      return;
+    }
+    const newId = `sig_preset_${Date.now()}`;
+    const mappedSigStyle: 'line' | 'boxed' | 'digital_stamp' =
+      signatureStyle === 'image' ? 'boxed' : 'line';
+    const mappedSigMode: SignatoryPreset['signatory_mode'] =
+      signatoryType === 'stamp_only'
+        ? 'stamp_only'
+        : showCompanySeal
+        ? 'signature_and_stamp'
+        : 'signature_only';
+
+    const newPreset: SignatoryPreset = {
+      id: newId,
+      name: trimmed,
+      is_builtin: false,
+      signatory_mode: mappedSigMode,
+      signatory_type: signatoryType,
+      signature_style: mappedSigStyle,
+      signatory_name: signatoryName,
+      signatory_title: signatoryTitle,
+      secondary_signatory_name: secondarySignatoryName,
+      secondary_signatory_title: secondarySignatoryTitle,
+      signature_image_url: signatureImageUrl || undefined,
+      company_seal_url: companySealUrl || undefined,
+      show_company_seal: showCompanySeal,
+      customer_acceptance_enabled: customerAcceptanceEnabled
+    };
+
+    const nextList = [...customSignatoryPresets, newPreset];
+    setSelectedSignatoryPresetId(newId);
+    setIsSavingSignatoryPresetInline(false);
+    setNewSignatoryPresetName('');
+    await persistSignatoryPresets(nextList, newId);
+    triggerToast?.(`Saved Signatory Preset "${trimmed}"`, 'success');
+  };
+
+  const handleDeleteSelectedSignatoryPreset = async () => {
+    const current = customSignatoryPresets.find((p) => p.id === selectedSignatoryPresetId);
+    if (!current) return;
+    const nextList = customSignatoryPresets.filter((p) => p.id !== selectedSignatoryPresetId);
+    setSelectedSignatoryPresetId('builtin_assigned_rep');
+    await persistSignatoryPresets(nextList, 'builtin_assigned_rep');
+    triggerToast?.(`Deleted Signatory Preset "${current.name}"`, 'info');
+  };
+
+  const renderSignatoryPresetSwitcherBar = () => {
+    const activeCustom = customSignatoryPresets.find((p) => p.id === selectedSignatoryPresetId);
+    return (
+      <div className="p-2.5 rounded-xl bg-blue-50/70 border border-blue-200/90 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-blue-900">
+            SIGNATORY PRESET
+          </label>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                setNewSignatoryPresetName(
+                  signatoryName ? `${signatoryName} (${signatoryType === 'dual' ? 'Dual' : 'Single'})` : 'Custom Signatory'
+                );
+                setIsSavingSignatoryPresetInline((prev) => !prev);
+              }}
+              className="px-2 py-0.5 rounded-md bg-white hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-semibold transition cursor-pointer"
+            >
+              + Save Signatory Preset
+            </button>
+            {activeCustom && (
+              <button
+                type="button"
+                onClick={handleDeleteSelectedSignatoryPreset}
+                title={`Delete "${activeCustom.name}"`}
+                className="p-1 rounded-md bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 transition cursor-pointer"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        </div>
+        <select
+          value={selectedSignatoryPresetId}
+          onChange={(e) => applySignatoryPreset(e.target.value)}
+          className="w-full rounded-lg border border-blue-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500 cursor-pointer"
+        >
+          <optgroup label="Built-in Signatory Presets">
+            {builtinSignatoryPresets.map((bp) => (
+              <option key={bp.id} value={bp.id}>
+                {bp.name}
+              </option>
+            ))}
+          </optgroup>
+          {customSignatoryPresets.length > 0 && (
+            <optgroup label="Saved Custom Signatory Presets">
+              {customSignatoryPresets.map((cp) => (
+                <option key={cp.id} value={cp.id}>
+                  {cp.name}
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+        {isSavingSignatoryPresetInline && (
+          <div className="flex items-center gap-1.5 pt-1">
+            <input
+              type="text"
+              value={newSignatoryPresetName}
+              onChange={(e) => setNewSignatoryPresetName(e.target.value)}
+              placeholder="Preset name (e.g. Dubai Branch Dual Sign)"
+              className="flex-1 min-w-0 px-2 py-1 rounded-md border border-blue-300 bg-white text-xs text-slate-800"
+            />
+            <button
+              type="button"
+              onClick={handleSaveCurrentSignatoryPreset}
+              className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[10.5px] font-semibold cursor-pointer shrink-0"
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsSavingSignatoryPresetInline(false)}
+              className="px-2 py-1 rounded-md bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 text-[10.5px] cursor-pointer shrink-0"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Apply chosen preset (Strictly Layout, Theme & Table Structure by default; Signatory decoupled)
+  const applyPreset = (preset: QuotationPreset, options?: { includeSignatory?: boolean }) => {
+    const includeSignatory = options?.includeSignatory ?? false;
     const hydrated = QuotationRepository.hydrateFromPresetSnapshot(preset);
     setSelectedPresetId(preset.id || '');
     if (preset.visible_columns) {
@@ -3051,7 +3467,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     if (preset.default_price_basis) setPriceBasis(preset.default_price_basis);
     if (preset.default_payment_terms) setPaymentTerms(preset.default_payment_terms);
     if (preset.default_validity_days) setValidityDays(preset.default_validity_days);
-    if (preset.signatory_mode) {
+    if (includeSignatory && preset.signatory_mode) {
       setSignatoryMode(preset.signatory_mode);
       if (preset.signatory_mode === 'dual' || preset.signatory_mode === 'single') {
         setSignatoryType(preset.signatory_mode);
@@ -3073,7 +3489,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       handleSelectBank(presetBankId);
     }
     if (typeof preset.show_commercial_terms === 'boolean') setShowCommercialTerms(preset.show_commercial_terms);
-    if (typeof preset.show_company_seal === 'boolean') setShowCompanySeal(preset.show_company_seal);
+    if (includeSignatory && typeof preset.show_company_seal === 'boolean') {
+      setShowCompanySeal(preset.show_company_seal);
+    }
     if (preset.theme_accent) setThemeAccent(preset.theme_accent);
     if (preset.customThemeColor !== undefined) {
       setCustomThemeColor(preset.customThemeColor || '');
@@ -3084,13 +3502,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     if (typeof preset.customer_acceptance_enabled === 'boolean') {
       setCustomerAcceptanceEnabled(preset.customer_acceptance_enabled);
     }
-    if (preset.signatory_type) setSignatoryType(preset.signatory_type);
-    if (preset.signature_style) setSignatureStyle(preset.signature_style);
+    if (includeSignatory && preset.signatory_type) setSignatoryType(preset.signatory_type as any);
+    if (includeSignatory && preset.signature_style) setSignatureStyle(preset.signature_style);
     if (preset.company_logo_url !== undefined || preset.header_config?.logoUrl !== undefined) {
       setCompanyLogoUrl(preset.header_config?.logoUrl ?? preset.company_logo_url ?? '');
     }
-    if (preset.company_seal_url !== undefined) setCompanySealUrl(preset.company_seal_url || '');
-    if (preset.signature_image_url !== undefined) setSignatureImageUrl(preset.signature_image_url || '');
+    if (includeSignatory && preset.company_seal_url !== undefined) {
+      setCompanySealUrl(preset.company_seal_url || '');
+    }
+    if (includeSignatory && preset.signature_image_url !== undefined) {
+      setSignatureImageUrl(preset.signature_image_url || '');
+    }
     if (preset.logo_position) setLogoPosition(preset.logo_position);
     if (preset.recipient_config) {
       setRecipientConfig((prev) => ({
@@ -3220,10 +3642,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     if (typeof preset.show_submittals_index === 'boolean') {
       setShowSubmittalsIndex(preset.show_submittals_index);
     }
-    if (preset.primary_signatory_name) setSignatoryName(resolveRepFullName(preset.primary_signatory_name));
-    if (preset.primary_signatory_title) setSignatoryTitle(preset.primary_signatory_title);
-    if (preset.secondary_signatory_name) setSecondarySignatoryName(preset.secondary_signatory_name);
-    if (preset.secondary_signatory_title) setSecondarySignatoryTitle(preset.secondary_signatory_title);
+    if (includeSignatory) {
+      if (preset.primary_signatory_name) setSignatoryName(resolveRepFullName(preset.primary_signatory_name));
+      if (preset.primary_signatory_title) setSignatoryTitle(preset.primary_signatory_title);
+      if (preset.secondary_signatory_name) setSecondarySignatoryName(preset.secondary_signatory_name);
+      if (preset.secondary_signatory_title) setSecondarySignatoryTitle(preset.secondary_signatory_title);
+    }
     if (preset.option_display_mode) setOptionDisplayMode(preset.option_display_mode);
     if (preset.option_group_titles) setOptionGroupTitles(preset.option_group_titles);
     if (typeof preset.show_combined_options_total === 'boolean') {
@@ -3445,7 +3869,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             row_note: li.row_note,
             row_highlight: li.row_highlight,
             row_bold: li.row_bold,
-            hide_row_price: li.hide_row_price
+            hide_row_price: li.hide_row_price,
+            attribute_order: li.attribute_order,
+            attribute_line_breaks_after: li.attribute_line_breaks_after,
+            attribute_full_width_keys: li.attribute_full_width_keys
           };
         });
       }
@@ -3534,6 +3961,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         include_datasheet_in_quote: resolvedIncludeDatasheet,
         is_optional: resolvedOptional,
         visible_attributes: customVisible,
+        attribute_order: compOverride.attribute_order ?? item.attribute_order,
+        attribute_line_breaks_after:
+          compOverride.attribute_line_breaks_after ?? item.attribute_line_breaks_after,
+        attribute_full_width_keys:
+          compOverride.attribute_full_width_keys ?? item.attribute_full_width_keys,
         page_break_after: customPageBreak,
         row_spacer_after_mm: compOverride.row_spacer_after_mm ?? item.row_spacer_after_mm,
         row_note: compOverride.row_note ?? item.row_note,
@@ -3598,16 +4030,63 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     workspaceProducts
   ]);
 
-  // Dynamically extract all unique attribute keys present across active line items (case-insensitive deduplication)
+  const canonicalKey = useCallback((rawKey: string): string => {
+    const norm = String(rawKey || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .replace(/\bcolours\b/g, 'color')
+      .replace(/\bcolour\b/g, 'color')
+      .replace(/\bdimensions\b/g, 'dimension');
+    if (
+      norm === 'brand' ||
+      norm === 'make' ||
+      norm === 'brand make' ||
+      norm === 'make brand' ||
+      norm === 'manufacturer' ||
+      norm === 'brand manufacturer'
+    ) {
+      return 'brand';
+    }
+    if (
+      norm === 'model' ||
+      norm === 'model no' ||
+      norm === 'part no' ||
+      norm === 'part' ||
+      norm === 'model part' ||
+      norm === 'model part no'
+    ) {
+      return 'model';
+    }
+    if (
+      norm === 'origin' ||
+      norm === 'country' ||
+      norm === 'country of origin' ||
+      norm === 'origin country'
+    ) {
+      return 'origin';
+    }
+    if (
+      norm === 'delivery' ||
+      norm === 'availability' ||
+      norm === 'delivery availability' ||
+      norm === 'lead time'
+    ) {
+      return 'delivery';
+    }
+    return norm;
+  }, []);
+
+  // Dynamically extract all unique attribute keys present across active line items (canonical UK/US deduplication)
   const availableAttributeKeys = useMemo(() => {
     const keysList: string[] = [];
-    const seenLower = new Set<string>();
+    const seenCanonical = new Set<string>();
     const addKey = (raw?: string) => {
       const trimmed = raw?.trim();
       if (!trimmed) return;
-      const lower = trimmed.toLowerCase();
-      if (!seenLower.has(lower)) {
-        seenLower.add(lower);
+      const cKey = canonicalKey(trimmed);
+      if (!seenCanonical.has(cKey)) {
+        seenCanonical.add(cKey);
         keysList.push(trimmed);
       }
     };
@@ -3629,14 +4108,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       }
     });
     return keysList;
-  }, [quotationLineItems]);
+  }, [quotationLineItems, canonicalKey]);
 
   const toggleAttributeKeyVisibility = (key: string) => {
+    const targetCanonical = canonicalKey(key);
     setVisibleColumns((prev) => {
       const currentHidden = prev.hiddenAttributeKeys || [];
-      const isCurrentlyHidden = currentHidden.includes(key);
+      const isCurrentlyHidden = currentHidden.some(
+        (k) => k === key || canonicalKey(k) === targetCanonical
+      );
       const updatedHidden = isCurrentlyHidden
-        ? currentHidden.filter((k) => k !== key)
+        ? currentHidden.filter((k) => k !== key && canonicalKey(k) !== targetCanonical)
         : [...currentHidden, key];
       return { ...prev, hiddenAttributeKeys: updatedHidden };
     });
@@ -3656,16 +4138,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     }));
   };
 
-  // Helper to extract all specification attribute keys for a specific line item (case-insensitively deduplicated)
+  // Helper to extract all specification attribute keys for a specific line item (canonical UK/US deduplicated)
   const getItemAttributeKeys = useCallback((item: QuotationLineItem): string[] => {
     const keys: string[] = [];
-    const seenLower = new Set<string>();
+    const seenCanonical = new Set<string>();
     const addKey = (raw?: string) => {
       const trimmed = raw?.trim();
       if (!trimmed) return;
-      const lower = trimmed.toLowerCase();
-      if (!seenLower.has(lower)) {
-        seenLower.add(lower);
+      const cKey = canonicalKey(trimmed);
+      if (!seenCanonical.has(cKey)) {
+        seenCanonical.add(cKey);
         keys.push(trimmed);
       }
     };
@@ -3703,7 +4185,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       addKey('Delivery');
     }
     return keys;
-  }, []);
+  }, [canonicalKey]);
 
   const toggleItemAttribute = (itemKey: string, allItemKeys: string[], attrKey: string) => {
     setItemVisibleAttributes((prev) => {
@@ -5961,6 +6443,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         primary_signatory_title: signatoryTitle,
         secondary_signatory_name: secondarySignatoryName,
         secondary_signatory_title: secondarySignatoryTitle,
+        signatory_presets: customSignatoryPresets,
+        default_signatory_preset_id: selectedSignatoryPresetId,
         default_notes: customNotes,
         bank_accounts: activeProfile?.bank_accounts || [],
         header_config: {
@@ -6148,21 +6632,34 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       ? 'Debit Note Studio'
                       : 'Quotation Studio'}
                   </h2>
-                  <div className="inline-flex items-center bg-blue-50 border border-blue-200 rounded-md px-1.5 py-0.5 focus-within:ring-2 focus-within:ring-blue-500/30 focus-within:border-blue-400 transition">
-                    <input
-                      type="text"
-                      value={formattedQuoteRefOverride !== null && formattedQuoteRefOverride !== undefined && formattedQuoteRefOverride !== '' ? formattedQuoteRefOverride : (liveQuotation.formatted_quote_ref || '')}
-                      onChange={(e) => {
-                        setFormattedQuoteRefOverride(e.target.value);
-                        setRecipientConfig((prev) => ({
-                          ...prev,
-                          revisionSuffixMode: 'custom'
-                        }));
-                      }}
-                      title="Click to edit Document Reference Code directly (e.g. remove or customize -R1)"
-                      className="text-xs font-mono font-bold text-blue-700 bg-transparent focus:outline-hidden min-w-[170px] max-w-[260px]"
-                    />
-                  </div>
+                  {(() => {
+                    const activeRefValue =
+                      formattedQuoteRefOverride !== null &&
+                      formattedQuoteRefOverride !== undefined &&
+                      formattedQuoteRefOverride !== ''
+                        ? formattedQuoteRefOverride
+                        : liveQuotation.formatted_quote_ref || '';
+                    return (
+                      <div className="inline-flex items-center bg-blue-50 border border-blue-200 rounded-md px-1.5 py-0.5 focus-within:ring-2 focus-within:ring-blue-500/30 focus-within:border-blue-400 transition">
+                        <input
+                          type="text"
+                          value={activeRefValue}
+                          onChange={(e) => {
+                            setFormattedQuoteRefOverride(e.target.value);
+                            setRecipientConfig((prev) => ({
+                              ...prev,
+                              revisionSuffixMode: 'custom'
+                            }));
+                          }}
+                          style={{
+                            width: `${Math.min(40, Math.max(18, (activeRefValue?.length || 18) + 3))}ch`
+                          }}
+                          title="Click to edit Document Reference Code directly (e.g. remove or customize -R1)"
+                          className="text-xs font-mono font-bold text-blue-700 bg-transparent focus:outline-hidden min-w-[180px] max-w-[420px]"
+                        />
+                      </div>
+                    );
+                  })()}
 
                   {/* One-Click Revision Cloner Button (Quotations only) */}
                   {documentType === 'quotation' && (
@@ -6258,7 +6755,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       </span>
                     </>
                   )}
-                  {salespersonName && ` • Assigned: ${salespersonName}`}
+                  {salespersonName && ` • Assigned: ${preparedBy || salespersonName}`}
                   {liveQuotation.parent_quotation_id && documentType === 'quotation' && (
                     <span className="ml-2 text-[10.5px] font-mono text-indigo-600">
                       • Revision R{liveQuotation.revision_number || 1}
@@ -6642,9 +7139,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               {/* Preset Selector */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-[11px] font-mono font-bold text-slate-500 uppercase tracking-wider">
-                    Document Preset
-                  </label>
+                  <div>
+                    <label className="block text-[11px] font-mono font-bold text-slate-500 uppercase tracking-wider leading-tight">
+                      DOCUMENT LAYOUT PRESET
+                    </label>
+                    <span className="block text-[9.5px] text-slate-400">
+                      Layout, theme &amp; table structure only
+                    </span>
+                  </div>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -10269,13 +10771,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       Signatory &amp; Remittance Account Data
                     </span>
 
+                    {renderSignatoryPresetSwitcherBar()}
+
                     <div className="grid grid-cols-1 gap-2.5">
                       <div>
                         <label className="block text-slate-500 font-medium mb-1">Signatory Count</label>
                         <select
                           value={signatoryType}
                           onChange={(e) => {
-                            const val = e.target.value as 'single' | 'dual';
+                            const val = e.target.value as 'single' | 'dual' | 'stamp_only';
                             setSignatoryType(val);
                             setSignatoryMode(val);
                           }}
@@ -10283,6 +10787,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         >
                           <option value="single">Single Signatory</option>
                           <option value="dual">Dual Signatory</option>
+                          <option value="stamp_only">Company Stamp Only (No Signature)</option>
                         </select>
                       </div>
 
@@ -10682,15 +11187,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               >
                                 <div className="flex items-center gap-2">
                                   {/* 40x40px Thumbnail Preview */}
-                                  {att.url && att.type !== 'pdf' ? (
-                                    <img
-                                      src={att.url}
-                                      alt={att.name || `Attachment ${idx + 1}`}
-                                      className="w-10 h-10 object-cover rounded border border-slate-200 bg-white shrink-0"
-                                      onError={(e) => {
-                                        e.currentTarget.style.display = 'none';
-                                      }}
-                                    />
+                                  {att.url ? (
+                                    <div className="w-10 h-10 rounded border border-slate-200 bg-white overflow-hidden shrink-0 flex items-center justify-center">
+                                      <PdfOrImageSheetRenderer
+                                        url={att.url}
+                                        name={att.name || `Attachment ${idx + 1}`}
+                                        type={att.type}
+                                        className="w-10 h-10 object-cover block"
+                                      />
+                                    </div>
                                   ) : (
                                     <div className="w-10 h-10 rounded border border-slate-200 bg-white flex items-center justify-center text-slate-400 shrink-0">
                                       <FileText className="w-4 h-4" />
@@ -14678,10 +15183,38 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     </button>
                   </div>
 
-                  {/* Drawer Content */}
+                  {/* Sticky 4-Tab Segmented Navigation Bar */}
+                  <div className="px-3 py-2 bg-slate-100/90 border-b border-slate-200 sticky top-[53px] z-10 backdrop-blur-xs">
+                    <div className="grid grid-cols-4 gap-1 p-1 bg-slate-200/75 rounded-xl">
+                      {[
+                        { id: 'specs' as const, label: 'Specs & Grid' },
+                        { id: 'columns' as const, label: 'Columns' },
+                        { id: 'media' as const, label: 'Photos/BOM' },
+                        { id: 'pagination' as const, label: 'Pagination' }
+                      ].map((tab) => {
+                        const isActive = tableInspectorTab === tab.id;
+                        return (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => setTableInspectorTab(tab.id)}
+                            className={`py-1.5 px-1 rounded-lg text-[10px] font-bold transition cursor-pointer truncate ${
+                              isActive
+                                ? 'bg-white text-blue-700 shadow-2xs ring-1 ring-slate-200'
+                                : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                            }`}
+                          >
+                            {tab.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Drawer Content (Single Outer Scroll Container — Zero Nested Scrollbars) */}
                   <div className="p-4 space-y-4 text-xs">
                     {/* 0. Unified Commercial Summary & Totals Hub Shortcut */}
-                    <div className="p-3 rounded-xl border border-indigo-200 bg-indigo-50/60 space-y-2.5">
+                    <div className="p-3 rounded-xl border border-indigo-200 bg-indigo-50/60 space-y-2">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-bold text-indigo-950 text-xs flex items-center gap-1.5">
                           <Layers className="w-3.5 h-3.5 text-indigo-600" />
@@ -14695,607 +15228,864 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             : 'Multi-Option'}
                         </span>
                       </div>
-                      <p className="text-[10.5px] text-indigo-900/80 leading-relaxed">
-                        Multi-Option table layout, Unpriced Submittal / DO mode, batch BOM Set pricing, and financial summary rows are managed in the unified Commercial Summary &amp; Totals Hub.
-                      </p>
                       <button
                         type="button"
                         onClick={() => handleCanvasSelectSection('totals')}
-                        className="w-full py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-[11px] flex items-center justify-between transition shadow-2xs cursor-pointer"
+                        className="w-full py-1.5 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-[11px] flex items-center justify-between transition shadow-2xs cursor-pointer"
                       >
                         <span>Configure Totals, Options &amp; Price Display</span>
                         <span className="font-mono text-sm leading-none">&rarr;</span>
                       </button>
                     </div>
 
-                    {/* 1. Column Visibility Toggles */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                          <Columns className="w-3.5 h-3.5 text-blue-600" />
-                          Column Visibility
-                        </span>
-                        <span className="text-[10px] font-mono text-slate-400">
-                          {Object.values(visibleColumns).filter(Boolean).length} Active
-                        </span>
-                      </div>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Toggle optional technical specifications and commercial rate columns on the quotation document.
-                      </p>
-
-                      <div className="space-y-1.5 pt-1">
-                        {[
-                          {
-                            key: 'brand' as const,
-                            label: 'Brand / Make',
-                            desc: 'Show equipment brand / manufacturer',
-                            checked: visibleColumns.brand !== false,
-                            onChange: (checked: boolean) =>
-                              setVisibleColumns((prev) => ({ ...prev, brand: checked }))
-                          },
-                          {
-                            key: 'model' as const,
-                            label: 'Model / Part #',
-                            desc: 'Catalog item or part designation',
-                            checked: visibleColumns.model !== false,
-                            onChange: (checked: boolean) =>
-                              setVisibleColumns((prev) => ({ ...prev, model: checked }))
-                          },
-                          {
-                            key: 'origin' as const,
-                            label: 'Origin / Country',
-                            desc: 'Manufacturing country of origin',
-                            checked: visibleColumns.origin !== false,
-                            onChange: (checked: boolean) =>
-                              setVisibleColumns((prev) => ({ ...prev, origin: checked }))
-                          },
-                          {
-                            key: 'availability' as const,
-                            label: 'Delivery / Availability',
-                            desc: 'Dispatch lead time & stock timeline',
-                            checked: visibleColumns.availability !== false,
-                            onChange: (checked: boolean) =>
-                              setVisibleColumns((prev) => ({ ...prev, availability: checked }))
-                          },
-                          {
-                            key: 'unit_price' as const,
-                            label: 'Show Unit Price Column',
-                            desc: 'Show individual rates (auto-expands Description when hidden)',
-                            checked: visibleColumns.unit_price !== false && visibleColumns.showUnitPrice !== false,
-                            onChange: (checked: boolean) =>
-                              setVisibleColumns((prev) => ({
-                                ...prev,
-                                unit_price: checked,
-                                showUnitPrice: checked
-                              }))
-                          },
-                          {
-                            key: 'showUom' as const,
-                            label: 'Show UOM / Unit Column',
-                            desc: 'Show unit of measure column (pcs, set, lot)',
-                            checked: visibleColumns.showUom !== false,
-                            onChange: (checked: boolean) =>
-                              setVisibleColumns((prev) => ({ ...prev, showUom: checked }))
-                          }
-                        ].map((col) => (
-                          <div
-                            key={col.key}
-                            className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
-                              col.checked
-                                ? 'bg-white border-slate-200 shadow-2xs'
-                                : 'bg-slate-50/70 border-slate-200/60 opacity-60'
-                            }`}
-                          >
-                            <div className="min-w-0 pr-1">
-                              <span className="font-semibold text-slate-800 text-xs block leading-tight">
-                                {col.label}
-                              </span>
-                              <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
-                                {col.desc}
-                              </span>
-                            </div>
-                            <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                              <input
-                                type="checkbox"
-                                checked={col.checked}
-                                onChange={(e) => col.onChange(e.target.checked)}
-                                className="sr-only peer"
-                              />
-                              <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
-                            </label>
+                    {/* TAB: COLUMNS & TABLE TYPOGRAPHY */}
+                    {tableInspectorTab === 'columns' && (
+                      <>
+                        {/* 1. Column Visibility Toggles */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                              <Columns className="w-3.5 h-3.5 text-blue-600" />
+                              Column Visibility
+                            </span>
+                            <span className="text-[10px] font-mono text-slate-400">
+                              {Object.values(visibleColumns).filter(Boolean).length} Active
+                            </span>
                           </div>
-                        ))}
-                      </div>
-                    </div>
+                          <p className="text-[10.5px] text-slate-500 leading-normal">
+                            Toggle optional technical specifications and commercial rate columns on the quotation document.
+                          </p>
 
-                    {/* Product Images & Technical Datasheets Section */}
-                    <div className="pt-2 border-t border-slate-100 space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                          <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
-                          Product Images &amp; Datasheets
-                        </span>
-                        <span className="text-[10px] font-mono text-slate-400">
-                          {quotationLineItems.filter((it) => Boolean(it.image_url)).length}/{quotationLineItems.length} Photos
-                        </span>
-                      </div>
-
-                      {/* Master Toggle: Show Product Images */}
-                      <div
-                        className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
-                          visibleColumns.showLineItemImages
-                            ? 'bg-blue-50/60 border-blue-200 shadow-2xs'
-                            : 'bg-white border-slate-200'
-                        }`}
-                      >
-                        <div className="min-w-0 pr-1">
-                          <span className="font-semibold text-slate-800 text-xs block leading-tight">
-                            Show Product Images on Quote
-                          </span>
-                          <span className="text-[10px] text-slate-400 block mt-0.5">
-                            Render catalog photos in line items table
-                          </span>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(visibleColumns.showLineItemImages)}
-                            onChange={(e) =>
-                              setVisibleColumns((prev) => ({
-                                ...prev,
-                                showLineItemImages: e.target.checked
-                              }))
-                            }
-                            className="sr-only peer"
-                          />
-                          <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
-                        </label>
-                      </div>
-
-                      {visibleColumns.showLineItemImages && (
-                        <div className="space-y-3 pt-1">
-                          {/* 1. Image Placement Mode (5 Distinct B2B Modes in clean 2-col grid) */}
-                          <div>
-                            <label className="block text-[10.5px] font-semibold text-slate-600 mb-1.5">
-                              Image Placement Mode
-                            </label>
-                            <div className="grid grid-cols-2 gap-1.5">
-                              {[
-                                {
-                                  id: 'inline_left' as const,
-                                  matchIds: ['inline', 'inline_left'],
-                                  label: 'Inline Left',
-                                  desc: 'Beside title & specs'
-                                },
-                                {
-                                  id: 'inline_right' as const,
-                                  matchIds: ['inline_right'],
-                                  label: 'Inline Right',
-                                  desc: 'Floated right of specs'
-                                },
-                                {
-                                  id: 'column' as const,
-                                  matchIds: ['column'],
-                                  label: 'Dedicated Column',
-                                  desc: 'Separate table column'
-                                },
-                                {
-                                  id: 'below_specs' as const,
-                                  matchIds: ['below_specs'],
-                                  label: 'Below Specs Banner',
-                                  desc: 'Wide diagram card'
-                                },
-                                {
-                                  id: 'photo_schedule' as const,
-                                  matchIds: ['photo_schedule'],
-                                  label: 'Bottom Photo Grid',
-                                  desc: '2/3-col visual schedule'
-                                }
-                              ].map((mode, mIdx) => {
-                                const curLayout = visibleColumns.lineItemImageLayout || 'inline_left';
-                                const isSel = mode.matchIds.includes(curLayout);
-                                return (
-                                  <button
-                                    key={mode.id}
-                                    type="button"
-                                    onClick={() =>
-                                      setVisibleColumns((prev) => ({
-                                        ...prev,
-                                        lineItemImageLayout: mode.id
-                                      }))
-                                    }
-                                    className={`p-2 rounded-xl border text-left transition cursor-pointer ${
-                                      mIdx === 4 ? 'col-span-2' : ''
-                                    } ${
-                                      isSel
-                                        ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-600/20'
-                                        : 'border-slate-200 hover:border-slate-300 bg-white'
-                                    }`}
-                                  >
-                                    <span
-                                      className={`text-[11px] font-semibold block leading-tight ${
-                                        isSel ? 'text-blue-700' : 'text-slate-800'
-                                      }`}
-                                    >
-                                      {mode.label}
-                                    </span>
-                                    <span className="text-[9.5px] text-slate-400 block mt-0.5 leading-tight">
-                                      {mode.desc}
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          {/* Conditional Sub-Controls for Dedicated Column */}
-                          {visibleColumns.lineItemImageLayout === 'column' && (
-                            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
-                              <div className="grid grid-cols-2 gap-1.5">
-                                {[
-                                  { id: 'before_desc' as const, label: 'Before Description' },
-                                  { id: 'after_desc' as const, label: 'After Description' }
-                                ].map((pos) => {
-                                  const isSel =
-                                    (visibleColumns.lineItemImageColumnPosition || 'before_desc') === pos.id;
-                                  return (
-                                    <button
-                                      key={pos.id}
-                                      type="button"
-                                      onClick={() =>
-                                        setVisibleColumns((prev) => ({
-                                          ...prev,
-                                          lineItemImageColumnPosition: pos.id
-                                        }))
-                                      }
-                                      className={`py-1.5 px-2 rounded-lg text-[10px] font-semibold border transition cursor-pointer whitespace-nowrap ${
-                                        isSel
-                                          ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
-                                          : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-                                      }`}
-                                    >
-                                      {pos.label}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                              <label className="flex items-center justify-between gap-2 text-[10px] text-slate-600 cursor-pointer pt-0.5">
-                                <span>Auto-collapse column if zero items have photos</span>
-                                <input
-                                  type="checkbox"
-                                  checked={visibleColumns.lineItemImageAutoCollapseColumn !== false}
-                                  onChange={(e) =>
-                                    setVisibleColumns((prev) => ({
-                                      ...prev,
-                                      lineItemImageAutoCollapseColumn: e.target.checked
-                                    }))
-                                  }
-                                  className="rounded border-slate-300 text-blue-600 cursor-pointer"
-                                />
-                              </label>
-                            </div>
-                          )}
-
-                          {/* Conditional Sub-Controls for Photo Schedule */}
-                          {visibleColumns.lineItemImageLayout === 'photo_schedule' && (
-                            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
-                              <div className="grid grid-cols-2 gap-1.5">
-                                {[
-                                  { cols: 2 as const, label: '2 Columns Grid' },
-                                  { cols: 3 as const, label: '3 Columns Grid' }
-                                ].map((c) => {
-                                  const isSel = (visibleColumns.photoScheduleColumns || 3) === c.cols;
-                                  return (
-                                    <button
-                                      key={c.cols}
-                                      type="button"
-                                      onClick={() =>
-                                        setVisibleColumns((prev) => ({
-                                          ...prev,
-                                          photoScheduleColumns: c.cols
-                                        }))
-                                      }
-                                      className={`py-1.5 px-2 rounded-lg text-[10px] font-semibold border transition cursor-pointer whitespace-nowrap ${
-                                        isSel
-                                          ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
-                                          : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-                                      }`}
-                                    >
-                                      {c.label}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                              <label className="flex items-center justify-between gap-2 text-[10px] text-slate-600 cursor-pointer pt-0.5">
-                                <span>Start Photo Schedule on dedicated new Annex page</span>
-                                <input
-                                  type="checkbox"
-                                  checked={Boolean(visibleColumns.photoScheduleNewPage)}
-                                  onChange={(e) =>
-                                    setVisibleColumns((prev) => ({
-                                      ...prev,
-                                      photoScheduleNewPage: e.target.checked
-                                    }))
-                                  }
-                                  className="rounded border-slate-300 text-blue-600 cursor-pointer"
-                                />
-                              </label>
-                            </div>
-                          )}
-
-                          {/* 2. Expanded Image Size Presets (XS to XL + Custom Slider) */}
-                          <div>
-                            <div className="flex items-center justify-between mb-1">
-                              <label className="text-[10.5px] font-semibold text-slate-600">
-                                Product Image Size
-                              </label>
-                              <span className="text-[9.5px] font-mono text-blue-600 font-bold">
-                                {visibleColumns.lineItemImageSize === 'custom'
-                                  ? `${visibleColumns.lineItemImageCustomWidthPx || 84}px`
-                                  : (visibleColumns.lineItemImageSize || 'md').toUpperCase()}
-                              </span>
-                            </div>
-                            <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
-                              {[
-                                { id: 'xs' as const, label: 'XS (32px)' },
-                                { id: 'sm' as const, label: 'SM (48px)' },
-                                { id: 'md' as const, label: 'MD (72px)' },
-                                { id: 'lg' as const, label: 'LG (110px)' },
-                                { id: 'xl' as const, label: 'XL (160px)' },
-                                { id: 'custom' as const, label: 'Custom px' }
-                              ].map((sz) => {
-                                const isSel = (visibleColumns.lineItemImageSize || 'md') === sz.id;
-                                return (
-                                  <button
-                                    key={sz.id}
-                                    type="button"
-                                    onClick={() =>
-                                      setVisibleColumns((prev) => ({
-                                        ...prev,
-                                        lineItemImageSize: sz.id,
-                                        ...(sz.id === 'custom' && !prev.lineItemImageCustomWidthPx
-                                          ? { lineItemImageCustomWidthPx: 84 }
-                                          : {})
-                                      }))
-                                    }
-                                    className={`py-1.5 px-1 rounded-lg text-[10px] font-semibold transition cursor-pointer whitespace-nowrap ${
-                                      isSel
-                                        ? 'bg-blue-600 text-white shadow-2xs'
-                                        : 'text-slate-600 hover:bg-white'
-                                    }`}
-                                  >
-                                    {sz.label}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                            {visibleColumns.lineItemImageSize === 'custom' && (
-                              <div className="pt-2 px-1">
-                                <input
-                                  type="range"
-                                  min={24}
-                                  max={220}
-                                  step={4}
-                                  value={visibleColumns.lineItemImageCustomWidthPx || 84}
-                                  onChange={(e) =>
-                                    setVisibleColumns((prev) => ({
-                                      ...prev,
-                                      lineItemImageCustomWidthPx: Number(e.target.value) || 84
-                                    }))
-                                  }
-                                  className="w-full accent-blue-600 cursor-pointer h-1.5 bg-slate-200 rounded-lg"
-                                />
-                                <div className="flex justify-between text-[9px] font-mono text-slate-400 mt-0.5">
-                                  <span>24px</span>
-                                  <span>{visibleColumns.lineItemImageCustomWidthPx || 84}px</span>
-                                  <span>220px</span>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* 3. Clean 2-Column Grid for Aspect Ratio, Frame, Fit & Background */}
-                          <div className="grid grid-cols-2 gap-2 pt-0.5">
-                            <div>
-                              <label className="block text-[9.5px] font-mono font-bold text-slate-500 uppercase mb-1">
-                                Aspect Ratio
-                              </label>
-                              <select
-                                value={visibleColumns.lineItemImageAspectRatio || '1:1'}
-                                onChange={(e) =>
+                          <div className="space-y-1.5 pt-1">
+                            {[
+                              {
+                                key: 'brand' as const,
+                                label: 'Brand / Make',
+                                desc: 'Show equipment brand / manufacturer',
+                                checked: visibleColumns.brand !== false,
+                                onChange: (checked: boolean) =>
+                                  setVisibleColumns((prev) => ({ ...prev, brand: checked }))
+                              },
+                              {
+                                key: 'model' as const,
+                                label: 'Model / Part #',
+                                desc: 'Catalog item or part designation',
+                                checked: visibleColumns.model !== false,
+                                onChange: (checked: boolean) =>
+                                  setVisibleColumns((prev) => ({ ...prev, model: checked }))
+                              },
+                              {
+                                key: 'origin' as const,
+                                label: 'Origin / Country',
+                                desc: 'Manufacturing country of origin',
+                                checked: visibleColumns.origin !== false,
+                                onChange: (checked: boolean) =>
+                                  setVisibleColumns((prev) => ({ ...prev, origin: checked }))
+                              },
+                              {
+                                key: 'availability' as const,
+                                label: 'Delivery / Availability',
+                                desc: 'Dispatch lead time & stock timeline',
+                                checked: visibleColumns.availability !== false,
+                                onChange: (checked: boolean) =>
+                                  setVisibleColumns((prev) => ({ ...prev, availability: checked }))
+                              },
+                              {
+                                key: 'unit_price' as const,
+                                label: 'Show Unit Price Column',
+                                desc: 'Show individual rates (auto-expands Description when hidden)',
+                                checked: visibleColumns.unit_price !== false && visibleColumns.showUnitPrice !== false,
+                                onChange: (checked: boolean) =>
                                   setVisibleColumns((prev) => ({
                                     ...prev,
-                                    lineItemImageAspectRatio: e.target.value as any
+                                    unit_price: checked,
+                                    showUnitPrice: checked
                                   }))
-                                }
-                                className="w-full px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-[10.5px] font-semibold text-slate-700 cursor-pointer"
+                              },
+                              {
+                                key: 'showUom' as const,
+                                label: 'Show UOM / Unit Column',
+                                desc: 'Show unit of measure column (pcs, set, lot)',
+                                checked: visibleColumns.showUom !== false,
+                                onChange: (checked: boolean) =>
+                                  setVisibleColumns((prev) => ({ ...prev, showUom: checked }))
+                              }
+                            ].map((col) => (
+                              <div
+                                key={col.key}
+                                className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                                  col.checked
+                                    ? 'bg-white border-slate-200 shadow-2xs'
+                                    : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                                }`}
                               >
-                                <option value="1:1">1:1 Square</option>
-                                <option value="4:3">4:3 Standard</option>
-                                <option value="16:9">16:9 Wide</option>
-                                <option value="auto">Auto Natural</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="block text-[9.5px] font-mono font-bold text-slate-500 uppercase mb-1">
-                                Frame Style
-                              </label>
-                              <select
-                                value={visibleColumns.lineItemImageFrame || 'card'}
-                                onChange={(e) =>
-                                  setVisibleColumns((prev) => ({
-                                    ...prev,
-                                    lineItemImageFrame: e.target.value as any
-                                  }))
-                                }
-                                className="w-full px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-[10.5px] font-semibold text-slate-700 cursor-pointer"
-                              >
-                                <option value="card">Bordered Card</option>
-                                <option value="rounded">Soft Rounded</option>
-                                <option value="minimal">Borderless</option>
-                                <option value="shadow">Elevated Shadow</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="block text-[9.5px] font-mono font-bold text-slate-500 uppercase mb-1">
-                                Image Fit
-                              </label>
-                              <select
-                                value={visibleColumns.lineItemImageObjectFit || 'contain'}
-                                onChange={(e) =>
-                                  setVisibleColumns((prev) => ({
-                                    ...prev,
-                                    lineItemImageObjectFit: e.target.value as any
-                                  }))
-                                }
-                                className="w-full px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-[10.5px] font-semibold text-slate-700 cursor-pointer"
-                              >
-                                <option value="contain">Contain (Full Part)</option>
-                                <option value="cover">Cover (Fill Box)</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="block text-[9.5px] font-mono font-bold text-slate-500 uppercase mb-1">
-                                Background Fill
-                              </label>
-                              <select
-                                value={visibleColumns.lineItemImageBgFill || 'white'}
-                                onChange={(e) =>
-                                  setVisibleColumns((prev) => ({
-                                    ...prev,
-                                    lineItemImageBgFill: e.target.value as any
-                                  }))
-                                }
-                                className="w-full px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-[10.5px] font-semibold text-slate-700 cursor-pointer"
-                              >
-                                <option value="white">Pure White</option>
-                                <option value="slate">Soft Neutral</option>
-                                <option value="transparent">Transparent</option>
-                              </select>
-                            </div>
-                          </div>
-
-                          {/* 4. BOM Sub-Component Images Mode */}
-                          <div>
-                            <label className="block text-[9.5px] font-mono font-bold text-slate-500 uppercase mb-1">
-                              BOM Sub-Component (1.1..1.N) Photos
-                            </label>
-                            <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
-                              {[
-                                { id: 'off' as const, label: 'Hidden' },
-                                { id: 'small' as const, label: 'Small (30px)' },
-                                { id: 'match_parent' as const, label: 'Match Parent' }
-                              ].map((bm) => {
-                                const isSel = (visibleColumns.bomSubComponentImageMode || 'small') === bm.id;
-                                return (
-                                  <button
-                                    key={bm.id}
-                                    type="button"
-                                    onClick={() =>
-                                      setVisibleColumns((prev) => ({
-                                        ...prev,
-                                        bomSubComponentImageMode: bm.id
-                                      }))
-                                    }
-                                    className={`py-1 px-1 rounded-lg text-[10px] font-semibold transition cursor-pointer whitespace-nowrap ${
-                                      isSel
-                                        ? 'bg-blue-600 text-white shadow-2xs'
-                                        : 'text-slate-600 hover:bg-white'
-                                    }`}
-                                  >
-                                    {bm.label}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Per-Item Progressive Disclosure Image Controls, Datasheet Toggle, Catalog Sync & BOM */}
-                      <div className="space-y-2 max-h-80 overflow-y-auto pr-0.5 pt-1">
-                        {quotationLineItems.map((item, idx) => {
-                          const itemKey = item.id || `item_${idx}`;
-                          const matchedProd = workspaceProducts.find(
-                            (p) =>
-                              (item.product_id && p.id === item.product_id) ||
-                              (item.sku && p.sku && p.sku.toLowerCase() === item.sku.toLowerCase()) ||
-                              (item.item_name &&
-                                (p.name || p.description || '').trim().toLowerCase() === item.item_name.trim().toLowerCase())
-                          );
-                          const isTracked = Boolean(matchedProd?.is_inventoried);
-                          const currentStock = Math.max(
-                            0,
-                            Number(matchedProd?.stock_on_hand ?? matchedProd?.current_stock ?? 0) -
-                              Number(matchedProd?.stock_reserved ?? 0)
-                          );
-                          const reorderLvl = Number(matchedProd?.reorder_level || 0);
-                          const itemDrifted = matchedProd ? hasCatalogDrift(item, matchedProd, liveQuotation.currency) : false;
-
-                          return (
-                            <div
-                              key={itemKey}
-                              className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="min-w-0 flex-1">
-                                  <span className="font-semibold text-slate-800 text-[11px] block truncate" title={item.item_name}>
-                                    #{idx + 1} {item.item_name}
+                                <div className="min-w-0 pr-1">
+                                  <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                                    {col.label}
                                   </span>
-                                  <div className="flex items-center gap-1 flex-wrap mt-0.5">
-                                    {isTracked && (
+                                  <span className="text-[10px] text-slate-400 block mt-0.5 truncate">
+                                    {col.desc}
+                                  </span>
+                                </div>
+                                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={col.checked}
+                                    onChange={(e) => col.onChange(e.target.checked)}
+                                    className="sr-only peer"
+                                  />
+                                  <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* 2. Table Row Spacing */}
+                        <div className="pt-2 border-t border-slate-100 space-y-2">
+                          <label className="block text-slate-800 font-bold text-xs">
+                            Table Row Spacing
+                          </label>
+                          <p className="text-[10.5px] text-slate-500 leading-normal">
+                            Control table row height to fit more lines or maximize readability.
+                          </p>
+                          <div className="grid grid-cols-2 gap-2 pt-1">
+                            {[
+                              {
+                                id: 'comfortable',
+                                label: 'Comfortable',
+                                sub: '2.5 padding',
+                                desc: 'Standard executive layout'
+                              },
+                              {
+                                id: 'compact',
+                                label: 'Compact',
+                                sub: '1.5 padding',
+                                desc: 'Higher density per page'
+                              }
+                            ].map((d) => {
+                              const isSelected = tableDensity === d.id;
+                              return (
+                                <button
+                                  key={d.id}
+                                  type="button"
+                                  onClick={() => setTableDensity(d.id as QuotationTableDensity)}
+                                  className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                    isSelected
+                                      ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-600/20'
+                                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <span className={`font-semibold text-xs ${isSelected ? 'text-blue-700' : 'text-slate-800'}`}>
+                                      {d.label}
+                                    </span>
+                                    <span className="text-[9px] font-mono text-slate-400">{d.sub}</span>
+                                  </div>
+                                  <span className="text-[10px] text-slate-500 mt-1 leading-snug">
+                                    {d.desc}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* 3. Table Text Size */}
+                        <div className="pt-2 border-t border-slate-100 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
+                              <Type className="w-3.5 h-3.5 text-blue-600" />
+                              Table Text Size
+                            </label>
+                            <span className="text-[10px] font-mono text-slate-400 capitalize">
+                              {tableFontScale}
+                            </span>
+                          </div>
+                          <p className="text-[10.5px] text-slate-500 leading-normal">
+                            Scale font sizes specifically for descriptions, item titles, and numbers across table cells.
+                          </p>
+                          <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                            {[
+                              { id: 'compact' as const, label: 'Compact', pt: '9pt' },
+                              { id: 'standard' as const, label: 'Standard', pt: '10pt' },
+                              { id: 'prominent' as const, label: 'Prominent', pt: '11pt' }
+                            ].map((s) => {
+                              const isSelected = tableFontScale === s.id;
+                              return (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  onClick={() => setTableFontScale(s.id)}
+                                  className={`py-2 px-1 rounded-lg text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                                    isSelected
+                                      ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                                      : 'hover:bg-white text-slate-600'
+                                  }`}
+                                >
+                                  <span className="text-[10px] font-semibold leading-tight">{s.label}</span>
+                                  <span className={`text-[8.5px] font-mono mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>({s.pt})</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Informational Guardrail Card */}
+                        <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-slate-600 space-y-1">
+                          <div className="font-semibold text-blue-900 text-[11px] flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                            Fixed Structural Section
+                          </div>
+                          <p className="text-[10px] text-slate-500 leading-relaxed">
+                            The Line Items Table is anchored above commercial terms and totals. Density and column choices are saved with this quote snapshot.
+                          </p>
+                        </div>
+                      </>
+                    )}
+
+                    {/* TAB: PRODUCT IMAGES, DATASHEETS & BOM */}
+                    {tableInspectorTab === 'media' && (
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                            <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
+                            Product Images &amp; Datasheets
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-400">
+                            {quotationLineItems.filter((it) => Boolean(it.image_url)).length}/{quotationLineItems.length} Photos
+                          </span>
+                        </div>
+
+                        {/* Master Toggle: Show Product Images */}
+                        <div
+                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                            visibleColumns.showLineItemImages
+                              ? 'bg-blue-50/60 border-blue-200 shadow-2xs'
+                              : 'bg-white border-slate-200'
+                          }`}
+                        >
+                          <div className="min-w-0 pr-1">
+                            <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                              Show Product Images on Quote
+                            </span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5">
+                              Render catalog photos in line items table
+                            </span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(visibleColumns.showLineItemImages)}
+                              onChange={(e) =>
+                                setVisibleColumns((prev) => ({
+                                  ...prev,
+                                  showLineItemImages: e.target.checked
+                                }))
+                              }
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                          </label>
+                        </div>
+
+                        {visibleColumns.showLineItemImages && (
+                          <div className="space-y-3 pt-1">
+                            {/* 1. Image Placement Mode (5 Distinct B2B Modes in clean 2-col grid) */}
+                            <div>
+                              <label className="block text-[10.5px] font-semibold text-slate-600 mb-1.5">
+                                Image Placement Mode
+                              </label>
+                              <div className="grid grid-cols-2 gap-1.5">
+                                {[
+                                  {
+                                    id: 'inline_left' as const,
+                                    matchIds: ['inline', 'inline_left'],
+                                    label: 'Inline Left',
+                                    desc: 'Beside title & specs'
+                                  },
+                                  {
+                                    id: 'inline_right' as const,
+                                    matchIds: ['inline_right'],
+                                    label: 'Inline Right',
+                                    desc: 'Floated right of specs'
+                                  },
+                                  {
+                                    id: 'column' as const,
+                                    matchIds: ['column'],
+                                    label: 'Dedicated Column',
+                                    desc: 'Separate table column'
+                                  },
+                                  {
+                                    id: 'below_specs' as const,
+                                    matchIds: ['below_specs'],
+                                    label: 'Below Specs Banner',
+                                    desc: 'Wide diagram card'
+                                  },
+                                  {
+                                    id: 'photo_schedule' as const,
+                                    matchIds: ['photo_schedule'],
+                                    label: 'Bottom Photo Grid',
+                                    desc: '2/3-col visual schedule'
+                                  }
+                                ].map((mode, mIdx) => {
+                                  const curLayout = visibleColumns.lineItemImageLayout || 'inline_left';
+                                  const isSel = mode.matchIds.includes(curLayout);
+                                  return (
+                                    <button
+                                      key={mode.id}
+                                      type="button"
+                                      onClick={() =>
+                                        setVisibleColumns((prev) => ({
+                                          ...prev,
+                                          lineItemImageLayout: mode.id
+                                        }))
+                                      }
+                                      className={`p-2 rounded-xl border text-left transition cursor-pointer ${
+                                        mIdx === 4 ? 'col-span-2' : ''
+                                      } ${
+                                        isSel
+                                          ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-600/20'
+                                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                                      }`}
+                                    >
                                       <span
-                                        className={`inline-block text-[9.5px] font-bold px-1.5 py-0.2 rounded ${
-                                          currentStock <= 0
-                                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                                            : reorderLvl > 0 && currentStock <= reorderLvl
-                                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                        className={`text-[11px] font-semibold block leading-tight ${
+                                          isSel ? 'text-blue-700' : 'text-slate-800'
                                         }`}
                                       >
-                                        {currentStock <= 0
-                                          ? 'Out of Stock (0)'
-                                          : `In Stock: ${currentStock} ${matchedProd?.unit || matchedProd?.uom || item.unit || 'pcs'}`}
+                                        {mode.label}
                                       </span>
-                                    )}
+                                      <span className="text-[9.5px] text-slate-400 block mt-0.5 leading-tight">
+                                        {mode.desc}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* Conditional Sub-Controls for Dedicated Column */}
+                            {visibleColumns.lineItemImageLayout === 'column' && (
+                              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  {[
+                                    { id: 'before_desc' as const, label: 'Before Description' },
+                                    { id: 'after_desc' as const, label: 'After Description' }
+                                  ].map((pos) => {
+                                    const isSel =
+                                      (visibleColumns.lineItemImageColumnPosition || 'before_desc') === pos.id;
+                                    return (
+                                      <button
+                                        key={pos.id}
+                                        type="button"
+                                        onClick={() =>
+                                          setVisibleColumns((prev) => ({
+                                            ...prev,
+                                            lineItemImageColumnPosition: pos.id
+                                          }))
+                                        }
+                                        className={`py-1.5 px-2 rounded-lg text-[10px] font-semibold border transition cursor-pointer whitespace-nowrap ${
+                                          isSel
+                                            ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                                        }`}
+                                      >
+                                        {pos.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <label className="flex items-center justify-between gap-2 text-[10px] text-slate-600 cursor-pointer pt-0.5">
+                                  <span>Auto-collapse column if zero items have photos</span>
+                                  <input
+                                    type="checkbox"
+                                    checked={visibleColumns.lineItemImageAutoCollapseColumn !== false}
+                                    onChange={(e) =>
+                                      setVisibleColumns((prev) => ({
+                                        ...prev,
+                                        lineItemImageAutoCollapseColumn: e.target.checked
+                                      }))
+                                    }
+                                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                  />
+                                </label>
+                              </div>
+                            )}
+
+                            {/* Conditional Sub-Controls for Photo Schedule */}
+                            {visibleColumns.lineItemImageLayout === 'photo_schedule' && (
+                              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  {[
+                                    { cols: 2 as const, label: '2 Columns Grid' },
+                                    { cols: 3 as const, label: '3 Columns Grid' }
+                                  ].map((c) => {
+                                    const isSel = (visibleColumns.photoScheduleColumns || 3) === c.cols;
+                                    return (
+                                      <button
+                                        key={c.cols}
+                                        type="button"
+                                        onClick={() =>
+                                          setVisibleColumns((prev) => ({
+                                            ...prev,
+                                            photoScheduleColumns: c.cols
+                                          }))
+                                        }
+                                        className={`py-1.5 px-2 rounded-lg text-[10px] font-semibold border transition cursor-pointer whitespace-nowrap ${
+                                          isSel
+                                            ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                                        }`}
+                                      >
+                                        {c.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <label className="flex items-center justify-between gap-2 text-[10px] text-slate-600 cursor-pointer pt-0.5">
+                                  <span>Start Photo Schedule on dedicated new Annex page</span>
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(visibleColumns.photoScheduleNewPage)}
+                                    onChange={(e) =>
+                                      setVisibleColumns((prev) => ({
+                                        ...prev,
+                                        photoScheduleNewPage: e.target.checked
+                                      }))
+                                    }
+                                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                  />
+                                </label>
+                              </div>
+                            )}
+
+                            {/* 2. Expanded Image Size Presets (XS to XL + Custom Slider) */}
+                            <div>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="text-[10.5px] font-semibold text-slate-600">
+                                  Product Image Size
+                                </label>
+                                <span className="text-[9.5px] font-mono text-blue-600 font-bold">
+                                  {visibleColumns.lineItemImageSize === 'custom'
+                                    ? `${visibleColumns.lineItemImageCustomWidthPx || 84}px`
+                                    : (visibleColumns.lineItemImageSize || 'md').toUpperCase()}
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                                {[
+                                  { id: 'xs' as const, label: 'XS (32px)' },
+                                  { id: 'sm' as const, label: 'SM (48px)' },
+                                  { id: 'md' as const, label: 'MD (72px)' },
+                                  { id: 'lg' as const, label: 'LG (110px)' },
+                                  { id: 'xl' as const, label: 'XL (160px)' },
+                                  { id: 'custom' as const, label: 'Custom px' }
+                                ].map((sz) => {
+                                  const isSel = (visibleColumns.lineItemImageSize || 'md') === sz.id;
+                                  return (
                                     <button
+                                      key={sz.id}
                                       type="button"
                                       onClick={() =>
-                                        setItemOptionalOverrides((prev) => ({
+                                        setVisibleColumns((prev) => ({
                                           ...prev,
-                                          [itemKey]: !item.is_optional
+                                          lineItemImageSize: sz.id,
+                                          ...(sz.id === 'custom' && !prev.lineItemImageCustomWidthPx
+                                            ? { lineItemImageCustomWidthPx: 84 }
+                                            : {})
                                         }))
                                       }
-                                      className={`text-[9.5px] font-semibold px-1.5 py-0.2 rounded border transition cursor-pointer ${
-                                        item.is_optional
-                                          ? 'bg-amber-50 text-amber-800 border-amber-300'
-                                          : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                                      className={`py-1.5 px-1 rounded-lg text-[10px] font-semibold transition cursor-pointer whitespace-nowrap ${
+                                        isSel
+                                          ? 'bg-blue-600 text-white shadow-2xs'
+                                          : 'text-slate-600 hover:bg-white'
                                       }`}
-                                      title="Toggle whether this item is Optional / Excluded from Baseline Subtotal"
                                     >
-                                      {item.is_optional ? 'Optional (Excl. Total)' : 'Baseline Item'}
+                                      {sz.label}
                                     </button>
+                                  );
+                                })}
+                              </div>
+                              {visibleColumns.lineItemImageSize === 'custom' && (
+                                <div className="pt-2 px-1">
+                                  <input
+                                    type="range"
+                                    min={24}
+                                    max={220}
+                                    step={4}
+                                    value={visibleColumns.lineItemImageCustomWidthPx || 84}
+                                    onChange={(e) =>
+                                      setVisibleColumns((prev) => ({
+                                        ...prev,
+                                        lineItemImageCustomWidthPx: Number(e.target.value) || 84
+                                      }))
+                                    }
+                                    className="w-full accent-blue-600 cursor-pointer h-1.5 bg-slate-200 rounded-lg"
+                                  />
+                                  <div className="flex justify-between text-[9px] font-mono text-slate-400 mt-0.5">
+                                    <span>24px</span>
+                                    <span>{visibleColumns.lineItemImageCustomWidthPx || 84}px</span>
+                                    <span>220px</span>
                                   </div>
                                 </div>
-                              </div>
+                              )}
+                            </div>
 
-                              {/* Progressive Disclosure Image Thumbnail + Options Popover */}
-                              <LineItemImageOptionsPopover
-                                itemTitle={`#${idx + 1} ${item.item_name}`}
-                                imageUrl={item.image_url}
-                                secondaryImageUrl={item.secondary_image_url}
-                                imageCaption={item.image_caption}
-                                secondaryImageCaption={item.secondary_image_caption}
-                                imageAdjustments={item.image_adjustments}
-                                displayOverride={item.image_display_override || 'inherit'}
-                                sizeOverride={item.image_size_override || 'inherit'}
-                                aspectOverride={item.image_aspect_override || 'inherit'}
-                                showPerItemLayoutOverrides={true}
-                                activeWorkspace={activeWorkspace}
-                                canSyncToCatalog={Boolean(matchedProd)}
-                                onSyncToCatalog={
-                                  matchedProd
-                                    ? async () => {
+                            {/* 3. Clean 2-Column Grid for Aspect Ratio, Frame, Fit & Background */}
+                            <div className="grid grid-cols-2 gap-2 pt-0.5">
+                              <div>
+                                <label className="block text-[9.5px] font-mono font-bold text-slate-500 uppercase mb-1">
+                                  Aspect Ratio
+                                </label>
+                                <select
+                                  value={visibleColumns.lineItemImageAspectRatio || '1:1'}
+                                  onChange={(e) =>
+                                    setVisibleColumns((prev) => ({
+                                      ...prev,
+                                      lineItemImageAspectRatio: e.target.value as any
+                                    }))
+                                  }
+                                  className="w-full px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-[10.5px] font-semibold text-slate-700 cursor-pointer"
+                                >
+                                  <option value="1:1">1:1 Square</option>
+                                  <option value="4:3">4:3 Standard</option>
+                                  <option value="16:9">16:9 Wide</option>
+                                  <option value="auto">Auto Natural</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[9.5px] font-mono font-bold text-slate-500 uppercase mb-1">
+                                  Frame Style
+                                </label>
+                                <select
+                                  value={visibleColumns.lineItemImageFrame || 'card'}
+                                  onChange={(e) =>
+                                    setVisibleColumns((prev) => ({
+                                      ...prev,
+                                      lineItemImageFrame: e.target.value as any
+                                    }))
+                                  }
+                                  className="w-full px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-[10.5px] font-semibold text-slate-700 cursor-pointer"
+                                >
+                                  <option value="card">Bordered Card</option>
+                                  <option value="rounded">Soft Rounded</option>
+                                  <option value="minimal">Borderless</option>
+                                  <option value="shadow">Elevated Shadow</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[9.5px] font-mono font-bold text-slate-500 uppercase mb-1">
+                                  Image Fit
+                                </label>
+                                <select
+                                  value={visibleColumns.lineItemImageObjectFit || 'contain'}
+                                  onChange={(e) =>
+                                    setVisibleColumns((prev) => ({
+                                      ...prev,
+                                      lineItemImageObjectFit: e.target.value as any
+                                    }))
+                                  }
+                                  className="w-full px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-[10.5px] font-semibold text-slate-700 cursor-pointer"
+                                >
+                                  <option value="contain">Contain (Full Part)</option>
+                                  <option value="cover">Cover (Fill Box)</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[9.5px] font-mono font-bold text-slate-500 uppercase mb-1">
+                                  Background Fill
+                                </label>
+                                <select
+                                  value={visibleColumns.lineItemImageBgFill || 'white'}
+                                  onChange={(e) =>
+                                    setVisibleColumns((prev) => ({
+                                      ...prev,
+                                      lineItemImageBgFill: e.target.value as any
+                                    }))
+                                  }
+                                  className="w-full px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-[10.5px] font-semibold text-slate-700 cursor-pointer"
+                                >
+                                  <option value="white">Pure White</option>
+                                  <option value="slate">Soft Neutral</option>
+                                  <option value="transparent">Transparent</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            {/* 4. BOM Sub-Component Images Mode */}
+                            <div>
+                              <label className="block text-[9.5px] font-mono font-bold text-slate-500 uppercase mb-1">
+                                BOM Sub-Component (1.1..1.N) Photos
+                              </label>
+                              <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                                {[
+                                  { id: 'off' as const, label: 'Hidden' },
+                                  { id: 'small' as const, label: 'Small (30px)' },
+                                  { id: 'match_parent' as const, label: 'Match Parent' }
+                                ].map((bm) => {
+                                  const isSel = (visibleColumns.bomSubComponentImageMode || 'small') === bm.id;
+                                  return (
+                                    <button
+                                      key={bm.id}
+                                      type="button"
+                                      onClick={() =>
+                                        setVisibleColumns((prev) => ({
+                                          ...prev,
+                                          bomSubComponentImageMode: bm.id
+                                        }))
+                                      }
+                                      className={`py-1 px-1 rounded-lg text-[10px] font-semibold transition cursor-pointer whitespace-nowrap ${
+                                        isSel
+                                          ? 'bg-blue-600 text-white shadow-2xs'
+                                          : 'text-slate-600 hover:bg-white'
+                                      }`}
+                                    >
+                                      {bm.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Per-Item Progressive Disclosure Image Controls, Datasheet Toggle, Catalog Sync & BOM (No Nested Scrollbar) */}
+                        <div className="space-y-2 pt-1">
+                          {quotationLineItems.map((item, idx) => {
+                            const itemKey = item.id || `item_${idx}`;
+                            const matchedProd = workspaceProducts.find(
+                              (p) =>
+                                (item.product_id && p.id === item.product_id) ||
+                                (item.sku && p.sku && p.sku.toLowerCase() === item.sku.toLowerCase()) ||
+                                (item.item_name &&
+                                  (p.name || p.description || '').trim().toLowerCase() === item.item_name.trim().toLowerCase())
+                            );
+                            const isTracked = Boolean(matchedProd?.is_inventoried);
+                            const currentStock = Math.max(
+                              0,
+                              Number(matchedProd?.stock_on_hand ?? matchedProd?.current_stock ?? 0) -
+                                Number(matchedProd?.stock_reserved ?? 0)
+                            );
+                            const reorderLvl = Number(matchedProd?.reorder_level || 0);
+                            const itemDrifted = matchedProd ? hasCatalogDrift(item, matchedProd, liveQuotation.currency) : false;
+
+                            return (
+                              <div
+                                key={itemKey}
+                                className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <span className="font-semibold text-slate-800 text-[11px] block truncate" title={item.item_name}>
+                                      #{idx + 1} {item.item_name}
+                                    </span>
+                                    <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                                      {isTracked && (
+                                        <span
+                                          className={`inline-block text-[9.5px] font-bold px-1.5 py-0.2 rounded ${
+                                            currentStock <= 0
+                                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                              : reorderLvl > 0 && currentStock <= reorderLvl
+                                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                          }`}
+                                        >
+                                          {currentStock <= 0
+                                            ? 'Out of Stock (0)'
+                                            : `In Stock: ${currentStock} ${matchedProd?.unit || matchedProd?.uom || item.unit || 'pcs'}`}
+                                        </span>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setItemOptionalOverrides((prev) => ({
+                                            ...prev,
+                                            [itemKey]: !item.is_optional
+                                          }))
+                                        }
+                                        className={`text-[9.5px] font-semibold px-1.5 py-0.2 rounded border transition cursor-pointer ${
+                                          item.is_optional
+                                            ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                            : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                                        }`}
+                                        title="Toggle whether this item is Optional / Excluded from Baseline Subtotal"
+                                      >
+                                        {item.is_optional ? 'Optional (Excl. Total)' : 'Baseline Item'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Progressive Disclosure Image Thumbnail + Options Popover */}
+                                <LineItemImageOptionsPopover
+                                  itemTitle={`#${idx + 1} ${item.item_name}`}
+                                  imageUrl={item.image_url}
+                                  secondaryImageUrl={item.secondary_image_url}
+                                  imageCaption={item.image_caption}
+                                  secondaryImageCaption={item.secondary_image_caption}
+                                  imageAdjustments={item.image_adjustments}
+                                  displayOverride={item.image_display_override || 'inherit'}
+                                  sizeOverride={item.image_size_override || 'inherit'}
+                                  aspectOverride={item.image_aspect_override || 'inherit'}
+                                  showPerItemLayoutOverrides={true}
+                                  activeWorkspace={activeWorkspace}
+                                  canSyncToCatalog={Boolean(matchedProd)}
+                                  onSyncToCatalog={
+                                    matchedProd
+                                      ? async () => {
+                                          const updated = await syncLineItemToCatalogProduct(
+                                            item,
+                                            matchedProd,
+                                            setWorkspaceProducts,
+                                            triggerToast,
+                                            liveQuotation.currency
+                                          );
+                                          if (updated && propSetProducts) {
+                                            propSetProducts((prev) =>
+                                              prev.map((p) => (p.id === updated.id ? updated : p))
+                                            );
+                                          }
+                                        }
+                                      : undefined
+                                  }
+                                  onChange={(patch) => {
+                                    if (patch.image_url !== undefined) {
+                                      setItemImageOverrides((prev) => ({
+                                        ...prev,
+                                        [itemKey]: patch.image_url || ''
+                                      }));
+                                      if (patch.image_url) {
+                                        setVisibleColumns((prev) => ({
+                                          ...prev,
+                                          showLineItemImages: true
+                                        }));
+                                      }
+                                    }
+                                    handleUpdateTopItemRowOption(itemKey, patch);
+                                  }}
+                                  compact
+                                />
+
+                                {/* Delivery Note Per-Item Quantity & Serial / Batch Controls */}
+                                {documentType === 'delivery_note' && (
+                                  <div className="pt-1.5 border-t border-slate-200/70 space-y-1.5">
+                                    <div className="grid grid-cols-3 gap-1.5">
+                                      <div className="min-w-0">
+                                        <label className="block text-[9.5px] font-mono text-slate-500 truncate">
+                                          Ordered Qty
+                                        </label>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          value={
+                                            item.qty_ordered !== undefined
+                                              ? item.qty_ordered
+                                              : item.quantity
+                                          }
+                                          onChange={(e) => {
+                                            const ord = Number(e.target.value) || 0;
+                                            const deliv =
+                                              item.qty_delivered !== undefined
+                                                ? Number(item.qty_delivered)
+                                                : Number(item.quantity) || 0;
+                                            handleUpdateTopItemRowOption(itemKey, {
+                                              qty_ordered: ord,
+                                              qty_balance: Math.max(0, ord - deliv)
+                                            });
+                                          }}
+                                          className="w-full px-1.5 py-1 rounded border border-slate-300 bg-white font-mono text-[10.5px] text-slate-800"
+                                        />
+                                      </div>
+                                      <div className="min-w-0">
+                                        <label className="block text-[9.5px] font-mono font-bold text-blue-700 truncate">
+                                          Delivered Now
+                                        </label>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          value={
+                                            item.qty_delivered !== undefined
+                                              ? item.qty_delivered
+                                              : item.quantity
+                                          }
+                                          onChange={(e) => {
+                                            const deliv = Number(e.target.value) || 0;
+                                            const ord =
+                                              item.qty_ordered !== undefined
+                                                ? Number(item.qty_ordered)
+                                                : Number(item.quantity) || 0;
+                                            handleUpdateTopItemRowOption(itemKey, {
+                                              qty_delivered: deliv,
+                                              qty_balance: Math.max(0, ord - deliv)
+                                            });
+                                          }}
+                                          className="w-full px-1.5 py-1 rounded border border-blue-400 bg-white font-mono font-bold text-[10.5px] text-blue-900"
+                                        />
+                                      </div>
+                                      <div className="min-w-0">
+                                        <label className="block text-[9.5px] font-mono text-slate-500 truncate">
+                                          Balance Qty
+                                        </label>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          value={
+                                            item.qty_balance !== undefined
+                                              ? item.qty_balance
+                                              : Math.max(
+                                                  0,
+                                                  (item.qty_ordered !== undefined
+                                                    ? Number(item.qty_ordered)
+                                                    : Number(item.quantity) || 0) -
+                                                    (item.qty_delivered !== undefined
+                                                      ? Number(item.qty_delivered)
+                                                      : Number(item.quantity) || 0)
+                                                )
+                                          }
+                                          onChange={(e) =>
+                                            handleUpdateTopItemRowOption(itemKey, {
+                                              qty_balance: Math.max(0, Number(e.target.value) || 0)
+                                            })
+                                          }
+                                          className="w-full px-1.5 py-1 rounded border border-slate-300 bg-slate-100 font-mono text-[10.5px] text-slate-700"
+                                        />
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <input
+                                        type="text"
+                                        value={item.serial_batch_no || ''}
+                                        onChange={(e) =>
+                                          handleUpdateTopItemRowOption(itemKey, {
+                                            serial_batch_no: e.target.value
+                                          })
+                                        }
+                                        placeholder="Serial / Batch / Lot # (optional, prints below item title)"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 bg-white font-mono text-[10px] text-slate-800"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Two-Way Catalog Sync Actions */}
+                                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60">
+                                  {!matchedProd ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setCatalogModalTarget({ itemKey, item })}
+                                      className="px-2 py-0.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-semibold transition cursor-pointer"
+                                    >
+                                      + Save to Catalog
+                                    </button>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-500 font-mono truncate">
+                                      Catalog SKU: {matchedProd.sku || matchedProd.id?.slice(0, 8)}
+                                    </span>
+                                  )}
+                                  {matchedProd && itemDrifted && (
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
                                         const updated = await syncLineItemToCatalogProduct(
                                           item,
                                           matchedProd,
@@ -15308,1031 +16098,1040 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                             prev.map((p) => (p.id === updated.id ? updated : p))
                                           );
                                         }
-                                      }
-                                    : undefined
-                                }
-                                onChange={(patch) => {
-                                  if (patch.image_url !== undefined) {
-                                    setItemImageOverrides((prev) => ({
-                                      ...prev,
-                                      [itemKey]: patch.image_url || ''
-                                    }));
-                                    if (patch.image_url) {
-                                      setVisibleColumns((prev) => ({
-                                        ...prev,
-                                        showLineItemImages: true
-                                      }));
-                                    }
-                                  }
-                                  handleUpdateTopItemRowOption(itemKey, patch);
-                                }}
-                                compact
-                              />
-
-                              {/* Delivery Note Per-Item Quantity & Serial / Batch Controls */}
-                              {documentType === 'delivery_note' && (
-                                <div className="pt-1.5 border-t border-slate-200/70 space-y-1.5">
-                                  <div className="grid grid-cols-3 gap-1.5">
-                                    <div className="min-w-0">
-                                      <label className="block text-[9.5px] font-mono text-slate-500 truncate">
-                                        Ordered Qty
-                                      </label>
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        value={
-                                          item.qty_ordered !== undefined
-                                            ? item.qty_ordered
-                                            : item.quantity
-                                        }
-                                        onChange={(e) => {
-                                          const ord = Number(e.target.value) || 0;
-                                          const deliv =
-                                            item.qty_delivered !== undefined
-                                              ? Number(item.qty_delivered)
-                                              : Number(item.quantity) || 0;
-                                          handleUpdateTopItemRowOption(itemKey, {
-                                            qty_ordered: ord,
-                                            qty_balance: Math.max(0, ord - deliv)
-                                          });
-                                        }}
-                                        className="w-full px-1.5 py-1 rounded border border-slate-300 bg-white font-mono text-[10.5px] text-slate-800"
-                                      />
-                                    </div>
-                                    <div className="min-w-0">
-                                      <label className="block text-[9.5px] font-mono font-bold text-blue-700 truncate">
-                                        Delivered Now
-                                      </label>
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        value={
-                                          item.qty_delivered !== undefined
-                                            ? item.qty_delivered
-                                            : item.quantity
-                                        }
-                                        onChange={(e) => {
-                                          const deliv = Number(e.target.value) || 0;
-                                          const ord =
-                                            item.qty_ordered !== undefined
-                                              ? Number(item.qty_ordered)
-                                              : Number(item.quantity) || 0;
-                                          handleUpdateTopItemRowOption(itemKey, {
-                                            qty_delivered: deliv,
-                                            qty_balance: Math.max(0, ord - deliv)
-                                          });
-                                        }}
-                                        className="w-full px-1.5 py-1 rounded border border-blue-400 bg-white font-mono font-bold text-[10.5px] text-blue-900"
-                                      />
-                                    </div>
-                                    <div className="min-w-0">
-                                      <label className="block text-[9.5px] font-mono text-slate-500 truncate">
-                                        Balance Qty
-                                      </label>
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        value={
-                                          item.qty_balance !== undefined
-                                            ? item.qty_balance
-                                            : Math.max(
-                                                0,
-                                                (item.qty_ordered !== undefined
-                                                  ? Number(item.qty_ordered)
-                                                  : Number(item.quantity) || 0) -
-                                                  (item.qty_delivered !== undefined
-                                                    ? Number(item.qty_delivered)
-                                                    : Number(item.quantity) || 0)
-                                              )
-                                        }
-                                        onChange={(e) =>
-                                          handleUpdateTopItemRowOption(itemKey, {
-                                            qty_balance: Math.max(0, Number(e.target.value) || 0)
-                                          })
-                                        }
-                                        className="w-full px-1.5 py-1 rounded border border-slate-300 bg-slate-100 font-mono text-[10.5px] text-slate-700"
-                                      />
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <input
-                                      type="text"
-                                      value={item.serial_batch_no || ''}
-                                      onChange={(e) =>
-                                        handleUpdateTopItemRowOption(itemKey, {
-                                          serial_batch_no: e.target.value
-                                        })
-                                      }
-                                      placeholder="Serial / Batch / Lot # (optional, prints below item title)"
-                                      className="w-full px-2 py-1 rounded border border-slate-300 bg-white font-mono text-[10px] text-slate-800"
-                                    />
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Two-Way Catalog Sync Actions */}
-                              <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60">
-                                {!matchedProd ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => setCatalogModalTarget({ itemKey, item })}
-                                    className="px-2 py-0.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-semibold transition cursor-pointer"
-                                  >
-                                    + Save to Catalog
-                                  </button>
-                                ) : (
-                                  <span className="text-[10px] text-slate-500 font-mono truncate">
-                                    Catalog SKU: {matchedProd.sku || matchedProd.id?.slice(0, 8)}
-                                  </span>
-                                )}
-                                {matchedProd && itemDrifted && (
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      const updated = await syncLineItemToCatalogProduct(
-                                        item,
-                                        matchedProd,
-                                        setWorkspaceProducts,
-                                        triggerToast,
-                                        liveQuotation.currency
-                                      );
-                                      if (updated && propSetProducts) {
-                                        propSetProducts((prev) =>
-                                          prev.map((p) => (p.id === updated.id ? updated : p))
-                                        );
-                                      }
-                                    }}
-                                    className="px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-semibold transition cursor-pointer shrink-0"
-                                  >
-                                    Sync to Catalog
-                                  </button>
-                                )}
-                              </div>
-
-                              {item.datasheet_attachment && item.datasheet_attachment.url && (
-                                <label className="flex items-center justify-between px-2 py-1 rounded-lg bg-indigo-50/70 border border-indigo-200/80 cursor-pointer">
-                                  <span className="text-[10px] font-medium text-indigo-900 truncate pr-2">
-                                    📎 Annex Datasheet: {item.datasheet_attachment.name}
-                                  </span>
-                                  <input
-                                    type="checkbox"
-                                    checked={item.include_datasheet_in_quote !== false}
-                                    onChange={(e) =>
-                                      setItemDatasheetToggles((prev) => ({
-                                        ...prev,
-                                        [itemKey]: e.target.checked
-                                      }))
-                                    }
-                                    className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
-                                  />
-                                </label>
-                              )}
-
-                              {/* Multi-Component Set / BOM & Pricing Mode Quick Controls */}
-                              <div className="pt-1 border-t border-slate-200/60 space-y-1.5">
-                                <div className="flex items-center justify-between gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setExpandedCompositeKey((prev) => (prev === itemKey ? null : itemKey))
-                                    }
-                                    className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border flex items-center gap-1 transition cursor-pointer ${
-                                      Array.isArray(item.sub_components) && item.sub_components.length > 0
-                                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                                    }`}
-                                  >
-                                    <Layers className="w-3 h-3" />
-                                    <span>
-                                      {Array.isArray(item.sub_components) && item.sub_components.length > 0
-                                        ? `BOM Set (${item.sub_components.length} parts)`
-                                        : '+ Configure Multi-Component Set'}
-                                    </span>
-                                  </button>
-
-                                  {Array.isArray(item.sub_components) && item.sub_components.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setItemCompositeOverrides((prev) => ({
-                                          ...prev,
-                                          [itemKey]: {
-                                            ...(prev[itemKey] || {}),
-                                            package_pricing_mode:
-                                              item.package_pricing_mode === 'lump_sum'
-                                                ? 'itemized'
-                                                : 'lump_sum'
-                                          }
-                                        }))
-                                      }
-                                      className="px-2 py-0.5 rounded-md bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-[9.5px] font-semibold cursor-pointer"
-                                      title="Toggle between showing individual component prices vs a single package lump-sum price"
+                                      }}
+                                      className="px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-semibold transition cursor-pointer shrink-0"
                                     >
-                                      {item.package_pricing_mode === 'lump_sum'
-                                        ? 'Mode: Lump-Sum Set'
-                                        : 'Mode: Itemized Rates'}
+                                      Sync to Catalog
                                     </button>
                                   )}
                                 </div>
 
-                                {expandedCompositeKey === itemKey && (
-                                  <div className="pt-1">
-                                    <CompositePackageEditor
-                                      compact
-                                      isCompositeSet={Boolean(
-                                        item.is_composite_set ||
-                                          (item.sub_components && item.sub_components.length > 0)
-                                      )}
-                                      subComponents={item.sub_components || []}
-                                      packagePricingMode={item.package_pricing_mode || 'itemized'}
-                                      optionScopeNotes={item.option_scope_notes || ''}
-                                      parentQuantity={item.quantity || 1}
-                                      currency={(enquiry?.currency as string) || 'USD'}
-                                      products={workspaceProducts}
-                                      activeWorkspace={activeWorkspace}
-                                      tokenContext={studioTokenContext}
-                                      onChange={(patch) =>
-                                        setItemCompositeOverrides((prev) => ({
+                                {item.datasheet_attachment && item.datasheet_attachment.url && (
+                                  <label className="flex items-center justify-between px-2 py-1 rounded-lg bg-indigo-50/70 border border-indigo-200/80 cursor-pointer">
+                                    <span className="text-[10px] font-medium text-indigo-900 truncate pr-2">
+                                      📎 Annex Datasheet: {item.datasheet_attachment.name}
+                                    </span>
+                                    <input
+                                      type="checkbox"
+                                      checked={item.include_datasheet_in_quote !== false}
+                                      onChange={(e) =>
+                                        setItemDatasheetToggles((prev) => ({
                                           ...prev,
-                                          [itemKey]: {
-                                            ...(prev[itemKey] || {}),
-                                            ...patch
-                                          }
+                                          [itemKey]: e.target.checked
                                         }))
                                       }
+                                      className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                                    />
+                                  </label>
+                                )}
+
+                                {/* Multi-Component Set / BOM & Pricing Mode Quick Controls */}
+                                <div className="pt-1 border-t border-slate-200/60 space-y-1.5">
+                                  <div className="flex items-center justify-between gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setExpandedCompositeKey((prev) => (prev === itemKey ? null : itemKey))
+                                      }
+                                      className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border flex items-center gap-1 transition cursor-pointer ${
+                                        Array.isArray(item.sub_components) && item.sub_components.length > 0
+                                          ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                                      }`}
+                                    >
+                                      <Layers className="w-3 h-3" />
+                                      <span>
+                                        {Array.isArray(item.sub_components) && item.sub_components.length > 0
+                                          ? `BOM Set (${item.sub_components.length} parts)`
+                                          : '+ Configure Multi-Component Set'}
+                                      </span>
+                                    </button>
+
+                                    {Array.isArray(item.sub_components) && item.sub_components.length > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setItemCompositeOverrides((prev) => ({
+                                            ...prev,
+                                            [itemKey]: {
+                                              ...(prev[itemKey] || {}),
+                                              package_pricing_mode:
+                                                item.package_pricing_mode === 'lump_sum'
+                                                  ? 'itemized'
+                                                  : 'lump_sum'
+                                            }
+                                          }))
+                                        }
+                                        className="px-2 py-0.5 rounded-md bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-[9.5px] font-semibold cursor-pointer"
+                                        title="Toggle between showing individual component prices vs a single package lump-sum price"
+                                      >
+                                        {item.package_pricing_mode === 'lump_sum'
+                                          ? 'Mode: Lump-Sum Set'
+                                          : 'Mode: Itemized Rates'}
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {expandedCompositeKey === itemKey && (
+                                    <div className="pt-1">
+                                      <CompositePackageEditor
+                                        compact
+                                        isCompositeSet={Boolean(
+                                          item.is_composite_set ||
+                                            (item.sub_components && item.sub_components.length > 0)
+                                        )}
+                                        subComponents={item.sub_components || []}
+                                        packagePricingMode={item.package_pricing_mode || 'itemized'}
+                                        optionScopeNotes={item.option_scope_notes || ''}
+                                        parentQuantity={item.quantity || 1}
+                                        currency={(enquiry?.currency as string) || 'USD'}
+                                        products={workspaceProducts}
+                                        activeWorkspace={activeWorkspace}
+                                        tokenContext={studioTokenContext}
+                                        onChange={(patch) =>
+                                          setItemCompositeOverrides((prev) => ({
+                                            ...prev,
+                                            [itemKey]: {
+                                              ...(prev[itemKey] || {}),
+                                              ...patch
+                                            }
+                                          }))
+                                        }
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* TAB: LINE-ITEM PAGINATION, SPACING & ROW OPTIONS */}
+                    {tableInspectorTab === 'pagination' && (
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                            <Scissors className="w-3.5 h-3.5 text-amber-600" />
+                            Line-Item Pagination, Spacing &amp; Row Options
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-400">
+                            {quotationLineItems.reduce(
+                              (acc, it) =>
+                                acc +
+                                (it.page_break_after ? 1 : 0) +
+                                (Array.isArray(it.sub_components)
+                                  ? it.sub_components.filter((s) => s.page_break_after).length
+                                  : 0),
+                              0
+                            )}{' '}
+                            Breaks
+                          </span>
+                        </div>
+                        <p className="text-[10.5px] text-slate-500 leading-normal">
+                          Configure manual page breaks, row spacing, highlight/bold styling, price masking, and @tag row notes on any line item or BOM Set sub-component (1.1, 1.2, ...).
+                        </p>
+
+                        {/* Auto-Paginate Long Tables & Sets Master Toggle */}
+                        <div
+                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                            autoPaginateItems
+                              ? 'bg-amber-50/70 border-amber-300 shadow-2xs'
+                              : 'bg-white border-slate-200'
+                          }`}
+                        >
+                          <div className="min-w-0 pr-1">
+                            <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                              Auto-Paginate Long Tables &amp; Sets
+                            </span>
+                            <span className="text-[10px] text-slate-500 block mt-0.5 leading-snug">
+                              Automatically split long item tables &amp; multi-part BOM Sets across A4 sheets (keeps Set header + 1.1 together)
+                            </span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={autoPaginateItems}
+                              onChange={(e) => setAutoPaginateItems(e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-amber-600"></div>
+                          </label>
+                        </div>
+
+                        <div className="space-y-2 pt-1">
+                          {quotationLineItems.map((item, idx) => {
+                            const itemKey = item.id || `item_${idx}`;
+                            const isLastItem = idx === quotationLineItems.length - 1;
+                            const hasBreakAfter = Boolean(item.page_break_after);
+                            const hasSubComponents =
+                              Array.isArray(item.sub_components) && item.sub_components.length > 0;
+                            const isTopNoteOpen =
+                              Boolean(expandedInspectorRowNotes[itemKey]) || Boolean(item.row_note);
+
+                            return (
+                              <div
+                                key={itemKey}
+                                className={`p-2.5 rounded-xl border transition space-y-2 ${
+                                  hasBreakAfter
+                                    ? 'bg-amber-50/80 border-amber-300 shadow-2xs'
+                                    : 'bg-slate-50/70 border-slate-200/90'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="min-w-0 flex items-center gap-1.5 flex-1">
+                                    <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-700 text-[9px] font-mono font-bold flex items-center justify-center shrink-0">
+                                      {idx + 1}
+                                    </span>
+                                    <span
+                                      className="font-semibold text-slate-800 text-[11px] truncate"
+                                      title={item.item_name}
+                                    >
+                                      {item.item_name}
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleItemPageBreak(itemKey, item.page_break_after)}
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-semibold flex items-center gap-1 shrink-0 transition cursor-pointer ${
+                                      hasBreakAfter
+                                        ? 'bg-amber-600 text-white shadow-2xs'
+                                        : 'bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-800 border border-slate-200'
+                                    }`}
+                                  >
+                                    <Scissors className="w-3 h-3" />
+                                    <span>
+                                      {isLastItem ? '✂ Break After Table' : '✂ Page Break After Item'}
+                                    </span>
+                                  </button>
+                                </div>
+
+                                {/* Top-Level Item Row Customization Pill Bar */}
+                                <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleUpdateTopItemRowOption(itemKey, {
+                                        row_highlight: !item.row_highlight
+                                      })
+                                    }
+                                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold border transition cursor-pointer ${
+                                      item.row_highlight
+                                        ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300'
+                                    }`}
+                                    title="Soft amber highlight on this row"
+                                  >
+                                    🎨 Highlight
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleUpdateTopItemRowOption(itemKey, {
+                                        row_bold: !item.row_bold
+                                      })
+                                    }
+                                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold border transition cursor-pointer ${
+                                      item.row_bold
+                                        ? 'bg-slate-800 text-white border-slate-800'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                                    }`}
+                                    title="Bold emphasis on this row"
+                                  >
+                                    B Bold
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleUpdateTopItemRowOption(itemKey, {
+                                        hide_row_price: !item.hide_row_price
+                                      })
+                                    }
+                                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold border transition cursor-pointer ${
+                                      item.hide_row_price
+                                        ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'
+                                    }`}
+                                    title="Visually show 'Included' on this row while keeping its price in the total"
+                                  >
+                                    {item.hide_row_price ? 'Price: Included' : 'Hide Price'}
+                                  </button>
+
+                                  <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white border border-slate-200 text-[9.5px] text-slate-600">
+                                    <span>Spacer:</span>
+                                    <select
+                                      value={Number(item.row_spacer_after_mm) || 0}
+                                      onChange={(e) =>
+                                        handleUpdateTopItemRowOption(itemKey, {
+                                          row_spacer_after_mm: Number(e.target.value) || undefined
+                                        })
+                                      }
+                                      className="bg-transparent font-mono font-semibold text-slate-800 focus:outline-none cursor-pointer"
+                                    >
+                                      <option value={0}>0mm</option>
+                                      <option value={4}>4mm</option>
+                                      <option value={8}>8mm</option>
+                                      <option value={12}>12mm</option>
+                                      <option value={16}>16mm</option>
+                                    </select>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setExpandedInspectorRowNotes((prev) => ({
+                                        ...prev,
+                                        [itemKey]: !isTopNoteOpen
+                                      }))
+                                    }
+                                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold border transition cursor-pointer ${
+                                      isTopNoteOpen || item.row_note
+                                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+                                    }`}
+                                  >
+                                    {item.row_note ? '✎ Note Active' : '+ Note'}
+                                  </button>
+                                </div>
+
+                                {isTopNoteOpen && (
+                                  <div className="pt-0.5">
+                                    <AtMentionInput
+                                      value={item.row_note || ''}
+                                      onChange={(nextVal) =>
+                                        handleUpdateTopItemRowOption(itemKey, { row_note: nextVal })
+                                      }
+                                      tokenContext={studioTokenContext}
+                                      placeholder={`Custom note for Item #${idx + 1} (type @ for live tags)...`}
+                                      className="w-full bg-white border border-blue-200 focus:border-blue-500 rounded-md px-2 py-1 text-[10px] text-slate-700 focus:outline-none"
                                     />
                                   </div>
                                 )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
 
-                    {/* Line-Item Pagination, Spacing & Row Options ("Split Table Here" + Sub-Components 1.1..1.N) */}
-                    <div className="pt-2 border-t border-slate-100 space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                          <Scissors className="w-3.5 h-3.5 text-amber-600" />
-                          Line-Item Pagination, Spacing &amp; Row Options
-                        </span>
-                        <span className="text-[10px] font-mono text-slate-400">
-                          {quotationLineItems.reduce(
-                            (acc, it) =>
-                              acc +
-                              (it.page_break_after ? 1 : 0) +
-                              (Array.isArray(it.sub_components)
-                                ? it.sub_components.filter((s) => s.page_break_after).length
-                                : 0),
-                            0
-                          )}{' '}
-                          Breaks
-                        </span>
-                      </div>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Configure manual page breaks, row spacing, highlight/bold styling, price masking, and @tag row notes on any line item or BOM Set sub-component (1.1, 1.2, ...).
-                      </p>
-
-                      {/* Auto-Paginate Long Tables & Sets Master Toggle */}
-                      <div
-                        className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
-                          autoPaginateItems
-                            ? 'bg-amber-50/70 border-amber-300 shadow-2xs'
-                            : 'bg-white border-slate-200'
-                        }`}
-                      >
-                        <div className="min-w-0 pr-1">
-                          <span className="font-semibold text-slate-800 text-xs block leading-tight">
-                            Auto-Paginate Long Tables &amp; Sets
-                          </span>
-                          <span className="text-[10px] text-slate-500 block mt-0.5 leading-snug">
-                            Automatically split long item tables &amp; multi-part BOM Sets across A4 sheets (keeps Set header + 1.1 together)
-                          </span>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                          <input
-                            type="checkbox"
-                            checked={autoPaginateItems}
-                            onChange={(e) => setAutoPaginateItems(e.target.checked)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-amber-600"></div>
-                        </label>
-                      </div>
-
-                      <div className="space-y-2 pt-1 max-h-96 overflow-y-auto pr-1">
-                        {quotationLineItems.map((item, idx) => {
-                          const itemKey = item.id || `item_${idx}`;
-                          const isLastItem = idx === quotationLineItems.length - 1;
-                          const hasBreakAfter = Boolean(item.page_break_after);
-                          const hasSubComponents =
-                            Array.isArray(item.sub_components) && item.sub_components.length > 0;
-                          const isTopNoteOpen =
-                            Boolean(expandedInspectorRowNotes[itemKey]) || Boolean(item.row_note);
-
-                          return (
-                            <div
-                              key={itemKey}
-                              className={`p-2.5 rounded-xl border transition space-y-2 ${
-                                hasBreakAfter
-                                  ? 'bg-amber-50/80 border-amber-300 shadow-2xs'
-                                  : 'bg-slate-50/70 border-slate-200/90'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="min-w-0 flex items-center gap-1.5 flex-1">
-                                  <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-700 text-[9px] font-mono font-bold flex items-center justify-center shrink-0">
-                                    {idx + 1}
-                                  </span>
-                                  <span
-                                    className="font-semibold text-slate-800 text-[11px] truncate"
-                                    title={item.item_name}
-                                  >
-                                    {item.item_name}
-                                  </span>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => toggleItemPageBreak(itemKey, item.page_break_after)}
-                                  className={`px-2 py-1 rounded-lg text-[10px] font-semibold flex items-center gap-1 shrink-0 transition cursor-pointer ${
-                                    hasBreakAfter
-                                      ? 'bg-amber-600 text-white shadow-2xs'
-                                      : 'bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-800 border border-slate-200'
-                                  }`}
-                                >
-                                  <Scissors className="w-3 h-3" />
-                                  <span>
-                                    {isLastItem ? '✂ Break After Table' : '✂ Page Break After Item'}
-                                  </span>
-                                </button>
-                              </div>
-
-                              {/* Top-Level Item Row Customization Pill Bar */}
-                              <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdateTopItemRowOption(itemKey, {
-                                      row_highlight: !item.row_highlight
-                                    })
-                                  }
-                                  className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold border transition cursor-pointer ${
-                                    item.row_highlight
-                                      ? 'bg-amber-100 text-amber-900 border-amber-300'
-                                      : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300'
-                                  }`}
-                                  title="Soft amber highlight on this row"
-                                >
-                                  🎨 Highlight
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdateTopItemRowOption(itemKey, {
-                                      row_bold: !item.row_bold
-                                    })
-                                  }
-                                  className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold border transition cursor-pointer ${
-                                    item.row_bold
-                                      ? 'bg-slate-800 text-white border-slate-800'
-                                      : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-                                  }`}
-                                  title="Bold emphasis on this row"
-                                >
-                                  B Bold
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdateTopItemRowOption(itemKey, {
-                                      hide_row_price: !item.hide_row_price
-                                    })
-                                  }
-                                  className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold border transition cursor-pointer ${
-                                    item.hide_row_price
-                                      ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
-                                      : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'
-                                  }`}
-                                  title="Visually show 'Included' on this row while keeping its price in the total"
-                                >
-                                  {item.hide_row_price ? 'Price: Included' : 'Hide Price'}
-                                </button>
-
-                                <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white border border-slate-200 text-[9.5px] text-slate-600">
-                                  <span>Spacer:</span>
-                                  <select
-                                    value={Number(item.row_spacer_after_mm) || 0}
-                                    onChange={(e) =>
-                                      handleUpdateTopItemRowOption(itemKey, {
-                                        row_spacer_after_mm: Number(e.target.value) || undefined
-                                      })
-                                    }
-                                    className="bg-transparent font-mono font-semibold text-slate-800 focus:outline-none cursor-pointer"
-                                  >
-                                    <option value={0}>0mm</option>
-                                    <option value={4}>4mm</option>
-                                    <option value={8}>8mm</option>
-                                    <option value={12}>12mm</option>
-                                    <option value={16}>16mm</option>
-                                  </select>
-                                </div>
-
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setExpandedInspectorRowNotes((prev) => ({
-                                      ...prev,
-                                      [itemKey]: !isTopNoteOpen
-                                    }))
-                                  }
-                                  className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold border transition cursor-pointer ${
-                                    isTopNoteOpen || item.row_note
-                                      ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                      : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
-                                  }`}
-                                >
-                                  {item.row_note ? '✎ Note Active' : '+ Note'}
-                                </button>
-                              </div>
-
-                              {isTopNoteOpen && (
-                                <div className="pt-0.5">
-                                  <AtMentionInput
-                                    value={item.row_note || ''}
-                                    onChange={(nextVal) =>
-                                      handleUpdateTopItemRowOption(itemKey, { row_note: nextVal })
-                                    }
-                                    tokenContext={studioTokenContext}
-                                    placeholder={`Custom note for Item #${idx + 1} (type @ for live tags)...`}
-                                    className="w-full bg-white border border-blue-200 focus:border-blue-500 rounded-md px-2 py-1 text-[10px] text-slate-700 focus:outline-none"
-                                  />
-                                </div>
-                              )}
-
-                              {hasBreakAfter && (
-                                <div className="px-2 py-1 rounded-md bg-amber-100/90 border border-amber-300 text-amber-900 text-[10px] font-mono font-semibold flex items-center justify-between">
-                                  <span>
-                                    {isLastItem
-                                      ? `📄 Splits Closing Blocks to Next Page After Item #${idx + 1}`
-                                      : `📄 Splits Table to Next Page After Item #${idx + 1}`}
-                                  </span>
-                                  <span className="text-[9px] text-amber-700">Sheet Break</span>
-                                </div>
-                              )}
-
-                              {/* Nested BOM Set Sub-Components (1.1, 1.2, ..., 1.N) Row Options */}
-                              {hasSubComponents && (
-                                <div className="mt-1.5 pt-2 border-t border-slate-200/80 pl-2.5 border-l-2 border-l-indigo-300 space-y-1.5">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-[9.5px] font-mono font-bold uppercase tracking-wider text-indigo-700">
-                                      Set Sub-Components ({item.sub_components!.length} Rows)
+                                {hasBreakAfter && (
+                                  <div className="px-2 py-1 rounded-md bg-amber-100/90 border border-amber-300 text-amber-900 text-[10px] font-mono font-semibold flex items-center justify-between">
+                                    <span>
+                                      {isLastItem
+                                        ? `📄 Splits Closing Blocks to Next Page After Item #${idx + 1}`
+                                        : `📄 Splits Table to Next Page After Item #${idx + 1}`}
                                     </span>
-                                    <span className="text-[9px] text-slate-400 font-mono">
-                                      {idx + 1}.1 – {idx + 1}.{item.sub_components!.length}
-                                    </span>
+                                    <span className="text-[9px] text-amber-700">Sheet Break</span>
                                   </div>
+                                )}
 
-                                  {item.sub_components!.map((sub, subIdx) => {
-                                    const subNumberLabel = `${idx + 1}.${subIdx + 1}`;
-                                    const subNoteKey = `${itemKey}_sub_note_${subIdx}`;
-                                    const isSubNoteOpen =
-                                      Boolean(expandedInspectorRowNotes[subNoteKey]) ||
-                                      Boolean(sub.row_note);
-                                    const isLastSubOfLastItem =
-                                      isLastItem && subIdx === item.sub_components!.length - 1;
-
-                                    return (
-                                      <div
-                                        key={sub.id || `${itemKey}_sub_${subIdx}`}
-                                        className={`p-2 rounded-lg border transition space-y-1.5 ${
-                                          sub.page_break_after
-                                            ? 'bg-amber-50/90 border-amber-300'
-                                            : 'bg-white border-slate-200/90'
-                                        }`}
-                                      >
-                                        <div className="flex items-center justify-between gap-1.5">
-                                          <div className="min-w-0 flex items-center gap-1.5 flex-1">
-                                            <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 text-[9px] font-mono font-bold shrink-0">
-                                              {subNumberLabel}
-                                            </span>
-                                            <span
-                                              className="font-medium text-slate-700 text-[10.5px] truncate"
-                                              title={sub.name}
-                                            >
-                                              {sub.name || `Sub-Component ${subNumberLabel}`}
-                                            </span>
-                                          </div>
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              handleUpdateSubComponentRowOption(
-                                                itemKey,
-                                                item,
-                                                subIdx,
-                                                { page_break_after: !sub.page_break_after }
-                                              )
-                                            }
-                                            className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold flex items-center gap-1 shrink-0 transition cursor-pointer ${
-                                              sub.page_break_after
-                                                ? 'bg-amber-600 text-white shadow-2xs'
-                                                : 'bg-slate-50 hover:bg-amber-50 text-slate-700 hover:text-amber-800 border border-slate-200'
-                                            }`}
-                                          >
-                                            <Scissors className="w-2.5 h-2.5" />
-                                            <span>
-                                              {isLastSubOfLastItem
-                                                ? `✂ Break After Table`
-                                                : `✂ Break After ${subNumberLabel}`}
-                                            </span>
-                                          </button>
-                                        </div>
-
-                                        <div className="flex flex-wrap items-center gap-1">
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              handleUpdateSubComponentRowOption(
-                                                itemKey,
-                                                item,
-                                                subIdx,
-                                                { row_highlight: !sub.row_highlight }
-                                              )
-                                            }
-                                            className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border transition cursor-pointer ${
-                                              sub.row_highlight
-                                                ? 'bg-amber-100 text-amber-900 border-amber-300'
-                                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-amber-300'
-                                            }`}
-                                          >
-                                            🎨 Highlight
-                                          </button>
-
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              handleUpdateSubComponentRowOption(
-                                                itemKey,
-                                                item,
-                                                subIdx,
-                                                { row_bold: !sub.row_bold }
-                                              )
-                                            }
-                                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold border transition cursor-pointer ${
-                                              sub.row_bold
-                                                ? 'bg-slate-800 text-white border-slate-800'
-                                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-slate-300'
-                                            }`}
-                                          >
-                                            B Bold
-                                          </button>
-
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              handleUpdateSubComponentRowOption(
-                                                itemKey,
-                                                item,
-                                                subIdx,
-                                                { hide_row_price: !sub.hide_row_price }
-                                              )
-                                            }
-                                            className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border transition cursor-pointer ${
-                                              sub.hide_row_price
-                                                ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
-                                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-indigo-300'
-                                            }`}
-                                          >
-                                            {sub.hide_row_price ? 'Price: Included' : 'Hide Price'}
-                                          </button>
-
-                                          <div className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-slate-50 border border-slate-200 text-[9px] text-slate-600">
-                                            <span>Spacer:</span>
-                                            <select
-                                              value={Number(sub.row_spacer_after_mm) || 0}
-                                              onChange={(e) =>
-                                                handleUpdateSubComponentRowOption(
-                                                  itemKey,
-                                                  item,
-                                                  subIdx,
-                                                  {
-                                                    row_spacer_after_mm:
-                                                      Number(e.target.value) || undefined
-                                                  }
-                                                )
-                                              }
-                                              className="bg-transparent font-mono font-semibold text-slate-800 focus:outline-none cursor-pointer"
-                                            >
-                                              <option value={0}>0mm</option>
-                                              <option value={4}>4mm</option>
-                                              <option value={8}>8mm</option>
-                                              <option value={12}>12mm</option>
-                                              <option value={16}>16mm</option>
-                                            </select>
-                                          </div>
-
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              setExpandedInspectorRowNotes((prev) => ({
-                                                ...prev,
-                                                [subNoteKey]: !isSubNoteOpen
-                                              }))
-                                            }
-                                            className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border transition cursor-pointer ${
-                                              isSubNoteOpen || sub.row_note
-                                                ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-blue-300'
-                                            }`}
-                                          >
-                                            {sub.row_note ? '✎ Note' : '+ Note'}
-                                          </button>
-                                        </div>
-
-                                        {isSubNoteOpen && (
-                                          <div className="pt-0.5">
-                                            <AtMentionInput
-                                              value={sub.row_note || ''}
-                                              onChange={(nextVal) =>
-                                                handleUpdateSubComponentRowOption(
-                                                  itemKey,
-                                                  item,
-                                                  subIdx,
-                                                  { row_note: nextVal }
-                                                )
-                                              }
-                                              tokenContext={studioTokenContext}
-                                              placeholder={`Custom note for ${subNumberLabel} (type @ for live tags)...`}
-                                              className="w-full bg-slate-50 border border-blue-200 focus:border-blue-500 rounded-md px-2 py-1 text-[10px] text-slate-700 focus:outline-none"
-                                            />
-                                          </div>
-                                        )}
-
-                                        {sub.page_break_after && (
-                                          <div className="px-2 py-0.5 rounded bg-amber-100/90 border border-amber-300 text-amber-900 text-[9.5px] font-mono font-semibold flex items-center justify-between">
-                                            <span>
-                                              {isLastSubOfLastItem
-                                                ? `📄 Splits Closing Blocks to Next Page After ${subNumberLabel}`
-                                                : `📄 Splits Set #${idx + 1} to Next Page After ${subNumberLabel}`}
-                                            </span>
-                                            <span className="text-[8.5px] text-amber-700">
-                                              Set Cont.
-                                            </span>
-                                          </div>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Technical Specifications & Attributes */}
-                    <div className="pt-2 border-t border-slate-100 space-y-3">
-                      <div>
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                            <Sliders className="w-3.5 h-3.5 text-blue-600" />
-                            Technical Specifications &amp; Attributes
-                          </span>
-                          {availableAttributeKeys.length > 0 && (
-                            <span className="text-[10px] font-mono text-slate-400">
-                              {availableAttributeKeys.length - (visibleColumns.hiddenAttributeKeys?.length || 0)} / {availableAttributeKeys.length} Visible
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[10.5px] text-slate-500 leading-normal mt-0.5">
-                          Inquiry-specific product parameters &amp; selective visibility
-                        </p>
-                      </div>
-
-                      {/* Master Toggle */}
-                      <div
-                        className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
-                          visibleColumns.showItemAttributes !== false
-                            ? 'bg-white border-slate-200 shadow-2xs'
-                            : 'bg-slate-50/70 border-slate-200/60 opacity-60'
-                        }`}
-                      >
-                        <div className="min-w-0 pr-1">
-                          <span className="font-semibold text-slate-800 text-xs block leading-tight">
-                            Display Technical Specs / Attributes
-                          </span>
-                          <span className="text-[10px] text-slate-400 block mt-0.5">
-                            Render equipment attributes inside item description
-                          </span>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                          <input
-                            type="checkbox"
-                            checked={visibleColumns.showItemAttributes !== false}
-                            onChange={(e) =>
-                              setVisibleColumns((prev) => ({
-                                ...prev,
-                                showItemAttributes: e.target.checked
-                              }))
-                            }
-                            className="sr-only peer"
-                          />
-                          <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
-                        </label>
-                      </div>
-
-                      {/* Presentation Format: Badges vs Inline Text */}
-                      {visibleColumns.showItemAttributes !== false && (
-                        <div className="space-y-1.5 pt-1">
-                          <label className="block text-[11px] font-semibold text-slate-700">
-                            Display Format
-                          </label>
-                          <div className="grid grid-cols-2 gap-2">
-                            {[
-                              { id: 'pills' as const, label: 'Badges / Pills', desc: 'Framed badge chips' },
-                              { id: 'inline_text' as const, label: 'Inline Subtitle', desc: 'Dot-separated text' }
-                            ].map((fmt) => {
-                              const isSelected = (visibleColumns.attributeDisplayFormat || 'pills') === fmt.id;
-                              return (
-                                <button
-                                  key={fmt.id}
-                                  type="button"
-                                  onClick={() =>
-                                    setVisibleColumns((prev) => ({
-                                      ...prev,
-                                      attributeDisplayFormat: fmt.id
-                                    }))
-                                  }
-                                  className={`p-2 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
-                                    isSelected
-                                      ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-600/20'
-                                      : 'border-slate-200 hover:border-slate-300 bg-white'
-                                  }`}
-                                >
-                                  <span className={`text-xs font-semibold ${isSelected ? 'text-blue-700' : 'text-slate-800'}`}>
-                                    {fmt.label}
-                                  </span>
-                                  <span className="text-[9.5px] text-slate-400 mt-0.5">{fmt.desc}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Show / Hide Specific Specs */}
-                      {visibleColumns.showItemAttributes !== false && availableAttributeKeys.length > 0 && (
-                        <div className="space-y-2 pt-1 border-t border-slate-100">
-                          <div className="flex items-center justify-between">
-                            <label className="text-[11px] font-semibold text-slate-700">
-                              Show / Hide Specific Specs
-                            </label>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={showAllAttributes}
-                                className="text-[10px] font-medium text-blue-600 hover:text-blue-800 transition cursor-pointer"
-                              >
-                                Show All
-                              </button>
-                              <span className="text-slate-300 text-[10px]">•</span>
-                              <button
-                                type="button"
-                                onClick={hideAllAttributes}
-                                className="text-[10px] font-medium text-slate-500 hover:text-slate-700 transition cursor-pointer"
-                              >
-                                Hide All
-                              </button>
-                            </div>
-                          </div>
-                          <p className="text-[10px] text-slate-400 leading-normal">
-                            Click to toggle visibility of individual attribute tags on the document:
-                          </p>
-                          <div className="flex flex-wrap gap-1.5 pt-1">
-                            {availableAttributeKeys.map((key) => {
-                              const isHidden = visibleColumns.hiddenAttributeKeys?.includes(key);
-                              const isVisible = !isHidden;
-                              return (
-                                <button
-                                  key={key}
-                                  type="button"
-                                  onClick={() => toggleAttributeKeyVisibility(key)}
-                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
-                                    isVisible
-                                      ? 'bg-blue-50 text-blue-800 border border-blue-200 shadow-2xs hover:bg-blue-100'
-                                      : 'bg-slate-100 text-slate-400 border border-dashed border-slate-300 line-through hover:bg-slate-200'
-                                  }`}
-                                  title={isVisible ? `Click to mute ${key}` : `Click to show ${key}`}
-                                >
-                                  <span className="text-[10px]">{isVisible ? '✓' : '✕'}</span>
-                                  <span>{key}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Per-Item Specification Attributes (Row-Level Control) */}
-                      {visibleColumns.showItemAttributes !== false && quotationLineItems.some((item) => getItemAttributeKeys(item).length > 0) && (
-                        <div className="space-y-2 pt-2 border-t border-slate-100">
-                          <div className="flex items-center justify-between">
-                            <label className="text-[11px] font-semibold text-slate-700 flex items-center gap-1.5">
-                              <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
-                              Item Attributes (Row-Level)
-                            </label>
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              Per-Row Filter
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-slate-400 leading-normal">
-                            Selectively show or hide technical parameters on individual line items:
-                          </p>
-
-                          <div className="space-y-2 pt-1 max-h-64 overflow-y-auto pr-1">
-                            {quotationLineItems.map((item, idx) => {
-                              const itemKey = item.id || `item_${idx}`;
-                              const itemAttrs = getItemAttributeKeys(item);
-                              if (itemAttrs.length === 0) return null;
-
-                              const currentVisible = itemVisibleAttributes[itemKey] ?? item.visible_attributes ?? itemAttrs;
-                              const visibleCount = itemAttrs.filter((k) => currentVisible.includes(k)).length;
-
-                              return (
-                                <div
-                                  key={itemKey}
-                                  className="p-2.5 rounded-xl border border-slate-200/90 bg-slate-50/70 space-y-2"
-                                >
-                                  <div className="flex items-center justify-between gap-1.5">
-                                    <div className="min-w-0 flex items-center gap-1.5">
-                                      <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-700 text-[9px] font-mono font-bold flex items-center justify-center shrink-0">
-                                        {idx + 1}
+                                {/* Nested BOM Set Sub-Components (1.1, 1.2, ..., 1.N) Row Options */}
+                                {hasSubComponents && (
+                                  <div className="mt-1.5 pt-2 border-t border-slate-200/80 pl-2.5 border-l-2 border-l-indigo-300 space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[9.5px] font-mono font-bold uppercase tracking-wider text-indigo-700">
+                                        Set Sub-Components ({item.sub_components!.length} Rows)
                                       </span>
-                                      <span className="font-semibold text-slate-800 text-[11px] truncate" title={item.item_name}>
-                                        {item.item_name}
+                                      <span className="text-[9px] text-slate-400 font-mono">
+                                        {idx + 1}.1 – {idx + 1}.{item.sub_components!.length}
                                       </span>
                                     </div>
-                                    <div className="flex items-center gap-1.5 shrink-0">
-                                      <span className="text-[9.5px] font-mono text-slate-400">
-                                        {visibleCount}/{itemAttrs.length}
-                                      </span>
-                                      {itemAttrs.length >= 3 && (
-                                        <div className="flex items-center gap-1 ml-1 pl-1.5 border-l border-slate-200">
-                                          <button
-                                            type="button"
-                                            onClick={() => showAllItemAttributes(itemKey, itemAttrs)}
-                                            className="text-[9.5px] font-semibold text-blue-600 hover:text-blue-800 transition cursor-pointer"
-                                            title="Show all attributes on this item"
-                                          >
-                                            Show All
-                                          </button>
-                                          <span className="text-slate-300 text-[9px]">•</span>
-                                          <button
-                                            type="button"
-                                            onClick={() => hideAllItemAttributes(itemKey)}
-                                            className="text-[9.5px] font-semibold text-slate-400 hover:text-slate-600 transition cursor-pointer"
-                                            title="Hide all attributes on this item"
-                                          >
-                                            Hide All
-                                          </button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
 
-                                  {/* Attribute Toggle Chips */}
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {itemAttrs.map((attrKey) => {
-                                      const isVisible = currentVisible.includes(attrKey);
+                                    {item.sub_components!.map((sub, subIdx) => {
+                                      const subNumberLabel = `${idx + 1}.${subIdx + 1}`;
+                                      const subNoteKey = `${itemKey}_sub_note_${subIdx}`;
+                                      const isSubNoteOpen =
+                                        Boolean(expandedInspectorRowNotes[subNoteKey]) ||
+                                        Boolean(sub.row_note);
+                                      const isLastSubOfLastItem =
+                                        isLastItem && subIdx === item.sub_components!.length - 1;
+
                                       return (
-                                        <button
-                                          key={attrKey}
-                                          type="button"
-                                          onClick={() => toggleItemAttribute(itemKey, itemAttrs, attrKey)}
-                                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-medium transition cursor-pointer ${
-                                            isVisible
-                                              ? 'bg-white text-blue-700 border border-blue-300 shadow-2xs hover:bg-blue-50/50'
-                                              : 'bg-slate-100 text-slate-400 border border-dashed border-slate-300 line-through hover:bg-slate-200/60'
+                                        <div
+                                          key={sub.id || `${itemKey}_sub_${subIdx}`}
+                                          className={`p-2 rounded-lg border transition space-y-1.5 ${
+                                            sub.page_break_after
+                                              ? 'bg-amber-50/90 border-amber-300'
+                                              : 'bg-white border-slate-200/90'
                                           }`}
-                                          title={isVisible ? `Hide ${attrKey} for item ${idx + 1}` : `Show ${attrKey} for item ${idx + 1}`}
                                         >
-                                          <span className="text-[9px]">{isVisible ? '✓' : '✕'}</span>
-                                          <span>{attrKey}</span>
-                                        </button>
+                                          <div className="flex items-center justify-between gap-1.5">
+                                            <div className="min-w-0 flex items-center gap-1.5 flex-1">
+                                              <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 text-[9px] font-mono font-bold shrink-0">
+                                                {subNumberLabel}
+                                              </span>
+                                              <span
+                                                className="font-medium text-slate-700 text-[10.5px] truncate"
+                                                title={sub.name}
+                                              >
+                                                {sub.name || `Sub-Component ${subNumberLabel}`}
+                                              </span>
+                                            </div>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                handleUpdateSubComponentRowOption(
+                                                  itemKey,
+                                                  item,
+                                                  subIdx,
+                                                  { page_break_after: !sub.page_break_after }
+                                                )
+                                              }
+                                              className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold flex items-center gap-1 shrink-0 transition cursor-pointer ${
+                                                sub.page_break_after
+                                                  ? 'bg-amber-600 text-white shadow-2xs'
+                                                  : 'bg-slate-50 hover:bg-amber-50 text-slate-700 hover:text-amber-800 border border-slate-200'
+                                              }`}
+                                            >
+                                              <Scissors className="w-2.5 h-2.5" />
+                                              <span>
+                                                {isLastSubOfLastItem
+                                                  ? `✂ Break After Table`
+                                                  : `✂ Break After ${subNumberLabel}`}
+                                              </span>
+                                            </button>
+                                          </div>
+
+                                          <div className="flex flex-wrap items-center gap-1">
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                handleUpdateSubComponentRowOption(
+                                                  itemKey,
+                                                  item,
+                                                  subIdx,
+                                                  { row_highlight: !sub.row_highlight }
+                                                )
+                                              }
+                                              className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border transition cursor-pointer ${
+                                                sub.row_highlight
+                                                  ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-amber-300'
+                                              }`}
+                                            >
+                                              🎨 Highlight
+                                            </button>
+
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                handleUpdateSubComponentRowOption(
+                                                  itemKey,
+                                                  item,
+                                                  subIdx,
+                                                  { row_bold: !sub.row_bold }
+                                                )
+                                              }
+                                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold border transition cursor-pointer ${
+                                                sub.row_bold
+                                                  ? 'bg-slate-800 text-white border-slate-800'
+                                                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-slate-300'
+                                              }`}
+                                            >
+                                              B Bold
+                                            </button>
+
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                handleUpdateSubComponentRowOption(
+                                                  itemKey,
+                                                  item,
+                                                  subIdx,
+                                                  { hide_row_price: !sub.hide_row_price }
+                                                )
+                                              }
+                                              className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border transition cursor-pointer ${
+                                                sub.hide_row_price
+                                                  ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                                                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-indigo-300'
+                                              }`}
+                                            >
+                                              {sub.hide_row_price ? 'Price: Included' : 'Hide Price'}
+                                            </button>
+
+                                            <div className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-slate-50 border border-slate-200 text-[9px] text-slate-600">
+                                              <span>Spacer:</span>
+                                              <select
+                                                value={Number(sub.row_spacer_after_mm) || 0}
+                                                onChange={(e) =>
+                                                  handleUpdateSubComponentRowOption(
+                                                    itemKey,
+                                                    item,
+                                                    subIdx,
+                                                    {
+                                                      row_spacer_after_mm:
+                                                        Number(e.target.value) || undefined
+                                                    }
+                                                  )
+                                                }
+                                                className="bg-transparent font-mono font-semibold text-slate-800 focus:outline-none cursor-pointer"
+                                              >
+                                                <option value={0}>0mm</option>
+                                                <option value={4}>4mm</option>
+                                                <option value={8}>8mm</option>
+                                                <option value={12}>12mm</option>
+                                                <option value={16}>16mm</option>
+                                              </select>
+                                            </div>
+
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setExpandedInspectorRowNotes((prev) => ({
+                                                  ...prev,
+                                                  [subNoteKey]: !isSubNoteOpen
+                                                }))
+                                              }
+                                              className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border transition cursor-pointer ${
+                                                isSubNoteOpen || sub.row_note
+                                                  ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-blue-300'
+                                              }`}
+                                            >
+                                              {sub.row_note ? '✎ Note' : '+ Note'}
+                                            </button>
+                                          </div>
+
+                                          {isSubNoteOpen && (
+                                            <div className="pt-0.5">
+                                              <AtMentionInput
+                                                value={sub.row_note || ''}
+                                                onChange={(nextVal) =>
+                                                  handleUpdateSubComponentRowOption(
+                                                    itemKey,
+                                                    item,
+                                                    subIdx,
+                                                    { row_note: nextVal }
+                                                  )
+                                                }
+                                                tokenContext={studioTokenContext}
+                                                placeholder={`Custom note for ${subNumberLabel} (type @ for live tags)...`}
+                                                className="w-full bg-slate-50 border border-blue-200 focus:border-blue-500 rounded-md px-2 py-1 text-[10px] text-slate-700 focus:outline-none"
+                                              />
+                                            </div>
+                                          )}
+
+                                          {sub.page_break_after && (
+                                            <div className="px-2 py-0.5 rounded bg-amber-100/90 border border-amber-300 text-amber-900 text-[9.5px] font-mono font-semibold flex items-center justify-between">
+                                              <span>
+                                                {isLastSubOfLastItem
+                                                  ? `📄 Splits Closing Blocks to Next Page After ${subNumberLabel}`
+                                                  : `📄 Splits Set #${idx + 1} to Next Page After ${subNumberLabel}`}
+                                              </span>
+                                              <span className="text-[8.5px] text-amber-700">
+                                                Set Cont.
+                                              </span>
+                                            </div>
+                                          )}
+                                        </div>
                                       );
                                     })}
                                   </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 2. Table Row Spacing */}
-                    <div className="pt-2 border-t border-slate-100 space-y-2">
-                      <label className="block text-slate-800 font-bold text-xs">
-                        Table Row Spacing
-                      </label>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Control table row height to fit more lines or maximize readability.
-                      </p>
-                      <div className="grid grid-cols-2 gap-2 pt-1">
-                        {[
-                          {
-                            id: 'comfortable',
-                            label: 'Comfortable',
-                            sub: '2.5 padding',
-                            desc: 'Standard executive layout'
-                          },
-                          {
-                            id: 'compact',
-                            label: 'Compact',
-                            sub: '1.5 padding',
-                            desc: 'Higher density per page'
-                          }
-                        ].map((d) => {
-                          const isSelected = tableDensity === d.id;
-                          return (
-                            <button
-                              key={d.id}
-                              type="button"
-                              onClick={() => setTableDensity(d.id as QuotationTableDensity)}
-                              className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
-                                isSelected
-                                  ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-600/20'
-                                  : 'border-slate-200 hover:border-slate-300 bg-white'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between">
-                                <span className={`font-semibold text-xs ${isSelected ? 'text-blue-700' : 'text-slate-800'}`}>
-                                  {d.label}
-                                </span>
-                                <span className="text-[9px] font-mono text-slate-400">{d.sub}</span>
+                                )}
                               </div>
-                              <span className="text-[10px] text-slate-500 mt-1 leading-snug">
-                                {d.desc}
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* TAB: TECHNICAL SPECIFICATIONS & ATTRIBUTES (5-MODE LAYOUT ENGINE) */}
+                    {tableInspectorTab === 'specs' && (
+                      <div className="space-y-3">
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                              <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                              Technical Specifications &amp; Attributes
+                            </span>
+                            {availableAttributeKeys.length > 0 && (
+                              <span className="text-[10px] font-mono text-slate-400">
+                                {availableAttributeKeys.length - (visibleColumns.hiddenAttributeKeys?.length || 0)} / {availableAttributeKeys.length} Visible
                               </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                            )}
+                          </div>
+                          <p className="text-[10.5px] text-slate-500 leading-normal mt-0.5">
+                            Configure 50/50 balanced technical grids, line breaks (↵), full-width spans (100%), and attribute order.
+                          </p>
+                        </div>
 
-                    {/* 3. Table Text Size */}
-                    <div className="pt-2 border-t border-slate-100 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
-                          <Type className="w-3.5 h-3.5 text-blue-600" />
-                          Table Text Size
-                        </label>
-                        <span className="text-[10px] font-mono text-slate-400 capitalize">
-                          {tableFontScale}
-                        </span>
-                      </div>
-                      <p className="text-[10.5px] text-slate-500 leading-normal">
-                        Scale font sizes specifically for descriptions, item titles, and numbers across table cells.
-                      </p>
-                      <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
-                        {[
-                          { id: 'compact' as const, label: 'Compact', pt: '9pt' },
-                          { id: 'standard' as const, label: 'Standard', pt: '10pt' },
-                          { id: 'prominent' as const, label: 'Prominent', pt: '11pt' }
-                        ].map((s) => {
-                          const isSelected = tableFontScale === s.id;
+                        {/* Master Toggle */}
+                        <div
+                          className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${
+                            visibleColumns.showItemAttributes !== false
+                              ? 'bg-white border-slate-200 shadow-2xs'
+                              : 'bg-slate-50/70 border-slate-200/60 opacity-60'
+                          }`}
+                        >
+                          <div className="min-w-0 pr-1">
+                            <span className="font-semibold text-slate-800 text-xs block leading-tight">
+                              Display Technical Specs / Attributes
+                            </span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5">
+                              Render equipment attributes inside item description
+                            </span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={visibleColumns.showItemAttributes !== false}
+                              onChange={(e) =>
+                                setVisibleColumns((prev) => ({
+                                  ...prev,
+                                  showItemAttributes: e.target.checked
+                                }))
+                              }
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
+                          </label>
+                        </div>
+
+                        {/* 5-Option Layout Picker + Orphan Row Balancing */}
+                        {visibleColumns.showItemAttributes !== false && (
+                          <div className="space-y-2 pt-1">
+                            <label className="block text-[11px] font-semibold text-slate-700">
+                              Attribute Display Layout (5 Modes)
+                            </label>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {[
+                                {
+                                  id: 'grid_2col_balanced' as const,
+                                  label: '2-Col Balanced (50/50)',
+                                  desc: 'Recommended • Equal width pairs',
+                                  span2: true
+                                },
+                                {
+                                  id: 'table_2col' as const,
+                                  label: '2-Col Spec Table',
+                                  desc: 'Bordered datasheet cells',
+                                  span2: false
+                                },
+                                {
+                                  id: 'grid_3col' as const,
+                                  label: '3-Col Compact',
+                                  desc: 'Dense 33% 3-up cards',
+                                  span2: false
+                                },
+                                {
+                                  id: 'pills' as const,
+                                  label: 'Flowing Pills',
+                                  desc: 'Auto-width badge chips',
+                                  span2: false
+                                },
+                                {
+                                  id: 'inline_text' as const,
+                                  label: 'Inline Subtitle',
+                                  desc: 'Dot-separated text line',
+                                  span2: false
+                                }
+                              ].map((fmt) => {
+                                const curFmt = visibleColumns.attributeDisplayFormat || 'grid_2col_balanced';
+                                const isSelected = curFmt === fmt.id;
+                                return (
+                                  <button
+                                    key={fmt.id}
+                                    type="button"
+                                    onClick={() =>
+                                      setVisibleColumns((prev) => ({
+                                        ...prev,
+                                        attributeDisplayFormat: fmt.id
+                                      }))
+                                    }
+                                    className={`p-2 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                                      fmt.span2 ? 'col-span-2' : ''
+                                    } ${
+                                      isSelected
+                                        ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-600/20'
+                                        : 'border-slate-200 hover:border-slate-300 bg-white'
+                                    }`}
+                                  >
+                                    <span className={`text-[11px] font-semibold ${isSelected ? 'text-blue-700' : 'text-slate-800'}`}>
+                                      {fmt.label}
+                                    </span>
+                                    <span className="text-[9.5px] text-slate-400 mt-0.5">{fmt.desc}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {/* Orphan Row Balancing Toggle */}
+                            <label className="flex items-center justify-between gap-2 p-2 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer">
+                              <span className="text-[10.5px] font-medium text-slate-700 leading-snug">
+                                Stretch single/odd attribute on a row to 100% width
+                              </span>
+                              <input
+                                type="checkbox"
+                                checked={visibleColumns.balanceOrphanAttributeRow ?? true}
+                                onChange={(e) =>
+                                  setVisibleColumns((prev) => ({
+                                    ...prev,
+                                    balanceOrphanAttributeRow: e.target.checked
+                                  }))
+                                }
+                                className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
+                              />
+                            </label>
+                          </div>
+                        )}
+
+                        {/* Global Show / Hide & Arrange Specific Specs (Compound Pills) */}
+                        {visibleColumns.showItemAttributes !== false && availableAttributeKeys.length > 0 && (() => {
+                          const globalOrder = visibleColumns.attributeLayoutOrder || [];
+                          const orderedGlobalKeys = [
+                            ...globalOrder.filter((k) => availableAttributeKeys.includes(k)),
+                            ...availableAttributeKeys.filter((k) => !globalOrder.includes(k))
+                          ];
+                          const globalBreaks = visibleColumns.attributeLineBreaksAfter || [];
+                          const globalFullWidth = visibleColumns.attributeFullWidthKeys || [];
+
+                          const moveGlobalKey = (key: string, dir: -1 | 1) => {
+                            const idx = orderedGlobalKeys.indexOf(key);
+                            const nextIdx = idx + dir;
+                            if (idx < 0 || nextIdx < 0 || nextIdx >= orderedGlobalKeys.length) return;
+                            const next = [...orderedGlobalKeys];
+                            const [removed] = next.splice(idx, 1);
+                            next.splice(nextIdx, 0, removed);
+                            setVisibleColumns((prev) => ({
+                              ...prev,
+                              attributeLayoutOrder: next
+                            }));
+                          };
+
+                          const toggleGlobalBreak = (key: string) => {
+                            setVisibleColumns((prev) => {
+                              const cur = prev.attributeLineBreaksAfter || [];
+                              return {
+                                ...prev,
+                                attributeLineBreaksAfter: cur.includes(key)
+                                  ? cur.filter((k) => k !== key)
+                                  : [...cur, key]
+                              };
+                            });
+                          };
+
+                          const toggleGlobalFullWidth = (key: string) => {
+                            setVisibleColumns((prev) => {
+                              const cur = prev.attributeFullWidthKeys || [];
+                              return {
+                                ...prev,
+                                attributeFullWidthKeys: cur.includes(key)
+                                  ? cur.filter((k) => k !== key)
+                                  : [...cur, key]
+                              };
+                            });
+                          };
+
                           return (
-                            <button
-                              key={s.id}
-                              type="button"
-                              onClick={() => setTableFontScale(s.id)}
-                              className={`py-2 px-1 rounded-lg text-center transition cursor-pointer flex flex-col items-center justify-center ${
-                                isSelected
-                                  ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                                  : 'hover:bg-white text-slate-600'
-                              }`}
-                            >
-                              <span className="text-[10px] font-semibold leading-tight">{s.label}</span>
-                              <span className={`text-[8.5px] font-mono mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>({s.pt})</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                            <div className="space-y-2 pt-2 border-t border-slate-100">
+                              <div className="flex items-center justify-between">
+                                <label className="text-[11px] font-semibold text-slate-700">
+                                  Show / Hide &amp; Arrange Specific Specs
+                                </label>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={showAllAttributes}
+                                    className="text-[10px] font-medium text-blue-600 hover:text-blue-800 transition cursor-pointer"
+                                  >
+                                    Show All
+                                  </button>
+                                  <span className="text-slate-300 text-[10px]">•</span>
+                                  <button
+                                    type="button"
+                                    onClick={hideAllAttributes}
+                                    className="text-[10px] font-medium text-slate-500 hover:text-slate-700 transition cursor-pointer"
+                                  >
+                                    Hide All
+                                  </button>
+                                </div>
+                              </div>
+                              <p className="text-[10px] text-slate-400 leading-normal">
+                                Toggle visibility, insert a line break after (<span className="font-mono font-bold text-amber-700">↵</span>), force full-row width (<span className="font-mono font-bold text-indigo-700">100%</span>), or reorder (<span className="font-mono font-bold">←/→</span>):
+                              </p>
+                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                {orderedGlobalKeys.map((key, kIdx) => {
+                                  const isHidden = visibleColumns.hiddenAttributeKeys?.includes(key);
+                                  const isVisible = !isHidden;
+                                  const hasBreak = globalBreaks.includes(key);
+                                  const isFull = globalFullWidth.includes(key);
 
-                    {/* Informational Guardrail Card */}
-                    <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 text-slate-600 space-y-1">
-                      <div className="font-semibold text-blue-900 text-[11px] flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
-                        Fixed Structural Section
+                                  return (
+                                    <React.Fragment key={key}>
+                                      <div
+                                        className={`inline-flex items-center rounded-lg border text-[10.5px] font-medium overflow-hidden transition ${
+                                          isVisible
+                                            ? 'bg-white border-blue-200 shadow-2xs'
+                                            : 'bg-slate-100 border-dashed border-slate-300 opacity-65'
+                                        }`}
+                                      >
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleAttributeKeyVisibility(key)}
+                                          className={`px-2 py-1 flex items-center gap-1 cursor-pointer transition ${
+                                            isVisible
+                                              ? 'text-blue-900 hover:bg-blue-50'
+                                              : 'text-slate-400 line-through hover:bg-slate-200/60'
+                                          }`}
+                                          title={isVisible ? `Click to hide ${key}` : `Click to show ${key}`}
+                                        >
+                                          <span className="text-[9.5px] font-bold">{isVisible ? '✓' : '✕'}</span>
+                                          <span>{key}</span>
+                                        </button>
+
+                                        {isVisible && (
+                                          <div className="flex items-center border-l border-slate-200 bg-slate-50/80 divide-x divide-slate-200/80">
+                                            <button
+                                              type="button"
+                                              onClick={() => toggleGlobalBreak(key)}
+                                              className={`px-1.5 py-1 text-[9.5px] font-mono font-bold cursor-pointer transition ${
+                                                hasBreak
+                                                  ? 'bg-amber-500 text-white'
+                                                  : 'text-slate-500 hover:bg-amber-50 hover:text-amber-700'
+                                              }`}
+                                              title="Insert line break after this attribute (↵)"
+                                            >
+                                              ↵
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => toggleGlobalFullWidth(key)}
+                                              className={`px-1.5 py-1 text-[9px] font-mono font-bold cursor-pointer transition ${
+                                                isFull
+                                                  ? 'bg-indigo-600 text-white'
+                                                  : 'text-slate-500 hover:bg-indigo-50 hover:text-indigo-700'
+                                              }`}
+                                              title="Force 100% full-row width on this attribute"
+                                            >
+                                              100%
+                                            </button>
+                                            <button
+                                              type="button"
+                                              disabled={kIdx === 0}
+                                              onClick={() => moveGlobalKey(key, -1)}
+                                              className="px-1 py-1 text-[9.5px] font-mono text-slate-500 hover:bg-slate-200/70 disabled:opacity-30 cursor-pointer"
+                                              title="Move attribute left"
+                                            >
+                                              ←
+                                            </button>
+                                            <button
+                                              type="button"
+                                              disabled={kIdx === orderedGlobalKeys.length - 1}
+                                              onClick={() => moveGlobalKey(key, 1)}
+                                              className="px-1 py-1 text-[9.5px] font-mono text-slate-500 hover:bg-slate-200/70 disabled:opacity-30 cursor-pointer"
+                                              title="Move attribute right"
+                                            >
+                                              →
+                                            </button>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {isVisible && hasBreak && (
+                                        <span className="px-1.5 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-800 text-[9px] font-mono font-bold">
+                                          ↵ Break
+                                        </span>
+                                      )}
+                                    </React.Fragment>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Per-Item Specification Attributes (Row-Level Control — No Nested Scrollbar) */}
+                        {visibleColumns.showItemAttributes !== false && quotationLineItems.some((item) => getItemAttributeKeys(item).length > 0) && (
+                          <div className="space-y-2 pt-2 border-t border-slate-100">
+                            <div className="flex items-center justify-between">
+                              <label className="text-[11px] font-semibold text-slate-700 flex items-center gap-1.5">
+                                <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
+                                Item Attributes (Row-Level)
+                              </label>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                Per-Row Order &amp; Breaks
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-400 leading-normal">
+                              Customize visibility, line breaks (↵), 100% span, and order for individual line items:
+                            </p>
+
+                            <div className="space-y-2 pt-1">
+                              {quotationLineItems.map((item, idx) => {
+                                const itemKey = item.id || `item_${idx}`;
+                                const rawItemAttrs = getItemAttributeKeys(item);
+                                if (rawItemAttrs.length === 0) return null;
+
+                                const rowOrder = item.attribute_order || visibleColumns.attributeLayoutOrder || [];
+                                const itemAttrs = [
+                                  ...rowOrder.filter((k) => rawItemAttrs.includes(k)),
+                                  ...rawItemAttrs.filter((k) => !rowOrder.includes(k))
+                                ];
+
+                                const currentVisible = itemVisibleAttributes[itemKey] ?? item.visible_attributes ?? itemAttrs;
+                                const visibleCount = itemAttrs.filter((k) => currentVisible.includes(k)).length;
+                                const rowBreaks = item.attribute_line_breaks_after ?? visibleColumns.attributeLineBreaksAfter ?? [];
+                                const rowFullWidth = item.attribute_full_width_keys ?? visibleColumns.attributeFullWidthKeys ?? [];
+
+                                const moveRowAttr = (attrKey: string, dir: -1 | 1) => {
+                                  const aIdx = itemAttrs.indexOf(attrKey);
+                                  const nextIdx = aIdx + dir;
+                                  if (aIdx < 0 || nextIdx < 0 || nextIdx >= itemAttrs.length) return;
+                                  const next = [...itemAttrs];
+                                  const [removed] = next.splice(aIdx, 1);
+                                  next.splice(nextIdx, 0, removed);
+                                  handleUpdateTopItemRowOption(itemKey, { attribute_order: next });
+                                };
+
+                                const toggleRowBreak = (attrKey: string) => {
+                                  const next = rowBreaks.includes(attrKey)
+                                    ? rowBreaks.filter((k) => k !== attrKey)
+                                    : [...rowBreaks, attrKey];
+                                  handleUpdateTopItemRowOption(itemKey, { attribute_line_breaks_after: next });
+                                };
+
+                                const toggleRowFullWidth = (attrKey: string) => {
+                                  const next = rowFullWidth.includes(attrKey)
+                                    ? rowFullWidth.filter((k) => k !== attrKey)
+                                    : [...rowFullWidth, attrKey];
+                                  handleUpdateTopItemRowOption(itemKey, { attribute_full_width_keys: next });
+                                };
+
+                                return (
+                                  <div
+                                    key={itemKey}
+                                    className="p-2.5 rounded-xl border border-slate-200/90 bg-slate-50/70 space-y-2"
+                                  >
+                                    <div className="flex items-center justify-between gap-1.5">
+                                      <div className="min-w-0 flex items-center gap-1.5">
+                                        <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-700 text-[9px] font-mono font-bold flex items-center justify-center shrink-0">
+                                          {idx + 1}
+                                        </span>
+                                        <span className="font-semibold text-slate-800 text-[11px] truncate" title={item.item_name}>
+                                          {item.item_name}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1.5 shrink-0">
+                                        <span className="text-[9.5px] font-mono text-slate-400">
+                                          {visibleCount}/{itemAttrs.length}
+                                        </span>
+                                        {itemAttrs.length >= 2 && (
+                                          <div className="flex items-center gap-1 ml-1 pl-1.5 border-l border-slate-200">
+                                            <button
+                                              type="button"
+                                              onClick={() => showAllItemAttributes(itemKey, itemAttrs)}
+                                              className="text-[9.5px] font-semibold text-blue-600 hover:text-blue-800 transition cursor-pointer"
+                                              title="Show all attributes on this item"
+                                            >
+                                              Show All
+                                            </button>
+                                            <span className="text-slate-300 text-[9px]">•</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => hideAllItemAttributes(itemKey)}
+                                              className="text-[9.5px] font-semibold text-slate-400 hover:text-slate-600 transition cursor-pointer"
+                                              title="Hide all attributes on this item"
+                                            >
+                                              Hide All
+                                            </button>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Interactive Row-Level Compound Attribute Pills */}
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      {itemAttrs.map((attrKey, aIdx) => {
+                                        const isVisible = currentVisible.includes(attrKey);
+                                        const hasBreak = rowBreaks.includes(attrKey);
+                                        const isFull = rowFullWidth.includes(attrKey);
+
+                                        return (
+                                          <React.Fragment key={attrKey}>
+                                            <div
+                                              className={`inline-flex items-center rounded-md border text-[10px] font-medium overflow-hidden transition ${
+                                                isVisible
+                                                  ? 'bg-white border-blue-300 shadow-2xs'
+                                                  : 'bg-slate-100 border-dashed border-slate-300 opacity-60'
+                                              }`}
+                                            >
+                                              <button
+                                                type="button"
+                                                onClick={() => toggleItemAttribute(itemKey, itemAttrs, attrKey)}
+                                                className={`px-1.5 py-0.5 flex items-center gap-1 cursor-pointer transition ${
+                                                  isVisible
+                                                    ? 'text-blue-800 hover:bg-blue-50'
+                                                    : 'text-slate-400 line-through hover:bg-slate-200/60'
+                                                }`}
+                                                title={isVisible ? `Hide ${attrKey} for item #${idx + 1}` : `Show ${attrKey} for item #${idx + 1}`}
+                                              >
+                                                <span className="text-[9px] font-bold">{isVisible ? '✓' : '✕'}</span>
+                                                <span>{attrKey}</span>
+                                              </button>
+
+                                              {isVisible && (
+                                                <div className="flex items-center border-l border-slate-200 bg-slate-50 divide-x divide-slate-200/80">
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => toggleRowBreak(attrKey)}
+                                                    className={`px-1 py-0.5 text-[9px] font-mono font-bold cursor-pointer transition ${
+                                                      hasBreak
+                                                        ? 'bg-amber-500 text-white'
+                                                        : 'text-slate-500 hover:bg-amber-50 hover:text-amber-700'
+                                                    }`}
+                                                    title="Force line break after this attribute on this row"
+                                                  >
+                                                    ↵
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => toggleRowFullWidth(attrKey)}
+                                                    className={`px-1 py-0.5 text-[8.5px] font-mono font-bold cursor-pointer transition ${
+                                                      isFull
+                                                        ? 'bg-indigo-600 text-white'
+                                                        : 'text-slate-500 hover:bg-indigo-50 hover:text-indigo-700'
+                                                    }`}
+                                                    title="Force 100% full width for this attribute on this row"
+                                                  >
+                                                    100%
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    disabled={aIdx === 0}
+                                                    onClick={() => moveRowAttr(attrKey, -1)}
+                                                    className="px-1 py-0.5 text-[9px] font-mono text-slate-500 hover:bg-slate-200/70 disabled:opacity-30 cursor-pointer"
+                                                    title="Move attribute left on this row"
+                                                  >
+                                                    ←
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    disabled={aIdx === itemAttrs.length - 1}
+                                                    onClick={() => moveRowAttr(attrKey, 1)}
+                                                    className="px-1 py-0.5 text-[9px] font-mono text-slate-500 hover:bg-slate-200/70 disabled:opacity-30 cursor-pointer"
+                                                    title="Move attribute right on this row"
+                                                  >
+                                                    →
+                                                  </button>
+                                                </div>
+                                              )}
+                                            </div>
+
+                                            {isVisible && hasBreak && (
+                                              <span className="px-1 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-800 text-[8.5px] font-mono font-bold">
+                                                ↵ Break
+                                              </span>
+                                            )}
+                                          </React.Fragment>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <p className="text-[10px] text-slate-500 leading-relaxed">
-                        The Line Items Table is anchored above commercial terms and totals. Density and column choices are saved with this quote snapshot.
-                      </p>
-                    </div>
+                    )}
                   </div>
                 </aside>
               )}
@@ -16406,6 +17205,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           setFocusedBlockStyleTarget,
                           `block:${selectedBlock.id}`
                         )}
+
+                      {/* Dedicated Signatory Preset Switcher in Right Inspector for Signatory / Acceptance Blocks */}
+                      {(selectedBlock.id === 'signatory' ||
+                        selectedBlock.id === 'signatories' ||
+                        selectedBlock.id === 'acceptance') &&
+                        renderSignatoryPresetSwitcherBar()}
 
                       {/* Unified Commercial Summary & Totals Hub (Top of Totals Inspector) */}
                       {selectedBlock.id === 'totals' && (

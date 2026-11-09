@@ -52,6 +52,7 @@ import {
   isSyntheticInternalId
 } from '../../utils/quotationTokenResolver';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
+import { rasterizePdfToPageImages } from '../../services/attachmentStorage';
 export { amountToWords, amountToWordsAED, amountInWordsAED, formatAmountInWords };
 import {
   FileText,
@@ -72,6 +73,134 @@ import {
   FileCheck,
   DollarSign
 } from 'lucide-react';
+
+const runtimePdfPageDataUrlCache = new Map<string, string>();
+
+export interface PdfOrImageSheetRendererProps {
+  url: string;
+  name?: string;
+  type?: string;
+  pageNumber?: number;
+  className?: string;
+  style?: React.CSSProperties;
+}
+
+export const PdfOrImageSheetRenderer: React.FC<PdfOrImageSheetRendererProps> = ({
+  url,
+  name,
+  type,
+  pageNumber = 1,
+  className,
+  style
+}) => {
+  const isPdf = Boolean(
+    type?.toLowerCase().includes('pdf') ||
+      /^data:application\/pdf/i.test(url || '') ||
+      /\.pdf(\?|#|$)/i.test(url || '')
+  );
+
+  const cacheKey = `${url || ''}::p${pageNumber || 1}`;
+  const [renderedDataUrl, setRenderedDataUrl] = React.useState<string | null>(() =>
+    isPdf ? runtimePdfPageDataUrlCache.get(cacheKey) || null : null
+  );
+  const [renderFailed, setRenderFailed] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!isPdf || !url) {
+      setRenderedDataUrl(null);
+      setRenderFailed(false);
+      return;
+    }
+    const cached = runtimePdfPageDataUrlCache.get(cacheKey);
+    if (cached) {
+      setRenderedDataUrl(cached);
+      setRenderFailed(false);
+      return;
+    }
+
+    let cancelled = false;
+    setRenderFailed(false);
+
+    rasterizePdfToPageImages(url, {
+      maxPages: Math.max(1, pageNumber || 1),
+      scale: 1.75,
+      quality: 0.86
+    })
+      .then((pages) => {
+        if (cancelled) return;
+        const target =
+          pages.find((p) => p.pageNumber === (pageNumber || 1)) || pages[0];
+        if (target?.dataUrl) {
+          runtimePdfPageDataUrlCache.set(cacheKey, target.dataUrl);
+          setRenderedDataUrl(target.dataUrl);
+        } else {
+          setRenderFailed(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRenderFailed(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isPdf, url, pageNumber, cacheKey]);
+
+  if (!isPdf) {
+    return (
+      <img
+        src={url}
+        alt={name || 'Document'}
+        className={className}
+        style={style}
+      />
+    );
+  }
+
+  if (renderedDataUrl) {
+    return (
+      <img
+        src={renderedDataUrl}
+        alt={name || 'PDF Page'}
+        className={className}
+        style={style}
+      />
+    );
+  }
+
+  if (renderFailed) {
+    return (
+      <div className="w-full h-full min-h-[240mm] flex flex-col items-center justify-center bg-white border border-slate-200 rounded p-4 text-slate-700">
+        <object
+          data={url}
+          type="application/pdf"
+          className="w-full h-full min-h-[240mm]"
+        >
+          <div className="flex flex-col items-center justify-center p-8 text-center">
+            <FileText className="w-8 h-8 text-slate-400 mb-2" />
+            <p className="text-xs font-semibold text-slate-800">
+              {name || 'Attached PDF Document'}
+            </p>
+            <p className="text-[10px] text-slate-500 mt-1">
+              PDF Annex Sheet
+            </p>
+          </div>
+        </object>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full min-h-[180px] flex flex-col items-center justify-center bg-slate-50 border border-slate-200 rounded p-6 text-slate-600">
+      <FileText className="w-6 h-6 text-slate-400 animate-pulse mb-2" />
+      <span className="text-[11px] font-medium text-slate-600">
+        Rendering PDF page...
+      </span>
+    </div>
+  );
+};
 
 export const QUOTATION_THEMES: Record<
   QuotationThemeAccent,
@@ -8271,7 +8400,17 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       ? resolvedRecipientConfig.offerFieldRows.filter((r) => r.enabled !== false)
       : [];
 
-    const renderOfferCard = () => (
+    const getOfferCardRefFontClass = (refStr?: string) => {
+      const refLen = String(refStr || '').trim().length;
+      if (resolvedRecipientConfig.offerCardWidth !== '100' && refLen > 24) {
+        return 'text-xs sm:text-sm tracking-tight break-all';
+      }
+      return typoScale.quoteRef;
+    };
+
+    const renderOfferCard = () => {
+      const activeOfferRefStr = quotation.formatted_quote_ref || quotation.quote_number || '';
+      return (
       <div
         key="offer_card"
         className={`quotation-quote-meta relative group transition-all duration-150 quotation-structural-section ${
@@ -8315,7 +8454,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   style={offerRefFmt.style}
                 >
                   <EditableCanvasText
-                    value={quotation.formatted_quote_ref || quotation.quote_number || ''}
+                    value={activeOfferRefStr}
                     fieldKey="quote_ref"
                     canEdit={canEditCanvasInline && isQuoteMetaSelected}
                     onCommit={onInlineFieldEdit}
@@ -8403,9 +8542,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   className={`py-1.5 text-center ${offerRefFmt.className}`}
                   style={offerRefFmt.style}
                 >
-                  <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900`}>
+                  <div className={`${getOfferCardRefFontClass(activeOfferRefStr)} font-mono font-bold text-slate-900`}>
                     <EditableCanvasText
-                      value={quotation.formatted_quote_ref || quotation.quote_number || ''}
+                      value={activeOfferRefStr}
                       fieldKey="quote_ref"
                       canEdit={canEditCanvasInline && isQuoteMetaSelected}
                       onCommit={onInlineFieldEdit}
@@ -8550,7 +8689,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           </>
         )}
       </div>
-    );
+      );
+    };
 
     const interactiveRecipientClass = isInteractive
       ? `cursor-pointer group relative transition-all ${
@@ -8726,7 +8866,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_quote_ref'); } : undefined}
                   className="py-1 text-center"
                 >
-                  <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900 ${offerRefFmt.className}`} style={offerRefFmt.style}>
+                  <div className={`${getOfferCardRefFontClass(doRef)} font-mono font-bold text-slate-900 ${offerRefFmt.className}`} style={offerRefFmt.style}>
                     {doRef}
                   </div>
                 </div>
@@ -8983,7 +9123,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_quote_ref'); } : undefined}
                   className="py-1 text-center"
                 >
-                  <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900 ${offerRefFmt.className}`} style={offerRefFmt.style}>
+                  <div className={`${getOfferCardRefFontClass(poRef)} font-mono font-bold text-slate-900 ${offerRefFmt.className}`} style={offerRefFmt.style}>
                     {poRef}
                   </div>
                 </div>
@@ -9195,7 +9335,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_quote_ref'); } : undefined}
                   className="py-1 text-center"
                 >
-                  <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900 ${offerRefFmt.className}`} style={offerRefFmt.style}>
+                  <div className={`${getOfferCardRefFontClass(recRef)} font-mono font-bold text-slate-900 ${offerRefFmt.className}`} style={offerRefFmt.style}>
                     {recRef}
                   </div>
                 </div>
@@ -9399,7 +9539,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_quote_ref'); } : undefined}
                   className="py-1 text-center"
                 >
-                  <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900 ${offerRefFmt.className}`} style={offerRefFmt.style}>
+                  <div className={`${getOfferCardRefFontClass(pvRef)} font-mono font-bold text-slate-900 ${offerRefFmt.className}`} style={offerRefFmt.style}>
                     {pvRef}
                   </div>
                 </div>
@@ -9589,7 +9729,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   onClick={isInteractive ? (e) => { e.stopPropagation(); onSelectSection?.('quote_meta', 'offer_quote_ref'); } : undefined}
                   className="py-1 text-center"
                 >
-                  <div className={`${typoScale.quoteRef} font-mono font-bold text-slate-900 ${offerRefFmt.className}`} style={offerRefFmt.style}>
+                  <div className={`${getOfferCardRefFontClass(retRef)} font-mono font-bold text-slate-900 ${offerRefFmt.className}`} style={offerRefFmt.style}>
                     {retRef}
                   </div>
                 </div>
@@ -10475,7 +10615,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                                 const norm = rawKey
                                                   .toLowerCase()
                                                   .replace(/[^a-z0-9]+/g, ' ')
-                                                  .trim();
+                                                  .trim()
+                                                  .replace(/\bcolours\b/g, 'color')
+                                                  .replace(/\bcolour\b/g, 'color')
+                                                  .replace(/\bdimensions\b/g, 'dimension');
                                                 if (
                                                   norm === 'brand' ||
                                                   norm === 'make' ||
@@ -10617,25 +10760,255 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
                                               if (visibleAttrs.length === 0) return null;
 
-                                              if (attributeDisplayFormat === 'inline_text') {
+                                              const effectiveOrderRaw =
+                                                Array.isArray(item.attribute_order) && item.attribute_order.length > 0
+                                                  ? item.attribute_order
+                                                  : Array.isArray(visibleColumns.attributeLayoutOrder)
+                                                  ? visibleColumns.attributeLayoutOrder
+                                                  : [];
+                                              const effectiveOrderCanonical = effectiveOrderRaw.map((k) => canonicalAttrKey(k));
+
+                                              const itemAttrs = [...visibleAttrs].sort((a, b) => {
+                                                const idxA = effectiveOrderCanonical.indexOf(canonicalAttrKey(a.key));
+                                                const idxB = effectiveOrderCanonical.indexOf(canonicalAttrKey(b.key));
+                                                if (idxA === -1 && idxB === -1) return 0;
+                                                if (idxA === -1) return 1;
+                                                if (idxB === -1) return -1;
+                                                return idxA - idxB;
+                                              });
+
+                                              const breakSet = new Set<string>(
+                                                (
+                                                  Array.isArray(item.attribute_line_breaks_after)
+                                                    ? item.attribute_line_breaks_after
+                                                    : visibleColumns.attributeLineBreaksAfter || []
+                                                ).map((k) => canonicalAttrKey(k))
+                                              );
+
+                                              const fullWidthSet = new Set<string>(
+                                                (
+                                                  Array.isArray(item.attribute_full_width_keys)
+                                                    ? item.attribute_full_width_keys
+                                                    : visibleColumns.attributeFullWidthKeys || []
+                                                ).map((k) => canonicalAttrKey(k))
+                                              );
+
+                                              const enrichedAttrs = itemAttrs.map((a) => {
+                                                const cKey = canonicalAttrKey(a.key);
+                                                return {
+                                                  key: a.key,
+                                                  value: a.value,
+                                                  canonicalKey: cKey,
+                                                  hasBreakAfter: breakSet.has(cKey),
+                                                  isFullWidth: fullWidthSet.has(cKey)
+                                                };
+                                              });
+
+                                              const buildAttributeRows = (
+                                                attrs: typeof enrichedAttrs,
+                                                maxCols: number
+                                              ): Array<typeof enrichedAttrs> => {
+                                                const rows: Array<typeof enrichedAttrs> = [];
+                                                let currentRow: typeof enrichedAttrs = [];
+                                                attrs.forEach((attr) => {
+                                                  if (attr.isFullWidth) {
+                                                    if (currentRow.length > 0) {
+                                                      rows.push(currentRow);
+                                                      currentRow = [];
+                                                    }
+                                                    rows.push([attr]);
+                                                    return;
+                                                  }
+                                                  currentRow.push(attr);
+                                                  if (attr.hasBreakAfter || currentRow.length >= maxCols) {
+                                                    rows.push(currentRow);
+                                                    currentRow = [];
+                                                  }
+                                                });
+                                                if (currentRow.length > 0) {
+                                                  rows.push(currentRow);
+                                                }
+                                                return rows;
+                                              };
+
+                                              const balanceOrphan = visibleColumns.balanceOrphanAttributeRow ?? true;
+
+                                              if (attributeDisplayFormat === 'grid_2col_balanced') {
+                                                const rows2 = buildAttributeRows(enrichedAttrs, 2);
                                                 return (
-                                                  <div className={`${typoScale.sub} text-slate-600 mt-1 leading-normal font-normal`}>
-                                                    <span className="font-semibold text-slate-700">Specs: </span>
-                                                    {visibleAttrs.map((a) => `${a.key}: ${a.value}`).join(' • ')}
+                                                  <div className="mt-1.5 flex flex-col gap-1 w-full font-normal">
+                                                    {rows2.map((row, rIdx) => {
+                                                      if (row.length === 1) {
+                                                        const single = row[0];
+                                                        const spanFull = single.isFullWidth || balanceOrphan;
+                                                        return spanFull ? (
+                                                          <div key={rIdx} className="w-full">
+                                                            <div className="flex items-baseline justify-between gap-2 px-2 py-0.5 rounded border border-slate-200 bg-slate-50/90 text-[10px] leading-snug w-full">
+                                                              <span className="font-semibold text-slate-500 shrink-0">{single.key}:</span>
+                                                              <span className="font-bold text-slate-800 text-right break-words">{String(single.value)}</span>
+                                                            </div>
+                                                          </div>
+                                                        ) : (
+                                                          <div key={rIdx} className="grid grid-cols-2 gap-1.5 w-full">
+                                                            <div className="flex items-baseline justify-between gap-2 px-2 py-0.5 rounded border border-slate-200 bg-slate-50/90 text-[10px] leading-snug w-full">
+                                                              <span className="font-semibold text-slate-500 shrink-0">{single.key}:</span>
+                                                              <span className="font-bold text-slate-800 text-right break-words">{String(single.value)}</span>
+                                                            </div>
+                                                          </div>
+                                                        );
+                                                      }
+                                                      return (
+                                                        <div key={rIdx} className="grid grid-cols-2 gap-1.5 w-full">
+                                                          {row.map((cell, cIdx) => (
+                                                            <div
+                                                              key={cIdx}
+                                                              className="flex items-baseline justify-between gap-2 px-2 py-0.5 rounded border border-slate-200 bg-slate-50/90 text-[10px] leading-snug w-full"
+                                                            >
+                                                              <span className="font-semibold text-slate-500 shrink-0">{cell.key}:</span>
+                                                              <span className="font-bold text-slate-800 text-right break-words">{String(cell.value)}</span>
+                                                            </div>
+                                                          ))}
+                                                        </div>
+                                                      );
+                                                    })}
+                                                  </div>
+                                                );
+                                              }
+
+                                              if (attributeDisplayFormat === 'table_2col') {
+                                                const rows2 = buildAttributeRows(enrichedAttrs, 2);
+                                                return (
+                                                  <div className="mt-1.5 w-full border border-slate-200 rounded overflow-hidden divide-y divide-slate-200 text-[10px] bg-white font-normal">
+                                                    {rows2.map((row, rIdx) => {
+                                                      if (row.length === 1) {
+                                                        const single = row[0];
+                                                        const spanFull = single.isFullWidth || balanceOrphan;
+                                                        return spanFull ? (
+                                                          <div
+                                                            key={rIdx}
+                                                            className="flex items-baseline justify-between gap-2 px-2 py-1 w-full bg-white"
+                                                          >
+                                                            <span className="font-semibold text-slate-500 bg-slate-50/70 px-1 rounded shrink-0">
+                                                              {single.key}:
+                                                            </span>
+                                                            <span className="font-bold text-slate-800 text-right break-words">
+                                                              {String(single.value)}
+                                                            </span>
+                                                          </div>
+                                                        ) : (
+                                                          <div key={rIdx} className="grid grid-cols-2 divide-x divide-slate-200 w-full">
+                                                            <div className="flex items-baseline justify-between gap-2 px-2 py-1 bg-white">
+                                                              <span className="font-semibold text-slate-500 bg-slate-50/70 px-1 rounded shrink-0">
+                                                                {single.key}:
+                                                              </span>
+                                                              <span className="font-bold text-slate-800 text-right break-words">
+                                                                {String(single.value)}
+                                                              </span>
+                                                            </div>
+                                                            <div className="bg-slate-50/30" />
+                                                          </div>
+                                                        );
+                                                      }
+                                                      return (
+                                                        <div key={rIdx} className="grid grid-cols-2 divide-x divide-slate-200 w-full">
+                                                          {row.map((cell, cIdx) => (
+                                                            <div
+                                                              key={cIdx}
+                                                              className="flex items-baseline justify-between gap-2 px-2 py-1 bg-white"
+                                                            >
+                                                              <span className="font-semibold text-slate-500 bg-slate-50/70 px-1 rounded shrink-0">
+                                                                {cell.key}:
+                                                              </span>
+                                                              <span className="font-bold text-slate-800 text-right break-words">
+                                                                {String(cell.value)}
+                                                              </span>
+                                                            </div>
+                                                          ))}
+                                                        </div>
+                                                      );
+                                                    })}
+                                                  </div>
+                                                );
+                                              }
+
+                                              if (attributeDisplayFormat === 'grid_3col') {
+                                                const rows3 = buildAttributeRows(enrichedAttrs, 3);
+                                                return (
+                                                  <div className="mt-1.5 flex flex-col gap-1 w-full font-normal">
+                                                    {rows3.map((row, rIdx) => {
+                                                      const gridColsClass =
+                                                        row.length === 1 && (row[0].isFullWidth || balanceOrphan)
+                                                          ? 'grid-cols-1'
+                                                          : row.length === 2 && balanceOrphan
+                                                          ? 'grid-cols-2'
+                                                          : 'grid-cols-3';
+                                                      return (
+                                                        <div key={rIdx} className={`grid ${gridColsClass} gap-1 w-full`}>
+                                                          {row.map((cell, cIdx) => (
+                                                            <div
+                                                              key={cIdx}
+                                                              className="flex items-baseline justify-between gap-1.5 px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50/90 text-[9.5px] leading-snug w-full"
+                                                            >
+                                                              <span className="font-semibold text-slate-500 shrink-0">{cell.key}:</span>
+                                                              <span className="font-bold text-slate-800 text-right break-words">{String(cell.value)}</span>
+                                                            </div>
+                                                          ))}
+                                                        </div>
+                                                      );
+                                                    })}
+                                                  </div>
+                                                );
+                                              }
+
+                                              if (attributeDisplayFormat === 'inline_text') {
+                                                const inlineLines: Array<typeof enrichedAttrs> = [];
+                                                let curLine: typeof enrichedAttrs = [];
+                                                enrichedAttrs.forEach((attr) => {
+                                                  if (attr.isFullWidth) {
+                                                    if (curLine.length > 0) {
+                                                      inlineLines.push(curLine);
+                                                      curLine = [];
+                                                    }
+                                                    inlineLines.push([attr]);
+                                                    return;
+                                                  }
+                                                  curLine.push(attr);
+                                                  if (attr.hasBreakAfter) {
+                                                    inlineLines.push(curLine);
+                                                    curLine = [];
+                                                  }
+                                                });
+                                                if (curLine.length > 0) {
+                                                  inlineLines.push(curLine);
+                                                }
+                                                return (
+                                                  <div className="mt-1 space-y-0.5 font-normal">
+                                                    {inlineLines.map((lineAttrs, lIdx) => (
+                                                      <div key={lIdx} className="text-[10px] text-slate-600 leading-relaxed">
+                                                        {lIdx === 0 && (
+                                                          <span className="font-semibold text-slate-500">Specs: </span>
+                                                        )}
+                                                        {lineAttrs.map((a) => `${a.key}: ${a.value}`).join(' • ')}
+                                                      </div>
+                                                    ))}
                                                   </div>
                                                 );
                                               }
 
                                               return (
                                                 <div className="flex flex-wrap gap-1.5 mt-1.5 print:mt-1 font-normal">
-                                                  {visibleAttrs.map((attr, aIdx) => (
-                                                    <span
-                                                      key={aIdx}
-                                                      className={`inline-flex items-center ${typoScale.sub} font-mono bg-slate-50 text-slate-800 px-1.5 py-0.5 rounded border border-slate-200 print:bg-transparent print:border-slate-300 print:text-black leading-tight`}
-                                                    >
-                                                      <span className="text-slate-700 font-semibold mr-1">{attr.key}:</span>
-                                                      <span>{attr.value}</span>
-                                                    </span>
+                                                  {enrichedAttrs.map((attr, aIdx) => (
+                                                    <React.Fragment key={aIdx}>
+                                                      <span
+                                                        className={`inline-flex items-center ${
+                                                          attr.isFullWidth ? 'w-full justify-between' : ''
+                                                        } ${typoScale.sub} font-mono bg-slate-50 text-slate-800 px-1.5 py-0.5 rounded border border-slate-200 print:bg-transparent print:border-slate-300 print:text-black leading-tight`}
+                                                      >
+                                                        <span className="text-slate-700 font-semibold mr-1">{attr.key}:</span>
+                                                        <span>{attr.value}</span>
+                                                      </span>
+                                                      {attr.hasBreakAfter && <div className="basis-full h-0" />}
+                                                    </React.Fragment>
                                                   ))}
                                                 </div>
                                               );
@@ -11445,9 +11818,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             style={{ boxSizing: 'border-box' }}
           >
             {isFullBleed ? (
-              <img
-                src={att.url}
-                alt={att.name || `Cover Page ${coverIdx + 1}`}
+              <PdfOrImageSheetRenderer
+                url={att.url}
+                name={att.name || `Cover Page ${coverIdx + 1}`}
+                type={att.type}
                 className="w-[210mm] h-[297mm] object-cover block m-0 p-0"
               />
             ) : (
@@ -11462,9 +11836,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                       {att.name.replace(/\.(png|jpe?g|webp|gif|bmp|svg|pdf)$/i, '')}
                     </div>
                   )}
-                  <img
-                    src={att.url}
-                    alt={att.name || `Cover Page ${coverIdx + 1}`}
+                  <PdfOrImageSheetRenderer
+                    url={att.url}
+                    name={att.name || `Cover Page ${coverIdx + 1}`}
+                    type={att.type}
                     className="max-h-[245mm] max-w-full w-auto h-auto object-contain rounded border border-slate-200/80"
                   />
                 </div>
@@ -11663,9 +12038,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             style={{ boxSizing: 'border-box' }}
           >
             {isFullBleed ? (
-              <img
-                src={att.url}
-                alt={att.name || `Technical Annex ${annexIdx + 1}`}
+              <PdfOrImageSheetRenderer
+                url={att.url}
+                name={att.name || `Technical Annex ${annexIdx + 1}`}
+                type={att.type}
                 className="w-[210mm] h-[297mm] object-cover block m-0 p-0"
               />
             ) : (
@@ -11709,9 +12085,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
                 {/* Bounded Flex-1 Image Viewport */}
                 <div className="flex-1 flex flex-col items-center justify-center w-full my-2 overflow-hidden">
-                  <img
-                    src={att.url}
-                    alt={att.name || `Technical Annex ${annexIdx + 1}`}
+                  <PdfOrImageSheetRenderer
+                    url={att.url}
+                    name={att.name || `Technical Annex ${annexIdx + 1}`}
+                    type={att.type}
                     className="max-h-[235mm] max-w-full w-auto h-auto object-contain rounded border border-slate-200/80"
                   />
                 </div>

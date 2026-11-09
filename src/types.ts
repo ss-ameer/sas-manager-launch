@@ -500,6 +500,9 @@ export interface LineItem {
   manual_landed_cost_override?: number;
   landed_unit_cost?: number;
   return_reason?: string;
+  attribute_order?: string[];
+  attribute_line_breaks_after?: string[];
+  attribute_full_width_keys?: string[];
 }
 
 export type StockMovementType =
@@ -1403,6 +1406,9 @@ export interface QuotationLineItem {
   technical_attributes?: QuotationItemAttribute[] | Record<string, string>;
   visible_attributes?: string[];
   hidden_attributes?: string[];
+  attribute_order?: string[];
+  attribute_line_breaks_after?: string[];
+  attribute_full_width_keys?: string[];
   page_break_after?: boolean;
   row_spacer_after_mm?: number;
   row_note?: string;
@@ -1473,6 +1479,24 @@ export interface DocumentProfileBankAccount {
   isDefault?: boolean;
 }
 
+export interface SignatoryPreset {
+  id: string;
+  name: string;
+  is_builtin?: boolean;
+  signatory_mode: 'signature_and_stamp' | 'signature_only' | 'stamp_only' | 'system_generated';
+  signatory_type: 'single' | 'dual' | 'stamp_only';
+  signature_style: 'line' | 'boxed' | 'digital_stamp';
+  signatory_name?: string;
+  signatory_title?: string;
+  secondary_signatory_name?: string;
+  secondary_signatory_title?: string;
+  signature_image_url?: string;
+  company_seal_url?: string;
+  show_company_seal?: boolean;
+  customer_acceptance_enabled?: boolean;
+  use_assigned_rep_as_primary?: boolean;
+}
+
 export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   id?: string;
   workspace_id?: string;
@@ -1500,9 +1524,13 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   signatory_type?: QuotationSignatoryMode;
   primary_signatory_name?: string;
   primary_signatory_title?: string;
+  default_signatory_name?: string;
+  default_signatory_title?: string;
   secondary_signatory_name?: string;
   secondary_signatory_title?: string;
   signature_style?: QuotationSignatureStyle;
+  signatory_presets?: SignatoryPreset[];
+  default_signatory_preset_id?: string;
   logo_position?: QuotationLogoPosition;
   header_layout?: QuotationHeaderLayout;
   table_density?: QuotationTableDensity;
@@ -1554,8 +1582,12 @@ export interface QuotationPresetColumns {
   showUom?: boolean;
   showLineTotal?: boolean;
   showItemAttributes?: boolean;
-  attributeDisplayFormat?: 'pills' | 'inline_text';
+  attributeDisplayFormat?: 'pills' | 'inline_text' | 'grid_2col_balanced' | 'table_2col' | 'grid_3col';
   hiddenAttributeKeys?: string[];
+  attributeLayoutOrder?: string[];
+  attributeLineBreaksAfter?: string[];
+  attributeFullWidthKeys?: string[];
+  balanceOrphanAttributeRow?: boolean;
   showAmountInWords?: boolean;
   showLineItemImages?: boolean;
   lineItemImageLayout?: 'column' | 'inline' | 'inline_left' | 'inline_right' | 'below_specs' | 'photo_schedule';
