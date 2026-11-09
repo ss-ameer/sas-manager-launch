@@ -3034,7 +3034,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   const bomSubComponentImageMode = columnConfig.bomSubComponentImageMode || 'off';
   const photoScheduleColumns = columnConfig.photoScheduleColumns || 2;
   const photoScheduleNewPage = Boolean(columnConfig.photoScheduleNewPage);
-  const attributeDisplayFormat = columnConfig.attributeDisplayFormat || 'pills';
+  const attributeDisplayFormat = columnConfig.attributeDisplayFormat || 'grid_2col_balanced';
   const hiddenAttributeKeys: string[] = columnConfig.hiddenAttributeKeys || [];
 
   // Dynamic Table Column Geometry & Predictable Allocation
@@ -4073,42 +4073,182 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       );
     };
 
+    type StandardizedKeyValueRowItem = {
+      key: string;
+      label: string;
+      value: React.ReactNode;
+      isMono?: boolean;
+      isBold?: boolean;
+      isHighlight?: boolean;
+      breakAfter?: boolean;
+      fullWidth?: boolean;
+    };
+
+    const chunkKeyValueRows = (rows: StandardizedKeyValueRowItem[]): StandardizedKeyValueRowItem[][] => {
+      const groupedRows: StandardizedKeyValueRowItem[][] = [];
+      let currentRow: StandardizedKeyValueRowItem[] = [];
+      rows.forEach((item) => {
+        if (item.fullWidth) {
+          if (currentRow.length > 0) {
+            groupedRows.push(currentRow);
+            currentRow = [];
+          }
+          groupedRows.push([item]);
+        } else {
+          currentRow.push(item);
+          if (currentRow.length === 2 || item.breakAfter) {
+            groupedRows.push(currentRow);
+            currentRow = [];
+          }
+        }
+      });
+      if (currentRow.length > 0) {
+        groupedRows.push(currentRow);
+      }
+      return groupedRows;
+    };
+
     const renderStandardizedKeyValueRows = (
       blockConfig: QuotationBlockConfig | undefined,
-      rows: Array<{
-        key: string;
-        label: string;
-        value: React.ReactNode;
-        isMono?: boolean;
-        isBold?: boolean;
-      }>
+      rows: StandardizedKeyValueRowItem[]
     ) => {
       if (rows.length === 0) return null;
       const layoutMode = blockConfig?.fieldLayoutMode || 'split';
       const showDividers = Boolean(blockConfig?.showRowDividers);
+      const balanceOrphan = blockConfig?.balanceOrphanRow ?? true;
       const valAlign =
         blockConfig?.valueAlign || (layoutMode === 'split' ? 'right' : 'left');
 
-      if (layoutMode === 'grid_2col') {
+      if (layoutMode === 'pills') {
+        const groupedRows = chunkKeyValueRows(rows);
         return (
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-700 text-[var(--block-base)] leading-relaxed mt-1.5">
-            {rows.map((row) => (
-              <div
-                key={row.key}
-                className={`flex items-baseline justify-between gap-2 ${
-                  showDividers ? 'border-b border-slate-200/70 pb-1' : ''
-                }`}
-              >
-                <span className="font-semibold text-slate-500 shrink-0">{row.label}:</span>
-                <span
-                  className={`${valAlign === 'right' ? 'text-right' : 'text-left'} ${
-                    row.isMono ? 'font-mono tabular-nums' : ''
-                  } ${row.isBold ? 'font-bold text-slate-900' : 'font-medium text-slate-800'}`}
-                >
-                  {row.value}
-                </span>
+          <div className="space-y-1.5 text-[var(--block-base)] leading-snug mt-1.5">
+            {groupedRows.map((rowGroup, rIdx) => (
+              <div key={rIdx} className="flex flex-wrap items-center gap-1.5">
+                {rowGroup.map((row) => (
+                  <div
+                    key={row.key}
+                    className={`inline-flex items-baseline gap-1.5 px-2 py-0.5 rounded-md border ${
+                      row.fullWidth ? 'w-full justify-between' : ''
+                    } ${
+                      row.isHighlight
+                        ? 'bg-amber-50/90 border-amber-300 text-slate-900'
+                        : 'bg-slate-100/90 border-slate-200/90 text-slate-800'
+                    }`}
+                  >
+                    <span className="font-semibold text-slate-500 shrink-0">
+                      {row.label.replace(/:$/, '')}:
+                    </span>
+                    <span
+                      className={`${row.isMono ? 'font-mono tabular-nums' : ''} ${
+                        row.isBold || row.isHighlight
+                          ? 'font-bold text-slate-900'
+                          : 'font-medium text-slate-800'
+                      }`}
+                    >
+                      {row.value}
+                    </span>
+                  </div>
+                ))}
               </div>
             ))}
+          </div>
+        );
+      }
+
+      if (layoutMode === 'table_2col') {
+        const groupedRows = chunkKeyValueRows(rows);
+        return (
+          <div className="mt-1.5 border border-slate-200 rounded-md overflow-hidden text-[var(--block-base)] leading-snug bg-white">
+            {groupedRows.map((rowGroup, rIdx) => {
+              const isSingle = rowGroup.length === 1;
+              const singleItem = rowGroup[0];
+              const spanFull =
+                isSingle && (singleItem.fullWidth || balanceOrphan || singleItem.breakAfter);
+              return (
+                <div
+                  key={rIdx}
+                  className={`grid ${
+                    spanFull ? 'grid-cols-1' : 'grid-cols-2 divide-x divide-slate-200'
+                  } ${rIdx > 0 ? 'border-t border-slate-200' : ''}`}
+                >
+                  {rowGroup.map((row) => (
+                    <div
+                      key={row.key}
+                      className={`px-2.5 py-1 flex items-baseline justify-between gap-2 ${
+                        row.isHighlight ? 'bg-amber-50/80' : ''
+                      }`}
+                    >
+                      <span className="font-semibold text-slate-500 shrink-0">
+                        {row.label.replace(/:$/, '')}:
+                      </span>
+                      <span
+                        className={`${valAlign === 'right' ? 'text-right' : 'text-left'} ${
+                          row.isMono ? 'font-mono tabular-nums' : ''
+                        } ${
+                          row.isBold || row.isHighlight
+                            ? 'font-bold text-slate-900'
+                            : 'font-medium text-slate-800'
+                        }`}
+                      >
+                        {row.value}
+                      </span>
+                    </div>
+                  ))}
+                  {!spanFull && isSingle && <div className="px-2.5 py-1 bg-slate-50/30" />}
+                </div>
+              );
+            })}
+          </div>
+        );
+      }
+
+      if (layoutMode === 'grid_2col' || layoutMode === 'grid_2col_balanced') {
+        const groupedRows = chunkKeyValueRows(rows);
+        return (
+          <div className="mt-1.5 space-y-1 text-slate-700 text-[var(--block-base)] leading-relaxed">
+            {groupedRows.map((rowGroup, rIdx) => {
+              const isSingle = rowGroup.length === 1;
+              const singleItem = rowGroup[0];
+              const spanFull =
+                isSingle && (singleItem.fullWidth || balanceOrphan || singleItem.breakAfter);
+              return (
+                <div
+                  key={rIdx}
+                  className={`grid ${spanFull ? 'grid-cols-1' : 'grid-cols-2 gap-x-4'} ${
+                    showDividers && rIdx < groupedRows.length - 1
+                      ? 'border-b border-slate-200/70 pb-1'
+                      : ''
+                  }`}
+                >
+                  {rowGroup.map((row) => (
+                    <div
+                      key={row.key}
+                      className={`flex items-baseline justify-between gap-2 ${
+                        row.isHighlight
+                          ? 'bg-amber-50/80 border border-amber-200/80 px-2 py-0.5 rounded'
+                          : ''
+                      }`}
+                    >
+                      <span className="font-semibold text-slate-500 shrink-0">
+                        {row.label.replace(/:$/, '')}:
+                      </span>
+                      <span
+                        className={`${valAlign === 'right' ? 'text-right' : 'text-left'} ${
+                          row.isMono ? 'font-mono tabular-nums' : ''
+                        } ${
+                          row.isBold || row.isHighlight
+                            ? 'font-bold text-slate-900'
+                            : 'font-medium text-slate-800'
+                        }`}
+                      >
+                        {row.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
           </div>
         );
       }
@@ -4122,15 +4262,23 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 className={`flex items-baseline gap-1.5 ${
                   valAlign === 'right' ? 'justify-end text-right' : 'justify-start text-left'
                 } ${
+                  row.isHighlight
+                    ? 'bg-amber-50/80 border border-amber-200/80 px-2 py-0.5 rounded'
+                    : ''
+                } ${
                   showDividers && idx < rows.length - 1
                     ? 'border-b border-slate-200/70 pb-1'
                     : ''
                 }`}
               >
-                <span className="font-semibold text-slate-500 shrink-0">{row.label}:</span>
+                <span className="font-semibold text-slate-500 shrink-0">
+                  {row.label.replace(/:$/, '')}:
+                </span>
                 <span
                   className={`${row.isMono ? 'font-mono tabular-nums' : ''} ${
-                    row.isBold ? 'font-bold text-slate-900' : 'font-medium text-slate-800'
+                    row.isBold || row.isHighlight
+                      ? 'font-bold text-slate-900'
+                      : 'font-medium text-slate-800'
                   }`}
                 >
                   {row.value}
@@ -4141,23 +4289,33 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         );
       }
 
-      // Default 'split' (matches Commercial Terms & Conditions Left Label / Right Value)
+      // Default 'split' (Left Label / Right Value)
       return (
         <div className="space-y-1 text-slate-700 text-[var(--block-base)] leading-relaxed mt-1.5">
           {rows.map((row, idx) => (
             <div
               key={row.key}
               className={`flex items-baseline justify-between gap-3 ${
+                row.isHighlight
+                  ? 'bg-amber-50/80 border border-amber-200/80 px-2 py-0.5 rounded'
+                  : ''
+              } ${
                 showDividers && idx < rows.length - 1
                   ? 'border-b border-slate-200/70 pb-1'
                   : ''
               }`}
             >
-              <span className="font-semibold text-slate-500 shrink-0">{row.label}:</span>
+              <span className="font-semibold text-slate-500 shrink-0">
+                {row.label.replace(/:$/, '')}:
+              </span>
               <span
                 className={`${valAlign === 'left' ? 'text-left' : 'text-right'} ${
                   row.isMono ? 'font-mono tabular-nums' : ''
-                } ${row.isBold ? 'font-bold text-slate-900' : 'font-medium text-slate-800'}`}
+                } ${
+                  row.isBold || row.isHighlight
+                    ? 'font-bold text-slate-900'
+                    : 'font-medium text-slate-800'
+                }`}
               >
                 {row.value}
               </span>
@@ -4170,6 +4328,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     const renderTermsBlock = (blockConfig?: QuotationBlockConfig) => {
       const vis = blockConfig?.visibleFields || {};
       const labels = blockConfig?.fieldLabels || {};
+      const rowOpts = blockConfig?.fieldRowOptions || {};
       const priceBasis = quotation.price_basis?.trim();
       const paymentTerms = quotation.payment_terms?.trim();
       const validityText =
@@ -4218,24 +4377,21 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               lower.startsWith('valid until')
             )
               return false;
-          }
+            }
           return true;
         });
         const cleaned = filtered.join('\n').trim();
         return cleaned.length > 0 ? cleaned : undefined;
       })();
 
-      const builtInRowMap: Record<
-        string,
-        { key: string; label: string; value: React.ReactNode; isMono?: boolean; isBold?: boolean } | null
-      > = {
+      const unifiedRowMap: Record<string, StandardizedKeyValueRowItem | null> = {
         price_basis:
           vis.price_basis !== false &&
           !isFieldOmitted('price_basis', omittedFields) &&
           priceBasis
             ? {
                 key: 'price_basis',
-                label: labels.price_basis || 'Price Basis',
+                label: (labels.price_basis || 'Price Basis').replace(/:$/, ''),
                 value: (
                   <EditableCanvasText
                     value={priceBasis}
@@ -4244,7 +4400,11 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     canEdit={canEditCanvasInline && isTermsBlockSelected}
                     onCommit={onInlineFieldEdit}
                   />
-                )
+                ),
+                breakAfter: rowOpts.price_basis?.breakAfter,
+                fullWidth: rowOpts.price_basis?.fullWidth,
+                isBold: rowOpts.price_basis?.isBold,
+                isHighlight: rowOpts.price_basis?.isHighlight
               }
             : null,
         payment_terms:
@@ -4253,7 +4413,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           paymentTerms
             ? {
                 key: 'payment_terms',
-                label: labels.payment_terms || 'Payment Terms',
+                label: (labels.payment_terms || 'Payment Terms').replace(/:$/, ''),
                 value: (
                   <EditableCanvasText
                     value={paymentTerms}
@@ -4262,7 +4422,11 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     canEdit={canEditCanvasInline && isTermsBlockSelected}
                     onCommit={onInlineFieldEdit}
                   />
-                )
+                ),
+                breakAfter: rowOpts.payment_terms?.breakAfter,
+                fullWidth: rowOpts.payment_terms?.fullWidth,
+                isBold: rowOpts.payment_terms?.isBold,
+                isHighlight: rowOpts.payment_terms?.isHighlight
               }
             : null,
         validity:
@@ -4271,39 +4435,82 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           validityText
             ? {
                 key: 'validity',
-                label: labels.validity || 'Validity',
-                value: validityText
+                label: (labels.validity || 'Validity').replace(/:$/, ''),
+                value: validityText,
+                breakAfter: rowOpts.validity?.breakAfter,
+                fullWidth: rowOpts.validity?.fullWidth,
+                isBold: rowOpts.validity?.isBold,
+                isHighlight: rowOpts.validity?.isHighlight
               }
             : null
       };
 
-      const order = blockConfig?.fieldOrder || ['price_basis', 'payment_terms', 'validity'];
-      const orderedRows: Array<{
-        key: string;
-        label: string;
-        value: React.ReactNode;
-        isMono?: boolean;
-        isBold?: boolean;
-      }> = [];
-      order.forEach((k) => {
-        if (builtInRowMap[k]) orderedRows.push(builtInRowMap[k]!);
-      });
-      Object.keys(builtInRowMap).forEach((k) => {
-        if (!order.includes(k) && builtInRowMap[k]) orderedRows.push(builtInRowMap[k]!);
-      });
-
-      (blockConfig?.customRows || []).forEach((cr) => {
-        if (!shouldHideCustomRow(cr, tokenContext) && (cr.label || cr.value)) {
-          orderedRows.push({
+      const customRowsList = blockConfig?.customRows || [];
+      customRowsList.forEach((cr) => {
+        const shouldHide =
+          shouldHideCustomRow(cr, tokenContext) ||
+          (cr.emptyBehavior === 'hide' && (!cr.value || !resolveQuotationTokens(cr.value, tokenContext).trim()));
+        if (!shouldHide && cr.enabled !== false && (cr.label || cr.value)) {
+          unifiedRowMap[cr.id] = {
             key: cr.id,
-            label: resolveQuotationTokens(cr.label || 'Term', tokenContext),
-            value: renderResolvedQuotationText(cr.value, tokenContext)
-          });
+            label: resolveQuotationTokens(cr.label || 'Term', tokenContext).replace(/:$/, ''),
+            value: renderResolvedQuotationText(cr.value, tokenContext),
+            breakAfter: cr.breakAfter,
+            fullWidth: cr.fullWidth,
+            isBold: cr.isBold,
+            isHighlight: cr.isHighlight
+          };
         }
       });
 
+      const defaultBuiltInOrder = ['price_basis', 'payment_terms', 'validity'];
+      const allAvailableKeys = [
+        ...defaultBuiltInOrder,
+        ...customRowsList.map((r) => r.id)
+      ];
+      const rawOrder =
+        blockConfig?.fieldOrder && blockConfig.fieldOrder.length > 0
+          ? blockConfig.fieldOrder
+          : allAvailableKeys;
+      const unifiedOrder = [
+        ...rawOrder.filter((k) => allAvailableKeys.includes(k)),
+        ...allAvailableKeys.filter((k) => !rawOrder.includes(k))
+      ];
+
+      const orderedRows: StandardizedKeyValueRowItem[] = [];
+      unifiedOrder.forEach((k) => {
+        if (unifiedRowMap[k]) orderedRows.push(unifiedRowMap[k]!);
+      });
+
       const showClauses = vis.clauses !== false && Boolean(customNotes);
+      const clausesPos = blockConfig?.clausesPosition || 'below_rows';
       const hasAnyContent = orderedRows.length > 0 || showClauses;
+
+      const renderClausesNode = (isAbove: boolean) => {
+        if (!showClauses || !customNotes) return null;
+        return (
+          <div
+            className={`whitespace-pre-line text-slate-600 text-[var(--block-base)] leading-relaxed ${
+              isAbove
+                ? orderedRows.length > 0
+                  ? 'mt-1.5 mb-2 pb-2 border-b border-slate-200/60'
+                  : 'mt-1.5'
+                : orderedRows.length > 0
+                ? 'mt-2 pt-2 border-t border-slate-200/60'
+                : 'mt-1.5'
+            }`}
+          >
+            <EditableCanvasText
+              value={customNotes}
+              renderedDisplay={renderResolvedQuotationText(customNotes, tokenContext)}
+              fieldKey="custom_notes"
+              canEdit={canEditCanvasInline && isTermsBlockSelected}
+              onCommit={onInlineFieldEdit}
+              multiline
+            />
+          </div>
+        );
+      };
 
       return (
         <div
@@ -4316,23 +4523,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               'Commercial Terms & Conditions',
               FileCheck
             )}
+            {clausesPos === 'above_rows' && renderClausesNode(true)}
             {renderStandardizedKeyValueRows(blockConfig, orderedRows)}
-            {showClauses && customNotes && (
-              <div
-                className={`whitespace-pre-line text-slate-600 text-[var(--block-base)] leading-relaxed ${
-                  orderedRows.length > 0 ? 'mt-2 pt-2 border-t border-slate-200/60' : 'mt-1.5'
-                }`}
-              >
-                <EditableCanvasText
-                  value={customNotes}
-                  renderedDisplay={renderResolvedQuotationText(customNotes, tokenContext)}
-                  fieldKey="custom_notes"
-                  canEdit={canEditCanvasInline && isTermsBlockSelected}
-                  onCommit={onInlineFieldEdit}
-                  multiline
-                />
-              </div>
-            )}
+            {clausesPos !== 'above_rows' && renderClausesNode(false)}
             {!hasAnyContent && (
               <p className="text-slate-400 italic text-[calc(var(--block-base)*0.95)] py-1 mt-1">
                 No commercial terms specified.
@@ -4351,6 +4544,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       const rowBorderClass = showDividers ? 'border-t border-slate-100' : '';
       const labels = blockConfig?.fieldLabels || {};
       const vis = blockConfig?.visibleFields || {};
+      const rowOpts = blockConfig?.fieldRowOptions || {};
 
       return (
         <div
@@ -4506,69 +4700,130 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     <>
                       {(() => {
                         const defaultStdOrder = ['subtotal', 'freight', 'tax'];
+                        const aboveGrandCustomRows = (blockConfig?.customRows || []).filter(
+                          (cr) => (cr.placement || cr.position || 'above_grand_total') === 'above_grand_total'
+                        );
+                        const allAboveKeys = [
+                          ...defaultStdOrder,
+                          ...aboveGrandCustomRows.map((cr) => cr.id)
+                        ];
                         const rawOrder =
                           Array.isArray(blockConfig?.fieldOrder) && blockConfig!.fieldOrder!.length > 0
                             ? blockConfig!.fieldOrder!
-                            : defaultStdOrder;
-                        const orderedStdKeys = [
-                          ...rawOrder.filter((k) => defaultStdOrder.includes(k)),
-                          ...defaultStdOrder.filter((k) => !rawOrder.includes(k))
+                            : allAboveKeys;
+                        const unifiedAboveOrder = [
+                          ...rawOrder.filter((k) => allAboveKeys.includes(k)),
+                          ...allAboveKeys.filter((k) => !rawOrder.includes(k))
                         ];
 
-                        return orderedStdKeys.map((stdKey, sIdx) => {
-                          const borderCls = sIdx === 0 ? '' : rowBorderClass;
-                          if (stdKey === 'subtotal') {
-                            if (vis.subtotal === false) return null;
-                            return (
+                        const renderedAboveNodes: React.ReactNode[] = [];
+
+                        unifiedAboveOrder.forEach((rowKey) => {
+                          const borderCls = renderedAboveNodes.length === 0 ? '' : rowBorderClass;
+                          if (rowKey === 'subtotal') {
+                            if (vis.subtotal === false) return;
+                            const isRowBold = rowOpts.subtotal?.isBold || rowOpts.subtotal?.isHighlight;
+                            renderedAboveNodes.push(
                               <div
                                 key="std_subtotal"
-                                className={`flex justify-between text-slate-600 py-0.5 ${borderCls} text-[var(--block-base)]`}
+                                className={`flex justify-between py-0.5 ${borderCls} text-[var(--block-base)] ${
+                                  rowOpts.subtotal?.isHighlight
+                                    ? 'bg-amber-50/80 border border-amber-200/80 px-2 py-1 rounded font-bold text-slate-900'
+                                    : isRowBold
+                                    ? 'font-bold text-slate-900'
+                                    : 'text-slate-600'
+                                }`}
                               >
-                                <span>{labels.subtotal || 'Subtotal'}:</span>
-                                <span className="font-mono tabular-nums font-semibold text-slate-800">
+                                <span>{(labels.subtotal || 'Subtotal').replace(/:$/, '')}:</span>
+                                <span
+                                  className={`font-mono tabular-nums ${
+                                    isRowBold ? 'font-extrabold text-slate-950' : 'font-semibold text-slate-800'
+                                  }`}
+                                >
                                   {formatCurrency(displaySubtotal)}
                                 </span>
                               </div>
                             );
+                            return;
                           }
-                          if (stdKey === 'freight') {
-                            if (vis.freight === false || Number(quotation.freight_amount) <= 0) return null;
-                            return (
+                          if (rowKey === 'freight') {
+                            if (vis.freight === false || Number(quotation.freight_amount) <= 0) return;
+                            const isRowBold = rowOpts.freight?.isBold || rowOpts.freight?.isHighlight;
+                            renderedAboveNodes.push(
                               <div
                                 key="std_freight"
-                                className={`flex justify-between text-slate-600 py-0.5 ${borderCls} text-[var(--block-base)]`}
+                                className={`flex justify-between py-0.5 ${borderCls} text-[var(--block-base)] ${
+                                  rowOpts.freight?.isHighlight
+                                    ? 'bg-amber-50/80 border border-amber-200/80 px-2 py-1 rounded font-bold text-slate-900'
+                                    : isRowBold
+                                    ? 'font-bold text-slate-900'
+                                    : 'text-slate-600'
+                                }`}
                               >
-                                <span>{labels.freight || 'Freight / Logistics'}:</span>
-                                <span className="font-mono tabular-nums font-semibold text-slate-800">
+                                <span>{(labels.freight || 'Freight / Logistics').replace(/:$/, '')}:</span>
+                                <span
+                                  className={`font-mono tabular-nums ${
+                                    isRowBold ? 'font-extrabold text-slate-950' : 'font-semibold text-slate-800'
+                                  }`}
+                                >
                                   {formatCurrency(quotation.freight_amount)}
                                 </span>
                               </div>
                             );
+                            return;
                           }
-                          if (stdKey === 'tax') {
-                            if (vis.tax === false) return null;
+                          if (rowKey === 'tax') {
+                            if (vis.tax === false) return;
+                            const isRowBold = rowOpts.tax?.isBold || rowOpts.tax?.isHighlight;
                             if (quotation.tax_mode === 'tax_calculated') {
-                              return (
+                              renderedAboveNodes.push(
                                 <div
                                   key="std_tax"
-                                  className={`flex justify-between text-slate-600 py-0.5 ${borderCls} text-[var(--block-base)]`}
+                                  className={`flex justify-between py-0.5 ${borderCls} text-[var(--block-base)] ${
+                                    rowOpts.tax?.isHighlight
+                                      ? 'bg-amber-50/80 border border-amber-200/80 px-2 py-1 rounded font-bold text-slate-900'
+                                      : isRowBold
+                                      ? 'font-bold text-slate-900'
+                                      : 'text-slate-600'
+                                  }`}
                                 >
-                                  <span>{labels.tax || `VAT (${quotation.tax_rate_percent || 5}%)`}:</span>
-                                  <span className="font-mono tabular-nums font-semibold text-slate-800">
+                                  <span>
+                                    {(labels.tax || `VAT (${quotation.tax_rate_percent || 5}%)`).replace(/:$/, '')}:
+                                  </span>
+                                  <span
+                                    className={`font-mono tabular-nums ${
+                                      isRowBold ? 'font-extrabold text-slate-950' : 'font-semibold text-slate-800'
+                                    }`}
+                                  >
                                     {formatCurrency(displayTaxAmount)}
                                   </span>
                                 </div>
                               );
+                              return;
                             }
                             if (quotation.tax_mode === 'taxes_extra') {
-                              return (
+                              renderedAboveNodes.push(
                                 <div
                                   key="std_tax"
                                   className={`py-0.5 ${borderCls} text-slate-600 space-y-0.5 text-[var(--block-base)]`}
                                 >
-                                  <div className="flex justify-between">
-                                    <span>{labels.tax || `VAT (${quotation.tax_rate_percent || 5}%)`}:</span>
-                                    <span className="font-mono tabular-nums font-semibold text-slate-800">
+                                  <div
+                                    className={`flex justify-between ${
+                                      rowOpts.tax?.isHighlight
+                                        ? 'bg-amber-50/80 border border-amber-200/80 px-2 py-1 rounded font-bold text-slate-900'
+                                        : isRowBold
+                                        ? 'font-bold text-slate-900'
+                                        : ''
+                                    }`}
+                                  >
+                                    <span>
+                                      {(labels.tax || `VAT (${quotation.tax_rate_percent || 5}%)`).replace(/:$/, '')}:
+                                    </span>
+                                    <span
+                                      className={`font-mono tabular-nums ${
+                                        isRowBold ? 'font-extrabold text-slate-950' : 'font-semibold text-slate-800'
+                                      }`}
+                                    >
                                       {formatCurrency(displayTaxAmount)}
                                     </span>
                                   </div>
@@ -4579,9 +4834,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                   )}
                                 </div>
                               );
+                              return;
                             }
                             if (quotation.tax_mode === 'tax_exempt') {
-                              return (
+                              renderedAboveNodes.push(
                                 <div
                                   key="std_tax"
                                   className={`flex justify-between text-slate-600 py-0.5 ${borderCls} items-center text-[var(--block-base)]`}
@@ -4592,40 +4848,44 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                   </span>
                                 </div>
                               );
+                              return;
                             }
+                            return;
                           }
-                          return null;
-                        });
-                      })()}
 
-                      {/* Custom Financial Rows Above Grand Total (e.g. Discount, Handling, Packing) */}
-                      {(blockConfig?.customRows || [])
-                        .filter((cr) => (cr.position || 'above_grand_total') === 'above_grand_total')
-                        .map((cr) => {
-                          if (shouldHideCustomRow(cr, tokenContext) || (!cr.label && !cr.value)) return null;
-                          return (
+                          // Otherwise check custom row in aboveGrandCustomRows
+                          const cr = aboveGrandCustomRows.find((r) => r.id === rowKey);
+                          if (!cr || cr.enabled === false) return;
+                          if (shouldHideCustomRow(cr, tokenContext) || (!cr.label && !cr.value)) return;
+                          const isBoldOrHighlight = Boolean(cr.isHighlight || cr.isBold);
+                          renderedAboveNodes.push(
                             <div
                               key={cr.id}
-                              className={`flex justify-between py-0.5 ${rowBorderClass} text-[var(--block-base)] ${
+                              className={`flex justify-between py-0.5 ${borderCls} text-[var(--block-base)] ${
                                 cr.isHighlight
                                   ? 'bg-amber-50/80 border border-amber-200/80 px-2 py-1 rounded font-bold text-slate-900'
+                                  : cr.isBold
+                                  ? 'font-bold text-slate-900'
                                   : 'text-slate-600'
                               }`}
                             >
-                              <span className={cr.isHighlight ? 'font-bold text-slate-900' : ''}>
+                              <span className={isBoldOrHighlight ? 'font-bold text-slate-900' : ''}>
                                 {resolveQuotationTokens(cr.label, tokenContext)}
                                 {cr.label && !cr.label.trim().endsWith(':') ? ':' : ''}
                               </span>
                               <span
                                 className={`font-mono tabular-nums ${
-                                  cr.isHighlight ? 'font-extrabold text-slate-950' : 'font-semibold text-slate-800'
+                                  isBoldOrHighlight ? 'font-extrabold text-slate-950' : 'font-semibold text-slate-800'
                                 }`}
                               >
                                 {renderResolvedQuotationText(cr.value, tokenContext)}
                               </span>
                             </div>
                           );
-                        })}
+                        });
+
+                        return renderedAboveNodes;
+                      })()}
 
                       {/* Grand Total */}
                       {vis.grand_total !== false && (
@@ -4649,27 +4909,40 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                         </div>
                       )}
 
+                      {/* Optional VAT / Tax Footnote Override Under Grand Total */}
+                      {vis.vat_note !== false &&
+                        blockConfig?.vatNoteOverride &&
+                        blockConfig.vatNoteOverride.trim() !== '' && (
+                          <div className="text-[calc(var(--block-base)*0.86)] text-slate-500 pt-0.5">
+                            {renderResolvedQuotationText(blockConfig.vatNoteOverride, tokenContext)}
+                          </div>
+                        )}
+
                       {/* Custom Financial Rows Below Grand Total (e.g. Less Advance, Net Payable, Rebate) */}
                       {(blockConfig?.customRows || [])
-                        .filter((cr) => cr.position === 'below_grand_total')
+                        .filter((cr) => (cr.placement || cr.position) === 'below_grand_total')
                         .map((cr) => {
+                          if (cr.enabled === false) return null;
                           if (shouldHideCustomRow(cr, tokenContext) || (!cr.label && !cr.value)) return null;
+                          const isBoldOrHighlight = Boolean(cr.isHighlight || cr.isBold);
                           return (
                             <div
                               key={cr.id}
                               className={`flex justify-between py-0.5 mt-1 ${rowBorderClass} text-[var(--block-base)] ${
                                 cr.isHighlight
                                   ? 'bg-amber-50/80 border border-amber-200/80 px-2 py-1 rounded font-bold text-slate-900'
+                                  : cr.isBold
+                                  ? 'font-bold text-slate-900'
                                   : 'text-slate-600'
                               }`}
                             >
-                              <span className={cr.isHighlight ? 'font-bold text-slate-900' : ''}>
+                              <span className={isBoldOrHighlight ? 'font-bold text-slate-900' : ''}>
                                 {resolveQuotationTokens(cr.label, tokenContext)}
                                 {cr.label && !cr.label.trim().endsWith(':') ? ':' : ''}
                               </span>
                               <span
                                 className={`font-mono tabular-nums ${
-                                  cr.isHighlight ? 'font-extrabold text-slate-950' : 'font-semibold text-slate-800'
+                                  isBoldOrHighlight ? 'font-extrabold text-slate-950' : 'font-semibold text-slate-800'
                                 }`}
                               >
                                 {renderResolvedQuotationText(cr.value, tokenContext)}
@@ -4702,45 +4975,66 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     const renderRemittanceBlock = (blockConfig?: QuotationBlockConfig) => {
       const vis = blockConfig?.visibleFields || {};
       const labels = blockConfig?.fieldLabels || {};
+      const rowOpts = blockConfig?.fieldRowOptions || {};
 
-      const bankRowsMap: Record<
-        string,
-        { key: string; label: string; value: React.ReactNode; isMono?: boolean; isBold?: boolean } | null
-      > = resolvedBank
+      const normalizeBankKey = (rawKey: string): string => {
+        if (rawKey === 'bankName') return 'bank_name';
+        if (rawKey === 'beneficiaryName') return 'beneficiary';
+        if (rawKey === 'accountNumber') return 'account_number';
+        if (rawKey === 'swiftCode') return 'swift';
+        if (rawKey === 'branchName') return 'branch';
+        return rawKey;
+      };
+
+      const getBankRowOpt = (snakeKey: string, camelKey: string) =>
+        rowOpts[snakeKey] || rowOpts[camelKey] || {};
+
+      const unifiedRowMap: Record<string, StandardizedKeyValueRowItem | null> = resolvedBank
         ? {
-            bankName:
+            bank_name:
               vis.bankName !== false &&
               vis.bank_name !== false &&
               !isFieldOmitted('bank_name', omittedFields) &&
               resolvedBank.bankName
                 ? {
-                    key: 'bankName',
-                    label: labels.bankName || labels.bank_name || 'Bank',
+                    key: 'bank_name',
+                    label: (labels.bank_name || labels.bankName || 'Bank').replace(/:$/, ''),
                     value: resolvedBank.bankName,
-                    isBold: true
+                    isBold: getBankRowOpt('bank_name', 'bankName').isBold ?? true,
+                    isHighlight: getBankRowOpt('bank_name', 'bankName').isHighlight,
+                    breakAfter: getBankRowOpt('bank_name', 'bankName').breakAfter,
+                    fullWidth: getBankRowOpt('bank_name', 'bankName').fullWidth
                   }
                 : null,
-            beneficiaryName:
+            beneficiary:
               vis.beneficiaryName !== false &&
               vis.beneficiary !== false &&
               !isFieldOmitted('account_name', omittedFields) &&
               resolvedBank.beneficiaryName
                 ? {
-                    key: 'beneficiaryName',
-                    label: labels.beneficiaryName || labels.beneficiary || 'Beneficiary',
-                    value: resolvedBank.beneficiaryName
+                    key: 'beneficiary',
+                    label: (labels.beneficiary || labels.beneficiaryName || 'Beneficiary').replace(/:$/, ''),
+                    value: resolvedBank.beneficiaryName,
+                    isBold: getBankRowOpt('beneficiary', 'beneficiaryName').isBold,
+                    isHighlight: getBankRowOpt('beneficiary', 'beneficiaryName').isHighlight,
+                    breakAfter: getBankRowOpt('beneficiary', 'beneficiaryName').breakAfter,
+                    fullWidth: getBankRowOpt('beneficiary', 'beneficiaryName').fullWidth
                   }
                 : null,
-            accountNumber:
+            account_number:
               vis.accountNumber !== false &&
               vis.account_number !== false &&
               !isFieldOmitted('account_no', omittedFields) &&
               resolvedBank.accountNumber
                 ? {
-                    key: 'accountNumber',
-                    label: labels.accountNumber || labels.account_number || 'Account No',
+                    key: 'account_number',
+                    label: (labels.account_number || labels.accountNumber || 'Account No').replace(/:$/, ''),
                     value: resolvedBank.accountNumber,
-                    isMono: true
+                    isMono: true,
+                    isBold: getBankRowOpt('account_number', 'accountNumber').isBold,
+                    isHighlight: getBankRowOpt('account_number', 'accountNumber').isHighlight,
+                    breakAfter: getBankRowOpt('account_number', 'accountNumber').breakAfter,
+                    fullWidth: getBankRowOpt('account_number', 'accountNumber').fullWidth
                   }
                 : null,
             iban:
@@ -4749,78 +5043,101 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               resolvedBank.iban
                 ? {
                     key: 'iban',
-                    label: labels.iban || 'IBAN',
+                    label: (labels.iban || 'IBAN').replace(/:$/, ''),
                     value: resolvedBank.iban,
                     isMono: true,
-                    isBold: true
+                    isBold: getBankRowOpt('iban', 'iban').isBold ?? true,
+                    isHighlight: getBankRowOpt('iban', 'iban').isHighlight,
+                    breakAfter: getBankRowOpt('iban', 'iban').breakAfter,
+                    fullWidth: getBankRowOpt('iban', 'iban').fullWidth
                   }
                 : null,
-            swiftCode:
+            swift:
               vis.swiftCode !== false &&
               vis.swift !== false &&
               !isFieldOmitted('swift', omittedFields) &&
               resolvedBank.swiftCode
                 ? {
-                    key: 'swiftCode',
-                    label: labels.swiftCode || labels.swift || 'SWIFT / BIC',
+                    key: 'swift',
+                    label: (labels.swift || labels.swiftCode || 'SWIFT / BIC').replace(/:$/, ''),
                     value: resolvedBank.swiftCode,
-                    isMono: true
+                    isMono: true,
+                    isBold: getBankRowOpt('swift', 'swiftCode').isBold,
+                    isHighlight: getBankRowOpt('swift', 'swiftCode').isHighlight,
+                    breakAfter: getBankRowOpt('swift', 'swiftCode').breakAfter,
+                    fullWidth: getBankRowOpt('swift', 'swiftCode').fullWidth
                   }
                 : null,
-            branchName:
+            branch:
               vis.branchName !== false &&
               vis.branch !== false &&
               resolvedBank.branchName
                 ? {
-                    key: 'branchName',
-                    label: labels.branchName || labels.branch || 'Branch',
-                    value: resolvedBank.branchName
+                    key: 'branch',
+                    label: (labels.branch || labels.branchName || 'Branch').replace(/:$/, ''),
+                    value: resolvedBank.branchName,
+                    isBold: getBankRowOpt('branch', 'branchName').isBold,
+                    isHighlight: getBankRowOpt('branch', 'branchName').isHighlight,
+                    breakAfter: getBankRowOpt('branch', 'branchName').breakAfter,
+                    fullWidth: getBankRowOpt('branch', 'branchName').fullWidth
                   }
                 : null,
             currency:
               vis.currency === true && resolvedBank.currency
                 ? {
                     key: 'currency',
-                    label: labels.currency || 'Currency',
+                    label: (labels.currency || 'Currency').replace(/:$/, ''),
                     value: resolvedBank.currency,
-                    isMono: true
+                    isMono: true,
+                    isBold: getBankRowOpt('currency', 'currency').isBold,
+                    isHighlight: getBankRowOpt('currency', 'currency').isHighlight,
+                    breakAfter: getBankRowOpt('currency', 'currency').breakAfter,
+                    fullWidth: getBankRowOpt('currency', 'currency').fullWidth
                   }
                 : null
           }
         : {};
 
-      const defaultOrder = [
-        'bankName',
-        'beneficiaryName',
-        'accountNumber',
-        'iban',
-        'swiftCode',
-        'branchName',
-        'currency'
-      ];
-      const order = blockConfig?.fieldOrder || defaultOrder;
-      const orderedBankRows: Array<{
-        key: string;
-        label: string;
-        value: React.ReactNode;
-        isMono?: boolean;
-        isBold?: boolean;
-      }> = [];
-      order.forEach((k) => {
-        if (bankRowsMap[k]) orderedBankRows.push(bankRowsMap[k]!);
-      });
-      defaultOrder.forEach((k) => {
-        if (!order.includes(k) && bankRowsMap[k]) orderedBankRows.push(bankRowsMap[k]!);
+      const customRowsList = blockConfig?.customRows || [];
+      customRowsList.forEach((cr) => {
+        if (cr.enabled !== false && !shouldHideCustomRow(cr, tokenContext) && (cr.label || cr.value)) {
+          unifiedRowMap[cr.id] = {
+            key: cr.id,
+            label: resolveQuotationTokens(cr.label || 'Detail', tokenContext).replace(/:$/, ''),
+            value: renderResolvedQuotationText(cr.value, tokenContext),
+            breakAfter: cr.breakAfter,
+            fullWidth: cr.fullWidth,
+            isBold: cr.isBold,
+            isHighlight: cr.isHighlight
+          };
+        }
       });
 
-      (blockConfig?.customRows || []).forEach((cr) => {
-        if (!shouldHideCustomRow(cr, tokenContext) && (cr.label || cr.value)) {
-          orderedBankRows.push({
-            key: cr.id,
-            label: resolveQuotationTokens(cr.label || 'Detail', tokenContext),
-            value: renderResolvedQuotationText(cr.value, tokenContext)
-          });
-        }
+      const defaultBuiltInOrder = [
+        'bank_name',
+        'beneficiary',
+        'account_number',
+        'iban',
+        'swift',
+        'branch',
+        'currency'
+      ];
+      const allAvailableKeys = [
+        ...defaultBuiltInOrder,
+        ...customRowsList.map((r) => r.id)
+      ];
+      const normalizedRawOrder =
+        blockConfig?.fieldOrder && blockConfig.fieldOrder.length > 0
+          ? blockConfig.fieldOrder.map(normalizeBankKey)
+          : allAvailableKeys;
+      const unifiedOrder = [
+        ...normalizedRawOrder.filter((k, i) => allAvailableKeys.includes(k) && normalizedRawOrder.indexOf(k) === i),
+        ...allAvailableKeys.filter((k) => !normalizedRawOrder.includes(k))
+      ];
+
+      const orderedBankRows: StandardizedKeyValueRowItem[] = [];
+      unifiedOrder.forEach((k) => {
+        if (unifiedRowMap[k]) orderedBankRows.push(unifiedRowMap[k]!);
       });
 
       return (
@@ -5328,43 +5645,120 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     ) => {
       const vis = blockConfig?.visibleFields || {};
       const labels = blockConfig?.fieldLabels || {};
-      const defaultSlots = [
+      const rowOpts = blockConfig?.fieldRowOptions || {};
+
+      type AcceptanceSlotEntry = {
+        key: string;
+        label: string;
+        lineStyle: 'solid' | 'dotted' | 'box';
+        fullWidth?: boolean;
+      };
+
+      const defaultSlotDefs: Array<{
+        key: string;
+        label: string;
+        defaultLineStyle: 'solid' | 'dotted' | 'box';
+        defaultOn: boolean;
+      }> = [
         {
           key: 'signature',
           label: labels.signature || (isPurchaseOrder ? 'Authorized Vendor Signature' : 'Authorized Signature'),
-          dotted: false,
+          defaultLineStyle: 'solid',
           defaultOn: true
         },
-        { key: 'name', label: labels.name || 'Signatory Name', dotted: false, defaultOn: true },
-        { key: 'title', label: labels.title || 'Title / Designation', dotted: false, defaultOn: false },
+        {
+          key: 'name',
+          label: labels.name || 'Signatory Name',
+          defaultLineStyle: 'solid',
+          defaultOn: true
+        },
+        {
+          key: 'title',
+          label: labels.title || 'Title / Designation',
+          defaultLineStyle: 'solid',
+          defaultOn: false
+        },
         {
           key: 'po_number',
           label: labels.po_number || (isPurchaseOrder ? 'Supplier SO / Ref #' : 'PO Number'),
-          dotted: false,
+          defaultLineStyle: 'solid',
           defaultOn: false
         },
-        { key: 'date', label: labels.date || 'Date', dotted: false, defaultOn: true },
+        {
+          key: 'date',
+          label: labels.date || 'Date',
+          defaultLineStyle: 'solid',
+          defaultOn: true
+        },
         {
           key: 'stamp',
           label: labels.stamp || (isPurchaseOrder ? 'Vendor Stamp' : 'Company Stamp'),
-          dotted: true,
+          defaultLineStyle: 'dotted',
           defaultOn: true
         }
       ];
 
-      const activeSlots = defaultSlots.filter((slot) =>
-        vis[slot.key] !== undefined ? vis[slot.key] : slot.defaultOn
-      );
+      const unifiedSlotMap: Record<string, AcceptanceSlotEntry | null> = {};
+      defaultSlotDefs.forEach((slot) => {
+        const isOn = vis[slot.key] !== undefined ? vis[slot.key] : slot.defaultOn;
+        if (isOn) {
+          unifiedSlotMap[slot.key] = {
+            key: slot.key,
+            label: slot.label,
+            lineStyle: slot.defaultLineStyle,
+            fullWidth: Boolean(rowOpts[slot.key]?.fullWidth)
+          };
+        }
+      });
 
-      (blockConfig?.customRows || []).forEach((cr) => {
-        if (!shouldHideCustomRow(cr, tokenContext) && (cr.label || cr.value)) {
-          activeSlots.push({
+      const customSlots = blockConfig?.customAcceptanceSlots || [];
+      customSlots.forEach((cs) => {
+        if (cs.enabled !== false && cs.label) {
+          const resolvedLbl = resolveQuotationTokens(cs.label, tokenContext);
+          if (cs.emptyBehavior === 'hide' && !resolvedLbl.trim()) return;
+          unifiedSlotMap[cs.id] = {
+            key: cs.id,
+            label: resolvedLbl || 'Field',
+            lineStyle: cs.lineStyle || 'solid',
+            fullWidth: Boolean(cs.fullWidth)
+          };
+        }
+      });
+
+      const legacyCustomRows = blockConfig?.customRows || [];
+      legacyCustomRows.forEach((cr) => {
+        if (
+          !unifiedSlotMap[cr.id] &&
+          cr.enabled !== false &&
+          !shouldHideCustomRow(cr, tokenContext) &&
+          (cr.label || cr.value)
+        ) {
+          unifiedSlotMap[cr.id] = {
             key: cr.id,
             label: resolveQuotationTokens(cr.label || cr.value || 'Field', tokenContext),
-            dotted: false,
-            defaultOn: true
-          });
+            lineStyle: 'solid',
+            fullWidth: Boolean(cr.fullWidth)
+          };
         }
+      });
+
+      const allSlotKeys = [
+        ...defaultSlotDefs.map((s) => s.key),
+        ...customSlots.map((cs) => cs.id),
+        ...legacyCustomRows.map((cr) => cr.id).filter((id) => !customSlots.some((cs) => cs.id === id))
+      ];
+      const rawOrder =
+        blockConfig?.fieldOrder && blockConfig.fieldOrder.length > 0
+          ? blockConfig.fieldOrder
+          : allSlotKeys;
+      const unifiedOrder = [
+        ...rawOrder.filter((k) => allSlotKeys.includes(k)),
+        ...allSlotKeys.filter((k) => !rawOrder.includes(k))
+      ];
+
+      const activeSlots: AcceptanceSlotEntry[] = [];
+      unifiedOrder.forEach((k) => {
+        if (unifiedSlotMap[k]) activeSlots.push(unifiedSlotMap[k]!);
       });
 
       const effectiveLayout =
@@ -5428,15 +5822,25 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           {activeSlots.length > 0 && (
             <div className={`${gridClass} text-[var(--block-base)]`}>
               {activeSlots.map((slot) => (
-                <div key={slot.key}>
+                <div key={slot.key} className={slot.fullWidth ? 'col-span-full text-left' : ''}>
                   <span className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider block">
                     {slot.label}
                   </span>
-                  <div
-                    className={`${
-                      effectiveLayout === 'compact' ? 'h-3.5' : 'h-5'
-                    } border-b border-slate-300 ${slot.dotted ? 'border-dotted' : ''} mt-1`}
-                  />
+                  {slot.lineStyle === 'box' ? (
+                    <div
+                      className={`${
+                        effectiveLayout === 'compact' ? 'h-5' : 'h-7'
+                      } border border-dashed border-slate-300 rounded mt-1`}
+                    />
+                  ) : (
+                    <div
+                      className={`${
+                        effectiveLayout === 'compact' ? 'h-3.5' : 'h-5'
+                      } border-b border-slate-300 ${
+                        slot.lineStyle === 'dotted' ? 'border-dotted' : ''
+                      } mt-1`}
+                    />
+                  )}
                 </div>
               ))}
             </div>
@@ -7284,26 +7688,34 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 }}
                 className={`quotation-spacer-block ${spacerMeta.className} ${
                   showGuides
-                    ? 'cursor-pointer rounded-lg border border-dashed border-slate-200/80 hover:border-blue-400 hover:bg-blue-50/30 print:border-none print:bg-transparent transition-all relative group'
+                    ? 'cursor-pointer rounded-lg border border-dashed border-transparent hover:border-blue-300 hover:bg-blue-50/30 print:border-none print:bg-transparent transition-all relative group'
                     : isInteractive
                     ? 'cursor-pointer relative group'
                     : ''
                 } ${
                   isSelected
-                    ? 'ring-2 ring-blue-500 border-blue-400 bg-blue-50/30 print:ring-0 print:border-none print:bg-transparent'
+                    ? 'ring-2 ring-blue-500 border-blue-300 bg-blue-50/30 print:ring-0 print:border-none print:bg-transparent'
                     : ''
                 }`}
               >
                 {showGuides && (
                   <div
                     className={`quotation-canvas-guide absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity print:hidden ${
-                      isSelected ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'
+                      isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                     }`}
                   >
-                    <span className={`px-2 py-0.5 rounded text-[9px] font-mono shadow-2xs ${
-                      isSelected ? 'bg-blue-600 text-white font-semibold' : 'bg-slate-800/75 text-white'
-                    }`}>
-                      {spacerMeta.badgeLabel}
+                    <span
+                      className={`px-2 py-0.5 rounded text-[9px] font-mono shadow-2xs border ${
+                        isSelected
+                          ? 'bg-blue-600 text-white border-blue-600 font-semibold'
+                          : 'bg-blue-50/95 text-blue-700 border-blue-200 font-medium'
+                      }`}
+                    >
+                      ↕ Spacer:{' '}
+                      {b.spacer_fill_remaining
+                        ? 'Fill Remaining'
+                        : `${b.spacer_height_mm || 20}mm`}{' '}
+                      (Non-Printing)
                     </span>
                   </div>
                 )}

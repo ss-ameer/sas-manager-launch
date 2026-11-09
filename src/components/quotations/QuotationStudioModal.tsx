@@ -1050,7 +1050,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     showUom: true,
     showLineTotal: true,
     showItemAttributes: true,
-    attributeDisplayFormat: 'pills',
+    attributeDisplayFormat: 'grid_2col_balanced',
     hiddenAttributeKeys: [],
     showLineItemImages: false,
     lineItemImageLayout: 'inline',
@@ -2755,6 +2755,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   );
   const [focusedRecipientStyleTarget, setFocusedRecipientStyleTarget] = useState<string>('recipient_card');
   const [focusedOfferStyleTarget, setFocusedOfferStyleTarget] = useState<string>('offer_card');
+  const [blockInspectorTab, setBlockInspectorTab] = useState<'content' | 'style'>('content');
 
   useEffect(() => {
     const computeAutoScale = () => {
@@ -6214,7 +6215,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         showUom: visibleColumns.showUom !== false,
         showLineTotal: visibleColumns.showLineTotal !== false,
         showItemAttributes: visibleColumns.showItemAttributes !== false,
-        attributeDisplayFormat: visibleColumns.attributeDisplayFormat || 'pills',
+        attributeDisplayFormat: visibleColumns.attributeDisplayFormat || 'grid_2col_balanced',
         hiddenAttributeKeys: visibleColumns.hiddenAttributeKeys || [],
         showAmountInWords: amountInWordsEnabled
       },
@@ -7208,13 +7209,41 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         : 'Quotation'}{' '}
                       Template
                     </option>
-                    {filteredPresetsForDocType.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.preset_name}{p.is_default ? ' (★ Default)' : ''}
-                      </option>
-                    ))}
+                    {filteredPresetsForDocType.map((p) => {
+                      const pType = p.document_type || 'quotation';
+                      const docTag =
+                        pType === 'delivery_note'
+                          ? 'DO'
+                          : pType === 'purchase_order'
+                          ? 'PO'
+                          : pType === 'receipt'
+                          ? 'REC'
+                          : pType === 'payment_voucher'
+                          ? 'PV'
+                          : pType === 'material_return_note' || pType === 'material_return'
+                          ? 'MRN'
+                          : pType === 'debit_note'
+                          ? 'DN'
+                          : 'QT';
+                      return (
+                        <option key={p.id} value={p.id}>
+                          [{docTag}] {p.preset_name}{p.is_default ? ' (★ Default)' : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
+
+                {selectedPreset &&
+                  selectedPreset.document_type &&
+                  selectedPreset.document_type !== (documentType || 'quotation') && (
+                    <div className="mt-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-medium flex items-center justify-between gap-2">
+                      <span>
+                        Preset belongs to <strong>{selectedPreset.document_type}</strong> (active mode:{' '}
+                        <strong>{documentType || 'quotation'}</strong>).
+                      </span>
+                    </div>
+                  )}
 
                 {/* Quick-Action Lifecycle Controls for Active Profile & Preset */}
                 <div className="mt-2 flex items-center justify-between gap-1.5 pt-1.5 border-t border-slate-100 flex-wrap">
@@ -7222,14 +7251,34 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     <button
                       type="button"
                       disabled={isSavingPreset}
-                      onClick={() => handleSaveToActiveProfileAndPreset(false)}
-                      title="Save layout, styling, and brand overrides to the selected preset"
+                      onClick={() => {
+                        if (
+                          selectedPreset &&
+                          selectedPreset.document_type &&
+                          selectedPreset.document_type !== (documentType || 'quotation')
+                        ) {
+                          setNewPresetName(`${selectedPreset.preset_name} (${(documentType || 'quotation').toUpperCase()})`);
+                          setIsSavePresetModalOpen(true);
+                          return;
+                        }
+                        handleSaveToActiveProfileAndPreset(false);
+                      }}
+                      title={
+                        selectedPreset &&
+                        selectedPreset.document_type &&
+                        selectedPreset.document_type !== (documentType || 'quotation')
+                          ? 'Save as a new preset for the active document type to avoid overwriting another document mode'
+                          : 'Save layout, styling, and brand overrides to the selected preset'
+                      }
                       className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs"
                     >
                       <Save className="w-3 h-3" />
                       <span>
                         {selectedPreset
-                          ? `Update Preset`
+                          ? selectedPreset.document_type &&
+                            selectedPreset.document_type !== (documentType || 'quotation')
+                            ? 'Save as New Preset for Mode'
+                            : 'Update Preset'
                           : 'Save to Default Profile'}
                       </span>
                     </button>
@@ -11089,30 +11138,22 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     </div>
 
                     {/* Submittals Index Visibility Toggle */}
-                    <label className="flex items-center space-x-2 cursor-pointer select-none p-2 rounded-lg bg-slate-50 border border-slate-200/80">
-                      <input
-                        type="checkbox"
-                        checked={showSubmittalsIndex}
-                        onChange={(e) => setShowSubmittalsIndex(e.target.checked)}
-                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <span className="text-slate-700 font-medium text-[11px]">
-                        Show Attached Files on{' '}
-                        {documentType === 'delivery_note'
-                          ? 'Delivery Note'
-                          : documentType === 'receipt'
-                          ? 'Receipt'
-                          : documentType === 'purchase_order'
-                          ? 'Purchase Order'
-                          : documentType === 'payment_voucher'
-                          ? 'Payment Voucher'
-                          : documentType === 'material_return'
-                          ? 'Material Return Note'
-                          : documentType === 'debit_note'
-                          ? 'Debit Note'
-                          : 'Quotation'}
-                      </span>
-                    </label>
+                    <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200/80 space-y-1">
+                      <label className="flex items-center space-x-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={showSubmittalsIndex}
+                          onChange={(e) => setShowSubmittalsIndex(e.target.checked)}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-slate-800 font-semibold text-[11px]">
+                          Show Submittals Index List on Main Page
+                        </span>
+                      </label>
+                      <p className="text-[10px] text-slate-500 pl-6 leading-snug">
+                        Toggles the text index block on the quote. Cover Pages &amp; Annex Sheets below always render per their placement button.
+                      </p>
+                    </div>
 
                     {/* Upload Image File or Add by Title + URL */}
                     <div className="space-y-2 pt-1 border-t border-slate-100">
@@ -17154,66 +17195,189 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                 return (
                   <aside className="w-full lg:w-[360px] xl:w-[380px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
-                    {/* Drawer Header */}
-                    <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                          selectedBlockType === 'page_break'
-                            ? 'bg-amber-100 text-amber-700'
-                            : 'bg-blue-100 text-blue-700'
-                        }`}>
-                          <Icon className="w-4 h-4" />
+                    {/* Drawer Header + Sticky Quick Jump + 2-Tab Switcher */}
+                    <div className="p-3 bg-slate-50 border-b border-slate-200 sticky top-0 z-10 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                            selectedBlockType === 'page_break'
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            <Icon className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="font-bold text-slate-900 text-xs truncate">
+                              {meta.label}
+                            </h4>
+                            <p className="text-[10px] text-slate-400 font-mono">
+                              Block Inspector • Slot #{blockIndex + 1}
+                            </p>
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <h4 className="font-bold text-slate-900 text-xs truncate">
-                            {meta.label}
-                          </h4>
-                          <p className="text-[10px] text-slate-400 font-mono">
-                            Block Inspector • Slot #{blockIndex + 1}
-                          </p>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedSection(null)}
+                          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition cursor-pointer"
+                          title="Close Inspector"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedSection(null)}
-                        className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition cursor-pointer"
-                        title="Close Inspector"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
+
+                      {/* Sticky Quick Jump Strip */}
+                      <div className="flex items-center gap-1 overflow-x-auto pb-0.5 no-scrollbar">
+                        {layoutBlocks
+                          .filter((b) => {
+                            const bType = b.type || b.id;
+                            return bType !== 'page_break' && bType !== 'spacer' && !b.id.startsWith('page_break_') && !b.id.startsWith('spacer_');
+                          })
+                          .map((b) => {
+                            const bLabel =
+                              b.id === 'totals'
+                                ? 'Totals'
+                                : b.id === 'terms'
+                                ? 'Terms'
+                                : b.id === 'remittance'
+                                ? 'Bank'
+                                : b.id === 'acceptance'
+                                ? 'Acceptance'
+                                : b.id === 'signatory'
+                                ? 'Signatory'
+                                : getBlockMeta(b).label.split(' ')[0];
+                            const isSelectedChip = selectedBlock.id === b.id;
+                            return (
+                              <button
+                                key={b.id}
+                                type="button"
+                                onClick={() => handleInspectBlock(b.id)}
+                                className={`px-2 py-0.5 rounded-md text-[10px] font-semibold shrink-0 transition cursor-pointer ${
+                                  isSelectedChip
+                                    ? 'bg-blue-600 text-white shadow-2xs'
+                                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                                }`}
+                              >
+                                {bLabel}
+                              </button>
+                            );
+                          })}
+                      </div>
+
+                      {/* 2-Segment Tab Switcher (Content & Fields vs Card Style & Box) */}
+                      {selectedBlockType !== 'page_break' && selectedBlockType !== 'spacer' && (
+                        <div className="grid grid-cols-2 gap-1 p-1 bg-slate-200/80 rounded-xl">
+                          <button
+                            type="button"
+                            onClick={() => setBlockInspectorTab('content')}
+                            className={`py-1.5 px-2 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+                              blockInspectorTab === 'content'
+                                ? 'bg-white text-blue-700 shadow-2xs'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            Content &amp; Fields
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setBlockInspectorTab('style')}
+                            className={`py-1.5 px-2 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+                              blockInspectorTab === 'style'
+                                ? 'bg-white text-blue-700 shadow-2xs'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            Card Style &amp; Box
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {/* Drawer Content */}
                     <div className="p-4 space-y-4 text-xs">
-                      {/* Sticky Unified Text & Element Style Bar for Block & Specialized Sign-Off Cards */}
+                      {/* Compact 1-Line Quick Layout Bar at top of Content & Fields tab */}
                       {selectedBlockType !== 'page_break' &&
                         selectedBlockType !== 'spacer' &&
-                        renderUnifiedElementStyleBar(
-                          `block:${selectedBlock.id}`,
-                          selectedBlock.id === 'acceptance' && documentType === 'purchase_order'
-                            ? 'Vendor Order Acknowledgment'
-                            : meta.label,
-                          [
-                            {
-                              id: `block:${selectedBlock.id}`,
-                              label:
-                                selectedBlock.id === 'acceptance' && documentType === 'purchase_order'
-                                  ? 'Vendor Order Acknowledgment Block'
-                                  : `${meta.label} Block`
-                            }
-                          ],
-                          setFocusedBlockStyleTarget,
-                          `block:${selectedBlock.id}`
+                        blockInspectorTab === 'content' && (
+                          <div className="bg-slate-50 border border-slate-200/90 rounded-xl p-2 flex items-center justify-between gap-1.5 flex-wrap">
+                            <label className="flex items-center gap-1.5 cursor-pointer shrink-0">
+                              <input
+                                type="checkbox"
+                                checked={!isBlockHidden}
+                                onChange={(e) =>
+                                  handleToggleBlockEnabled(selectedBlock.id, e.target.checked)
+                                }
+                                className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                              />
+                              <span className="text-[10.5px] font-semibold text-slate-700">
+                                Visible
+                              </span>
+                            </label>
+
+                            <div className="flex items-center gap-0.5 bg-white p-0.5 rounded-lg border border-slate-200">
+                              {[
+                                { id: 'left', label: 'Left 50%' },
+                                { id: 'full', label: 'Full 100%' },
+                                { id: 'right', label: 'Right 50%' }
+                              ].map((p) => {
+                                const isSel = selectedBlock.placement === p.id;
+                                return (
+                                  <button
+                                    key={p.id}
+                                    type="button"
+                                    onClick={() =>
+                                      handleSetBlockPlacement(selectedBlock.id, p.id as any)
+                                    }
+                                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold transition cursor-pointer ${
+                                      isSel
+                                        ? 'bg-blue-600 text-white'
+                                        : 'text-slate-600 hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    {p.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <button
+                                type="button"
+                                disabled={isFirst}
+                                onClick={() => handleMoveBlock(blockIndex, 'up')}
+                                title="Move Block Up"
+                                className="p-1 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-30 text-slate-600 cursor-pointer"
+                              >
+                                <ArrowUp className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isLast}
+                                onClick={() => handleMoveBlock(blockIndex, 'down')}
+                                title="Move Block Down"
+                                className="p-1 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-30 text-slate-600 cursor-pointer"
+                              >
+                                <ArrowDown className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
                         )}
 
+                      {/* Amber Notice Banner when Block is Hidden */}
+                      {isBlockHidden && (
+                        <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-[11px] font-medium leading-relaxed">
+                          This block is currently hidden on the PDF. Check Visible to render it.
+                        </div>
+                      )}
+
                       {/* Dedicated Signatory Preset Switcher in Right Inspector for Signatory / Acceptance Blocks */}
-                      {(selectedBlock.id === 'signatory' ||
-                        selectedBlock.id === 'signatories' ||
-                        selectedBlock.id === 'acceptance') &&
+                      {blockInspectorTab === 'content' &&
+                        (selectedBlock.id === 'signatory' ||
+                          selectedBlock.id === 'signatories' ||
+                          selectedBlock.id === 'acceptance') &&
                         renderSignatoryPresetSwitcherBar()}
 
                       {/* Unified Commercial Summary & Totals Hub (Top of Totals Inspector) */}
-                      {selectedBlock.id === 'totals' && (
+                      {blockInspectorTab === 'content' && selectedBlock.id === 'totals' && (
                         <div className="space-y-3.5 pb-2 border-b border-slate-200">
                           {/* Card 1 — Document Pricing & Option Mode */}
                           <div className="p-3 rounded-xl border border-indigo-200 bg-indigo-50/50 space-y-3">
@@ -17522,62 +17686,60 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         </div>
                       )}
 
-                      {/* 1. Visibility Toggle */}
-                      <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-3 flex items-center justify-between">
-                        <div>
-                          <span className="font-semibold text-slate-800 text-xs block">
-                            Document Visibility
-                          </span>
-                          <span className="text-[10.5px] text-slate-500">
-                            {!isBlockHidden
-                              ? 'Active in layout sequence'
-                              : 'Hidden from output'}
-                          </span>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={!isBlockHidden}
-                            onChange={(e) => handleToggleBlockEnabled(selectedBlock.id, e.target.checked)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                        </label>
-                      </div>
+                      {/* Visibility & Sequential Ordering (shown on Page Break / Spacer or Card Style tab) */}
+                      {(selectedBlockType === 'page_break' ||
+                        selectedBlockType === 'spacer' ||
+                        blockInspectorTab === 'style') && (
+                        <>
+                          <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-3 flex items-center justify-between">
+                            <div>
+                              <span className="font-semibold text-slate-800 text-xs block">
+                                Document Visibility
+                              </span>
+                              <span className="text-[10.5px] text-slate-500">
+                                {!isBlockHidden
+                                  ? 'Active in layout sequence'
+                                  : 'Hidden from output'}
+                              </span>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={!isBlockHidden}
+                                onChange={(e) => handleToggleBlockEnabled(selectedBlock.id, e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                          </div>
 
-                      {/* Amber Notice Banner when Block is Hidden */}
-                      {isBlockHidden && (
-                        <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-[11px] font-medium leading-relaxed">
-                          This block is currently hidden on the PDF. Toggle Document Visibility on to render it.
-                        </div>
+                          <div>
+                            <label className="block text-slate-500 font-medium mb-1.5 text-[11px]">
+                              Sequential Ordering
+                            </label>
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                disabled={isFirst}
+                                onClick={() => handleMoveBlock(blockIndex, 'up')}
+                                className="py-1.5 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 text-slate-700 font-medium text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                              >
+                                <ArrowUp className="w-3.5 h-3.5 text-slate-500" />
+                                <span>Move Up</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isLast}
+                                onClick={() => handleMoveBlock(blockIndex, 'down')}
+                                className="py-1.5 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 text-slate-700 font-medium text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                              >
+                                <ArrowDown className="w-3.5 h-3.5 text-slate-500" />
+                                <span>Move Down</span>
+                              </button>
+                            </div>
+                          </div>
+                        </>
                       )}
-
-                      {/* 2. Reordering Controls (Up / Down) */}
-                      <div>
-                        <label className="block text-slate-500 font-medium mb-1.5 text-[11px]">
-                          Sequential Ordering
-                        </label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            disabled={isFirst}
-                            onClick={() => handleMoveBlock(blockIndex, 'up')}
-                            className="py-1.5 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 text-slate-700 font-medium text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
-                          >
-                            <ArrowUp className="w-3.5 h-3.5 text-slate-500" />
-                            <span>Move Up</span>
-                          </button>
-                          <button
-                            type="button"
-                            disabled={isLast}
-                            onClick={() => handleMoveBlock(blockIndex, 'down')}
-                            className="py-1.5 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 text-slate-700 font-medium text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
-                          >
-                            <ArrowDown className="w-3.5 h-3.5 text-slate-500" />
-                            <span>Move Down</span>
-                          </button>
-                        </div>
-                      </div>
 
                       {/* PAGE BREAK INSPECTOR PANEL */}
                       {selectedBlockType === 'page_break' && (
@@ -17711,1291 +17873,1728 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       {/* STANDARD & CUSTOM LEGO BLOCK CONTROLS */}
                       {selectedBlockType !== 'page_break' && selectedBlockType !== 'spacer' && (
                         <>
-                          {/* Position Zone (Above Items Table vs Below Items Table) */}
-                          <div>
-                            <div className="flex items-center justify-between mb-1.5 text-[11px]">
-                              <span className="text-slate-500 font-medium">Document Position Zone</span>
-                              <span className="font-mono text-indigo-600 font-semibold">
-                                {selectedBlock.zone === 'pre_table' ? '⬆️ Above Table' : '⬇️ Below Table'}
-                              </span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleUpdateBlockConfig(selectedBlock.id, { zone: 'pre_table' })
-                                }
-                                className={`py-1.5 px-2 rounded-lg text-[10.5px] font-medium transition cursor-pointer ${
-                                  selectedBlock.zone === 'pre_table'
-                                    ? 'bg-indigo-600 text-white font-semibold shadow-2xs'
-                                    : 'hover:bg-white text-slate-600'
-                                }`}
-                              >
-                                ⬆️ Above Items Table
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleUpdateBlockConfig(selectedBlock.id, { zone: 'post_table' })
-                                }
-                                className={`py-1.5 px-2 rounded-lg text-[10.5px] font-medium transition cursor-pointer ${
-                                  selectedBlock.zone !== 'pre_table'
-                                    ? 'bg-indigo-600 text-white font-semibold shadow-2xs'
-                                    : 'hover:bg-white text-slate-600'
-                                }`}
-                              >
-                                ⬇️ Below Items Table
-                              </button>
-                            </div>
-                          </div>
+                          {blockInspectorTab === 'style' && (
+                            <div className="space-y-4">
+                              {/* Unified Element Style Bar inside Card Style & Box tab */}
+                              {renderUnifiedElementStyleBar(
+                                `block:${selectedBlock.id}`,
+                                selectedBlock.id === 'acceptance' && documentType === 'purchase_order'
+                                  ? 'Vendor Order Acknowledgment'
+                                  : meta.label,
+                                [
+                                  {
+                                    id: `block:${selectedBlock.id}`,
+                                    label:
+                                      selectedBlock.id === 'acceptance' && documentType === 'purchase_order'
+                                        ? 'Vendor Order Acknowledgment Block'
+                                        : `${meta.label} Block`
+                                  }
+                                ],
+                                setFocusedBlockStyleTarget,
+                                `block:${selectedBlock.id}`
+                              )}
 
-                          {/* 3. Placement Selector: 3-Way Segmented Control */}
-                          <div>
-                            <div className="flex items-center justify-between mb-1.5 text-[11px]">
-                              <span className="text-slate-500 font-medium">Placement Track</span>
-                              <span className="font-mono text-slate-400 capitalize">{selectedBlock.placement} width</span>
-                            </div>
-                            <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
-                              {[
-                                { id: 'left', label: 'Left 50%' },
-                                { id: 'full', label: 'Full 100%' },
-                                { id: 'right', label: 'Right 50%' }
-                              ].map((p) => {
-                                const isSelected = selectedBlock.placement === p.id;
-                                return (
-                                  <button
-                                    key={p.id}
-                                    type="button"
-                                    onClick={() => handleSetBlockPlacement(selectedBlock.id, p.id as any)}
-                                    className={`py-1.5 px-1 rounded-lg text-[11px] font-medium transition text-center cursor-pointer ${
-                                      isSelected
-                                        ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                                        : 'hover:bg-white text-slate-600'
-                                    }`}
-                                  >
-                                    {p.label}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                            <p className="text-[10px] text-slate-400 mt-1">
-                              Paired Left &amp; Right blocks on the same row stretch to equal height automatically.
-                            </p>
-                          </div>
-
-                          {/* 4. Style Selector: Framed vs Minimal */}
-                          <div>
-                            <div className="flex items-center justify-between mb-1.5 text-[11px]">
-                              <span className="text-slate-500 font-medium">Presentation Style</span>
-                              <span className="font-mono text-slate-400 capitalize">{selectedBlock.style}</span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                              {[
-                                { id: 'framed', label: 'Framed', desc: 'Card border & fill' },
-                                { id: 'minimal', label: 'Minimal', desc: 'Hairline divider' }
-                              ].map((s) => {
-                                const isSelected = selectedBlock.style === s.id;
-                                return (
-                                  <button
-                                    key={s.id}
-                                    type="button"
-                                    onClick={() => handleSetBlockStyle(selectedBlock.id, s.id as any)}
-                                    className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer ${
-                                      isSelected
-                                        ? 'border-blue-600 bg-blue-50/80 text-blue-900 ring-2 ring-blue-600/20'
-                                        : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
-                                    }`}
-                                  >
-                                    <p className="font-semibold text-xs">{s.label}</p>
-                                    <p className="text-[10px] text-slate-400 mt-0.5">{s.desc}</p>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          {/* 5. Font Scale: Compact (9px) / Standard (10px) / Prominent (11px) */}
-                          <div>
-                            <div className="flex items-center justify-between mb-1.5 text-[11px]">
-                              <span className="text-slate-500 font-medium">Typography Scale</span>
-                              <span className="font-mono text-slate-400 capitalize">{selectedBlock.fontScale || 'standard'}</span>
-                            </div>
-                            <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
-                              {[
-                                { id: 'compact', label: 'Small', size: '9px' },
-                                { id: 'standard', label: 'Base', size: '10px' },
-                                { id: 'prominent', label: 'Large', size: '11px' }
-                              ].map((f) => {
-                                const isSelected = (selectedBlock.fontScale || 'standard') === f.id;
-                                return (
-                                  <button
-                                    key={f.id}
-                                    type="button"
-                                    onClick={() => handleSetBlockFontScale(selectedBlock.id, f.id as any)}
-                                    className={`py-1.5 px-1 rounded-lg text-[11px] font-medium transition text-center cursor-pointer ${
-                                      isSelected
-                                        ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                                        : 'hover:bg-white text-slate-600'
-                                    }`}
-                                  >
-                                    <div>{f.label}</div>
-                                    <div className={`text-[9px] ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>{f.size}</div>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          {/* 6. Padding: Tight (p-2) vs Normal (p-3) */}
-                          <div>
-                            <div className="flex items-center justify-between mb-1.5 text-[11px]">
-                              <span className="text-slate-500 font-medium">Card Padding</span>
-                              <span className="font-mono text-slate-400 capitalize">{selectedBlock.padding || 'standard'}</span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                              {[
-                                { id: 'compact', label: 'Tight', desc: 'p-2 (8px)' },
-                                { id: 'standard', label: 'Normal', desc: 'p-3 (12px)' }
-                              ].map((p) => {
-                                const isSelected = (selectedBlock.padding || 'standard') === p.id;
-                                return (
-                                  <button
-                                    key={p.id}
-                                    type="button"
-                                    onClick={() => handleSetBlockPadding(selectedBlock.id, p.id as any)}
-                                    className={`py-1.5 px-2.5 rounded-xl border text-center transition cursor-pointer ${
-                                      isSelected
-                                        ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
-                                        : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
-                                    }`}
-                                  >
-                                    <p className="text-xs font-semibold">{p.label}</p>
-                                    <p className="text-[10px] text-slate-400 mt-0.5">{p.desc}</p>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          {/* Standardized Section Header & Banner Override (for Content & Signatory Blocks) */}
-                          {(selectedBlock.id === 'terms' ||
-                            selectedBlock.id === 'remittance' ||
-                            selectedBlock.id === 'acceptance' ||
-                            selectedBlock.id === 'totals' ||
-                            selectedBlock.id === 'signatory') && (
-                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2.5">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[11px] font-bold text-slate-800">
-                                  Section Header &amp; Banner
-                                </span>
-                                <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-600 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedBlock.showHeaderIcon !== false}
-                                    onChange={(e) =>
-                                      handleUpdateBlockConfig(selectedBlock.id, {
-                                        showHeaderIcon: e.target.checked
-                                      })
-                                    }
-                                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
-                                  />
-                                  <span>Show Icon</span>
-                                </label>
-                              </div>
-
-                                <div className="grid grid-cols-2 gap-1.5">
-                                <div>
-                                  <label className="block text-[9.5px] font-semibold text-slate-500 mb-0.5">
-                                    Section Heading
-                                  </label>
-                                  <AtMentionInput
-                                    value={selectedBlock.titleOverride ?? ''}
-                                    onChange={(val) =>
-                                      handleUpdateBlockConfig(selectedBlock.id, {
-                                        titleOverride: val
-                                      })
-                                    }
-                                    tokenContext={studioTokenContext}
-                                    compact
-                                    placeholder={
-                                      selectedBlock.id === 'terms'
-                                        ? 'Commercial Terms & Conditions'
-                                        : selectedBlock.id === 'remittance'
-                                          ? 'Bank Remittance Details'
-                                          : selectedBlock.id === 'acceptance'
-                                            ? 'Customer Acceptance & Confirmation'
-                                            : selectedBlock.id === 'totals'
-                                              ? 'Financial Summary (opt)'
-                                              : 'Authorized Signatories (opt)'
-                                    }
-                                    className="w-full px-2 py-1 rounded-md border border-slate-300 bg-white text-[11px] text-slate-800"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-[9.5px] font-semibold text-slate-500 mb-0.5">
-                                    Right Subtitle (opt)
-                                  </label>
-                                  <AtMentionInput
-                                    value={selectedBlock.subtitleOverride ?? ''}
-                                    onChange={(val) =>
-                                      handleUpdateBlockConfig(selectedBlock.id, {
-                                        subtitleOverride: val
-                                      })
-                                    }
-                                    tokenContext={studioTokenContext}
-                                    compact
-                                    placeholder={
-                                      selectedBlock.id === 'acceptance'
-                                        ? 'Sign & Return Copy with PO'
-                                        : 'Optional subtitle'
-                                    }
-                                    className="w-full px-2 py-1 rounded-md border border-slate-300 bg-white text-[11px] text-slate-800"
-                                  />
-                                </div>
-                              </div>
-
+                              {/* Position Zone (Above Items Table vs Below Items Table) */}
                               <div>
-                                <label className="block text-[9.5px] font-semibold text-slate-500 mb-1">
-                                  Header Banner Style
-                                </label>
-                                <div className="grid grid-cols-3 gap-1">
+                                <div className="flex items-center justify-between mb-1.5 text-[11px]">
+                                  <span className="text-slate-500 font-medium">Document Position Zone</span>
+                                  <span className="font-mono text-indigo-600 font-semibold">
+                                    {selectedBlock.zone === 'pre_table' ? '⬆️ Above Table' : '⬇️ Below Table'}
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleUpdateBlockConfig(selectedBlock.id, { zone: 'pre_table' })
+                                    }
+                                    className={`py-1.5 px-2 rounded-lg text-[10.5px] font-medium transition cursor-pointer ${
+                                      selectedBlock.zone === 'pre_table'
+                                        ? 'bg-indigo-600 text-white font-semibold shadow-2xs'
+                                        : 'hover:bg-white text-slate-600'
+                                    }`}
+                                  >
+                                    ⬆️ Above Items Table
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleUpdateBlockConfig(selectedBlock.id, { zone: 'post_table' })
+                                    }
+                                    className={`py-1.5 px-2 rounded-lg text-[10.5px] font-medium transition cursor-pointer ${
+                                      selectedBlock.zone !== 'pre_table'
+                                        ? 'bg-indigo-600 text-white font-semibold shadow-2xs'
+                                        : 'hover:bg-white text-slate-600'
+                                    }`}
+                                  >
+                                    ⬇️ Below Items Table
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* 3. Placement Selector: 3-Way Segmented Control */}
+                              <div>
+                                <div className="flex items-center justify-between mb-1.5 text-[11px]">
+                                  <span className="text-slate-500 font-medium">Placement Track</span>
+                                  <span className="font-mono text-slate-400 capitalize">{selectedBlock.placement} width</span>
+                                </div>
+                                <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
                                   {[
-                                    { id: 'inherit' as const, label: 'Global' },
-                                    { id: 'underline' as const, label: 'Underline' },
-                                    { id: 'tinted' as const, label: 'Tinted' },
-                                    { id: 'solid' as const, label: 'Solid Fill' },
-                                    { id: 'minimal' as const, label: 'Minimal' },
-                                    { id: 'none' as const, label: 'Hide Title' }
-                                  ].map((opt) => {
-                                    const active = (selectedBlock.headerStyleOverride || 'inherit') === opt.id;
+                                    { id: 'left', label: 'Left 50%' },
+                                    { id: 'full', label: 'Full 100%' },
+                                    { id: 'right', label: 'Right 50%' }
+                                  ].map((p) => {
+                                    const isSelected = selectedBlock.placement === p.id;
                                     return (
                                       <button
-                                        key={opt.id}
+                                        key={p.id}
                                         type="button"
-                                        onClick={() =>
-                                          handleUpdateBlockConfig(selectedBlock.id, {
-                                            headerStyleOverride: opt.id
-                                          })
-                                        }
-                                        className={`py-1 px-1.5 rounded-md text-[10px] font-semibold transition cursor-pointer ${
-                                          active
-                                            ? 'bg-blue-600 text-white shadow-2xs'
-                                            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                                        onClick={() => handleSetBlockPlacement(selectedBlock.id, p.id as any)}
+                                        className={`py-1.5 px-1 rounded-lg text-[11px] font-medium transition text-center cursor-pointer ${
+                                          isSelected
+                                            ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                                            : 'hover:bg-white text-slate-600'
                                         }`}
                                       >
-                                        {opt.label}
+                                        {p.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-1">
+                                  Paired Left &amp; Right blocks on the same row stretch to equal height automatically.
+                                </p>
+                              </div>
+
+                              {/* 4. Style Selector: Framed vs Minimal */}
+                              <div>
+                                <div className="flex items-center justify-between mb-1.5 text-[11px]">
+                                  <span className="text-slate-500 font-medium">Presentation Style</span>
+                                  <span className="font-mono text-slate-400 capitalize">{selectedBlock.style}</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  {[
+                                    { id: 'framed', label: 'Framed', desc: 'Card border & fill' },
+                                    { id: 'minimal', label: 'Minimal', desc: 'Hairline divider' }
+                                  ].map((s) => {
+                                    const isSelected = selectedBlock.style === s.id;
+                                    return (
+                                      <button
+                                        key={s.id}
+                                        type="button"
+                                        onClick={() => handleSetBlockStyle(selectedBlock.id, s.id as any)}
+                                        className={`py-2 px-2.5 rounded-xl border text-left transition cursor-pointer ${
+                                          isSelected
+                                            ? 'border-blue-600 bg-blue-50/80 text-blue-900 ring-2 ring-blue-600/20'
+                                            : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                                        }`}
+                                      >
+                                        <p className="font-semibold text-xs">{s.label}</p>
+                                        <p className="text-[10px] text-slate-400 mt-0.5">{s.desc}</p>
                                       </button>
                                     );
                                   })}
                                 </div>
                               </div>
+
+                              {/* 5. Font Scale: Compact (9px) / Standard (10px) / Prominent (11px) */}
+                              <div>
+                                <div className="flex items-center justify-between mb-1.5 text-[11px]">
+                                  <span className="text-slate-500 font-medium">Typography Scale</span>
+                                  <span className="font-mono text-slate-400 capitalize">{selectedBlock.fontScale || 'standard'}</span>
+                                </div>
+                                <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                                  {[
+                                    { id: 'compact', label: 'Small', size: '9px' },
+                                    { id: 'standard', label: 'Base', size: '10px' },
+                                    { id: 'prominent', label: 'Large', size: '11px' }
+                                  ].map((f) => {
+                                    const isSelected = (selectedBlock.fontScale || 'standard') === f.id;
+                                    return (
+                                      <button
+                                        key={f.id}
+                                        type="button"
+                                        onClick={() => handleSetBlockFontScale(selectedBlock.id, f.id as any)}
+                                        className={`py-1.5 px-1 rounded-lg text-[11px] font-medium transition text-center cursor-pointer ${
+                                          isSelected
+                                            ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                                            : 'hover:bg-white text-slate-600'
+                                        }`}
+                                      >
+                                        <div>{f.label}</div>
+                                        <div className={`text-[9px] ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>{f.size}</div>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* 6. Padding: Tight (p-2) vs Normal (p-3) */}
+                              <div>
+                                <div className="flex items-center justify-between mb-1.5 text-[11px]">
+                                  <span className="text-slate-500 font-medium">Card Padding</span>
+                                  <span className="font-mono text-slate-400 capitalize">{selectedBlock.padding || 'standard'}</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  {[
+                                    { id: 'compact', label: 'Tight', desc: 'p-2 (8px)' },
+                                    { id: 'standard', label: 'Normal', desc: 'p-3 (12px)' }
+                                  ].map((p) => {
+                                    const isSelected = (selectedBlock.padding || 'standard') === p.id;
+                                    return (
+                                      <button
+                                        key={p.id}
+                                        type="button"
+                                        onClick={() => handleSetBlockPadding(selectedBlock.id, p.id as any)}
+                                        className={`py-1.5 px-2.5 rounded-xl border text-center transition cursor-pointer ${
+                                          isSelected
+                                            ? 'border-blue-600 bg-blue-50/80 text-blue-900 font-semibold ring-2 ring-blue-600/20'
+                                            : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-white'
+                                        }`}
+                                      >
+                                        <p className="text-xs font-semibold">{p.label}</p>
+                                        <p className="text-[10px] text-slate-400 mt-0.5">{p.desc}</p>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Standardized Section Header & Banner Override (for Content & Signatory Blocks) */}
+                              {(selectedBlock.id === 'terms' ||
+                                selectedBlock.id === 'remittance' ||
+                                selectedBlock.id === 'acceptance' ||
+                                selectedBlock.id === 'totals' ||
+                                selectedBlock.id === 'signatory') && (
+                                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-bold text-slate-800">
+                                      Section Header &amp; Banner
+                                    </span>
+                                    <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-600 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedBlock.showHeaderIcon !== false}
+                                        onChange={(e) =>
+                                          handleUpdateBlockConfig(selectedBlock.id, {
+                                            showHeaderIcon: e.target.checked
+                                          })
+                                        }
+                                        className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                      />
+                                      <span>Show Icon</span>
+                                    </label>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <div>
+                                      <label className="block text-[9.5px] font-semibold text-slate-500 mb-0.5">
+                                        Section Heading
+                                      </label>
+                                      <AtMentionInput
+                                        value={selectedBlock.titleOverride ?? ''}
+                                        onChange={(val) =>
+                                          handleUpdateBlockConfig(selectedBlock.id, {
+                                            titleOverride: val
+                                          })
+                                        }
+                                        tokenContext={studioTokenContext}
+                                        compact
+                                        placeholder={
+                                          selectedBlock.id === 'terms'
+                                            ? 'Commercial Terms & Conditions'
+                                            : selectedBlock.id === 'remittance'
+                                              ? 'Bank Remittance Details'
+                                              : selectedBlock.id === 'acceptance'
+                                                ? 'Customer Acceptance & Confirmation'
+                                                : selectedBlock.id === 'totals'
+                                                  ? 'Financial Summary (opt)'
+                                                  : 'Authorized Signatories (opt)'
+                                        }
+                                        className="w-full px-2 py-1 rounded-md border border-slate-300 bg-white text-[11px] text-slate-800"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9.5px] font-semibold text-slate-500 mb-0.5">
+                                        Right Subtitle (opt)
+                                      </label>
+                                      <AtMentionInput
+                                        value={selectedBlock.subtitleOverride ?? ''}
+                                        onChange={(val) =>
+                                          handleUpdateBlockConfig(selectedBlock.id, {
+                                            subtitleOverride: val
+                                          })
+                                        }
+                                        tokenContext={studioTokenContext}
+                                        compact
+                                        placeholder={
+                                          selectedBlock.id === 'acceptance'
+                                            ? 'Sign & Return Copy with PO'
+                                            : 'Optional subtitle'
+                                        }
+                                        className="w-full px-2 py-1 rounded-md border border-slate-300 bg-white text-[11px] text-slate-800"
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-[9.5px] font-semibold text-slate-500 mb-1">
+                                      Header Banner Style
+                                    </label>
+                                    <div className="grid grid-cols-3 gap-1">
+                                      {[
+                                        { id: 'inherit' as const, label: 'Global' },
+                                        { id: 'underline' as const, label: 'Underline' },
+                                        { id: 'tinted' as const, label: 'Tinted' },
+                                        { id: 'solid' as const, label: 'Solid Fill' },
+                                        { id: 'minimal' as const, label: 'Minimal' },
+                                        { id: 'none' as const, label: 'Hide Title' }
+                                      ].map((opt) => {
+                                        const active = (selectedBlock.headerStyleOverride || 'inherit') === opt.id;
+                                        return (
+                                          <button
+                                            key={opt.id}
+                                            type="button"
+                                            onClick={() =>
+                                              handleUpdateBlockConfig(selectedBlock.id, {
+                                                headerStyleOverride: opt.id
+                                              })
+                                            }
+                                            className={`py-1 px-1.5 rounded-md text-[10px] font-semibold transition cursor-pointer ${
+                                              active
+                                                ? 'bg-blue-600 text-white shadow-2xs'
+                                                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                                            }`}
+                                          >
+                                            {opt.label}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
 
-                          {/* Standardized Field Layout & Row Formatting (for Terms, Remittance, Totals) */}
-                          {(selectedBlock.id === 'terms' ||
-                            selectedBlock.id === 'remittance' ||
-                            selectedBlock.id === 'totals') && (
-                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2.5">
-                              <span className="text-[11px] font-bold text-slate-800 block">
-                                Field Layout &amp; Row Formatting
-                              </span>
+                          {blockInspectorTab === 'content' && (
+                            <>
+                              {/* 5-Mode Key-Value Field Layout & Row Formatting (for Terms, Remittance, Totals) */}
+                              {(selectedBlock.id === 'terms' ||
+                                selectedBlock.id === 'remittance' ||
+                                selectedBlock.id === 'totals') && (
+                                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2.5">
+                                  <span className="text-[11px] font-bold text-slate-800 block">
+                                    Key-Value Field Layout &amp; Formatting
+                                  </span>
 
-                              {selectedBlock.id !== 'totals' && (
-                                <div>
-                                  <label className="block text-[9.5px] font-semibold text-slate-500 mb-1">
-                                    Key-Value Layout Mode
-                                  </label>
-                                  <div className="grid grid-cols-3 gap-1">
-                                    {[
-                                      { id: 'split' as const, label: 'Split L/R' },
-                                      { id: 'inline' as const, label: 'Inline' },
-                                      { id: 'grid_2col' as const, label: '2-Col Grid' }
-                                    ].map((mode) => {
-                                      const active = (selectedBlock.fieldLayoutMode || 'split') === mode.id;
-                                      return (
-                                        <button
-                                          key={mode.id}
-                                          type="button"
-                                          onClick={() =>
-                                            handleUpdateBlockConfig(selectedBlock.id, {
-                                              fieldLayoutMode: mode.id
-                                            })
+                                  {selectedBlock.id !== 'totals' && (
+                                    <div className="space-y-2">
+                                      <div className="grid grid-cols-2 gap-1.5">
+                                        {[
+                                          {
+                                            id: 'split' as const,
+                                            label: 'Split Left / Right',
+                                            sub: 'Label left, value right'
+                                          },
+                                          {
+                                            id: 'grid_2col_balanced' as const,
+                                            label: '50/50 2-Column Grid',
+                                            sub: '2 fields per row, balanced'
+                                          },
+                                          {
+                                            id: 'table_2col' as const,
+                                            label: '2-Column Boxed Table',
+                                            sub: 'Bordered cells, 2 per row'
+                                          },
+                                          {
+                                            id: 'pills' as const,
+                                            label: 'Specification Badges',
+                                            sub: 'Compact pill tags'
+                                          },
+                                          {
+                                            id: 'inline' as const,
+                                            label: 'Compact Inline List',
+                                            sub: 'Label: Value stacked'
                                           }
-                                          className={`py-1.5 px-1.5 rounded-lg text-[10px] font-semibold transition cursor-pointer ${
-                                            active
-                                              ? 'bg-blue-600 text-white shadow-2xs'
-                                              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
-                                          }`}
-                                        >
-                                          {mode.label}
-                                        </button>
-                                      );
-                                    })}
+                                        ].map((mode) => {
+                                          const currentMode = selectedBlock.fieldLayoutMode || 'split';
+                                          const active =
+                                            currentMode === mode.id ||
+                                            (mode.id === 'grid_2col_balanced' && currentMode === 'grid_2col');
+                                          return (
+                                            <button
+                                              key={mode.id}
+                                              type="button"
+                                              onClick={() =>
+                                                handleUpdateBlockConfig(selectedBlock.id, {
+                                                  fieldLayoutMode: mode.id
+                                                })
+                                              }
+                                              className={`p-2 rounded-lg border text-left transition cursor-pointer ${
+                                                active
+                                                  ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                                                  : 'bg-white border-slate-200 text-slate-700 hover:border-blue-300'
+                                              }`}
+                                            >
+                                              <span className="text-[10px] font-bold block leading-tight">
+                                                {mode.label}
+                                              </span>
+                                              <span
+                                                className={`text-[9px] block mt-0.5 ${
+                                                  active ? 'text-blue-100' : 'text-slate-400'
+                                                }`}
+                                              >
+                                                {mode.sub}
+                                              </span>
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+
+                                      {/* Balance Odd Row to 100% Width toggle for 2-column modes */}
+                                      {(selectedBlock.fieldLayoutMode === 'grid_2col' ||
+                                        selectedBlock.fieldLayoutMode === 'grid_2col_balanced' ||
+                                        selectedBlock.fieldLayoutMode === 'table_2col') && (
+                                        <label className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 cursor-pointer">
+                                          <span className="text-[10px] font-semibold text-slate-700">
+                                            Balance Odd Row to 100% Width
+                                          </span>
+                                          <input
+                                            type="checkbox"
+                                            checked={selectedBlock.balanceOrphanRow ?? true}
+                                            onChange={(e) =>
+                                              handleUpdateBlockConfig(selectedBlock.id, {
+                                                balanceOrphanRow: e.target.checked
+                                              })
+                                            }
+                                            className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                          />
+                                        </label>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  <div className="grid grid-cols-2 gap-2 items-center pt-1">
+                                    <label className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-white border border-slate-200 cursor-pointer">
+                                      <span className="text-[10px] font-semibold text-slate-700">
+                                        Row Dividers
+                                      </span>
+                                      <input
+                                        type="checkbox"
+                                        checked={
+                                          selectedBlock.showRowDividers !== undefined
+                                            ? selectedBlock.showRowDividers
+                                            : selectedBlock.id === 'totals'
+                                        }
+                                        onChange={(e) =>
+                                          handleUpdateBlockConfig(selectedBlock.id, {
+                                            showRowDividers: e.target.checked
+                                          })
+                                        }
+                                        className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                      />
+                                    </label>
+
+                                    {selectedBlock.id !== 'totals' && (
+                                      <div className="grid grid-cols-2 gap-1 bg-white p-0.5 rounded-lg border border-slate-200">
+                                        {[
+                                          { id: 'left' as const, label: 'Val Left' },
+                                          { id: 'right' as const, label: 'Val Right' }
+                                        ].map((alignOpt) => {
+                                          const currentAlign =
+                                            selectedBlock.valueAlign ||
+                                            ((selectedBlock.fieldLayoutMode || 'split') === 'split'
+                                              ? 'right'
+                                              : 'left');
+                                          const active = currentAlign === alignOpt.id;
+                                          return (
+                                            <button
+                                              key={alignOpt.id}
+                                              type="button"
+                                              onClick={() =>
+                                                handleUpdateBlockConfig(selectedBlock.id, {
+                                                  valueAlign: alignOpt.id
+                                                })
+                                              }
+                                              className={`py-1 rounded-md text-[9.5px] font-semibold transition cursor-pointer ${
+                                                active
+                                                  ? 'bg-blue-600 text-white'
+                                                  : 'text-slate-600 hover:bg-slate-100'
+                                              }`}
+                                            >
+                                              {alignOpt.label}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               )}
 
-                              <div className="grid grid-cols-2 gap-2 items-center pt-1">
-                                <label className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-white border border-slate-200 cursor-pointer">
-                                  <span className="text-[10px] font-semibold text-slate-700">
-                                    Row Dividers
-                                  </span>
-                                  <input
-                                    type="checkbox"
-                                    checked={
-                                      selectedBlock.showRowDividers !== undefined
-                                        ? selectedBlock.showRowDividers
-                                        : selectedBlock.id === 'totals'
-                                    }
-                                    onChange={(e) =>
-                                      handleUpdateBlockConfig(selectedBlock.id, {
-                                        showRowDividers: e.target.checked
-                                      })
-                                    }
-                                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
-                                  />
-                                </label>
+                              {/* Commercial Terms Unified Interleaved 2-Tier Field Editor */}
+                              {selectedBlock.id === 'terms' && (
+                                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-3">
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <span className="text-[11px] font-bold text-slate-800 block">
+                                        Commercial Terms &amp; Custom Rows
+                                      </span>
+                                      <span className="text-[9.5px] text-slate-500">
+                                        Unified reorderable list • Break, 100% span &amp; bold
+                                      </span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const newId = `term_row_${Date.now()}`;
+                                        const nextRow = {
+                                          id: newId,
+                                          label: 'Warranty:',
+                                          value: '12 Months Standard Manufacturer Warranty',
+                                          enabled: true,
+                                          emptyBehavior: 'hide' as const
+                                        };
+                                        const customArr = selectedBlock.customRows || [];
+                                        const baseOrder =
+                                          selectedBlock.fieldOrder && selectedBlock.fieldOrder.length > 0
+                                            ? selectedBlock.fieldOrder
+                                            : ['price_basis', 'payment_terms', 'validity', ...customArr.map((r) => r.id)];
+                                        handleUpdateBlockConfig('terms', {
+                                          customRows: [...customArr, nextRow],
+                                          fieldOrder: [...baseOrder, newId]
+                                        });
+                                      }}
+                                      className="px-2 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-semibold flex items-center gap-1 cursor-pointer shadow-2xs"
+                                    >
+                                      <Plus className="w-3 h-3" />
+                                      <span>Add Custom Term Row</span>
+                                    </button>
+                                  </div>
 
-                                {selectedBlock.id !== 'totals' && (
-                                  <div className="grid grid-cols-2 gap-1 bg-white p-0.5 rounded-lg border border-slate-200">
-                                    {[
-                                      { id: 'left' as const, label: 'Val Left' },
-                                      { id: 'right' as const, label: 'Val Right' }
-                                    ].map((alignOpt) => {
-                                      const currentAlign =
-                                        selectedBlock.valueAlign ||
-                                        ((selectedBlock.fieldLayoutMode || 'split') === 'split'
-                                          ? 'right'
-                                          : 'left');
-                                      const active = currentAlign === alignOpt.id;
+                                  {(() => {
+                                    const vis = selectedBlock.visibleFields || {};
+                                    const lbls = selectedBlock.fieldLabels || {};
+                                    const rowOpts = selectedBlock.fieldRowOptions || {};
+                                    const customRows = selectedBlock.customRows || [];
+                                    const customMap = new Map(customRows.map((r) => [r.id, r]));
+                                    const builtInKeys = ['price_basis', 'payment_terms', 'validity'];
+                                    const allAvailableKeys = [
+                                      ...builtInKeys,
+                                      ...customRows.map((r) => r.id)
+                                    ];
+                                    const rawOrder =
+                                      selectedBlock.fieldOrder && selectedBlock.fieldOrder.length > 0
+                                        ? selectedBlock.fieldOrder
+                                        : allAvailableKeys;
+                                    const unifiedOrder = [
+                                      ...rawOrder.filter((k) => allAvailableKeys.includes(k)),
+                                      ...allAvailableKeys.filter((k) => !rawOrder.includes(k))
+                                    ];
+
+                                    const moveUnifiedTermRow = (key: string, dir: -1 | 1) => {
+                                      const idx = unifiedOrder.indexOf(key);
+                                      if (idx === -1) return;
+                                      const target = idx + dir;
+                                      if (target < 0 || target >= unifiedOrder.length) return;
+                                      const copy = [...unifiedOrder];
+                                      const [item] = copy.splice(idx, 1);
+                                      copy.splice(target, 0, item);
+                                      handleUpdateBlockConfig('terms', { fieldOrder: copy });
+                                    };
+
+                                    const termMeta: Record<
+                                      string,
+                                      {
+                                        defaultLabel: string;
+                                        value: string;
+                                        onChange: (val: string) => void;
+                                        isNumber?: boolean;
+                                      }
+                                    > = {
+                                      price_basis: {
+                                        defaultLabel: 'Price Basis:',
+                                        value: priceBasis,
+                                        onChange: (val) => setPriceBasis(val)
+                                      },
+                                      payment_terms: {
+                                        defaultLabel: 'Payment Terms:',
+                                        value: paymentTerms,
+                                        onChange: (val) => setPaymentTerms(val)
+                                      },
+                                      validity: {
+                                        defaultLabel: 'Validity:',
+                                        value: String(validityDays),
+                                        onChange: (val) => setValidityDays(Math.max(1, Number(val) || 30)),
+                                        isNumber: true
+                                      }
+                                    };
+
+                                    return (
+                                      <div className="space-y-2">
+                                        {unifiedOrder.map((key, idx) => {
+                                          const isBuiltIn = Boolean(termMeta[key]);
+                                          const cRow = customRows.find((r) => r.id === key);
+                                          if (!isBuiltIn && !cRow) return null;
+
+                                          const isChecked = isBuiltIn
+                                            ? vis[key] !== false
+                                            : cRow!.enabled !== false;
+                                          const opt = isBuiltIn
+                                            ? rowOpts[key] || {}
+                                            : {
+                                                breakAfter: cRow!.breakAfter,
+                                                fullWidth: cRow!.fullWidth,
+                                                isBold: cRow!.isBold
+                                              };
+
+                                          const toggleRowOption = (
+                                            prop: 'breakAfter' | 'fullWidth' | 'isBold'
+                                          ) => {
+                                            if (isBuiltIn) {
+                                              const prevOpt = rowOpts[key] || {};
+                                              handleUpdateBlockConfig('terms', {
+                                                fieldRowOptions: {
+                                                  ...rowOpts,
+                                                  [key]: { ...prevOpt, [prop]: !prevOpt[prop] }
+                                                }
+                                              });
+                                            } else {
+                                              const updated = customRows.map((item) =>
+                                                item.id === key
+                                                  ? { ...item, [prop]: !item[prop] }
+                                                  : item
+                                              );
+                                              handleUpdateBlockConfig('terms', { customRows: updated });
+                                            }
+                                          };
+
+                                          return (
+                                            <div
+                                              key={key}
+                                              className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5"
+                                            >
+                                              {/* Tier 1: Checkbox + Editable Label + Formatting Chips + Reorder + Delete */}
+                                              <div className="flex items-center justify-between gap-1">
+                                                <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                                  <input
+                                                    type="checkbox"
+                                                    checked={isChecked}
+                                                    onChange={(e) => {
+                                                      if (isBuiltIn) {
+                                                        handleUpdateBlockConfig('terms', {
+                                                          visibleFields: {
+                                                            ...vis,
+                                                            [key]: e.target.checked
+                                                          }
+                                                        });
+                                                      } else {
+                                                        const updated = customRows.map((item) =>
+                                                          item.id === key
+                                                            ? { ...item, enabled: e.target.checked }
+                                                            : item
+                                                        );
+                                                        handleUpdateBlockConfig('terms', {
+                                                          customRows: updated
+                                                        });
+                                                      }
+                                                    }}
+                                                    className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
+                                                  />
+                                                  <input
+                                                    type="text"
+                                                    value={
+                                                      isBuiltIn
+                                                        ? lbls[key] ?? termMeta[key].defaultLabel
+                                                        : cRow!.label ?? ''
+                                                    }
+                                                    onChange={(e) => {
+                                                      if (isBuiltIn) {
+                                                        handleUpdateBlockConfig('terms', {
+                                                          fieldLabels: {
+                                                            ...lbls,
+                                                            [key]: e.target.value
+                                                          }
+                                                        });
+                                                      } else {
+                                                        const updated = customRows.map((item) =>
+                                                          item.id === key
+                                                            ? { ...item, label: e.target.value }
+                                                            : item
+                                                        );
+                                                        handleUpdateBlockConfig('terms', {
+                                                          customRows: updated
+                                                        });
+                                                      }
+                                                    }}
+                                                    placeholder="Field Label"
+                                                    className="text-[10.5px] font-semibold text-slate-700 bg-transparent border-b border-transparent focus:border-blue-400 focus:outline-hidden w-full min-w-0"
+                                                  />
+                                                </div>
+
+                                                <div className="flex items-center gap-0.5 shrink-0">
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => toggleRowOption('breakAfter')}
+                                                    title="Force Line Break After This Field (↵ Break)"
+                                                    className={`px-1 py-0.5 rounded text-[9px] font-mono border cursor-pointer ${
+                                                      opt.breakAfter
+                                                        ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-bold'
+                                                        : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
+                                                    }`}
+                                                  >
+                                                    ↵
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => toggleRowOption('fullWidth')}
+                                                    title="Span 100% Full Row Width"
+                                                    className={`px-1 py-0.5 rounded text-[9px] font-mono border cursor-pointer ${
+                                                      opt.fullWidth
+                                                        ? 'bg-blue-50 border-blue-300 text-blue-700 font-bold'
+                                                        : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
+                                                    }`}
+                                                  >
+                                                    100%
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => toggleRowOption('isBold')}
+                                                    title="Bold Emphasis"
+                                                    className={`px-1 py-0.5 rounded text-[9px] font-serif font-bold border cursor-pointer ${
+                                                      opt.isBold
+                                                        ? 'bg-amber-50 border-amber-300 text-amber-800'
+                                                        : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
+                                                    }`}
+                                                  >
+                                                    B
+                                                  </button>
+                                                  {!isBuiltIn && cRow && (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => {
+                                                        const curEmpty =
+                                                          cRow.emptyBehavior ||
+                                                          (cRow.hideIfEmpty ? 'hide' : 'dash');
+                                                        const nextEmpty =
+                                                          curEmpty === 'hide' ? 'dash' : 'hide';
+                                                        const updated = customRows.map((item) =>
+                                                          item.id === key
+                                                            ? {
+                                                                ...item,
+                                                                emptyBehavior: nextEmpty as 'hide' | 'dash',
+                                                                hideIfEmpty: nextEmpty === 'hide'
+                                                              }
+                                                            : item
+                                                        );
+                                                        handleUpdateBlockConfig('terms', {
+                                                          customRows: updated
+                                                        });
+                                                      }}
+                                                      title="Toggle empty value behavior (Hide row vs Show — dash)"
+                                                      className={`px-1 py-0.5 rounded text-[9px] font-mono border cursor-pointer ${
+                                                        (cRow.emptyBehavior ||
+                                                          (cRow.hideIfEmpty ? 'hide' : 'dash')) === 'hide'
+                                                          ? 'bg-amber-50 border-amber-300 text-amber-800 font-semibold'
+                                                          : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
+                                                      }`}
+                                                    >
+                                                      {(cRow.emptyBehavior ||
+                                                        (cRow.hideIfEmpty ? 'hide' : 'dash')) === 'hide'
+                                                        ? 'Hide ∅'
+                                                        : 'Show —'}
+                                                    </button>
+                                                  )}
+                                                  <button
+                                                    type="button"
+                                                    disabled={idx === 0}
+                                                    onClick={() => moveUnifiedTermRow(key, -1)}
+                                                    className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                                                    title="Move Up"
+                                                  >
+                                                    <ArrowUp className="w-3 h-3" />
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    disabled={idx === unifiedOrder.length - 1}
+                                                    onClick={() => moveUnifiedTermRow(key, 1)}
+                                                    className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                                                    title="Move Down"
+                                                  >
+                                                    <ArrowDown className="w-3 h-3" />
+                                                  </button>
+                                                  {!isBuiltIn && (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => {
+                                                        const updated = customRows.filter(
+                                                          (item) => item.id !== key
+                                                        );
+                                                        handleUpdateBlockConfig('terms', {
+                                                          customRows: updated,
+                                                          fieldOrder: unifiedOrder.filter((k) => k !== key)
+                                                        });
+                                                      }}
+                                                      className="p-0.5 text-rose-500 hover:bg-rose-50 rounded cursor-pointer"
+                                                      title="Delete Custom Row"
+                                                    >
+                                                      <Trash2 className="w-3 h-3" />
+                                                    </button>
+                                                  )}
+                                                </div>
+                                              </div>
+
+                                              {/* Tier 2: Full-Width Value Input */}
+                                              {isChecked && (
+                                                <div className="flex items-center gap-1.5">
+                                                  {isBuiltIn && termMeta[key].isNumber ? (
+                                                    <>
+                                                      <input
+                                                        type="number"
+                                                        value={termMeta[key].value ?? ''}
+                                                        onChange={(e) =>
+                                                          termMeta[key].onChange(e.target.value)
+                                                        }
+                                                        className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[11px] text-slate-800"
+                                                      />
+                                                      <span className="text-[10px] font-semibold text-slate-500 shrink-0">
+                                                        Days
+                                                      </span>
+                                                    </>
+                                                  ) : (
+                                                    <div className="w-full">
+                                                      <AtMentionInput
+                                                        value={
+                                                          isBuiltIn
+                                                            ? termMeta[key].value ?? ''
+                                                            : cRow!.value ?? ''
+                                                        }
+                                                        onChange={(val) => {
+                                                          if (isBuiltIn) {
+                                                            termMeta[key].onChange(val);
+                                                          } else {
+                                                            const updated = customRows.map((item) =>
+                                                              item.id === key
+                                                                ? { ...item, value: val }
+                                                                : item
+                                                            );
+                                                            handleUpdateBlockConfig('terms', {
+                                                              customRows: updated
+                                                            });
+                                                          }
+                                                        }}
+                                                        tokenContext={studioTokenContext}
+                                                        compact
+                                                        placeholder="Enter value or type @ for dynamic tokens"
+                                                        className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[11px] text-slate-800"
+                                                      />
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+
+                                        {/* Clauses / Notes Toggle, Position Selector & Direct Textarea */}
+                                        <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-2">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <label className="flex items-center gap-1.5 cursor-pointer">
+                                              <input
+                                                type="checkbox"
+                                                checked={vis.clauses !== false}
+                                                onChange={(e) =>
+                                                  handleUpdateBlockConfig('terms', {
+                                                    visibleFields: {
+                                                      ...vis,
+                                                      clauses: e.target.checked
+                                                    }
+                                                  })
+                                                }
+                                                className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                              />
+                                              <span className="text-[10.5px] font-semibold text-slate-700">
+                                                Show Terms &amp; Clauses Paragraph
+                                              </span>
+                                            </label>
+
+                                            {vis.clauses !== false && (
+                                              <div className="flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-md border border-slate-200">
+                                                {[
+                                                  { id: 'above_rows' as const, label: 'Above Rows' },
+                                                  { id: 'below_rows' as const, label: 'Below Rows' }
+                                                ].map((posOpt) => {
+                                                  const activePos =
+                                                    (selectedBlock.clausesPosition || 'below_rows') ===
+                                                    posOpt.id;
+                                                  return (
+                                                    <button
+                                                      key={posOpt.id}
+                                                      type="button"
+                                                      onClick={() =>
+                                                        handleUpdateBlockConfig('terms', {
+                                                          clausesPosition: posOpt.id
+                                                        })
+                                                      }
+                                                      className={`px-1.5 py-0.5 rounded text-[9px] font-semibold transition cursor-pointer ${
+                                                        activePos
+                                                          ? 'bg-blue-600 text-white'
+                                                          : 'text-slate-600 hover:bg-white'
+                                                      }`}
+                                                    >
+                                                      {posOpt.label}
+                                                    </button>
+                                                  );
+                                                })}
+                                              </div>
+                                            )}
+                                          </div>
+
+                                          {vis.clauses !== false && (
+                                            <AtMentionTextarea
+                                              rows={3}
+                                              value={customNotes ?? ''}
+                                              onChange={setCustomNotes}
+                                              tokenContext={studioTokenContext}
+                                              compact
+                                              placeholder="1. All supplied items carry standard warranty... Type @ for tags"
+                                              className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
+                                            />
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              )}
+
+                              {/* Card 3 — Financial Summary Unified Interleaved Rows & Live Preview */}
+                              {selectedBlock.id === 'totals' && (
+                                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-3">
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-bold text-slate-800 text-xs">
+                                      3. Financial Summary Rows &amp; Live Preview
+                                    </span>
+                                    <span className="font-mono font-bold text-[11px] text-blue-900 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md">
+                                      {liveQuotation.currency}{' '}
+                                      {financialTotals.grand_total.toLocaleString('en-US', {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
+                                      })}
+                                    </span>
+                                  </div>
+
+                                  {(() => {
+                                    const vis = selectedBlock.visibleFields || {};
+                                    const lbls = selectedBlock.fieldLabels || {};
+                                    const customRows = selectedBlock.customRows || [];
+                                    const aboveCustomRows = customRows.filter(
+                                      (r) => (r.placement || r.position || 'above_grand_total') === 'above_grand_total'
+                                    );
+                                    const belowCustomRows = customRows.filter(
+                                      (r) => (r.placement || r.position || 'above_grand_total') === 'below_grand_total'
+                                    );
+                                    const customMap = new Map(customRows.map((r) => [r.id, r]));
+
+                                    const defaultStdOrder = ['subtotal', 'freight', 'tax'];
+                                    const allAboveKeys = [
+                                      ...defaultStdOrder,
+                                      ...aboveCustomRows.map((r) => r.id)
+                                    ];
+                                    const rawOrder = Array.isArray(selectedBlock.fieldOrder)
+                                      ? selectedBlock.fieldOrder
+                                      : allAboveKeys;
+                                    const unifiedAboveOrder = [
+                                      ...rawOrder.filter((k) => allAboveKeys.includes(k)),
+                                      ...allAboveKeys.filter((k) => !rawOrder.includes(k))
+                                    ];
+
+                                    const stdRowMeta: Record<
+                                      string,
+                                      { defaultLabel: string; formattedAmount: string }
+                                    > = {
+                                      subtotal: {
+                                        defaultLabel: 'Subtotal (Excl. Tax):',
+                                        formattedAmount: `${liveQuotation.currency} ${financialTotals.subtotal.toLocaleString(
+                                          'en-US',
+                                          { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+                                        )}`
+                                      },
+                                      freight: {
+                                        defaultLabel: 'Freight / Logistics Charges:',
+                                        formattedAmount: `${liveQuotation.currency} ${Number(
+                                          freightAmount || 0
+                                        ).toLocaleString('en-US', {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2
+                                        })}`
+                                      },
+                                      tax: {
+                                        defaultLabel: `VAT / Tax (${taxRatePercent}%):`,
+                                        formattedAmount:
+                                          taxMode === 'taxes_extra'
+                                            ? `${liveQuotation.currency} ${financialTotals.tax_amount.toLocaleString(
+                                                'en-US',
+                                                { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+                                              )}`
+                                            : taxMode === 'tax_exempt'
+                                            ? `0.00 (Exempt)`
+                                            : `${liveQuotation.currency} ${financialTotals.tax_amount.toLocaleString(
+                                                'en-US',
+                                                { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+                                              )}`
+                                      }
+                                    };
+
+                                    const moveAboveRow = (key: string, dir: -1 | 1) => {
+                                      const idx = unifiedAboveOrder.indexOf(key);
+                                      if (idx === -1) return;
+                                      const swapIdx = idx + dir;
+                                      if (swapIdx < 0 || swapIdx >= unifiedAboveOrder.length) return;
+                                      const nextOrder = [...unifiedAboveOrder];
+                                      const [item] = nextOrder.splice(idx, 1);
+                                      nextOrder.splice(swapIdx, 0, item);
+                                      handleUpdateBlockConfig('totals', { fieldOrder: nextOrder });
+                                    };
+
+                                    const renderCustomFinancialRowCard = (
+                                      row: (typeof customRows)[number],
+                                      isAbove: boolean,
+                                      idxInList: number,
+                                      totalInList: number
+                                    ) => {
+                                      const curEmpty =
+                                        row.emptyBehavior || (row.hideIfEmpty ? 'hide' : 'dash');
                                       return (
-                                        <button
-                                          key={alignOpt.id}
-                                          type="button"
-                                          onClick={() =>
-                                            handleUpdateBlockConfig(selectedBlock.id, {
-                                              valueAlign: alignOpt.id
-                                            })
-                                          }
-                                          className={`py-1 rounded-md text-[9.5px] font-semibold transition cursor-pointer ${
-                                            active
-                                              ? 'bg-blue-600 text-white'
-                                              : 'text-slate-600 hover:bg-slate-100'
+                                        <div
+                                          key={row.id}
+                                          className={`p-2 rounded-lg border space-y-1.5 ${
+                                            row.isHighlight
+                                              ? 'bg-amber-50/70 border-amber-300'
+                                              : 'bg-white border-slate-200'
                                           }`}
                                         >
-                                          {alignOpt.label}
-                                        </button>
+                                          {/* Tier 1: Checkbox + Label + Highlight + Empty Toggle + Placement + Move + Delete */}
+                                          <div className="flex items-center justify-between gap-1">
+                                            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                              <input
+                                                type="checkbox"
+                                                checked={row.enabled !== false}
+                                                onChange={(e) => {
+                                                  const updated = customRows.map((item) =>
+                                                    item.id === row.id
+                                                      ? { ...item, enabled: e.target.checked }
+                                                      : item
+                                                  );
+                                                  handleUpdateBlockConfig('totals', {
+                                                    customRows: updated
+                                                  });
+                                                }}
+                                                className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
+                                              />
+                                              <input
+                                                type="text"
+                                                value={row.label ?? ''}
+                                                onChange={(e) => {
+                                                  const updated = customRows.map((item) =>
+                                                    item.id === row.id
+                                                      ? { ...item, label: e.target.value }
+                                                      : item
+                                                  );
+                                                  handleUpdateBlockConfig('totals', {
+                                                    customRows: updated
+                                                  });
+                                                }}
+                                                placeholder="Row Label"
+                                                className="text-[10.5px] font-semibold text-slate-700 bg-transparent border-b border-transparent focus:border-blue-400 focus:outline-hidden w-full min-w-0"
+                                              />
+                                            </div>
+
+                                            <div className="flex items-center gap-0.5 shrink-0">
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const updated = customRows.map((item) =>
+                                                    item.id === row.id
+                                                      ? { ...item, isHighlight: !item.isHighlight }
+                                                      : item
+                                                  );
+                                                  handleUpdateBlockConfig('totals', {
+                                                    customRows: updated
+                                                  });
+                                                }}
+                                                title="Toggle Bold / Highlight Row"
+                                                className={`px-1 py-0.5 rounded text-[9px] font-semibold border cursor-pointer ${
+                                                  row.isHighlight
+                                                    ? 'bg-amber-100 border-amber-400 text-amber-900'
+                                                    : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
+                                                }`}
+                                              >
+                                                ★
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const nextEmpty =
+                                                    curEmpty === 'hide' ? 'dash' : 'hide';
+                                                  const updated = customRows.map((item) =>
+                                                    item.id === row.id
+                                                      ? {
+                                                          ...item,
+                                                          emptyBehavior: nextEmpty as 'hide' | 'dash',
+                                                          hideIfEmpty: nextEmpty === 'hide'
+                                                        }
+                                                      : item
+                                                  );
+                                                  handleUpdateBlockConfig('totals', {
+                                                    customRows: updated
+                                                  });
+                                                }}
+                                                title="Toggle empty behavior (Hide ∅ vs Show —)"
+                                                className={`px-1 py-0.5 rounded text-[9px] font-mono border cursor-pointer ${
+                                                  curEmpty === 'hide'
+                                                    ? 'bg-amber-50 border-amber-300 text-amber-800 font-semibold'
+                                                    : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
+                                                }`}
+                                              >
+                                                {curEmpty === 'hide' ? 'Hide ∅' : 'Show —'}
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const nextPlacement = isAbove
+                                                    ? 'below_grand_total'
+                                                    : 'above_grand_total';
+                                                  const updated = customRows.map((item) =>
+                                                    item.id === row.id
+                                                      ? {
+                                                          ...item,
+                                                          placement: nextPlacement as
+                                                            | 'above_grand_total'
+                                                            | 'below_grand_total',
+                                                          position: nextPlacement as
+                                                            | 'above_grand_total'
+                                                            | 'below_grand_total'
+                                                        }
+                                                      : item
+                                                  );
+                                                  handleUpdateBlockConfig('totals', {
+                                                    customRows: updated
+                                                  });
+                                                }}
+                                                title="Switch between Above Grand Total and Below Grand Total"
+                                                className="px-1 py-0.5 rounded text-[9px] font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 cursor-pointer"
+                                              >
+                                                {isAbove ? 'Above Total' : 'Below Total'}
+                                              </button>
+                                              {isAbove && (
+                                                <>
+                                                  <button
+                                                    type="button"
+                                                    disabled={idxInList === 0}
+                                                    onClick={() => moveAboveRow(row.id, -1)}
+                                                    className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                                                  >
+                                                    <ArrowUp className="w-3 h-3" />
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    disabled={idxInList === totalInList - 1}
+                                                    onClick={() => moveAboveRow(row.id, 1)}
+                                                    className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                                                  >
+                                                    <ArrowDown className="w-3 h-3" />
+                                                  </button>
+                                                </>
+                                              )}
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const updated = customRows.filter(
+                                                    (item) => item.id !== row.id
+                                                  );
+                                                  handleUpdateBlockConfig('totals', {
+                                                    customRows: updated,
+                                                    fieldOrder: unifiedAboveOrder.filter(
+                                                      (k) => k !== row.id
+                                                    )
+                                                  });
+                                                }}
+                                                className="p-0.5 text-rose-500 hover:bg-rose-50 rounded cursor-pointer"
+                                              >
+                                                <Trash2 className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          </div>
+
+                                          {/* Tier 2: Full-Width Value / @mention Input */}
+                                          {row.enabled !== false && (
+                                            <AtMentionInput
+                                              value={row.value ?? ''}
+                                              onChange={(val) => {
+                                                const updated = customRows.map((item) =>
+                                                  item.id === row.id ? { ...item, value: val } : item
+                                                );
+                                                handleUpdateBlockConfig('totals', {
+                                                  customRows: updated
+                                                });
+                                              }}
+                                              tokenContext={studioTokenContext}
+                                              compact
+                                              placeholder="Amount, discount or @tag..."
+                                              className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[10.5px] text-slate-800"
+                                            />
+                                          )}
+                                        </div>
                                       );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
+                                    };
 
-                          {/* Commercial Terms Specific Options */}
-                          {selectedBlock.id === 'terms' && (
-                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-3">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[11px] font-bold text-slate-800">
-                                  Commercial Terms Fields
-                                </span>
-                                <span className="text-[9.5px] text-slate-500">
-                                  Toggle, rename &amp; edit values
-                                </span>
-                              </div>
-
-                              {(() => {
-                                const vis = selectedBlock.visibleFields || {};
-                                const lbls = selectedBlock.fieldLabels || {};
-                                const defaultOrder = ['price_basis', 'payment_terms', 'validity'];
-                                const activeOrder =
-                                  selectedBlock.fieldOrder && selectedBlock.fieldOrder.length > 0
-                                    ? selectedBlock.fieldOrder
-                                    : defaultOrder;
-
-                                const moveTermField = (key: string, dir: -1 | 1) => {
-                                  const idx = activeOrder.indexOf(key);
-                                  if (idx === -1) return;
-                                  const target = idx + dir;
-                                  if (target < 0 || target >= activeOrder.length) return;
-                                  const copy = [...activeOrder];
-                                  const [item] = copy.splice(idx, 1);
-                                  copy.splice(target, 0, item);
-                                  handleUpdateBlockConfig('terms', { fieldOrder: copy });
-                                };
-
-                                const termMeta: Record<
-                                  string,
-                                  {
-                                    defaultLabel: string;
-                                    value: string;
-                                    onChange: (val: string) => void;
-                                    isNumber?: boolean;
-                                  }
-                                > = {
-                                  price_basis: {
-                                    defaultLabel: 'Price Basis:',
-                                    value: priceBasis,
-                                    onChange: (val) => setPriceBasis(val)
-                                  },
-                                  payment_terms: {
-                                    defaultLabel: 'Payment Terms:',
-                                    value: paymentTerms,
-                                    onChange: (val) => setPaymentTerms(val)
-                                  },
-                                  validity: {
-                                    defaultLabel: 'Validity:',
-                                    value: String(validityDays),
-                                    onChange: (val) => setValidityDays(Math.max(1, Number(val) || 30)),
-                                    isNumber: true
-                                  }
-                                };
-
-                                return (
-                                  <div className="space-y-2">
-                                    {activeOrder
-                                      .filter((k) => Boolean(termMeta[k]))
-                                      .map((key, idx) => {
-                                        const meta = termMeta[key];
-                                        const isChecked = vis[key] !== false;
-                                        return (
-                                          <div
-                                            key={key}
-                                            className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5"
+                                    return (
+                                      <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-[10.5px] font-bold text-slate-700">
+                                            Rows Above Grand Total (Unified &amp; Reorderable)
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const newId = `tot_row_${Date.now()}`;
+                                              const nextRow = {
+                                                id: newId,
+                                                label: 'Special Discount / Packing:',
+                                                value: 'Included',
+                                                enabled: true,
+                                                isHighlight: false,
+                                                emptyBehavior: 'hide' as const,
+                                                placement: 'above_grand_total' as const,
+                                                position: 'above_grand_total' as const
+                                              };
+                                              handleUpdateBlockConfig('totals', {
+                                                customRows: [...customRows, nextRow],
+                                                fieldOrder: [...unifiedAboveOrder, newId]
+                                              });
+                                            }}
+                                            className="px-2 py-0.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-semibold flex items-center gap-0.5 cursor-pointer"
                                           >
-                                            <div className="flex items-center justify-between gap-1">
-                                              <label className="flex items-center gap-1.5 cursor-pointer flex-1 min-w-0">
+                                            <Plus className="w-3 h-3" />
+                                            <span>Add Custom Row</span>
+                                          </button>
+                                        </div>
+
+                                        {unifiedAboveOrder.map((key, idx) => {
+                                          const meta = stdRowMeta[key];
+                                          if (meta) {
+                                            return (
+                                              <div
+                                                key={key}
+                                                className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-200"
+                                              >
                                                 <input
                                                   type="checkbox"
-                                                  checked={isChecked}
+                                                  checked={vis[key] !== false}
                                                   onChange={(e) =>
-                                                    handleUpdateBlockConfig('terms', {
+                                                    handleUpdateBlockConfig('totals', {
                                                       visibleFields: {
                                                         ...vis,
                                                         [key]: e.target.checked
                                                       }
                                                     })
                                                   }
-                                                  className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                                  className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
                                                 />
                                                 <input
                                                   type="text"
                                                   value={lbls[key] ?? meta.defaultLabel}
                                                   onChange={(e) =>
-                                                    handleUpdateBlockConfig('terms', {
-                                                      fieldLabels: {
-                                                        ...lbls,
-                                                        [key]: e.target.value
-                                                      }
+                                                    handleUpdateBlockConfig('totals', {
+                                                      fieldLabels: { ...lbls, [key]: e.target.value }
                                                     })
                                                   }
-                                                  className="text-[10.5px] font-semibold text-slate-700 bg-transparent border-b border-transparent focus:border-blue-400 focus:outline-hidden w-full"
+                                                  className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-slate-200 text-[10.5px] font-medium text-slate-700"
                                                 />
-                                              </label>
-                                              <div className="flex items-center gap-0.5 shrink-0">
+                                                <span className="font-mono text-[10px] font-semibold text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 shrink-0">
+                                                  {meta.formattedAmount}
+                                                </span>
+                                                <div className="flex items-center gap-0.5 shrink-0">
+                                                  <button
+                                                    type="button"
+                                                    disabled={idx === 0}
+                                                    onClick={() => moveAboveRow(key, -1)}
+                                                    className="p-0.5 rounded hover:bg-slate-100 disabled:opacity-30 text-slate-500 cursor-pointer"
+                                                  >
+                                                    <ArrowUp className="w-3 h-3" />
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    disabled={idx === unifiedAboveOrder.length - 1}
+                                                    onClick={() => moveAboveRow(key, 1)}
+                                                    className="p-0.5 rounded hover:bg-slate-100 disabled:opacity-30 text-slate-500 cursor-pointer"
+                                                  >
+                                                    <ArrowDown className="w-3 h-3" />
+                                                  </button>
+                                                </div>
+                                              </div>
+                                            );
+                                          }
+
+                                          const cRow = customMap.get(key);
+                                          if (!cRow) return null;
+                                          return renderCustomFinancialRowCard(
+                                            cRow,
+                                            true,
+                                            idx,
+                                            unifiedAboveOrder.length
+                                          );
+                                        })}
+
+                                        {/* Grand Total Row */}
+                                        <div className="flex items-center gap-1.5 bg-blue-50/70 p-2 rounded-lg border border-blue-200">
+                                          <input
+                                            type="checkbox"
+                                            checked={vis.grand_total !== false}
+                                            onChange={(e) =>
+                                              handleUpdateBlockConfig('totals', {
+                                                visibleFields: {
+                                                  ...vis,
+                                                  grand_total: e.target.checked
+                                                }
+                                              })
+                                            }
+                                            className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
+                                          />
+                                          <input
+                                            type="text"
+                                            value={lbls.grand_total ?? 'GRAND TOTAL:'}
+                                            onChange={(e) =>
+                                              handleUpdateBlockConfig('totals', {
+                                                fieldLabels: { ...lbls, grand_total: e.target.value }
+                                              })
+                                            }
+                                            className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-blue-200 bg-white text-[10.5px] font-bold text-slate-900"
+                                          />
+                                          <span className="font-mono text-[10.5px] font-bold text-blue-900 bg-white px-1.5 py-0.5 rounded border border-blue-200 shrink-0">
+                                            {liveQuotation.currency}{' '}
+                                            {financialTotals.grand_total.toLocaleString('en-US', {
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2
+                                            })}
+                                          </span>
+                                        </div>
+
+                                        {/* Rows Below Grand Total */}
+                                        {belowCustomRows.length > 0 && (
+                                          <div className="space-y-1.5 pt-1">
+                                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                                              Rows Below Grand Total
+                                            </span>
+                                            {belowCustomRows.map((bRow, bIdx) =>
+                                              renderCustomFinancialRowCard(
+                                                bRow,
+                                                false,
+                                                bIdx,
+                                                belowCustomRows.length
+                                              )
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+
+                                  {/* Amount in Words Toggle */}
+                                  <div className="flex items-center justify-between pt-2 border-t border-slate-200">
+                                    <div>
+                                      <span className="font-semibold text-slate-800 text-xs block">
+                                        Show Amount in Words (Legal Phrasing)
+                                      </span>
+                                      <span className="text-[10.5px] text-slate-500">
+                                        Formal legal spelling of Grand Total
+                                      </span>
+                                    </div>
+                                    <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-2">
+                                      <input
+                                        type="checkbox"
+                                        checked={amountInWordsEnabled}
+                                        onChange={(e) => setAmountInWordsEnabled(e.target.checked)}
+                                        className="sr-only peer"
+                                      />
+                                      <div className="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                                    </label>
+                                  </div>
+
+                                  {/* VAT / Tax Footnote Override */}
+                                  <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                                    <label className="flex items-center justify-between cursor-pointer">
+                                      <span className="text-[10.5px] font-semibold text-slate-700">
+                                        Show VAT / Tax Footnote Under Grand Total
+                                      </span>
+                                      <input
+                                        type="checkbox"
+                                        checked={(selectedBlock.visibleFields || {}).vat_note !== false}
+                                        onChange={(e) =>
+                                          handleUpdateBlockConfig('totals', {
+                                            visibleFields: {
+                                              ...(selectedBlock.visibleFields || {}),
+                                              vat_note: e.target.checked
+                                            }
+                                          })
+                                        }
+                                        className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                      />
+                                    </label>
+                                    {(selectedBlock.visibleFields || {}).vat_note !== false && (
+                                      <AtMentionInput
+                                        value={selectedBlock.vatNoteOverride ?? ''}
+                                        onChange={(val) =>
+                                          handleUpdateBlockConfig('totals', {
+                                            vatNoteOverride: val
+                                          })
+                                        }
+                                        tokenContext={studioTokenContext}
+                                        compact
+                                        placeholder={`e.g. * All prices in ${liveQuotation.currency}. VAT (${taxRatePercent}%) included.`}
+                                        className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
+                                      />
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Customer Acceptance Block Specific Options (Unified Reorderable Slots) */}
+                              {selectedBlock.id === 'acceptance' && (
+                                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-3">
+                                  <div>
+                                    <label className="block text-[10px] font-semibold text-slate-500 mb-1">
+                                      Signature Slots Layout
+                                    </label>
+                                    <div className="grid grid-cols-3 gap-1">
+                                      {[
+                                        { id: 'row_4col' as const, label: '4-Col Row' },
+                                        { id: 'grid_2x2' as const, label: '2x2 Grid' },
+                                        { id: 'compact' as const, label: 'Compact' }
+                                      ].map((mode) => {
+                                        const active = (selectedBlock.acceptanceLayout || 'row_4col') === mode.id;
+                                        return (
+                                          <button
+                                            key={mode.id}
+                                            type="button"
+                                            onClick={() =>
+                                              handleUpdateBlockConfig('acceptance', {
+                                                acceptanceLayout: mode.id
+                                              })
+                                            }
+                                            className={`py-1.5 px-1.5 rounded-lg text-[10px] font-semibold transition cursor-pointer ${
+                                              active
+                                                ? 'bg-blue-600 text-white shadow-2xs'
+                                                : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                                            }`}
+                                          >
+                                            {mode.label}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+
+                                  {/* Acceptance Statement Text Override */}
+                                  <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
+                                    <label className="flex items-center justify-between cursor-pointer">
+                                      <span className="text-[10.5px] font-semibold text-slate-700">
+                                        Show Legal Acceptance Statement
+                                      </span>
+                                      <input
+                                        type="checkbox"
+                                        checked={(selectedBlock.visibleFields || {}).statement !== false}
+                                        onChange={(e) =>
+                                          handleUpdateBlockConfig('acceptance', {
+                                            visibleFields: {
+                                              ...(selectedBlock.visibleFields || {}),
+                                              statement: e.target.checked
+                                            }
+                                          })
+                                        }
+                                        className="rounded border-slate-300 text-blue-600 cursor-pointer"
+                                      />
+                                    </label>
+                                    {(selectedBlock.visibleFields || {}).statement !== false && (
+                                      <AtMentionTextarea
+                                        rows={2}
+                                        value={selectedBlock.acceptanceStatementOverride ?? ''}
+                                        onChange={(val) =>
+                                          handleUpdateBlockConfig('acceptance', {
+                                            acceptanceStatementOverride: val
+                                          })
+                                        }
+                                        tokenContext={studioTokenContext}
+                                        compact
+                                        placeholder="We hereby accept the above commercial offer... Type @ for tags"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
+                                      />
+                                    )}
+                                  </div>
+
+                                  {/* Unified Reorderable Acceptance Signature Slots */}
+                                  {(() => {
+                                    const vis = selectedBlock.visibleFields || {};
+                                    const lbls = selectedBlock.fieldLabels || {};
+                                    const rowOpts = selectedBlock.fieldRowOptions || {};
+                                    const builtInSlots = [
+                                      { key: 'signature', defaultLabel: 'Authorized Signature', defOn: true },
+                                      { key: 'name', defaultLabel: 'Signatory Name', defOn: true },
+                                      { key: 'title', defaultLabel: 'Title / Designation', defOn: false },
+                                      { key: 'po_number', defaultLabel: 'PO Number', defOn: true },
+                                      { key: 'date', defaultLabel: 'Date', defOn: true },
+                                      { key: 'stamp', defaultLabel: 'Company Stamp / Seal', defOn: false }
+                                    ];
+                                    const builtInMap = new Map(builtInSlots.map((s) => [s.key, s]));
+
+                                    const customSlots: NonNullable<typeof selectedBlock.customAcceptanceSlots> =
+                                      selectedBlock.customAcceptanceSlots &&
+                                      selectedBlock.customAcceptanceSlots.length > 0
+                                        ? selectedBlock.customAcceptanceSlots
+                                        : (selectedBlock.customRows || []).map((r) => ({
+                                            id: r.id,
+                                            label: r.label,
+                                            enabled: r.enabled !== false,
+                                            fullWidth: Boolean(r.fullWidth),
+                                            lineStyle: 'solid' as const
+                                          }));
+                                    const customSlotMap = new Map(customSlots.map((s) => [s.id, s]));
+
+                                    const allSlotKeys = [
+                                      ...builtInSlots.map((s) => s.key),
+                                      ...customSlots.map((s) => s.id)
+                                    ];
+                                    const rawOrder =
+                                      selectedBlock.fieldOrder && selectedBlock.fieldOrder.length > 0
+                                        ? selectedBlock.fieldOrder
+                                        : allSlotKeys;
+                                    const unifiedSlotOrder = [
+                                      ...rawOrder.filter((k) => allSlotKeys.includes(k)),
+                                      ...allSlotKeys.filter((k) => !rawOrder.includes(k))
+                                    ];
+
+                                    const moveSlot = (key: string, dir: -1 | 1) => {
+                                      const idx = unifiedSlotOrder.indexOf(key);
+                                      if (idx === -1) return;
+                                      const target = idx + dir;
+                                      if (target < 0 || target >= unifiedSlotOrder.length) return;
+                                      const copy = [...unifiedSlotOrder];
+                                      const [item] = copy.splice(idx, 1);
+                                      copy.splice(target, 0, item);
+                                      handleUpdateBlockConfig('acceptance', { fieldOrder: copy });
+                                    };
+
+                                    return (
+                                      <div className="space-y-1.5">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-[10.5px] font-bold text-slate-700">
+                                            Acceptance Signature Slots (Unified &amp; Reorderable)
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const newId = `acc_slot_${Date.now()}`;
+                                              const nextSlot = {
+                                                id: newId,
+                                                label: 'Project Code / Ref',
+                                                enabled: true,
+                                                fullWidth: false,
+                                                lineStyle: 'solid' as const
+                                              };
+                                              handleUpdateBlockConfig('acceptance', {
+                                                customAcceptanceSlots: [...customSlots, nextSlot],
+                                                fieldOrder: [...unifiedSlotOrder, newId]
+                                              });
+                                            }}
+                                            className="px-2 py-0.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-semibold flex items-center gap-0.5 cursor-pointer"
+                                          >
+                                            <Plus className="w-3 h-3" />
+                                            <span>Add Custom Slot</span>
+                                          </button>
+                                        </div>
+
+                                        {unifiedSlotOrder.map((key, idx) => {
+                                          const bSlot = builtInSlots.find((s) => s.key === key);
+                                          const cSlot = customSlots.find((s) => s.id === key);
+                                          if (!bSlot && !cSlot) return null;
+
+                                          const isBuiltIn = Boolean(bSlot);
+                                          const isOn = isBuiltIn
+                                            ? vis[key] !== undefined
+                                              ? vis[key]
+                                              : bSlot!.defOn
+                                            : cSlot!.enabled !== false;
+                                          const isFullWidth = isBuiltIn
+                                            ? Boolean(rowOpts[key]?.fullWidth)
+                                            : Boolean(cSlot!.fullWidth);
+
+                                          return (
+                                            <div
+                                              key={key}
+                                              className="p-1.5 rounded-lg bg-white border border-slate-200 space-y-1"
+                                            >
+                                              <div className="flex items-center gap-1">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={isOn}
+                                                  onChange={(e) => {
+                                                    if (isBuiltIn) {
+                                                      handleUpdateBlockConfig('acceptance', {
+                                                        visibleFields: {
+                                                          ...vis,
+                                                          [key]: e.target.checked
+                                                        }
+                                                      });
+                                                    } else {
+                                                      const updated = customSlots.map((s) =>
+                                                        s.id === key
+                                                          ? { ...s, enabled: e.target.checked }
+                                                          : s
+                                                      );
+                                                      handleUpdateBlockConfig('acceptance', {
+                                                        customAcceptanceSlots: updated
+                                                      });
+                                                    }
+                                                  }}
+                                                  className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
+                                                />
+                                                <input
+                                                  type="text"
+                                                  value={
+                                                    isBuiltIn
+                                                      ? lbls[key] ?? bSlot!.defaultLabel
+                                                      : cSlot!.label ?? ''
+                                                  }
+                                                  onChange={(e) => {
+                                                    if (isBuiltIn) {
+                                                      handleUpdateBlockConfig('acceptance', {
+                                                        fieldLabels: {
+                                                          ...lbls,
+                                                          [key]: e.target.value
+                                                        }
+                                                      });
+                                                    } else {
+                                                      const updated = customSlots.map((s) =>
+                                                        s.id === key
+                                                          ? { ...s, label: e.target.value }
+                                                          : s
+                                                      );
+                                                      handleUpdateBlockConfig('acceptance', {
+                                                        customAcceptanceSlots: updated
+                                                      });
+                                                    }
+                                                  }}
+                                                  className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-slate-200 text-[10.5px] font-medium text-slate-700"
+                                                />
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    if (isBuiltIn) {
+                                                      const prevOpt = rowOpts[key] || {};
+                                                      handleUpdateBlockConfig('acceptance', {
+                                                        fieldRowOptions: {
+                                                          ...rowOpts,
+                                                          [key]: {
+                                                            ...prevOpt,
+                                                            fullWidth: !prevOpt.fullWidth
+                                                          }
+                                                        }
+                                                      });
+                                                    } else {
+                                                      const updated = customSlots.map((s) =>
+                                                        s.id === key
+                                                          ? { ...s, fullWidth: !s.fullWidth }
+                                                          : s
+                                                      );
+                                                      handleUpdateBlockConfig('acceptance', {
+                                                        customAcceptanceSlots: updated
+                                                      });
+                                                    }
+                                                  }}
+                                                  title="Span Full Row Width (100%)"
+                                                  className={`px-1 py-0.5 rounded text-[9px] font-mono border cursor-pointer shrink-0 ${
+                                                    isFullWidth
+                                                      ? 'bg-blue-50 border-blue-300 text-blue-700 font-bold'
+                                                      : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
+                                                  }`}
+                                                >
+                                                  100%
+                                                </button>
+                                                {!isBuiltIn && cSlot && (
+                                                  <select
+                                                    value={cSlot.lineStyle || 'solid'}
+                                                    onChange={(e) => {
+                                                      const nextStyle = e.target.value as
+                                                        | 'solid'
+                                                        | 'dotted'
+                                                        | 'box';
+                                                      const updated = customSlots.map((s) =>
+                                                        s.id === key
+                                                          ? { ...s, lineStyle: nextStyle }
+                                                          : s
+                                                      );
+                                                      handleUpdateBlockConfig('acceptance', {
+                                                        customAcceptanceSlots: updated
+                                                      });
+                                                    }}
+                                                    className="text-[9px] font-medium bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-slate-600 cursor-pointer shrink-0"
+                                                  >
+                                                    <option value="solid">Solid</option>
+                                                    <option value="dotted">Dotted</option>
+                                                    <option value="box">Box</option>
+                                                  </select>
+                                                )}
                                                 <button
                                                   type="button"
                                                   disabled={idx === 0}
-                                                  onClick={() => moveTermField(key, -1)}
-                                                  className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
-                                                  title="Move Up"
+                                                  onClick={() => moveSlot(key, -1)}
+                                                  className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer shrink-0"
                                                 >
                                                   <ArrowUp className="w-3 h-3" />
                                                 </button>
                                                 <button
                                                   type="button"
-                                                  disabled={idx === activeOrder.length - 1}
-                                                  onClick={() => moveTermField(key, 1)}
-                                                  className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
-                                                  title="Move Down"
+                                                  disabled={idx === unifiedSlotOrder.length - 1}
+                                                  onClick={() => moveSlot(key, 1)}
+                                                  className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer shrink-0"
                                                 >
                                                   <ArrowDown className="w-3 h-3" />
                                                 </button>
-                                              </div>
-                                            </div>
-                                            {isChecked && (
-                                              <div className="flex items-center gap-1.5">
-                                                {meta.isNumber ? (
-                                                  <>
-                                                    <input
-                                                      type="number"
-                                                      value={meta.value ?? ''}
-                                                      onChange={(e) => meta.onChange(e.target.value)}
-                                                      className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[11px] text-slate-800"
-                                                    />
-                                                    <span className="text-[10px] font-semibold text-slate-500 shrink-0">
-                                                      Days
-                                                    </span>
-                                                  </>
-                                                ) : (
-                                                  <div className="w-full">
-                                                    <AtMentionInput
-                                                      value={meta.value ?? ''}
-                                                      onChange={(val) => meta.onChange(val)}
-                                                      tokenContext={studioTokenContext}
-                                                      compact
-                                                      className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[11px] text-slate-800"
-                                                    />
-                                                  </div>
+                                                {!isBuiltIn && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      const updated = customSlots.filter(
+                                                        (s) => s.id !== key
+                                                      );
+                                                      handleUpdateBlockConfig('acceptance', {
+                                                        customAcceptanceSlots: updated,
+                                                        customRows: (
+                                                          selectedBlock.customRows || []
+                                                        ).filter((r) => r.id !== key),
+                                                        fieldOrder: unifiedSlotOrder.filter(
+                                                          (k) => k !== key
+                                                        )
+                                                      });
+                                                    }}
+                                                    className="p-0.5 text-rose-500 hover:bg-rose-50 rounded cursor-pointer shrink-0"
+                                                  >
+                                                    <Trash2 className="w-3 h-3" />
+                                                  </button>
                                                 )}
                                               </div>
-                                            )}
-                                          </div>
-                                        );
-                                      })}
-
-                                    {/* Clauses / Notes Toggle & Direct Textarea */}
-                                    <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
-                                      <label className="flex items-center justify-between cursor-pointer">
-                                        <span className="text-[10.5px] font-semibold text-slate-700">
-                                          Show Terms &amp; Clauses Paragraph
-                                        </span>
-                                        <input
-                                          type="checkbox"
-                                          checked={vis.clauses !== false}
-                                          onChange={(e) =>
-                                            handleUpdateBlockConfig('terms', {
-                                              visibleFields: {
-                                                ...vis,
-                                                clauses: e.target.checked
-                                              }
-                                            })
-                                          }
-                                          className="rounded border-slate-300 text-blue-600 cursor-pointer"
-                                        />
-                                      </label>
-                                      {vis.clauses !== false && (
-                                        <AtMentionTextarea
-                                          rows={3}
-                                          value={customNotes ?? ''}
-                                          onChange={setCustomNotes}
-                                          tokenContext={studioTokenContext}
-                                          compact
-                                          placeholder="1. All supplied items carry standard warranty... Type @ for tags"
-                                          className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
-                                        />
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })()}
-
-                              {/* Custom Key-Value Rows for Commercial Terms */}
-                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[10.5px] font-semibold text-slate-700">
-                                    Custom Term Rows (e.g. Warranty, Origin)
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const nextRow = {
-                                        id: `term_row_${Date.now()}`,
-                                        label: 'Warranty:',
-                                        value: '12 Months Standard Manufacturer Warranty',
-                                        enabled: true
-                                      };
-                                      handleUpdateBlockConfig('terms', {
-                                        customRows: [...(selectedBlock.customRows || []), nextRow]
-                                      });
-                                    }}
-                                    className="text-[10px] font-semibold text-blue-600 hover:underline flex items-center gap-0.5 cursor-pointer"
-                                  >
-                                    <Plus className="w-3 h-3" />
-                                    <span>Add Row</span>
-                                  </button>
-                                </div>
-                                {(selectedBlock.customRows || []).map((row, rIdx) => (
-                                  <div
-                                    key={row.id || rIdx}
-                                    className="flex items-center gap-1 bg-slate-50 p-1.5 rounded border border-slate-200"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={row.enabled !== false}
-                                      onChange={(e) => {
-                                        const updated = (selectedBlock.customRows || []).map((item, i) =>
-                                          i === rIdx ? { ...item, enabled: e.target.checked } : item
-                                        );
-                                        handleUpdateBlockConfig('terms', { customRows: updated });
-                                      }}
-                                      className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
-                                    />
-                                    <input
-                                      type="text"
-                                      value={row.label ?? ''}
-                                      onChange={(e) => {
-                                        const updated = (selectedBlock.customRows || []).map((item, i) =>
-                                          i === rIdx ? { ...item, label: e.target.value } : item
-                                        );
-                                        handleUpdateBlockConfig('terms', { customRows: updated });
-                                      }}
-                                      placeholder="Label"
-                                      className="w-24 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-700"
-                                    />
-                                    <div className="flex-1 min-w-0">
-                                      <AtMentionInput
-                                        value={row.value ?? ''}
-                                        onChange={(val) => {
-                                          const updated = (selectedBlock.customRows || []).map((item, i) =>
-                                            i === rIdx ? { ...item, value: val } : item
+                                            </div>
                                           );
-                                          handleUpdateBlockConfig('terms', { customRows: updated });
-                                        }}
-                                        tokenContext={studioTokenContext}
-                                        compact
-                                        placeholder="Value or @tag"
-                                        className="w-full px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-800"
-                                      />
-                                    </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const updated = (selectedBlock.customRows || []).map((item, i) =>
-                                          i === rIdx ? { ...item, hideIfEmpty: !item.hideIfEmpty } : item
-                                        );
-                                        handleUpdateBlockConfig('terms', { customRows: updated });
-                                      }}
-                                      title={
-                                        row.hideIfEmpty
-                                          ? 'Row auto-hides when @tag is empty/omitted (Click to show — dash instead)'
-                                          : 'Row shows — dash when @tag is empty/omitted (Click to auto-hide row if empty)'
-                                      }
-                                      className={`px-1 py-0.5 rounded text-[9px] font-mono border cursor-pointer shrink-0 ${
-                                        row.hideIfEmpty
-                                          ? 'bg-amber-50 border-amber-300 text-amber-800 font-semibold'
-                                          : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
-                                      }`}
-                                    >
-                                      {row.hideIfEmpty ? 'Hide ∅' : 'Show —'}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const updated = (selectedBlock.customRows || []).filter(
-                                          (_, i) => i !== rIdx
-                                        );
-                                        handleUpdateBlockConfig('terms', { customRows: updated });
-                                      }}
-                                      className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer shrink-0"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Card 3 — Financial Summary Rows & Live AED Preview */}
-                          {selectedBlock.id === 'totals' && (
-                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-3">
-                              <div className="flex items-center justify-between">
-                                <span className="font-bold text-slate-800 text-xs">
-                                  3. Financial Summary Rows &amp; Live Preview
-                                </span>
-                                <span className="font-mono font-bold text-[11px] text-blue-900 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md">
-                                  {liveQuotation.currency}{' '}
-                                  {financialTotals.grand_total.toLocaleString('en-US', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2
-                                  })}
-                                </span>
-                              </div>
-
-                              {/* Reorderable Standard Rows + Grand Total Row */}
-                              {(() => {
-                                const vis = selectedBlock.visibleFields || {};
-                                const lbls = selectedBlock.fieldLabels || {};
-                                const defaultStdOrder = ['subtotal', 'freight', 'tax'];
-                                const currentStdOrder = (() => {
-                                  const configured = Array.isArray(selectedBlock.fieldOrder)
-                                    ? selectedBlock.fieldOrder.filter((k) => defaultStdOrder.includes(k))
-                                    : [];
-                                  return [
-                                    ...configured,
-                                    ...defaultStdOrder.filter((k) => !configured.includes(k))
-                                  ];
-                                })();
-
-                                const stdRowMeta: Record<
-                                  string,
-                                  { defaultLabel: string; formattedAmount: string }
-                                > = {
-                                  subtotal: {
-                                    defaultLabel: 'Subtotal (Excl. Tax):',
-                                    formattedAmount: `${liveQuotation.currency} ${financialTotals.subtotal.toLocaleString(
-                                      'en-US',
-                                      { minimumFractionDigits: 2, maximumFractionDigits: 2 }
-                                    )}`
-                                  },
-                                  freight: {
-                                    defaultLabel: 'Freight / Logistics Charges:',
-                                    formattedAmount: `${liveQuotation.currency} ${Number(
-                                      freightAmount || 0
-                                    ).toLocaleString('en-US', {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2
-                                    })}`
-                                  },
-                                  tax: {
-                                    defaultLabel: `VAT / Tax (${taxRatePercent}%):`,
-                                    formattedAmount:
-                                      taxMode === 'taxes_extra'
-                                        ? `${liveQuotation.currency} ${financialTotals.tax_amount.toLocaleString(
-                                            'en-US',
-                                            { minimumFractionDigits: 2, maximumFractionDigits: 2 }
-                                          )}`
-                                        : taxMode === 'tax_exempt'
-                                        ? `0.00 (Exempt)`
-                                        : `${liveQuotation.currency} ${financialTotals.tax_amount.toLocaleString(
-                                            'en-US',
-                                            { minimumFractionDigits: 2, maximumFractionDigits: 2 }
-                                          )}`
-                                  }
-                                };
-
-                                const moveStdRow = (idx: number, dir: 'up' | 'down') => {
-                                  const swapIdx = dir === 'up' ? idx - 1 : idx + 1;
-                                  if (swapIdx < 0 || swapIdx >= currentStdOrder.length) return;
-                                  const nextOrder = [...currentStdOrder];
-                                  const temp = nextOrder[idx];
-                                  nextOrder[idx] = nextOrder[swapIdx];
-                                  nextOrder[swapIdx] = temp;
-                                  handleUpdateBlockConfig('totals', { fieldOrder: nextOrder });
-                                };
-
-                                return (
-                                  <div className="space-y-1.5">
-                                    <span className="text-[10.5px] font-bold text-slate-700 block">
-                                      Standard Accounting Rows (Reorderable)
-                                    </span>
-                                    {currentStdOrder.map((key, idx) => {
-                                      const meta = stdRowMeta[key];
-                                      if (!meta) return null;
-                                      return (
-                                        <div
-                                          key={key}
-                                          className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-200"
-                                        >
-                                          <input
-                                            type="checkbox"
-                                            checked={vis[key] !== false}
-                                            onChange={(e) =>
-                                              handleUpdateBlockConfig('totals', {
-                                                visibleFields: { ...vis, [key]: e.target.checked }
-                                              })
-                                            }
-                                            className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
-                                          />
-                                          <div className="flex flex-col gap-0.5 shrink-0">
-                                            <button
-                                              type="button"
-                                              disabled={idx === 0}
-                                              onClick={() => moveStdRow(idx, 'up')}
-                                              title="Move Row Up"
-                                              className="p-0.5 rounded hover:bg-slate-100 disabled:opacity-30 text-slate-500 cursor-pointer"
-                                            >
-                                              <ArrowUp className="w-2.5 h-2.5" />
-                                            </button>
-                                            <button
-                                              type="button"
-                                              disabled={idx === currentStdOrder.length - 1}
-                                              onClick={() => moveStdRow(idx, 'down')}
-                                              title="Move Row Down"
-                                              className="p-0.5 rounded hover:bg-slate-100 disabled:opacity-30 text-slate-500 cursor-pointer"
-                                            >
-                                              <ArrowDown className="w-2.5 h-2.5" />
-                                            </button>
-                                          </div>
-                                          <input
-                                            type="text"
-                                            value={lbls[key] ?? meta.defaultLabel}
-                                            onChange={(e) =>
-                                              handleUpdateBlockConfig('totals', {
-                                                fieldLabels: { ...lbls, [key]: e.target.value }
-                                              })
-                                            }
-                                            className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-slate-200 text-[10.5px] font-medium text-slate-700"
-                                          />
-                                          <span className="font-mono text-[10px] font-semibold text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 shrink-0">
-                                            {meta.formattedAmount}
-                                          </span>
-                                        </div>
-                                      );
-                                    })}
-
-                                    {/* Grand Total Row */}
-                                    <div className="flex items-center gap-1.5 bg-blue-50/60 p-1.5 rounded-lg border border-blue-200">
-                                      <input
-                                        type="checkbox"
-                                        checked={vis.grand_total !== false}
-                                        onChange={(e) =>
-                                          handleUpdateBlockConfig('totals', {
-                                            visibleFields: { ...vis, grand_total: e.target.checked }
-                                          })
-                                        }
-                                        className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
-                                      />
-                                      <input
-                                        type="text"
-                                        value={lbls.grand_total ?? 'GRAND TOTAL:'}
-                                        onChange={(e) =>
-                                          handleUpdateBlockConfig('totals', {
-                                            fieldLabels: { ...lbls, grand_total: e.target.value }
-                                          })
-                                        }
-                                        className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-blue-200 bg-white text-[10.5px] font-bold text-slate-900"
-                                      />
-                                      <span className="font-mono text-[10.5px] font-bold text-blue-900 bg-white px-1.5 py-0.5 rounded border border-blue-200 shrink-0">
-                                        {liveQuotation.currency}{' '}
-                                        {financialTotals.grand_total.toLocaleString('en-US', {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2
                                         })}
-                                      </span>
-                                    </div>
-                                  </div>
-                                );
-                              })()}
-
-                              {/* Amount in Words Toggle */}
-                              <div className="flex items-center justify-between pt-2 border-t border-slate-200">
-                                <div>
-                                  <span className="font-semibold text-slate-800 text-xs block">
-                                    Show Amount in Words (Legal Phrasing)
-                                  </span>
-                                  <span className="text-[10.5px] text-slate-500">
-                                    Formal legal spelling of Grand Total
-                                  </span>
-                                </div>
-                                <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={amountInWordsEnabled}
-                                    onChange={(e) => setAmountInWordsEnabled(e.target.checked)}
-                                    className="sr-only peer"
-                                  />
-                                  <div className="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                                </label>
-                              </div>
-
-                              {/* VAT / Tax Footnote Override */}
-                              <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-1.5">
-                                <label className="flex items-center justify-between cursor-pointer">
-                                  <span className="text-[10.5px] font-semibold text-slate-700">
-                                    Show VAT / Tax Footnote Under Grand Total
-                                  </span>
-                                  <input
-                                    type="checkbox"
-                                    checked={(selectedBlock.visibleFields || {}).vat_note !== false}
-                                    onChange={(e) =>
-                                      handleUpdateBlockConfig('totals', {
-                                        visibleFields: {
-                                          ...(selectedBlock.visibleFields || {}),
-                                          vat_note: e.target.checked
-                                        }
-                                      })
-                                    }
-                                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
-                                  />
-                                </label>
-                                {(selectedBlock.visibleFields || {}).vat_note !== false && (
-                                  <AtMentionInput
-                                    value={selectedBlock.vatNoteOverride ?? ''}
-                                    onChange={(val) =>
-                                      handleUpdateBlockConfig('totals', {
-                                        vatNoteOverride: val
-                                      })
-                                    }
-                                    tokenContext={studioTokenContext}
-                                    compact
-                                    placeholder={`e.g. * All prices in ${liveQuotation.currency}. VAT (${taxRatePercent}%) included.`}
-                                    className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
-                                  />
-                                )}
-                              </div>
-
-                              {/* Custom Financial Rows (Reorderable, Enable/Disable, Highlight, Above/Below Grand Total) */}
-                              <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[10.5px] font-semibold text-slate-700">
-                                    Custom Financial Rows (Discounts / Fees / Notes)
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const nextRow = {
-                                        id: `tot_row_${Date.now()}`,
-                                        label: 'Packing & Documentation:',
-                                        value: 'Included',
-                                        enabled: true,
-                                        isHighlight: false,
-                                        position: 'above_grand_total' as const
-                                      };
-                                      handleUpdateBlockConfig('totals', {
-                                        customRows: [...(selectedBlock.customRows || []), nextRow]
-                                      });
-                                    }}
-                                    className="text-[10px] font-semibold text-blue-600 hover:underline flex items-center gap-0.5 cursor-pointer"
-                                  >
-                                    <Plus className="w-3 h-3" />
-                                    <span>Add Row</span>
-                                  </button>
-                                </div>
-                                {(selectedBlock.customRows || []).map((row, rIdx) => {
-                                  const rowsArr = selectedBlock.customRows || [];
-                                  const moveCustomRow = (dir: 'up' | 'down') => {
-                                    const swapIdx = dir === 'up' ? rIdx - 1 : rIdx + 1;
-                                    if (swapIdx < 0 || swapIdx >= rowsArr.length) return;
-                                    const updated = [...rowsArr];
-                                    const temp = updated[rIdx];
-                                    updated[rIdx] = updated[swapIdx];
-                                    updated[swapIdx] = temp;
-                                    handleUpdateBlockConfig('totals', { customRows: updated });
-                                  };
-                                  return (
-                                    <div
-                                      key={row.id || rIdx}
-                                      className={`space-y-1.5 p-2 rounded-lg border ${
-                                        row.isHighlight
-                                          ? 'bg-amber-50/70 border-amber-300'
-                                          : 'bg-slate-50 border-slate-200'
-                                      }`}
-                                    >
-                                      <div className="flex items-center gap-1">
-                                        <input
-                                          type="checkbox"
-                                          checked={row.enabled !== false}
-                                          onChange={(e) => {
-                                            const updated = rowsArr.map((item, i) =>
-                                              i === rIdx ? { ...item, enabled: e.target.checked } : item
-                                            );
-                                            handleUpdateBlockConfig('totals', { customRows: updated });
-                                          }}
-                                          title="Enable / Disable Row"
-                                          className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
-                                        />
-                                        <div className="flex flex-col gap-0.5 shrink-0">
-                                          <button
-                                            type="button"
-                                            disabled={rIdx === 0}
-                                            onClick={() => moveCustomRow('up')}
-                                            title="Move Custom Row Up"
-                                            className="p-0.5 rounded hover:bg-slate-200 disabled:opacity-30 text-slate-500 cursor-pointer"
-                                          >
-                                            <ArrowUp className="w-2.5 h-2.5" />
-                                          </button>
-                                          <button
-                                            type="button"
-                                            disabled={rIdx === rowsArr.length - 1}
-                                            onClick={() => moveCustomRow('down')}
-                                            title="Move Custom Row Down"
-                                            className="p-0.5 rounded hover:bg-slate-200 disabled:opacity-30 text-slate-500 cursor-pointer"
-                                          >
-                                            <ArrowDown className="w-2.5 h-2.5" />
-                                          </button>
-                                        </div>
-                                        <input
-                                          type="text"
-                                          value={row.label ?? ''}
-                                          onChange={(e) => {
-                                            const updated = rowsArr.map((item, i) =>
-                                              i === rIdx ? { ...item, label: e.target.value } : item
-                                            );
-                                            handleUpdateBlockConfig('totals', { customRows: updated });
-                                          }}
-                                          placeholder="Label"
-                                          className="w-28 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-700"
-                                        />
-                                        <div className="flex-1 min-w-0">
-                                          <AtMentionInput
-                                            value={row.value ?? ''}
-                                            onChange={(val) => {
-                                              const updated = rowsArr.map((item, i) =>
-                                                i === rIdx ? { ...item, value: val } : item
-                                              );
-                                              handleUpdateBlockConfig('totals', { customRows: updated });
-                                            }}
-                                            tokenContext={studioTokenContext}
-                                            compact
-                                            placeholder="Value or @tag"
-                                            className="w-full px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-800"
-                                          />
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            const updated = rowsArr.filter((_, i) => i !== rIdx);
-                                            handleUpdateBlockConfig('totals', { customRows: updated });
-                                          }}
-                                          className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer shrink-0"
-                                        >
-                                          <Trash2 className="w-3 h-3" />
-                                        </button>
                                       </div>
-
-                                      {/* Row Placement & Style Controls */}
-                                      <div className="flex items-center justify-between gap-1.5 pl-5">
-                                        <div className="flex items-center gap-1">
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              const updated = rowsArr.map((item, i) =>
-                                                i === rIdx
-                                                  ? { ...item, isHighlight: !item.isHighlight }
-                                                  : item
-                                              );
-                                              handleUpdateBlockConfig('totals', { customRows: updated });
-                                            }}
-                                            className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border cursor-pointer ${
-                                              row.isHighlight
-                                                ? 'bg-amber-100 border-amber-400 text-amber-900'
-                                                : 'bg-white border-slate-200 text-slate-500 hover:text-slate-800'
-                                            }`}
-                                          >
-                                            ★ Bold / Highlight
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              const updated = rowsArr.map((item, i) =>
-                                                i === rIdx
-                                                  ? { ...item, hideIfEmpty: !item.hideIfEmpty }
-                                                  : item
-                                              );
-                                              handleUpdateBlockConfig('totals', { customRows: updated });
-                                            }}
-                                            title={
-                                              row.hideIfEmpty
-                                                ? 'Row auto-hides when @tag is empty/omitted'
-                                                : 'Row shows — dash when @tag is empty/omitted'
-                                            }
-                                            className={`px-1.5 py-0.5 rounded text-[9px] font-mono border cursor-pointer ${
-                                              row.hideIfEmpty
-                                                ? 'bg-amber-50 border-amber-300 text-amber-800 font-semibold'
-                                                : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
-                                            }`}
-                                          >
-                                            {row.hideIfEmpty ? 'Hide ∅' : 'Show —'}
-                                          </button>
-                                        </div>
-
-                                        <select
-                                          value={row.position || 'above_grand_total'}
-                                          onChange={(e) => {
-                                            const nextPos = e.target.value as
-                                              | 'above_grand_total'
-                                              | 'below_grand_total';
-                                            const updated = rowsArr.map((item, i) =>
-                                              i === rIdx ? { ...item, position: nextPos } : item
-                                            );
-                                            handleUpdateBlockConfig('totals', { customRows: updated });
-                                          }}
-                                          className="text-[9.5px] font-medium bg-white border border-slate-200 rounded px-1.5 py-0.5 text-slate-700 cursor-pointer"
-                                        >
-                                          <option value="above_grand_total">Above Grand Total</option>
-                                          <option value="below_grand_total">Below Grand Total</option>
-                                        </select>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Customer Acceptance Block Specific Options */}
-                          {selectedBlock.id === 'acceptance' && (
-                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-3">
-                              <div>
-                                <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                                  Signature Slots Layout
-                                </label>
-                                <div className="grid grid-cols-3 gap-1">
-                                  {[
-                                    { id: 'row_4col' as const, label: '4-Col Row' },
-                                    { id: 'grid_2x2' as const, label: '2x2 Grid' },
-                                    { id: 'compact' as const, label: 'Compact' }
-                                  ].map((mode) => {
-                                    const active = (selectedBlock.acceptanceLayout || 'row_4col') === mode.id;
-                                    return (
-                                      <button
-                                        key={mode.id}
-                                        type="button"
-                                        onClick={() =>
-                                          handleUpdateBlockConfig('acceptance', {
-                                            acceptanceLayout: mode.id
-                                          })
-                                        }
-                                        className={`py-1.5 px-1.5 rounded-lg text-[10px] font-semibold transition cursor-pointer ${
-                                          active
-                                            ? 'bg-blue-600 text-white shadow-2xs'
-                                            : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
-                                        }`}
-                                      >
-                                        {mode.label}
-                                      </button>
                                     );
-                                  })}
+                                  })()}
                                 </div>
-                              </div>
+                              )}
 
-                              {/* Acceptance Statement Text Override */}
-                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5">
-                                <label className="flex items-center justify-between cursor-pointer">
-                                  <span className="text-[10.5px] font-semibold text-slate-700">
-                                    Show Legal Acceptance Statement
-                                  </span>
-                                  <input
-                                    type="checkbox"
-                                    checked={(selectedBlock.visibleFields || {}).statement !== false}
-                                    onChange={(e) =>
-                                      handleUpdateBlockConfig('acceptance', {
-                                        visibleFields: {
-                                          ...(selectedBlock.visibleFields || {}),
-                                          statement: e.target.checked
-                                        }
-                                      })
-                                    }
-                                    className="rounded border-slate-300 text-blue-600 cursor-pointer"
-                                  />
-                                </label>
-                                {(selectedBlock.visibleFields || {}).statement !== false && (
-                                  <AtMentionTextarea
-                                    rows={2}
-                                    value={selectedBlock.acceptanceStatementOverride ?? ''}
-                                    onChange={(val) =>
-                                      handleUpdateBlockConfig('acceptance', {
-                                        acceptanceStatementOverride: val
-                                      })
-                                    }
-                                    tokenContext={studioTokenContext}
-                                    compact
-                                    placeholder="We hereby accept the above commercial offer... Type @ for tags"
-                                    className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
-                                  />
-                                )}
-                              </div>
-
-                              {/* Toggleable & Renameable Acceptance Signature Slots */}
-                              {(() => {
-                                const vis = selectedBlock.visibleFields || {};
-                                const lbls = selectedBlock.fieldLabels || {};
-                                const slots = [
-                                  { key: 'signature', defaultLabel: 'Authorized Signature', defOn: true },
-                                  { key: 'name', defaultLabel: 'Signatory Name', defOn: true },
-                                  { key: 'title', defaultLabel: 'Title / Designation', defOn: false },
-                                  { key: 'po_number', defaultLabel: 'PO Number', defOn: true },
-                                  { key: 'date', defaultLabel: 'Date', defOn: true },
-                                  { key: 'stamp', defaultLabel: 'Company Stamp / Seal', defOn: false }
-                                ];
-                                return (
-                                  <div className="space-y-1.5">
-                                    <span className="text-[10.5px] font-bold text-slate-700 block">
-                                      Acceptance Fields &amp; Labels
-                                    </span>
-                                    {slots.map((slot) => {
-                                      const isOn =
-                                        vis[slot.key] !== undefined ? vis[slot.key] : slot.defOn;
-                                      return (
-                                        <div
-                                          key={slot.key}
-                                          className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-200"
-                                        >
-                                          <input
-                                            type="checkbox"
-                                            checked={isOn}
-                                            onChange={(e) =>
-                                              handleUpdateBlockConfig('acceptance', {
-                                                visibleFields: { ...vis, [slot.key]: e.target.checked }
-                                              })
-                                            }
-                                            className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
-                                          />
-                                          <input
-                                            type="text"
-                                            value={lbls[slot.key] ?? slot.defaultLabel}
-                                            onChange={(e) =>
-                                              handleUpdateBlockConfig('acceptance', {
-                                                fieldLabels: { ...lbls, [slot.key]: e.target.value }
-                                              })
-                                            }
-                                            className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-slate-200 text-[10.5px] font-medium text-slate-700"
-                                          />
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                );
-                              })()}
-
-                              {/* Custom Acceptance Slots */}
-                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[10.5px] font-semibold text-slate-700">
-                                    Custom Acceptance Slots
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const nextRow = {
-                                        id: `acc_slot_${Date.now()}`,
-                                        label: 'Project Code / Ref',
-                                        value: '',
-                                        enabled: true
-                                      };
-                                      handleUpdateBlockConfig('acceptance', {
-                                        customRows: [...(selectedBlock.customRows || []), nextRow]
-                                      });
-                                    }}
-                                    className="text-[10px] font-semibold text-blue-600 hover:underline flex items-center gap-0.5 cursor-pointer"
-                                  >
-                                    <Plus className="w-3 h-3" />
-                                    <span>Add Slot</span>
-                                  </button>
-                                </div>
-                                {(selectedBlock.customRows || []).map((row, rIdx) => (
-                                  <div
-                                    key={row.id || rIdx}
-                                    className="flex items-center gap-1 bg-slate-50 p-1.5 rounded border border-slate-200"
-                                  >
-                                    <div className="flex-1 min-w-0">
-                                      <AtMentionInput
-                                        value={row.label ?? ''}
-                                        onChange={(val) => {
-                                          const updated = (selectedBlock.customRows || []).map((item, i) =>
-                                            i === rIdx ? { ...item, label: val } : item
-                                          );
-                                          handleUpdateBlockConfig('acceptance', { customRows: updated });
-                                        }}
-                                        tokenContext={studioTokenContext}
-                                        compact
-                                        placeholder="Slot Label or @tag"
-                                        className="w-full px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-700"
-                                      />
-                                    </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const updated = (selectedBlock.customRows || []).filter(
-                                          (_, i) => i !== rIdx
-                                        );
-                                        handleUpdateBlockConfig('acceptance', { customRows: updated });
-                                      }}
-                                      className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer shrink-0"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Signatory Block Specific Options */}
+                              {/* Signatory Block Specific Options */}
                           {selectedBlock.id === 'signatory' && (
                             <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-3">
                               {/* Direct Signatory Mode & Primary/Secondary Identity Editor */}
@@ -20045,7 +20644,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             </div>
                           )}
 
-                          {/* Remittance Block Specific Options */}
+                          {/* Remittance Block Specific Options (Unified Interleaved 2-Tier Wire & Custom Rows) */}
                           {selectedBlock.id === 'remittance' && (
                             <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-3">
                               <div>
@@ -20071,10 +20670,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 </select>
                               </div>
 
-                              {/* Direct Bank Wire Fields: Toggle, Reorder, Rename & Edit Values */}
+                              {/* Unified Reorderable Bank Wire Fields & Custom Rows */}
                               {(() => {
                                 const vis = selectedBlock.visibleFields || {};
                                 const lbls = selectedBlock.fieldLabels || {};
+                                const rowOpts = selectedBlock.fieldRowOptions || {};
+                                const customRows = selectedBlock.customRows || [];
+                                const customMap = new Map(customRows.map((r) => [r.id, r]));
+
                                 const defaultOrder = [
                                   'bank_name',
                                   'beneficiary',
@@ -20084,17 +20687,25 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   'branch',
                                   'currency'
                                 ];
-                                const activeOrder =
+                                const allBankKeys = [
+                                  ...defaultOrder,
+                                  ...customRows.map((r) => r.id)
+                                ];
+                                const rawOrder =
                                   selectedBlock.fieldOrder && selectedBlock.fieldOrder.length > 0
                                     ? selectedBlock.fieldOrder
-                                    : defaultOrder;
+                                    : allBankKeys;
+                                const unifiedBankOrder = [
+                                  ...rawOrder.filter((k) => allBankKeys.includes(k)),
+                                  ...allBankKeys.filter((k) => !rawOrder.includes(k))
+                                ];
 
                                 const moveBankField = (key: string, dir: -1 | 1) => {
-                                  const idx = activeOrder.indexOf(key);
+                                  const idx = unifiedBankOrder.indexOf(key);
                                   if (idx === -1) return;
                                   const target = idx + dir;
-                                  if (target < 0 || target >= activeOrder.length) return;
-                                  const copy = [...activeOrder];
+                                  if (target < 0 || target >= unifiedBankOrder.length) return;
+                                  const copy = [...unifiedBankOrder];
                                   const [item] = copy.splice(idx, 1);
                                   copy.splice(target, 0, item);
                                   handleUpdateBlockConfig('remittance', { fieldOrder: copy });
@@ -20178,180 +20789,295 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 return (
                                   <div className="space-y-1.5">
                                     <div className="flex items-center justify-between">
-                                      <span className="text-[10.5px] font-bold text-slate-700">
-                                        Bank Fields &amp; Wire Values
-                                      </span>
-                                      <span className="text-[9.5px] text-slate-400">
-                                        Toggle, reorder &amp; edit
-                                      </span>
+                                      <div>
+                                        <span className="text-[10.5px] font-bold text-slate-700 block">
+                                          Bank Wire &amp; Custom Fields
+                                        </span>
+                                        <span className="text-[9.5px] text-slate-400">
+                                          Unified reorderable list • Break, 100% &amp; bold
+                                        </span>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const newId = `bank_row_${Date.now()}`;
+                                          const nextRow = {
+                                            id: newId,
+                                            label: 'Correspondent Bank:',
+                                            value: 'Standard Chartered NY',
+                                            enabled: true,
+                                            emptyBehavior: 'hide' as const
+                                          };
+                                          handleUpdateBlockConfig('remittance', {
+                                            customRows: [...customRows, nextRow],
+                                            fieldOrder: [...unifiedBankOrder, newId]
+                                          });
+                                        }}
+                                        className="px-2 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-semibold flex items-center gap-0.5 cursor-pointer shadow-2xs"
+                                      >
+                                        <Plus className="w-3 h-3" />
+                                        <span>Add Custom Bank Row</span>
+                                      </button>
                                     </div>
-                                    {activeOrder
-                                      .filter((k) => Boolean(bankFieldMeta[k]))
-                                      .map((key, idx) => {
-                                        const meta = bankFieldMeta[key];
-                                        const isChecked =
-                                          vis[key] !== undefined ? vis[key] : meta.defaultOn;
-                                        return (
-                                          <div
-                                            key={key}
-                                            className="p-2 rounded-lg bg-white border border-slate-200 space-y-1"
-                                          >
-                                            <div className="flex items-center justify-between gap-1">
-                                              <label className="flex items-center gap-1.5 cursor-pointer flex-1 min-w-0">
-                                                <input
-                                                  type="checkbox"
-                                                  checked={isChecked}
-                                                  onChange={(e) =>
+
+                                    {unifiedBankOrder.map((key, idx) => {
+                                      const meta = bankFieldMeta[key];
+                                      const cRow = customRows.find((r) => r.id === key);
+                                      if (!meta && !cRow) return null;
+
+                                      const isBuiltIn = Boolean(meta);
+                                      const isChecked = isBuiltIn
+                                        ? vis[key] !== undefined
+                                          ? vis[key]
+                                          : meta.defaultOn
+                                        : cRow!.enabled !== false;
+
+                                      const opt = isBuiltIn
+                                        ? rowOpts[key] || {}
+                                        : {
+                                            breakAfter: cRow!.breakAfter,
+                                            fullWidth: cRow!.fullWidth,
+                                            isBold: cRow!.isBold
+                                          };
+
+                                      const toggleBankRowOption = (
+                                        prop: 'breakAfter' | 'fullWidth' | 'isBold'
+                                      ) => {
+                                        if (isBuiltIn) {
+                                          const prevOpt = rowOpts[key] || {};
+                                          handleUpdateBlockConfig('remittance', {
+                                            fieldRowOptions: {
+                                              ...rowOpts,
+                                              [key]: { ...prevOpt, [prop]: !prevOpt[prop] }
+                                            }
+                                          });
+                                        } else {
+                                          const updated = customRows.map((item) =>
+                                            item.id === key
+                                              ? { ...item, [prop]: !item[prop] }
+                                              : item
+                                          );
+                                          handleUpdateBlockConfig('remittance', {
+                                            customRows: updated
+                                          });
+                                        }
+                                      };
+
+                                      return (
+                                        <div
+                                          key={key}
+                                          className="p-2 rounded-lg bg-white border border-slate-200 space-y-1.5"
+                                        >
+                                          {/* Tier 1 */}
+                                          <div className="flex items-center justify-between gap-1">
+                                            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                              <input
+                                                type="checkbox"
+                                                checked={isChecked}
+                                                onChange={(e) => {
+                                                  if (isBuiltIn) {
                                                     handleUpdateBlockConfig('remittance', {
                                                       visibleFields: {
                                                         ...vis,
                                                         [key]: e.target.checked
                                                       }
-                                                    })
+                                                    });
+                                                  } else {
+                                                    const updated = customRows.map((item) =>
+                                                      item.id === key
+                                                        ? { ...item, enabled: e.target.checked }
+                                                        : item
+                                                    );
+                                                    handleUpdateBlockConfig('remittance', {
+                                                      customRows: updated
+                                                    });
                                                   }
-                                                  className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
-                                                />
-                                                <input
-                                                  type="text"
-                                                  value={lbls[key] ?? meta.defaultLabel}
-                                                  onChange={(e) =>
+                                                }}
+                                                className="rounded border-slate-300 text-blue-600 cursor-pointer shrink-0"
+                                              />
+                                              <input
+                                                type="text"
+                                                value={
+                                                  isBuiltIn
+                                                    ? lbls[key] ?? meta.defaultLabel
+                                                    : cRow!.label ?? ''
+                                                }
+                                                onChange={(e) => {
+                                                  if (isBuiltIn) {
                                                     handleUpdateBlockConfig('remittance', {
                                                       fieldLabels: {
                                                         ...lbls,
                                                         [key]: e.target.value
                                                       }
-                                                    })
+                                                    });
+                                                  } else {
+                                                    const updated = customRows.map((item) =>
+                                                      item.id === key
+                                                        ? { ...item, label: e.target.value }
+                                                        : item
+                                                    );
+                                                    handleUpdateBlockConfig('remittance', {
+                                                      customRows: updated
+                                                    });
                                                   }
-                                                  className="text-[10.5px] font-semibold text-slate-700 bg-transparent border-b border-transparent focus:border-blue-400 focus:outline-hidden w-full"
-                                                />
-                                              </label>
-                                              <div className="flex items-center gap-0.5 shrink-0">
-                                                <button
-                                                  type="button"
-                                                  disabled={idx === 0}
-                                                  onClick={() => moveBankField(key, -1)}
-                                                  className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
-                                                >
-                                                  <ArrowUp className="w-3 h-3" />
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  disabled={idx === activeOrder.length - 1}
-                                                  onClick={() => moveBankField(key, 1)}
-                                                  className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
-                                                >
-                                                  <ArrowDown className="w-3 h-3" />
-                                                </button>
-                                              </div>
-                                            </div>
-                                            {isChecked && meta.onChange && (
-                                              <input
-                                                type="text"
-                                                value={meta.value ?? ''}
-                                                onChange={(e) => meta.onChange?.(e.target.value)}
-                                                className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
+                                                }}
+                                                placeholder="Field Label"
+                                                className="text-[10.5px] font-semibold text-slate-700 bg-transparent border-b border-transparent focus:border-blue-400 focus:outline-hidden w-full min-w-0"
                                               />
-                                            )}
+                                            </div>
+
+                                            <div className="flex items-center gap-0.5 shrink-0">
+                                              <button
+                                                type="button"
+                                                onClick={() => toggleBankRowOption('breakAfter')}
+                                                title="Force Line Break After This Field (↵ Break)"
+                                                className={`px-1 py-0.5 rounded text-[9px] font-mono border cursor-pointer ${
+                                                  opt.breakAfter
+                                                    ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-bold'
+                                                    : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
+                                                }`}
+                                              >
+                                                ↵
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => toggleBankRowOption('fullWidth')}
+                                                title="Span 100% Full Row Width"
+                                                className={`px-1 py-0.5 rounded text-[9px] font-mono border cursor-pointer ${
+                                                  opt.fullWidth
+                                                    ? 'bg-blue-50 border-blue-300 text-blue-700 font-bold'
+                                                    : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
+                                                }`}
+                                              >
+                                                100%
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => toggleBankRowOption('isBold')}
+                                                title="Bold Emphasis"
+                                                className={`px-1 py-0.5 rounded text-[9px] font-serif font-bold border cursor-pointer ${
+                                                  opt.isBold
+                                                    ? 'bg-amber-50 border-amber-300 text-amber-800'
+                                                    : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
+                                                }`}
+                                              >
+                                                B
+                                              </button>
+                                              {!isBuiltIn && cRow && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    const curEmpty =
+                                                      cRow.emptyBehavior ||
+                                                      (cRow.hideIfEmpty ? 'hide' : 'dash');
+                                                    const nextEmpty =
+                                                      curEmpty === 'hide' ? 'dash' : 'hide';
+                                                    const updated = customRows.map((item) =>
+                                                      item.id === key
+                                                        ? {
+                                                            ...item,
+                                                            emptyBehavior: nextEmpty as 'hide' | 'dash',
+                                                            hideIfEmpty: nextEmpty === 'hide'
+                                                          }
+                                                        : item
+                                                    );
+                                                    handleUpdateBlockConfig('remittance', {
+                                                      customRows: updated
+                                                    });
+                                                  }}
+                                                  title="Toggle empty value behavior (Hide ∅ vs Show —)"
+                                                  className={`px-1 py-0.5 rounded text-[9px] font-mono border cursor-pointer ${
+                                                    (cRow.emptyBehavior ||
+                                                      (cRow.hideIfEmpty ? 'hide' : 'dash')) === 'hide'
+                                                      ? 'bg-amber-50 border-amber-300 text-amber-800 font-semibold'
+                                                      : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
+                                                  }`}
+                                                >
+                                                  {(cRow.emptyBehavior ||
+                                                    (cRow.hideIfEmpty ? 'hide' : 'dash')) === 'hide'
+                                                    ? 'Hide ∅'
+                                                    : 'Show —'}
+                                                </button>
+                                              )}
+                                              <button
+                                                type="button"
+                                                disabled={idx === 0}
+                                                onClick={() => moveBankField(key, -1)}
+                                                className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                                              >
+                                                <ArrowUp className="w-3 h-3" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                disabled={idx === unifiedBankOrder.length - 1}
+                                                onClick={() => moveBankField(key, 1)}
+                                                className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
+                                              >
+                                                <ArrowDown className="w-3 h-3" />
+                                              </button>
+                                              {!isBuiltIn && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    const updated = customRows.filter(
+                                                      (item) => item.id !== key
+                                                    );
+                                                    handleUpdateBlockConfig('remittance', {
+                                                      customRows: updated,
+                                                      fieldOrder: unifiedBankOrder.filter(
+                                                        (k) => k !== key
+                                                      )
+                                                    });
+                                                  }}
+                                                  className="p-0.5 text-rose-500 hover:bg-rose-50 rounded cursor-pointer"
+                                                >
+                                                  <Trash2 className="w-3 h-3" />
+                                                </button>
+                                              )}
+                                            </div>
                                           </div>
-                                        );
-                                      })}
+
+                                          {/* Tier 2: Full-width value input */}
+                                          {isChecked && (
+                                            <div>
+                                              {isBuiltIn ? (
+                                                meta.onChange ? (
+                                                  <input
+                                                    type="text"
+                                                    value={meta.value ?? ''}
+                                                    onChange={(e) => meta.onChange?.(e.target.value)}
+                                                    className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
+                                                  />
+                                                ) : (
+                                                  <div className="px-2 py-1 rounded border border-slate-200 bg-slate-50 text-[10px] font-mono text-slate-600">
+                                                    {meta.value}
+                                                  </div>
+                                                )
+                                              ) : (
+                                                <AtMentionInput
+                                                  value={cRow!.value ?? ''}
+                                                  onChange={(val) => {
+                                                    const updated = customRows.map((item) =>
+                                                      item.id === key ? { ...item, value: val } : item
+                                                    );
+                                                    handleUpdateBlockConfig('remittance', {
+                                                      customRows: updated
+                                                    });
+                                                  }}
+                                                  tokenContext={studioTokenContext}
+                                                  compact
+                                                  placeholder="Value or @tag"
+                                                  className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
+                                                />
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 );
                               })()}
-
-                              {/* Custom Bank Rows */}
-                              <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[10.5px] font-semibold text-slate-700">
-                                    Custom Bank Rows (e.g. Routing / Sort Code)
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const nextRow = {
-                                        id: `bank_row_${Date.now()}`,
-                                        label: 'Correspondent Bank:',
-                                        value: 'Standard Chartered NY',
-                                        enabled: true
-                                      };
-                                      handleUpdateBlockConfig('remittance', {
-                                        customRows: [...(selectedBlock.customRows || []), nextRow]
-                                      });
-                                    }}
-                                    className="text-[10px] font-semibold text-blue-600 hover:underline flex items-center gap-0.5 cursor-pointer"
-                                  >
-                                    <Plus className="w-3 h-3" />
-                                    <span>Add Row</span>
-                                  </button>
-                                </div>
-                                {(selectedBlock.customRows || []).map((row, rIdx) => (
-                                  <div
-                                    key={row.id || rIdx}
-                                    className="flex items-center gap-1 bg-slate-50 p-1.5 rounded border border-slate-200"
-                                  >
-                                    <input
-                                      type="text"
-                                      value={row.label ?? ''}
-                                      onChange={(e) => {
-                                        const updated = (selectedBlock.customRows || []).map((item, i) =>
-                                          i === rIdx ? { ...item, label: e.target.value } : item
-                                        );
-                                        handleUpdateBlockConfig('remittance', { customRows: updated });
-                                      }}
-                                      placeholder="Label"
-                                      className="w-24 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-700"
-                                    />
-                                    <div className="flex-1 min-w-0">
-                                      <AtMentionInput
-                                        value={row.value ?? ''}
-                                        onChange={(val) => {
-                                          const updated = (selectedBlock.customRows || []).map((item, i) =>
-                                            i === rIdx ? { ...item, value: val } : item
-                                          );
-                                          handleUpdateBlockConfig('remittance', { customRows: updated });
-                                        }}
-                                        tokenContext={studioTokenContext}
-                                        compact
-                                        placeholder="Value or @tag"
-                                        className="w-full px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] text-slate-800"
-                                      />
-                                    </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const updated = (selectedBlock.customRows || []).map((item, i) =>
-                                          i === rIdx ? { ...item, hideIfEmpty: !item.hideIfEmpty } : item
-                                        );
-                                        handleUpdateBlockConfig('remittance', { customRows: updated });
-                                      }}
-                                      title={
-                                        row.hideIfEmpty
-                                          ? 'Row auto-hides when @tag is empty/omitted (Click to show — dash instead)'
-                                          : 'Row shows — dash when @tag is empty/omitted (Click to auto-hide row if empty)'
-                                      }
-                                      className={`px-1 py-0.5 rounded text-[9px] font-mono border cursor-pointer shrink-0 ${
-                                        row.hideIfEmpty
-                                          ? 'bg-amber-50 border-amber-300 text-amber-800 font-semibold'
-                                          : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
-                                      }`}
-                                    >
-                                      {row.hideIfEmpty ? 'Hide ∅' : 'Show —'}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const updated = (selectedBlock.customRows || []).filter(
-                                          (_, i) => i !== rIdx
-                                        );
-                                        handleUpdateBlockConfig('remittance', { customRows: updated });
-                                      }}
-                                      className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer shrink-0"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
 
                               {/* Custom Remittance Note */}
                               <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1">
@@ -23814,6 +24540,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               </div>
                             );
                           })()}
+                            </>
+                          )}
                         </>
                       )}
 

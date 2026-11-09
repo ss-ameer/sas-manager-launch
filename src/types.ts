@@ -1943,8 +1943,13 @@ export interface QuotationBlockCustomRow {
   value: string;
   enabled?: boolean;
   hideIfEmpty?: boolean;
+  emptyBehavior?: 'hide' | 'dash';
+  breakAfter?: boolean;
+  fullWidth?: boolean;
+  isBold?: boolean;
   isHighlight?: boolean;
   position?: 'above_grand_total' | 'below_grand_total';
+  placement?: 'above_grand_total' | 'below_grand_total';
   textStyle?: QuotationTextFormatStyle;
 }
 
@@ -1970,7 +1975,26 @@ export interface QuotationBlockConfig {
   vatNoteOverride?: string;
   showHeaderIcon?: boolean; // default true
   headerStyleOverride?: 'inherit' | 'solid' | 'tinted' | 'underline' | 'minimal' | 'none';
-  fieldLayoutMode?: 'split' | 'inline' | 'grid_2col'; // default 'split'
+  fieldLayoutMode?: 'split' | 'inline' | 'grid_2col' | 'grid_2col_balanced' | 'table_2col' | 'pills'; // default 'split'
+  balanceOrphanRow?: boolean; // default true
+  clausesPosition?: 'below_rows' | 'above_rows'; // default 'below_rows'
+  fieldRowOptions?: Record<
+    string,
+    {
+      breakAfter?: boolean;
+      fullWidth?: boolean;
+      isBold?: boolean;
+      isHighlight?: boolean;
+    }
+  >;
+  customAcceptanceSlots?: Array<{
+    id: string;
+    label: string;
+    enabled?: boolean;
+    fullWidth?: boolean;
+    lineStyle?: 'solid' | 'dotted' | 'box';
+    emptyBehavior?: 'hide' | 'dash';
+  }>;
   showRowDividers?: boolean; // default false
   valueAlign?: 'left' | 'right'; // default 'right' in split mode, 'left' in inline/grid
   visibleFields?: Record<string, boolean>;
