@@ -4283,7 +4283,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         
         {/* Left Panel: File Preview or Smart Paste Text Preview (visible when isPreviewActive is true) */}
         {isPreviewActive && (
-          <div className="w-[42%] xl:w-[44%] border-r border-slate-200 h-full flex flex-col bg-slate-50 shrink-0 font-sans overflow-hidden">
+          <div className="w-full md:w-[42%] xl:w-[44%] border-b md:border-b-0 md:border-r border-slate-200 h-[45vh] md:h-full flex flex-col bg-slate-50 shrink-0 font-sans overflow-hidden">
             {/* Case 1: Document File Preview (PDF or Image) */}
             {activePreviewUrl && (
               <>
@@ -7912,7 +7912,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             </fieldset> {/* End of scrollable Form body */}
 
             {/* Executive Sticky Footer Bar with Live Deal Summary */}
-            <div className="sticky bottom-0 z-20 px-6 py-3.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 shadow-lg flex flex-wrap items-center justify-between gap-4 shrink-0">
+            <div className="sticky bottom-0 z-20 px-4 py-3 sm:px-6 sm:py-3.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 shadow-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 shrink-0">
               {(() => {
                 const baselineList = lineItems.filter((li) => {
                   const opt = String((li as any).option_designation || li.option || 'Default / Included').trim();
@@ -7929,7 +7929,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 const grandTotalInclVat = effectiveSubtotal + vatAmount;
 
                 return (
-                  <div className="flex items-center gap-3 flex-wrap text-xs font-mono tabular-nums min-w-0">
+                  <div className="flex items-center gap-2 sm:gap-3 flex-wrap text-xs font-mono tabular-nums min-w-0">
                     <span className="text-slate-500 dark:text-slate-400">
                       Items: <strong className="text-slate-800 dark:text-slate-200">{lineItems.length}</strong>
                     </span>
@@ -7960,7 +7960,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               })()}
 
               {isReadOnly ? (
-                <div className="flex items-center gap-3 ml-auto">
+                <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto sm:ml-auto">
                   <div className="flex items-center space-x-1.5 text-amber-700 dark:text-amber-400 text-xs font-semibold">
                     <Lock className="w-3.5 h-3.5 shrink-0" />
                     <span>Read-Only View</span>
@@ -7968,18 +7968,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   <button
                     type="button"
                     onClick={onClose}
-                    className="h-9 px-4 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold rounded-lg text-xs inline-flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap"
+                    className="h-9 px-4 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold rounded-lg text-xs inline-flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap w-full sm:w-auto"
                   >
                     Close
                   </button>
                 </div>
               ) : (
-                <div className="flex items-center gap-2.5 ml-auto flex-wrap">
+                <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto sm:ml-auto">
                   <button
                     type="button"
                     disabled={isSubmitting}
                     onClick={onClose}
-                    className="h-9 px-4 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 text-slate-700 dark:text-slate-300 font-semibold rounded-lg text-xs inline-flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap"
+                    className="h-9 px-4 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 text-slate-700 dark:text-slate-300 font-semibold rounded-lg text-xs inline-flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap w-full sm:w-auto"
                   >
                     Cancel
                   </button>
@@ -7988,7 +7988,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       type="submit"
                       disabled={isSubmitting}
                       onClick={() => updateSubmitMode('another')}
-                      className="h-9 px-4 border border-blue-200 dark:border-blue-800 bg-blue-50/70 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 disabled:opacity-50 text-blue-700 dark:text-blue-300 font-semibold rounded-lg text-xs inline-flex items-center justify-center gap-1.5 transition shadow-2xs cursor-pointer whitespace-nowrap"
+                      className="h-9 px-4 border border-blue-200 dark:border-blue-800 bg-blue-50/70 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 disabled:opacity-50 text-blue-700 dark:text-blue-300 font-semibold rounded-lg text-xs inline-flex items-center justify-center gap-1.5 transition shadow-2xs cursor-pointer whitespace-nowrap w-full sm:w-auto"
                     >
                       {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                       <span>{isSubmitting ? 'Saving...' : 'Register & Add Another'}</span>
@@ -7998,7 +7998,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     type="submit"
                     disabled={isSubmitting}
                     onClick={() => updateSubmitMode('close')}
-                    className="h-9 px-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold rounded-lg text-xs inline-flex items-center justify-center gap-1.5 transition shadow-sm cursor-pointer whitespace-nowrap"
+                    className="h-9 px-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold rounded-lg text-xs inline-flex items-center justify-center gap-1.5 transition shadow-sm cursor-pointer whitespace-nowrap w-full sm:w-auto"
                   >
                     {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                     <span>
@@ -8021,8 +8021,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       {/* Inline Create New Company Modal overlay */}
       {newCompanyModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-[96vh] sm:max-h-[90vh] flex flex-col">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
               <h3 className="text-sm font-bold text-slate-800 font-sans uppercase tracking-wider">
                 {isEditingCompany ? 'Edit Company Account' : 'Create New Company Account'}
@@ -8312,8 +8312,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       {/* Inline Create New Contact Modal overlay */}
       {showNewContactModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-[96vh] sm:max-h-[90vh] flex flex-col">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
               <h3 className="text-sm font-bold text-slate-800 font-sans uppercase tracking-wider">
                 {isEditingContact ? 'Edit Contact Personnel' : 'Add Contact Personnel'}
@@ -8504,8 +8504,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       {/* Inline Create New Category Modal overlay (Admin privilege protection) */}
       {newCategoryModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-[96vh] sm:max-h-[90vh] flex flex-col">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
               <h3 className="text-sm font-bold text-slate-800 font-sans uppercase tracking-wider flex items-center gap-2">
                 <Plus className="w-4 h-4 text-blue-600" />
@@ -8650,8 +8650,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       {/* Product Catalog Modal */}
       {showCatalogModal && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-4xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-2 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-4xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col max-h-[96vh] sm:max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-150">
             {/* Header */}
             <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
               <div>
@@ -8892,8 +8892,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       {/* Raw Excel Row / RFQ Text AI Paste Modal */}
       {rawTextModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl p-6 space-y-4">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl p-4 sm:p-6 space-y-4 max-h-[96vh] sm:max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center space-x-2">
                 <FileSpreadsheet className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
@@ -8937,20 +8937,20 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               />
             </div>
 
-            <div className="flex items-center justify-between pt-2">
+            <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
               <button
                 type="button"
                 onClick={() => setRawTextInput('')}
-                className="px-3 py-2 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 font-sans cursor-pointer"
+                className="px-3 py-2 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 font-sans cursor-pointer text-center"
               >
                 Clear
               </button>
 
-              <div className="flex space-x-2">
+              <div className="flex flex-col-reverse sm:flex-row gap-2 w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={() => setRawTextModalOpen(false)}
-                  className="px-4 py-2 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold text-xs rounded-xl transition cursor-pointer"
+                  className="px-4 py-2 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold text-xs rounded-xl transition cursor-pointer w-full sm:w-auto text-center"
                 >
                   Cancel
                 </button>
@@ -8958,7 +8958,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   type="button"
                   onClick={() => handleExtractFromRawText()}
                   disabled={isExtracting || !rawTextInput.trim()}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-xl shadow-sm transition flex items-center space-x-1.5 disabled:opacity-50 cursor-pointer"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-xl shadow-sm transition flex items-center justify-center space-x-1.5 disabled:opacity-50 cursor-pointer w-full sm:w-auto"
                 >
                   {isExtracting ? (
                     <>
@@ -8980,8 +8980,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       {/* Confirm Registration Modal for Unregistered Entities */}
       {showConfirmRegistrationModal && unregisteredEntities && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white border border-amber-200 rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-white border border-amber-200 rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[96vh] sm:max-h-[90vh]">
             <div className="bg-gradient-to-r from-amber-500 to-amber-600 text-white p-4 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2">
                 <Sparkles className="w-5 h-5 text-amber-200 fill-amber-200" />

@@ -3617,7 +3617,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                     type="datetime-local"
                     value={activityDate}
                     onChange={(e) => setActivityDate(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl text-xs font-semibold focus:outline-none"
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl text-xs font-semibold focus:outline-none dark:[color-scheme:dark]"
                   />
                 </div>
               </div>
@@ -5286,7 +5286,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 value={activityDate}
                 onChange={(e) => setActivityDate(e.target.value)}
                 max={getLocalDateTimeString()}
-                className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs focus:outline-hidden font-mono"
+                className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs focus:outline-hidden font-mono dark:[color-scheme:dark]"
               />
             </div>
 
@@ -5500,12 +5500,12 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                           setFollowupDate(e.target.value);
                           setActiveFollowUpPreset('custom');
                         }}
-                        className={`w-full px-3 py-2 text-xs rounded-xl bg-white text-slate-900 font-mono transition-all focus:outline-hidden ${
+                        className={`w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono transition-all focus:outline-hidden dark:[color-scheme:dark] ${
                           isFollowupMissing
                             ? 'border-2 border-amber-400 ring-2 ring-amber-500/20'
                             : followupDate
-                            ? 'border-2 border-blue-500 text-blue-900 font-bold'
-                            : 'border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
+                            ? 'border-2 border-blue-500 text-blue-900 dark:text-blue-300 font-bold'
+                            : 'border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
                         }`}
                       />
                     </div>

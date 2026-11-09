@@ -2239,7 +2239,7 @@ export default function CompanyModal({
       {viewMode === 'companies' && (
         <div id="companies-tab" className="flex flex-col gap-4 w-full">
           {/* Standalone Filter Card */}
-          <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs space-y-3">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-3">
               <div className="relative md:col-span-12 lg:col-span-4">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -2248,7 +2248,7 @@ export default function CompanyModal({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search companies by canonical name, city, aliases, numbers, emails..."
-                  className="w-full h-10 pl-9 pr-3.5 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                  className="w-full min-w-[260px] h-10 pl-9 pr-3.5 rounded-xl bg-slate-50/70 focus:bg-white dark:bg-slate-800 dark:focus:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
                 />
               </div>
 
@@ -2447,7 +2447,7 @@ export default function CompanyModal({
       {viewMode === 'contacts' && (
         <div className="flex flex-col gap-4 w-full">
           {/* Standalone Filter Card */}
-          <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs space-y-3">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs space-y-3">
             <div className="relative w-full">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
               <input
@@ -2455,7 +2455,7 @@ export default function CompanyModal({
                 placeholder="Filter by person name, role, company, email, phone..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full h-10 pl-10 pr-4 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                className="w-full min-w-[260px] h-10 pl-10 pr-4 rounded-xl bg-slate-50/70 focus:bg-white dark:bg-slate-800 dark:focus:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
               />
             </div>
 
@@ -2719,8 +2719,8 @@ export default function CompanyModal({
               )}
             </div>
           ) : (
-            <div className="w-full overflow-x-clip relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
-              <table className="w-full table-fixed text-left border-collapse text-xs font-sans">
+            <div className="w-full overflow-x-auto scrollbar-thin relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
+              <table className="w-full min-w-[760px] sm:min-w-[820px] text-left border-collapse text-xs font-sans">
                 <thead className="sticky top-0 z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
                   <tr>
                     {isContactMarkingMode && (
@@ -2789,8 +2789,9 @@ export default function CompanyModal({
                           <div className="font-semibold text-slate-800 dark:text-slate-200 text-xs truncate" title={ct.companyName}>
                             {ct.companyName}
                           </div>
-                          <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
-                            📍 {ct.location || 'UAE'}
+                          <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5 flex items-center gap-1">
+                            <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span>{ct.location || 'UAE'}</span>
                           </div>
                         </td>
                         <td className="py-2.5 px-3.5 align-middle overflow-hidden">
@@ -2992,7 +2993,7 @@ export default function CompanyModal({
       {viewMode === 'phones' && (
         <div className="flex flex-col gap-4 w-full">
           {/* Standalone Filter Card */}
-          <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs space-y-3">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs space-y-3">
             <div className="relative w-full">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
               <input
@@ -3000,7 +3001,7 @@ export default function CompanyModal({
                 placeholder="Search phone numbers, companies, people, locations..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full h-10 pl-10 pr-4 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                className="w-full min-w-[260px] h-10 pl-10 pr-4 rounded-xl bg-slate-50/70 focus:bg-white dark:bg-slate-800 dark:focus:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
               />
             </div>
 
@@ -3015,8 +3016,8 @@ export default function CompanyModal({
             />
           </div>
 
-          <div className="w-full overflow-x-clip relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
-            <table className="w-full table-fixed text-left border-collapse text-xs font-sans">
+          <div className="w-full overflow-x-auto scrollbar-thin relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
+            <table className="w-full min-w-[760px] sm:min-w-[820px] text-left border-collapse text-xs font-sans">
               <thead className="sticky top-0 z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
                 <tr>
                   <th className="py-3 px-3.5 w-[18%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Phone Number</th>
@@ -3175,25 +3176,25 @@ export default function CompanyModal({
 
       {/* MODAL: ADD COMPANY WITH DUPLICATE FUZZY WARNING */}
       {showAddCompany && (
-        <div id="company-form-modal" className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="max-w-3xl w-full bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150">
+        <div id="company-form-modal" className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-150">
+          <div className="max-w-3xl w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[96vh] sm:max-h-[90vh] animate-in zoom-in-95 duration-150">
             {/* Header */}
-            <div className="px-6 py-4 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-3">
-                <div className="p-2.5 bg-blue-50 border border-blue-200/80 text-blue-600 rounded-xl">
+                <div className="p-2.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/60 text-blue-600 dark:text-blue-400 rounded-xl">
                   <Building2 className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="flex items-center space-x-2">
-                    <h2 className="text-base font-bold text-slate-900 font-sans">
-                      {editingCompany ? 'Edit Company' : 'Add Company'}
+                    <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 font-sans">
+                      {editingCompany ? 'Edit Company Profile' : 'Add New Company'}
                     </h2>
                     {canonicalName.trim() && (
                       <a
                         href={`https://www.google.com/search?q=${encodeURIComponent(canonicalName)}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer"
+                        className="px-2 py-0.5 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer"
                         title="Search Company on Google"
                       >
                         <Search className="w-3 h-3" />
@@ -3709,23 +3710,39 @@ export default function CompanyModal({
 
               </div>
 
-              {/* Docked Footer */}
-              <div className="shrink-0 border-t border-slate-200 dark:border-slate-800 px-6 py-4 bg-white dark:bg-slate-900 flex justify-end items-center gap-3">
-                <button
-                  type="button"
-                  onClick={closeCompanyModal}
-                  className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSavingCompany || !activeWorkspace?.id}
-                  className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                >
-                  {isSavingCompany ? <Loader2 className="w-4 h-4 animate-spin"/> : <Check className="w-4 h-4"/>}
-                  <span>{isSavingCompany ? 'Saving Record...' : 'Save Canonical Record'}</span>
-                </button>
+              {/* Harmonized Executive Sticky Footer */}
+              <div className="shrink-0 border-t border-slate-200/80 dark:border-slate-800 px-4 py-3 sm:px-6 sm:py-3.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+                {/* Live Summary Chips */}
+                <div className="flex items-center gap-2 overflow-x-auto min-w-0 py-0.5">
+                  <span className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 truncate max-w-[200px]">
+                    {canonicalName.trim() || 'New Company'}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 shrink-0">
+                    {relationship}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shrink-0">
+                    {companyPhones.filter(p => p.value.trim()).length} Phone(s)
+                  </span>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto sm:ml-auto">
+                  <button
+                    type="button"
+                    onClick={closeCompanyModal}
+                    className="h-9 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer w-full sm:w-auto text-center"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingCompany || !activeWorkspace?.id}
+                    className="h-9 px-4 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 w-full sm:w-auto"
+                  >
+                    {isSavingCompany ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Check className="w-3.5 h-3.5"/>}
+                    <span>{isSavingCompany ? 'Saving...' : 'Save Canonical Record'}</span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -3751,8 +3768,8 @@ export default function CompanyModal({
 
       {/* MODAL: MERGE canonical companies */}
       {showMerge && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-[100] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative space-y-4 animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-[100] flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md p-4 sm:p-6 shadow-2xl relative space-y-4 animate-in fade-in zoom-in-95 duration-150 max-h-[96vh] sm:max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => {
                 setShowMerge(false);
@@ -3819,8 +3836,8 @@ export default function CompanyModal({
 
       {/* Company Deletion Choice Modal */}
       {companyToDelete && canDeleteCompanyRecord && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-150 font-sans">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-2 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-4 sm:p-6 overflow-hidden animate-in zoom-in-95 duration-150 font-sans max-h-[96vh] sm:max-h-[90vh]">
             <div className="flex items-center space-x-3 mb-3">
               <div className="p-2.5 bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50 rounded-xl">
                 <Trash2 className="w-5 h-5" />
@@ -3905,8 +3922,8 @@ export default function CompanyModal({
 
       {/* Custom Confirmation Dialog Overlay */}
       {confirmDialog.isOpen && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-2 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-4 sm:p-6 overflow-hidden animate-in zoom-in-95 duration-150">
             <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 font-sans mb-2">{confirmDialog.title}</h3>
             <p className="text-sm text-slate-600 dark:text-slate-400 font-sans mb-6">{confirmDialog.message}</p>
             <div className="flex items-center justify-end space-x-3 font-sans">
@@ -3938,8 +3955,8 @@ export default function CompanyModal({
 
       {/* Bulk Reassign Modal */}
       {showBulkReassignModal && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4 font-sans animate-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-2 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-4 sm:p-6 space-y-4 font-sans animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center space-x-2">
                 <Building2 className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
@@ -4056,8 +4073,8 @@ export default function CompanyModal({
 
       {/* Delete Contact Confirmation Modal */}
       {contactToDeleteConfirm && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4 font-sans animate-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-2 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-4 sm:p-6 space-y-4 font-sans animate-in zoom-in-95 duration-150">
             <div className="flex items-center space-x-3 text-rose-500 dark:text-rose-400">
               <div className="p-2 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800/50 rounded-xl">
                 <AlertTriangle className="w-5 h-5" />

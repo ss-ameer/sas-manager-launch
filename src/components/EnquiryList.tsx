@@ -2461,11 +2461,11 @@ export default function EnquiryList({
       </div>
 
       {/* Main Table Layout */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-sm overflow-clip">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-sm overflow-hidden">
         {filteredEnquiries.length > 0 ? (
           <>
-            <div className="w-full overflow-x-clip relative border-b border-slate-200 dark:border-slate-800">
-            <table className="w-full table-fixed text-left border-collapse">
+            <div className="w-full overflow-x-auto scrollbar-thin relative border-b border-slate-200 dark:border-slate-800">
+            <table className="w-full min-w-[840px] text-left border-collapse">
               <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 sticky top-[76px] z-20 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
                 <tr>
                   {isMarkingMode && (
@@ -2864,8 +2864,8 @@ export default function EnquiryList({
 
                 <div className="space-y-2">
                   <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest block">Live Confirmation Preview (First 5 Rows):</span>
-                  <div className="border border-slate-200 rounded-xl overflow-hidden text-[11px] font-sans">
-                    <table className="w-full text-left">
+                  <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-x-auto scrollbar-thin text-[11px] font-sans">
+                    <table className="w-full min-w-[640px] text-left">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-mono text-slate-400 uppercase">
                           <th className="p-2">S/N</th>

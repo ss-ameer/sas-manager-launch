@@ -550,37 +550,37 @@ export default function ContactModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-150"
       onClick={(e) => {
         e.stopPropagation();
         onClose();
       }}
     >
       <div
-        className="max-w-3xl w-full bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150"
+        className="max-w-3xl w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[96vh] sm:max-h-[90vh] animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
+        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-3">
-            <div className="p-2.5 bg-blue-50 border border-blue-200/80 text-blue-600 rounded-xl">
+            <div className="p-2.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800/60 text-blue-600 dark:text-blue-400 rounded-xl">
               <User className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900 font-sans">
+              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 font-sans">
                 {isEditing ? 'Edit Contact Person' : 'Create New Contact Person'}
               </h2>
-              <p className="text-xs text-slate-500 font-sans">
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">
                 {selectedCompany
                   ? `Linking personnel directly to ${selectedCompany.display_name}`
-                  : 'Specify contact details'}
+                  : 'Personnel contact details and direct reach channels.'}
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition cursor-pointer"
+            className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -589,413 +589,445 @@ export default function ContactModal({
         {/* Form Container */}
         <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden font-sans">
           {/* Scroll Body */}
-          <div className="flex-1 overflow-y-auto px-6 py-5 pb-8 space-y-4">
-            {/* Company Selection */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                  Associated Company
-                </label>
-                {isCompanyLocked && (
-                  <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded flex items-center gap-1 border border-slate-200 dark:border-slate-700">
-                    Locked to Context
-                  </span>
-                )}
-              </div>
-              <div className="relative">
-                <select
-                  value={companyId}
-                  disabled={isCompanyLocked}
-                  onChange={(e) => setCompanyId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans cursor-pointer disabled:bg-slate-100 dark:disabled:bg-slate-800/60 disabled:cursor-not-allowed disabled:text-slate-600 dark:disabled:text-slate-400"
-                >
-                  {!companyId && !initialCompanyId && (
-                    <option value="">(Unassigned / Independent Contact)</option>
-                  )}
-                  {/* If companyId is supplied but not present in companies array, show a dedicated option for it */}
-                  {companyId && !companies.some((comp) => comp.id === companyId) && (
-                    <option value={companyId}>
-                      {resolvedDisplayCompanyName || 'Associated Company'}
-                    </option>
-                  )}
-                  {companies.map((comp) => (
-                    <option key={comp.id} value={comp.id}>
-                      {comp.display_name || comp.canonical_name || (comp as any).name} {comp.city ? `(${comp.city}${comp.country ? `, ${comp.country}` : ''})` : ''}
-                    </option>
-                  ))}
-                  {!isCompanyLocked && companyId && (
-                    <option value="">(Unassigned / Independent Contact)</option>
-                  )}
-                </select>
-              </div>
-            </div>
-
-            {/* Full Name & Designation in 2-col Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
-                  Full Name <span className="text-rose-500 font-bold ml-0.5">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="e.g. John Doe"
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
-                  Designation / Role
-                </label>
-                <input
-                  type="text"
-                  value={designation}
-                  onChange={(e) => setDesignation(e.target.value)}
-                  placeholder="e.g. Procurement Manager"
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
-                />
-              </div>
-            </div>
-
-            {/* Phones Section */}
-            <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-              <div className="flex items-center justify-between">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
-                  Phone Numbers
-                </label>
-                <button
-                  type="button"
-                  onClick={handleAddPhone}
-                  className="text-xs text-blue-600 dark:text-blue-400 font-bold hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Phone</span>
-                </button>
-              </div>
-
-              {/* Smart Reclaimable Company Phone Numbers */}
-              {selectedCompany && availableCompanyPhones.length > 0 && (
-                <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/40 rounded-xl text-xs space-y-1.5">
-                  <span className="font-semibold text-blue-800 dark:text-blue-300 flex items-center space-x-1">
-                    <Sparkles className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                    <span>Unassigned Company Phone Numbers:</span>
-                  </span>
-                  <div className="flex flex-wrap gap-1.5 pt-0.5">
-                    {availableCompanyPhones.map((p, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => claimCompanyPhone(p)}
-                        className="px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-blue-200 dark:border-blue-700/50 hover:border-blue-400 dark:hover:border-blue-500 text-blue-700 dark:text-blue-300 rounded-lg text-[11px] font-mono flex items-center space-x-1 shadow-2xs hover:bg-blue-50 dark:hover:bg-slate-700 transition cursor-pointer"
-                        title="Claim this phone number for this personnel"
-                      >
-                        <span>{p.number}</span>
-                        <span className="text-[9px] text-blue-500 dark:text-blue-400 font-sans">({p.label})</span>
-                        <ArrowRightLeft className="w-2.5 h-2.5 ml-1" />
-                      </button>
-                    ))}
-                  </div>
+          <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-slate-50/80 dark:bg-slate-950/70">
+            {/* CHAPTER 1: PERSONNEL IDENTITY & COMPANY ASSOCIATION */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-5 shadow-2xs space-y-4">
+              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-mono font-bold text-xs shrink-0">1</span>
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Personnel Identity &amp; Company Association</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Full name, corporate designation, and associated account profile.</p>
                 </div>
-              )}
-
-              {phones.map((p, idx) => {
-                const currentRestriction = getLineRestriction(editingRestrictedLines, p.value);
-                const phoneKey = p.id || String(idx);
-                const isCustomPhone = customPhoneKeys[phoneKey] !== undefined
-                  ? customPhoneKeys[phoneKey]
-                  : !PHONE_PRESETS.includes(p.label as any);
-
-                return (
-                  <div key={p.id || idx} className="flex items-center space-x-2">
-                    <select
-                      value={isCustomPhone ? 'Custom...' : p.label}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val === 'Custom...') {
-                          setCustomPhoneKeys((prev) => ({ ...prev, [phoneKey]: true }));
-                          handlePhoneChange(idx, 'label', '');
-                        } else {
-                          setCustomPhoneKeys((prev) => ({ ...prev, [phoneKey]: false }));
-                          handlePhoneChange(idx, 'label', val);
-                        }
-                      }}
-                      className="w-28 sm:w-32 px-2.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0 cursor-pointer"
-                    >
-                      {PHONE_PRESETS.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
-                      <option value="Custom...">Custom...</option>
-                    </select>
-
-                    {isCustomPhone && (
-                      <input
-                        type="text"
-                        value={p.label === 'Custom...' ? '' : p.label}
-                        onChange={(e) => handlePhoneChange(idx, 'label', e.target.value)}
-                        placeholder="Tag (e.g. Operations Desk)"
-                        className="w-28 sm:w-36 px-2.5 py-2 text-xs border border-blue-400 dark:border-blue-500 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0"
-                        autoFocus
-                      />
-                    )}
-
-                    <input
-                      type="text"
-                      value={p.value}
-                      onChange={(e) => handlePhoneChange(idx, 'value', e.target.value)}
-                      placeholder="e.g. +971 50 123 4567"
-                      className="flex-1 px-3.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic min-w-0"
-                    />
-
-                    <button
-                      type="button"
-                      onClick={() => toggleRestriction(p.value)}
-                      disabled={!p.value.trim()}
-                      className={`px-2.5 py-2 rounded-lg text-[10px] font-bold flex items-center gap-1 border transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0 ${
-                        currentRestriction === 'DNC'
-                          ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100'
-                          : currentRestriction === 'Invalid'
-                          ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100'
-                          : 'bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
-                      }`}
-                      title={
-                        currentRestriction === 'DNC'
-                          ? 'Restriction: DNC (Click to Clear)'
-                          : currentRestriction === 'Invalid'
-                          ? 'Restriction: Invalid (Click for DNC)'
-                          : 'Line Active (Click to flag Invalid)'
-                      }
-                    >
-                      <ShieldAlert className={`w-3.5 h-3.5 ${
-                        currentRestriction === 'DNC'
-                          ? 'text-rose-600 dark:text-rose-400'
-                          : currentRestriction === 'Invalid'
-                          ? 'text-amber-600 dark:text-amber-400'
-                          : 'text-slate-400'
-                      }`} />
-                      <span>{currentRestriction || 'Clear'}</span>
-                    </button>
-
-                    {phones.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemovePhone(idx)}
-                        className="p-2 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer shrink-0"
-                        title="Remove Phone"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Emails Section */}
-            <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-              <div className="flex items-center justify-between">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
-                  Email Addresses
-                </label>
-                <button
-                  type="button"
-                  onClick={handleAddEmail}
-                  className="text-xs text-blue-600 dark:text-blue-400 font-bold hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Email</span>
-                </button>
               </div>
 
-              {/* Smart Reclaimable Company Email Addresses */}
-              {selectedCompany && availableCompanyEmails.length > 0 && (
-                <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/40 rounded-xl text-xs space-y-1.5">
-                  <span className="font-semibold text-blue-800 dark:text-blue-300 flex items-center space-x-1">
-                    <Sparkles className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                    <span>Unassigned Company Email Addresses:</span>
-                  </span>
-                  <div className="flex flex-wrap gap-1.5 pt-0.5">
-                    {availableCompanyEmails.map((e, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => claimCompanyEmail(e)}
-                        className="px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-blue-200 dark:border-blue-700/50 hover:border-blue-400 dark:hover:border-blue-500 text-blue-700 dark:text-blue-300 rounded-lg text-[11px] font-sans flex items-center space-x-1 shadow-2xs hover:bg-blue-50 dark:hover:bg-slate-700 transition cursor-pointer"
-                        title="Claim this email address for this personnel"
-                      >
-                        <span>{e.email || e.value}</span>
-                        <span className="text-[9px] text-blue-500 dark:text-blue-400 font-sans">({e.label})</span>
-                        <ArrowRightLeft className="w-2.5 h-2.5 ml-1" />
-                      </button>
-                    ))}
-                  </div>
+              {/* Company Selection */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                    Associated Company
+                  </label>
+                  {isCompanyLocked && (
+                    <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded flex items-center gap-1 border border-slate-200 dark:border-slate-700">
+                      Locked to Context
+                    </span>
+                  )}
                 </div>
-              )}
-
-              {emails.map((e, idx) => {
-                const currentRestriction = getLineRestriction(editingRestrictedLines, e.value);
-                const emailKey = e.id || String(idx);
-                const isCustomEmail = customEmailKeys[emailKey] !== undefined
-                  ? customEmailKeys[emailKey]
-                  : !EMAIL_PRESETS.includes(e.label as any);
-
-                return (
-                  <div key={e.id || idx} className="flex items-center space-x-2">
-                    <select
-                      value={isCustomEmail ? 'Custom...' : e.label}
-                      onChange={(eVal) => {
-                        const val = eVal.target.value;
-                        if (val === 'Custom...') {
-                          setCustomEmailKeys((prev) => ({ ...prev, [emailKey]: true }));
-                          handleEmailChange(idx, 'label', '');
-                        } else {
-                          setCustomEmailKeys((prev) => ({ ...prev, [emailKey]: false }));
-                          handleEmailChange(idx, 'label', val);
-                        }
-                      }}
-                      className="w-28 sm:w-32 px-2.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0 cursor-pointer"
-                    >
-                      {EMAIL_PRESETS.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
-                      <option value="Custom...">Custom...</option>
-                    </select>
-
-                    {isCustomEmail && (
-                      <input
-                        type="text"
-                        value={e.label === 'Custom...' ? '' : e.label}
-                        onChange={(eVal) => handleEmailChange(idx, 'label', eVal.target.value)}
-                        placeholder="Tag (e.g. Inquiries)"
-                        className="w-28 sm:w-36 px-2.5 py-2 text-xs border border-blue-400 dark:border-blue-500 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0"
-                        autoFocus
-                      />
-                    )}
-
-                    <input
-                      type="email"
-                      value={e.value}
-                      onChange={(eVal) => handleEmailChange(idx, 'value', eVal.target.value)}
-                      placeholder="e.g. john@company.com"
-                      className="flex-1 px-3.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-sans placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic min-w-0"
-                    />
-
-                    <button
-                      type="button"
-                      onClick={() => toggleRestriction(e.value)}
-                      disabled={!e.value.trim()}
-                      className={`px-2.5 py-2 rounded-lg text-[10px] font-bold flex items-center gap-1 border transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0 ${
-                        currentRestriction === 'DNC'
-                          ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100'
-                          : currentRestriction === 'Invalid'
-                          ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100'
-                          : 'bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
-                      }`}
-                      title={
-                        currentRestriction === 'DNC'
-                          ? 'Restriction: DNC (Click to Clear)'
-                          : currentRestriction === 'Invalid'
-                          ? 'Restriction: Invalid (Click for DNC)'
-                          : 'Address Active (Click to flag Invalid)'
-                      }
-                    >
-                      <ShieldAlert className={`w-3.5 h-3.5 ${
-                        currentRestriction === 'DNC'
-                          ? 'text-rose-600 dark:text-rose-400'
-                          : currentRestriction === 'Invalid'
-                          ? 'text-amber-600 dark:text-amber-400'
-                          : 'text-slate-400'
-                      }`} />
-                      <span>{currentRestriction || 'Clear'}</span>
-                    </button>
-
-                    {emails.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveEmail(idx)}
-                        className="p-2 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer shrink-0"
-                        title="Remove Email"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Messaging & Social Handles Section */}
-            <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-              <div className="flex items-center justify-between">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
-                  Messaging & Social Handles
-                </label>
-                <button
-                  type="button"
-                  onClick={handleAddHandle}
-                  className="text-xs text-blue-600 dark:text-blue-400 font-bold hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Handle</span>
-                </button>
-              </div>
-
-              {handles.length === 0 && (
-                <p className="text-xs text-slate-500 dark:text-slate-400">No messaging handles added. Click "Add Handle" to add WhatsApp, Telegram, LinkedIn, etc.</p>
-              )}
-
-              {handles.map((h, idx) => (
-                <div key={idx} className="flex items-center space-x-2">
+                <div className="relative">
                   <select
-                    value={h.platform}
-                    onChange={(e) => handleHandleChange(idx, 'platform', e.target.value)}
-                    className="w-32 px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium cursor-pointer"
+                    value={companyId}
+                    disabled={isCompanyLocked}
+                    onChange={(e) => setCompanyId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans cursor-pointer disabled:bg-slate-100 dark:disabled:bg-slate-800/60 disabled:cursor-not-allowed disabled:text-slate-600 dark:disabled:text-slate-400"
                   >
-                    <option value="WhatsApp">WhatsApp</option>
-                    <option value="Telegram">Telegram</option>
-                    <option value="LinkedIn">LinkedIn</option>
-                    <option value="WeChat">WeChat</option>
-                    <option value="Skype">Skype</option>
-                    <option value="Signal">Signal</option>
-                    <option value="Other">Other</option>
+                    {!companyId && !initialCompanyId && (
+                      <option value="">(Unassigned / Independent Contact)</option>
+                    )}
+                    {/* If companyId is supplied but not present in companies array, show a dedicated option for it */}
+                    {companyId && !companies.some((comp) => comp.id === companyId) && (
+                      <option value={companyId}>
+                        {resolvedDisplayCompanyName || 'Associated Company'}
+                      </option>
+                    )}
+                    {companies.map((comp) => (
+                      <option key={comp.id} value={comp.id}>
+                        {comp.display_name || comp.canonical_name || (comp as any).name} {comp.city ? `(${comp.city}${comp.country ? `, ${comp.country}` : ''})` : ''}
+                      </option>
+                    ))}
+                    {!isCompanyLocked && companyId && (
+                      <option value="">(Unassigned / Independent Contact)</option>
+                    )}
                   </select>
+                </div>
+              </div>
+
+              {/* Full Name & Designation in 2-col Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
+                    Full Name <span className="text-rose-500 font-bold ml-0.5">*</span>
+                  </label>
                   <input
                     type="text"
-                    value={h.handle}
-                    onChange={(e) => handleHandleChange(idx, 'handle', e.target.value)}
-                    placeholder="e.g. +971501234567 or @username"
-                    className="flex-1 px-3.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic"
+                    required
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="e.g. John Doe"
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
                   />
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveHandle(idx)}
-                    className="p-2 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
                 </div>
-              ))}
+
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
+                    Designation / Role
+                  </label>
+                  <input
+                    type="text"
+                    value={designation}
+                    onChange={(e) => setDesignation(e.target.value)}
+                    placeholder="e.g. Procurement Manager"
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <label className="flex items-center space-x-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isPrimary}
+                    onChange={(e) => setIsPrimary(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                    Set as Primary Contact Person for this company
+                  </span>
+                </label>
+              </div>
             </div>
 
-            {/* Additional Controls */}
-            <div className="space-y-4 border-t border-slate-100 dark:border-slate-800 pt-4">
-              <label className="flex items-center space-x-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={isPrimary}
-                  onChange={(e) => setIsPrimary(e.target.checked)}
-                  className="w-4 h-4 text-blue-600 bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 rounded focus:ring-blue-500"
-                />
-                <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                  Set as Primary Contact Person for this company
-                </span>
-              </label>
+            {/* CHAPTER 2: COMMUNICATION CHANNELS & MESSAGING */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-5 shadow-2xs space-y-4">
+              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-mono font-bold text-xs shrink-0">2</span>
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Communication Channels &amp; Messaging</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Direct mobile lines, work email addresses, and instant messaging handles.</p>
+                </div>
+              </div>
+
+              {/* Phones Section */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
+                    Phone Numbers
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAddPhone}
+                    className="text-xs text-blue-600 dark:text-blue-400 font-bold hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Phone</span>
+                  </button>
+                </div>
+
+                {/* Smart Reclaimable Company Phone Numbers */}
+                {selectedCompany && availableCompanyPhones.length > 0 && (
+                  <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/40 rounded-xl text-xs space-y-1.5">
+                    <span className="font-semibold text-blue-800 dark:text-blue-300 flex items-center space-x-1">
+                      <Sparkles className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                      <span>Unassigned Company Phone Numbers:</span>
+                    </span>
+                    <div className="flex flex-wrap gap-1.5 pt-0.5">
+                      {availableCompanyPhones.map((p, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => claimCompanyPhone(p)}
+                          className="px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-blue-200 dark:border-blue-700/50 hover:border-blue-400 dark:hover:border-blue-500 text-blue-700 dark:text-blue-300 rounded-lg text-[11px] font-mono flex items-center space-x-1 shadow-2xs hover:bg-blue-50 dark:hover:bg-slate-700 transition cursor-pointer"
+                          title="Claim this phone number for this personnel"
+                        >
+                          <span>{p.number}</span>
+                          <span className="text-[9px] text-blue-500 dark:text-blue-400 font-sans">({p.label})</span>
+                          <ArrowRightLeft className="w-2.5 h-2.5 ml-1" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {phones.map((p, idx) => {
+                  const currentRestriction = getLineRestriction(editingRestrictedLines, p.value);
+                  const phoneKey = p.id || String(idx);
+                  const isCustomPhone = customPhoneKeys[phoneKey] !== undefined
+                    ? customPhoneKeys[phoneKey]
+                    : !PHONE_PRESETS.includes(p.label as any);
+
+                  return (
+                    <div key={p.id || idx} className="flex items-center space-x-2">
+                      <select
+                        value={isCustomPhone ? 'Custom...' : p.label}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === 'Custom...') {
+                            setCustomPhoneKeys((prev) => ({ ...prev, [phoneKey]: true }));
+                            handlePhoneChange(idx, 'label', '');
+                          } else {
+                            setCustomPhoneKeys((prev) => ({ ...prev, [phoneKey]: false }));
+                            handlePhoneChange(idx, 'label', val);
+                          }
+                        }}
+                        className="w-28 sm:w-32 px-2.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0 cursor-pointer"
+                      >
+                        {PHONE_PRESETS.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                        <option value="Custom...">Custom...</option>
+                      </select>
+
+                      {isCustomPhone && (
+                        <input
+                          type="text"
+                          value={p.label === 'Custom...' ? '' : p.label}
+                          onChange={(e) => handlePhoneChange(idx, 'label', e.target.value)}
+                          placeholder="Tag (e.g. Operations Desk)"
+                          className="w-28 sm:w-36 px-2.5 py-2 text-xs border border-blue-400 dark:border-blue-500 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0"
+                          autoFocus
+                        />
+                      )}
+
+                      <input
+                        type="text"
+                        value={p.value}
+                        onChange={(e) => handlePhoneChange(idx, 'value', e.target.value)}
+                        placeholder="e.g. +971 50 123 4567"
+                        className="flex-1 px-3.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic min-w-0"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => toggleRestriction(p.value)}
+                        disabled={!p.value.trim()}
+                        className={`px-2.5 py-2 rounded-lg text-[10px] font-bold flex items-center gap-1 border transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0 ${
+                          currentRestriction === 'DNC'
+                            ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100'
+                            : currentRestriction === 'Invalid'
+                            ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100'
+                            : 'bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+                        }`}
+                        title={
+                          currentRestriction === 'DNC'
+                            ? 'Restriction: DNC (Click to Clear)'
+                            : currentRestriction === 'Invalid'
+                            ? 'Restriction: Invalid (Click for DNC)'
+                            : 'Line Active (Click to flag Invalid)'
+                        }
+                      >
+                        <ShieldAlert className={`w-3.5 h-3.5 ${
+                          currentRestriction === 'DNC'
+                            ? 'text-rose-600 dark:text-rose-400'
+                            : currentRestriction === 'Invalid'
+                            ? 'text-amber-600 dark:text-amber-400'
+                            : 'text-slate-400'
+                        }`} />
+                        <span>{currentRestriction || 'Clear'}</span>
+                      </button>
+
+                      {phones.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemovePhone(idx)}
+                          className="p-2 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer shrink-0"
+                          title="Remove Phone"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Emails Section */}
+              <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
+                    Email Addresses
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAddEmail}
+                    className="text-xs text-blue-600 dark:text-blue-400 font-bold hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Email</span>
+                  </button>
+                </div>
+
+                {/* Smart Reclaimable Company Email Addresses */}
+                {selectedCompany && availableCompanyEmails.length > 0 && (
+                  <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/40 rounded-xl text-xs space-y-1.5">
+                    <span className="font-semibold text-blue-800 dark:text-blue-300 flex items-center space-x-1">
+                      <Sparkles className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                      <span>Unassigned Company Email Addresses:</span>
+                    </span>
+                    <div className="flex flex-wrap gap-1.5 pt-0.5">
+                      {availableCompanyEmails.map((e, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => claimCompanyEmail(e)}
+                          className="px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-blue-200 dark:border-blue-700/50 hover:border-blue-400 dark:hover:border-blue-500 text-blue-700 dark:text-blue-300 rounded-lg text-[11px] font-sans flex items-center space-x-1 shadow-2xs hover:bg-blue-50 dark:hover:bg-slate-700 transition cursor-pointer"
+                          title="Claim this email address for this personnel"
+                        >
+                          <span>{e.email || e.value}</span>
+                          <span className="text-[9px] text-blue-500 dark:text-blue-400 font-sans">({e.label})</span>
+                          <ArrowRightLeft className="w-2.5 h-2.5 ml-1" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {emails.map((e, idx) => {
+                  const currentRestriction = getLineRestriction(editingRestrictedLines, e.value);
+                  const emailKey = e.id || String(idx);
+                  const isCustomEmail = customEmailKeys[emailKey] !== undefined
+                    ? customEmailKeys[emailKey]
+                    : !EMAIL_PRESETS.includes(e.label as any);
+
+                  return (
+                    <div key={e.id || idx} className="flex items-center space-x-2">
+                      <select
+                        value={isCustomEmail ? 'Custom...' : e.label}
+                        onChange={(eVal) => {
+                          const val = eVal.target.value;
+                          if (val === 'Custom...') {
+                            setCustomEmailKeys((prev) => ({ ...prev, [emailKey]: true }));
+                            handleEmailChange(idx, 'label', '');
+                          } else {
+                            setCustomEmailKeys((prev) => ({ ...prev, [emailKey]: false }));
+                            handleEmailChange(idx, 'label', val);
+                          }
+                        }}
+                        className="w-28 sm:w-32 px-2.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0 cursor-pointer"
+                      >
+                        {EMAIL_PRESETS.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                        <option value="Custom...">Custom...</option>
+                      </select>
+
+                      {isCustomEmail && (
+                        <input
+                          type="text"
+                          value={e.label === 'Custom...' ? '' : e.label}
+                          onChange={(eVal) => handleEmailChange(idx, 'label', eVal.target.value)}
+                          placeholder="Tag (e.g. Inquiries)"
+                          className="w-28 sm:w-36 px-2.5 py-2 text-xs border border-blue-400 dark:border-blue-500 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0"
+                          autoFocus
+                        />
+                      )}
+
+                      <input
+                        type="email"
+                        value={e.value}
+                        onChange={(eVal) => handleEmailChange(idx, 'value', eVal.target.value)}
+                        placeholder="e.g. john@company.com"
+                        className="flex-1 px-3.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-sans placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic min-w-0"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => toggleRestriction(e.value)}
+                        disabled={!e.value.trim()}
+                        className={`px-2.5 py-2 rounded-lg text-[10px] font-bold flex items-center gap-1 border transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0 ${
+                          currentRestriction === 'DNC'
+                            ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100'
+                            : currentRestriction === 'Invalid'
+                            ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100'
+                            : 'bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+                        }`}
+                        title={
+                          currentRestriction === 'DNC'
+                            ? 'Restriction: DNC (Click to Clear)'
+                            : currentRestriction === 'Invalid'
+                            ? 'Restriction: Invalid (Click for DNC)'
+                            : 'Address Active (Click to flag Invalid)'
+                        }
+                      >
+                        <ShieldAlert className={`w-3.5 h-3.5 ${
+                          currentRestriction === 'DNC'
+                            ? 'text-rose-600 dark:text-rose-400'
+                            : currentRestriction === 'Invalid'
+                            ? 'text-amber-600 dark:text-amber-400'
+                            : 'text-slate-400'
+                        }`} />
+                        <span>{currentRestriction || 'Clear'}</span>
+                      </button>
+
+                      {emails.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveEmail(idx)}
+                          className="p-2 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer shrink-0"
+                          title="Remove Email"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Messaging & Social Handles Section */}
+              <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
+                    Messaging &amp; Social Handles
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAddHandle}
+                    className="text-xs text-blue-600 dark:text-blue-400 font-bold hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Handle</span>
+                  </button>
+                </div>
+
+                {handles.length === 0 && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">No messaging handles added. Click "Add Handle" to add WhatsApp, Telegram, LinkedIn, etc.</p>
+                )}
+
+                {handles.map((h, idx) => (
+                  <div key={idx} className="flex items-center space-x-2">
+                    <select
+                      value={h.platform}
+                      onChange={(e) => handleHandleChange(idx, 'platform', e.target.value)}
+                      className="w-32 px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium cursor-pointer"
+                    >
+                      <option value="WhatsApp">WhatsApp</option>
+                      <option value="Telegram">Telegram</option>
+                      <option value="LinkedIn">LinkedIn</option>
+                      <option value="WeChat">WeChat</option>
+                      <option value="Skype">Skype</option>
+                      <option value="Signal">Signal</option>
+                      <option value="Other">Other</option>
+                    </select>
+                    <input
+                      type="text"
+                      value={h.handle}
+                      onChange={(e) => handleHandleChange(idx, 'handle', e.target.value)}
+                      placeholder="e.g. +971501234567 or @username"
+                      className="flex-1 px-3.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveHandle(idx)}
+                      className="p-2 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* CHAPTER 3: OUTREACH GOVERNANCE & RESTRICTIONS */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-5 shadow-2xs space-y-4">
+              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-mono font-bold text-xs shrink-0">3</span>
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Outreach Governance &amp; Restrictions</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Manage communication opt-outs, DNC restrictions, and audit notes.</p>
+                </div>
+              </div>
 
               {/* Modern DNC Toggle & Alert Box */}
               <div className={`p-4 rounded-xl border transition-all ${
@@ -1051,36 +1083,55 @@ export default function ContactModal({
             </div>
           </div>
 
-          {/* Docked Footer */}
-          <div className="shrink-0 border-t border-slate-200 dark:border-slate-800 px-6 py-4 bg-white dark:bg-slate-900 flex justify-end items-center gap-3">
-            {isEditing && (
-              <div className="mr-auto">
+          {/* Harmonized Executive Sticky Footer */}
+          <div className="shrink-0 border-t border-slate-200/80 dark:border-slate-800 px-4 py-3 sm:px-6 sm:py-3.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+            {/* Live Summary Chips */}
+            <div className="flex items-center gap-2 overflow-x-auto min-w-0 py-0.5">
+              {isEditing && (
                 <button
                   type="button"
                   onClick={handleDeleteContact}
                   disabled={isSaving}
-                  className="px-3.5 py-2 text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer"
+                  className="h-8 px-2.5 text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg text-xs font-semibold transition flex items-center space-x-1 cursor-pointer shrink-0 mr-1"
                 >
-                  <Trash2 className="w-4 h-4" />
-                  <span>Delete Contact</span>
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete</span>
                 </button>
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving || !activeWorkspaceId}
-              className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              <Check className="w-4 h-4" />
-              <span>{isSaving ? 'Saving...' : isEditing ? 'Update Contact' : 'Save Contact'}</span>
-            </button>
+              )}
+              <span className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 truncate max-w-[180px]">
+                {fullName.trim() || 'New Contact'}
+              </span>
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 shrink-0 truncate max-w-[180px]">
+                {resolvedDisplayCompanyName || 'Independent'}
+              </span>
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shrink-0">
+                {phones.filter(p => p.value.trim()).length} Phone(s)
+              </span>
+              {isDnc && (
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 shrink-0">
+                  DNC
+                </span>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto sm:ml-auto">
+              <button
+                type="button"
+                onClick={onClose}
+                className="h-9 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer w-full sm:w-auto text-center"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSaving || !activeWorkspaceId}
+                className="h-9 px-4 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 w-full sm:w-auto"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>{isSaving ? 'Saving...' : isEditing ? 'Update Contact' : 'Save Contact'}</span>
+              </button>
+            </div>
           </div>
         </form>
       </div>

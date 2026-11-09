@@ -1721,7 +1721,7 @@ export default function ProcurementPayablesHub({
   };
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 bg-slate-50/50">
+    <div className="flex-1 flex flex-col min-w-0 bg-slate-50/50 dark:bg-slate-950">
       <PageHeader
         title="Procurement & Payables"
         subtitle="Manage Outbound Supplier POs, Warehouse GRN Landed Cost Allocation, 3-Way Bill Matching, and Outbound Payment Vouchers"
@@ -1816,7 +1816,7 @@ export default function ProcurementPayablesHub({
         <>
 
       {/* Navigation Tabs + Filters */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 p-3 shadow-2xs flex flex-wrap items-center justify-between gap-3">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 p-3 shadow-2xs flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1.5">
           {[
             { id: 'pos' as const, label: `Supplier POs (${supplierPOs.length})`, icon: ShoppingBag },
@@ -1845,8 +1845,8 @@ export default function ProcurementPayablesHub({
                 onClick={() => setActiveTab(t.id)}
                 className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
                   isSel
-                    ? 'bg-slate-900 text-white shadow-2xs'
-                    : 'text-slate-600 hover:bg-slate-100'
+                    ? 'bg-slate-900 dark:bg-blue-600 text-white shadow-2xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
                 }`}
               >
                 <Icon className="w-3.5 h-3.5" />
@@ -1864,7 +1864,7 @@ export default function ProcurementPayablesHub({
                 setVendorFilter('ALL');
                 setSearchQuery('');
               }}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition cursor-pointer"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-bold transition cursor-pointer"
               title="Reset vendor filter and search query"
             >
               <RotateCcw className="w-3.5 h-3.5" />
@@ -1874,7 +1874,7 @@ export default function ProcurementPayablesHub({
           <select
             value={vendorFilter}
             onChange={(e) => setVendorFilter(e.target.value)}
-            className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs bg-slate-50 text-slate-800 cursor-pointer"
+            className="h-9 rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800/80 text-slate-800 dark:text-slate-100 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           >
             <option value="ALL">All Vendors / Suppliers</option>
             {vendors.map((v) => {
@@ -1886,20 +1886,20 @@ export default function ProcurementPayablesHub({
               );
             })}
           </select>
-          <div className="relative w-56">
+          <div className="relative w-full sm:w-auto sm:min-w-[260px]">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search PO, Bill, Inv #, Vendor..."
-              className="w-full pl-8 pr-7 py-1.5 rounded-xl border border-slate-200 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              className="w-full h-9 pl-8 pr-7 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs bg-slate-50 dark:bg-slate-800/80 text-slate-900 dark:text-slate-100 focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
                 title="Clear search"
               >
                 <X className="w-3.5 h-3.5" />
@@ -1945,8 +1945,8 @@ export default function ProcurementPayablesHub({
               }}
             />
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs overflow-clip">
-              <div className="w-full overflow-x-clip">
-                <table className="w-full table-fixed text-left border-collapse text-xs font-sans">
+              <div className="w-full overflow-x-auto scrollbar-thin">
+                <table className="w-full min-w-[760px] sm:min-w-[820px] text-left border-collapse text-xs font-sans">
                   <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
                     <tr>
                       <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">PO Ref</th>
@@ -2336,8 +2336,8 @@ export default function ProcurementPayablesHub({
               }}
             />
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs overflow-clip">
-              <div className="w-full overflow-x-clip">
-                <table className="w-full table-fixed text-left border-collapse text-xs font-sans">
+              <div className="w-full overflow-x-auto scrollbar-thin">
+                <table className="w-full min-w-[760px] sm:min-w-[820px] text-left border-collapse text-xs font-sans">
                   <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
                     <tr>
                       <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">PO Ref &amp; Date</th>
@@ -2619,8 +2619,8 @@ export default function ProcurementPayablesHub({
               }}
             />
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs overflow-clip">
-              <div className="w-full overflow-x-clip">
-                <table className="w-full table-fixed text-left border-collapse text-xs font-sans">
+              <div className="w-full overflow-x-auto scrollbar-thin">
+                <table className="w-full min-w-[760px] sm:min-w-[820px] text-left border-collapse text-xs font-sans">
                   <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
                     <tr>
                       <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Bill / Inv #</th>
@@ -3084,8 +3084,8 @@ export default function ProcurementPayablesHub({
                   </button>
                 </div>
               </div>
-              <div className="w-full overflow-x-clip">
-                <table className="w-full table-fixed text-left border-collapse text-xs font-sans">
+              <div className="w-full overflow-x-auto scrollbar-thin">
+                <table className="w-full min-w-[760px] sm:min-w-[820px] text-left border-collapse text-xs font-sans">
                   <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
                     <tr>
                       <th className="py-3 px-3.5 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Voucher / Doc Ref</th>
@@ -3388,1563 +3388,1821 @@ export default function ProcurementPayablesHub({
       )}
 
       {/* MODAL 1: CREATE NEW SUPPLIER PO */}
-      {showCreatePoModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-              <div>
-                <h3 className="text-sm font-black text-slate-900">
-                  Create Outbound Supplier Purchase Order (PO)
-                </h3>
-                <p className="text-[11px] text-slate-500">
-                  Link to a registered Vendor &amp; optionally to a Client Enquiry, or issue as a Warehouse Stock Replenishment PO
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowCreatePoModal(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {showCreatePoModal && (() => {
+        const poNetSubtotal = QuotationRepository.roundCurrency(
+          newPoLines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unit_cost) || 0), 0)
+        );
+        const poEstVat = QuotationRepository.roundCurrency(poNetSubtotal * 0.05);
+        const poGrandTotal = QuotationRepository.roundCurrency(poNetSubtotal + poEstVat);
 
-            <div className="p-5 overflow-y-auto space-y-4 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end">
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-3xl w-full overflow-hidden flex flex-col max-h-[92vh]">
+              <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900">
                 <div>
-                  <FieldLabel label="Select Vendor from Directory" />
-                  <select
-                    value={newPoVendorId}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      setNewPoVendorId(id);
-                      const v = companies.find((c) => c.id === id);
-                      if (v) setNewPoSupplierName(getCompanyName(v));
-                    }}
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs text-slate-800 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                  >
-                    <option value="">-- Select Registered Vendor (or type name) --</option>
-                    {vendors.map((v) => {
-                      const vName = getCompanyName(v);
-                      return (
-                        <option key={v.id} value={v.id}>
-                          {vName} {v.relationship_type ? `(${v.relationship_type})` : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                    Create Outbound Supplier Purchase Order (PO)
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Link to a registered Vendor &amp; optionally to a Client Enquiry, or issue as a Warehouse Stock Replenishment PO
+                  </p>
                 </div>
-                <div>
-                  <FieldLabel label="Supplier / Vendor Legal Name" required />
-                  <input
-                    type="text"
-                    value={newPoSupplierName}
-                    onChange={(e) => setNewPoSupplierName(e.target.value)}
-                    placeholder="Supplier Name"
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs text-slate-800 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                  />
-                </div>
-                <div>
-                  <FieldLabel
-                    label="Link to Enquiry"
-                    hint="Optional — Leave blank to issue a standalone Warehouse Stock Replenishment PO, or select an active Client Enquiry to automatically import its line items."
-                  />
-                  <select
-                    value={newPoEnquiryId}
-                    onChange={(e) => {
-                      const enqId = e.target.value;
-                      setNewPoEnquiryId(enqId);
-                      const enq = enquiries.find((x) => x.id === enqId);
-                      if (enq && enq.line_items && enq.line_items.length > 0) {
-                        setNewPoLines(
-                          enq.line_items.map((li) => {
-                            const prod = products.find((p) => p.id === li.product_id);
-                            return {
-                              product_id: li.product_id || '',
-                              item_name: li.item_name || li.description || '',
-                              part_no: li.part_no || prod?.part_no || '',
-                              qty: Number(li.quantity ?? li.qty) || 1,
-                              unit: li.unit || prod?.unit || 'Nos',
-                              unit_cost: Number(li.cost_price ?? prod?.cost_price ?? 0) || 0
-                            };
-                          })
-                        );
-                      }
-                    }}
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs text-slate-800 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                  >
-                    <option value="">Warehouse Stock Replenishment (Standalone PO)</option>
-                    {enquiries.map((enq) => (
-                      <option key={enq.id} value={enq.id}>
-                        ENQ #{enq.sn} — {enq.company_name} ({enq.description?.slice(0, 40)})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <FieldLabel label="Expected Delivery Date" />
-                  <input
-                    type="date"
-                    value={newPoExpectedDate}
-                    onChange={(e) => setNewPoExpectedDate(e.target.value)}
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white font-mono text-xs text-slate-800 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                  />
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCreatePoModal(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
 
-              <div className="space-y-2 pt-1">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1">
-                    <span className="font-bold text-slate-800">PO Line Items</span>
-                    <span className="text-rose-500 font-bold">*</span>
+              <div className="p-5 overflow-y-auto space-y-4 text-xs bg-slate-50/80 dark:bg-slate-950/70 flex-1">
+                {/* Chapter 1: Vendor & Document Metadata */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs space-y-3.5">
+                  <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+                    <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0">
+                      1
+                    </span>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                        Vendor &amp; Document Metadata
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Select registered supplier, link client enquiry, and set expected delivery schedule
+                      </p>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setNewPoLines((prev) => [
-                        ...prev,
-                        { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
-                      ])
-                    }
-                    className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[11px] cursor-pointer transition"
-                  >
-                    + Add Line
-                  </button>
-                </div>
 
-                <div className="grid grid-cols-12 gap-2 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                  <div className="col-span-4">Catalog Item</div>
-                  <div className="col-span-3">Item Description *</div>
-                  <div className="col-span-1 text-right">Qty</div>
-                  <div className="col-span-2 text-right">Unit Cost ({defaultCurrency})</div>
-                  <div className="col-span-2 text-right">Line Total</div>
-                </div>
-
-                {newPoLines.map((line, idx) => {
-                  const lineTotal = QuotationRepository.roundCurrency(
-                    (Number(line.qty) || 0) * (Number(line.unit_cost) || 0)
-                  );
-                  return (
-                    <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-slate-50 p-2 rounded-xl border border-slate-200">
-                      <div className="col-span-4">
-                        <select
-                          value={line.product_id}
-                          onChange={(e) => {
-                            const pid = e.target.value;
-                            const prod = products.find((p) => p.id === pid);
-                            setNewPoLines((prev) =>
-                              prev.map((l, i) =>
-                                i === idx
-                                  ? {
-                                      ...l,
-                                      product_id: pid,
-                                      item_name: prod?.name || prod?.description || l.item_name,
-                                      part_no: prod?.part_no || prod?.sku || l.part_no,
-                                      unit: prod?.unit || l.unit || 'Nos',
-                                      unit_cost: Number(
-                                        prod?.cost_price ||
-                                          prod?.last_landed_cost ||
-                                          (prod as any)?.selling_price ||
-                                          (prod as any)?.unit_price ||
-                                          l.unit_cost ||
-                                          0
-                                      )
-                                    }
-                                  : l
-                              )
-                            );
-                          }}
-                          className="w-full h-8 rounded-lg border border-slate-300 px-2.5 py-1 bg-white text-[11px] text-slate-800 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                        >
-                          <option value="">-- Pick Catalog Item or Type --</option>
-                          {products.filter((p) => !p.is_deleted).map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {formatProductVariantSelectorLabel(p, products)}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end">
+                    <div>
+                      <FieldLabel label="Select Vendor from Directory" />
+                      <select
+                        value={newPoVendorId}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          setNewPoVendorId(id);
+                          const v = companies.find((c) => c.id === id);
+                          if (v) setNewPoSupplierName(getCompanyName(v));
+                        }}
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-xs text-slate-800 dark:text-slate-100 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      >
+                        <option value="">-- Select Registered Vendor (or type name) --</option>
+                        {vendors.map((v) => {
+                          const vName = getCompanyName(v);
+                          return (
+                            <option key={v.id} value={v.id}>
+                              {vName} {v.relationship_type ? `(${v.relationship_type})` : ''}
                             </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="col-span-3">
-                        <input
-                          type="text"
-                          value={line.item_name}
-                          onChange={(e) =>
-                            setNewPoLines((prev) =>
-                              prev.map((l, i) => (i === idx ? { ...l, item_name: e.target.value } : l))
-                            )
+                          );
+                        })}
+                      </select>
+                    </div>
+                    <div>
+                      <FieldLabel label="Supplier / Vendor Legal Name" required />
+                      <input
+                        type="text"
+                        value={newPoSupplierName}
+                        onChange={(e) => setNewPoSupplierName(e.target.value)}
+                        placeholder="Supplier Name"
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-xs text-slate-800 dark:text-slate-100 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel
+                        label="Link to Enquiry"
+                        hint="Optional — Leave blank to issue a standalone Warehouse Stock Replenishment PO, or select an active Client Enquiry to automatically import its line items."
+                      />
+                      <select
+                        value={newPoEnquiryId}
+                        onChange={(e) => {
+                          const enqId = e.target.value;
+                          setNewPoEnquiryId(enqId);
+                          const enq = enquiries.find((x) => x.id === enqId);
+                          if (enq && enq.line_items && enq.line_items.length > 0) {
+                            setNewPoLines(
+                              enq.line_items.map((li) => {
+                                const prod = products.find((p) => p.id === li.product_id);
+                                return {
+                                  product_id: li.product_id || '',
+                                  item_name: li.item_name || li.description || '',
+                                  part_no: li.part_no || prod?.part_no || '',
+                                  qty: Number(li.quantity ?? li.qty) || 1,
+                                  unit: li.unit || prod?.unit || 'Nos',
+                                  unit_cost: Number(li.cost_price ?? prod?.cost_price ?? 0) || 0
+                                };
+                              })
+                            );
                           }
-                          placeholder="Item Description *"
-                          className="w-full h-8 rounded-lg border border-slate-300 px-2.5 py-1 bg-white text-[11px] text-slate-800 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                        />
-                      </div>
-                      <div className="col-span-1">
-                        <input
-                          type="number"
-                          min="1"
-                          value={line.qty === 0 ? '' : line.qty}
-                          onChange={(e) =>
-                            setNewPoLines((prev) =>
-                              prev.map((l, i) =>
-                                i === idx ? { ...l, qty: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) } : l
-                              )
-                            )
-                          }
-                          placeholder="1"
-                          className="w-full h-8 rounded-lg border border-slate-300 px-2 py-1 bg-white font-mono text-[11px] text-slate-800 text-right leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                        />
-                      </div>
-                      <div className="col-span-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={line.unit_cost === 0 ? '' : line.unit_cost}
-                          onChange={(e) =>
-                            setNewPoLines((prev) =>
-                              prev.map((l, i) =>
-                                i === idx ? { ...l, unit_cost: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) } : l
-                              )
-                            )
-                          }
-                          placeholder="0.00"
-                          className="w-full h-8 rounded-lg border border-slate-300 px-2.5 py-1 bg-white font-mono text-[11px] text-slate-800 text-right leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                        />
-                      </div>
-                      <div className="col-span-2 flex items-center justify-end gap-1.5">
-                        <span className="font-mono font-bold text-slate-900 text-[11px]">
-                          {lineTotal.toFixed(2)}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setNewPoLines((prev) =>
-                              prev.length <= 1
-                                ? [{ product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }]
-                                : prev.filter((_, i) => i !== idx)
-                            )
-                          }
-                          title={newPoLines.length <= 1 ? 'Clear line item' : 'Remove line item'}
-                          className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer transition"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        }}
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-xs text-slate-800 dark:text-slate-100 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      >
+                        <option value="">Warehouse Stock Replenishment (Standalone PO)</option>
+                        {enquiries.map((enq) => (
+                          <option key={enq.id} value={enq.id}>
+                            ENQ #{enq.sn} — {enq.company_name} ({enq.description?.slice(0, 40)})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <FieldLabel label="Expected Delivery Date" />
+                      <input
+                        type="date"
+                        value={newPoExpectedDate}
+                        onChange={(e) => setNewPoExpectedDate(e.target.value)}
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 font-mono text-xs text-slate-800 dark:text-slate-100 dark:[color-scheme:dark] leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Chapter 2: Line Items & Cost Allocation */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs space-y-3">
+                  <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0">
+                        2
+                      </span>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                          Line Items &amp; Cost Allocation
+                        </h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Select catalog items or specify custom description, quantity, and unit cost
+                        </p>
                       </div>
                     </div>
-                  );
-                })}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setNewPoLines((prev) => [
+                          ...prev,
+                          { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
+                        ])
+                      }
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800 font-bold text-[11px] cursor-pointer transition"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Line</span>
+                    </button>
+                  </div>
 
-                <div className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-indigo-50/70 border border-indigo-200/80 text-xs">
-                  <span className="font-bold text-indigo-950">
-                    PO Total (Excl. VAT / Taxes Extra):
-                  </span>
-                  <span className="font-mono font-black text-sm text-indigo-900">
-                    {defaultCurrency}{' '}
-                    {newPoLines
-                      .reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unit_cost) || 0), 0)
-                      .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                </div>
-              </div>
-            </div>
+                  <div className="grid grid-cols-12 gap-2 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    <div className="col-span-4">Catalog Item</div>
+                    <div className="col-span-3">Item Description *</div>
+                    <div className="col-span-1 text-right">Qty</div>
+                    <div className="col-span-2 text-right whitespace-nowrap">Unit Cost ({defaultCurrency})</div>
+                    <div className="col-span-2 text-right">Line Total</div>
+                  </div>
 
-            <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowCreatePoModal(false)}
-                className="px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isCreatingPo}
-                onClick={() => handleCreateSupplierPo(false)}
-                className="px-4 py-2 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 text-indigo-800 text-xs font-bold cursor-pointer"
-              >
-                {isCreatingPo ? 'Saving...' : 'Save PO'}
-              </button>
-              <button
-                type="button"
-                disabled={isCreatingPo}
-                onClick={() => handleCreateSupplierPo(true)}
-                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer"
-              >
-                {isCreatingPo ? 'Saving...' : 'Save & Open in Studio'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 2: RECEIVE STOCK (GRN) & LANDED COST ALLOCATION */}
-      {grnTargetPo && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-emerald-50/70">
-              <div>
-                <h3 className="text-sm font-black text-slate-900">
-                  Receive Stock (GRN) — {grnTargetPo.purchase_order_metadata?.po_ref || grnTargetPo.formatted_quote_ref}
-                </h3>
-                <p className="text-[11px] text-slate-600">
-                  Supplier: {grnTargetPo.purchase_order_metadata?.supplier_name} • Proportional Landed Cost Calculation
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setGrnTargetPo(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-5 overflow-y-auto space-y-4 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
-                <div>
-                  <FieldLabel label="GRN Number" />
-                  <input
-                    type="text"
-                    value={grnNumber}
-                    onChange={(e) => setGrnNumber(e.target.value)}
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 font-mono bg-white text-xs leading-normal"
-                  />
-                </div>
-                <div>
-                  <FieldLabel label="Receipt Date" />
-                  <input
-                    type="date"
-                    value={grnReceivedDate}
-                    onChange={(e) => setGrnReceivedDate(e.target.value)}
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 font-mono bg-white text-xs leading-normal"
-                  />
-                </div>
-                <div>
-                  <FieldLabel
-                    label={`Freight / Duty (${grnTargetPo.currency})`}
-                    hint="Total inbound freight, customs duty, and clearing charges to allocate across received items."
-                  />
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={grnFreightCustoms === 0 ? '' : grnFreightCustoms}
-                    placeholder="0.00"
-                    onChange={(e) => setGrnFreightCustoms(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 font-mono bg-white text-xs leading-normal"
-                  />
-                </div>
-                <div>
-                  <FieldLabel
-                    label="Landed Cost Mode"
-                    hint="Choose Proportional by Line Value to automatically distribute Freight/Duty across items, or Manual Per-Line Override."
-                    hintAlign="right"
-                  />
-                  <select
-                    value={grnAllocationMode}
-                    onChange={(e) => setGrnAllocationMode(e.target.value as any)}
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
-                  >
-                    <option value="proportional_value">Proportional by Line Value</option>
-                    <option value="manual">Manual Per-Line Override</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold uppercase text-slate-500">
-                      <th className="py-2.5 px-3">Item</th>
-                      <th className="py-2.5 px-2 text-right">Ordered</th>
-                      <th className="py-2.5 px-2 text-right">Prev Recv</th>
-                      <th className="py-2.5 px-2 text-right">Receive Now</th>
-                      <th className="py-2.5 px-2 text-right">PO Unit Cost</th>
-                      <th className="py-2.5 px-2 text-right">Allocated Freight</th>
-                      <th className="py-2.5 px-3 text-right">Landed Unit Cost</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {grnLandedPreview.map((line, idx) => (
-                      <tr key={line.line_item_id}>
-                        <td className="py-2 px-3">
-                          <div className="font-semibold text-slate-900">{line.item_name}</div>
-                          {line.part_no && (
-                            <div className="text-[10px] font-mono text-slate-400">PN: {line.part_no}</div>
-                          )}
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono">{line.qty_ordered}</td>
-                        <td className="py-2 px-2 text-right font-mono text-slate-500">
-                          {line.qty_already_received}
-                        </td>
-                        <td className="py-2 px-2 text-right">
-                          <input
-                            type="number"
-                            min="0"
-                            value={line.qty_receiving_now}
-                            onChange={(e) => {
-                              const val = Math.max(0, Number(e.target.value) || 0);
-                              setGrnLines((prev) =>
-                                prev.map((l, i) => (i === idx ? { ...l, qty_receiving_now: val } : l))
-                              );
-                            }}
-                            className="w-20 rounded-lg border border-emerald-400 px-2 py-1 text-right font-mono font-bold bg-emerald-50/40"
-                          />
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono">
-                          {line.po_unit_cost.toFixed(2)}
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono">
-                          {grnAllocationMode === 'manual' ? (
-                            <input
-                              type="number"
-                              step="0.01"
-                              value={line.manual_landed_cost_addition}
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                    {newPoLines.map((line, idx) => {
+                      const lineTotal = QuotationRepository.roundCurrency(
+                        (Number(line.qty) || 0) * (Number(line.unit_cost) || 0)
+                      );
+                      return (
+                        <div key={idx} className="grid grid-cols-12 gap-2 items-center py-2 px-1">
+                          <div className="col-span-4">
+                            <select
+                              value={line.product_id}
                               onChange={(e) => {
-                                const val = Math.max(0, Number(e.target.value) || 0);
-                                setGrnLines((prev) =>
+                                const pid = e.target.value;
+                                const prod = products.find((p) => p.id === pid);
+                                setNewPoLines((prev) =>
                                   prev.map((l, i) =>
-                                    i === idx ? { ...l, manual_landed_cost_addition: val } : l
+                                    i === idx
+                                      ? {
+                                          ...l,
+                                          product_id: pid,
+                                          item_name: prod?.name || prod?.description || l.item_name,
+                                          part_no: prod?.part_no || prod?.sku || l.part_no,
+                                          unit: prod?.unit || l.unit || 'Nos',
+                                          unit_cost: Number(
+                                            prod?.cost_price ||
+                                              prod?.last_landed_cost ||
+                                              (prod as any)?.selling_price ||
+                                              (prod as any)?.unit_price ||
+                                              l.unit_cost ||
+                                              0
+                                          )
+                                        }
+                                      : l
                                   )
                                 );
                               }}
-                              className="w-24 rounded border border-slate-300 px-1.5 py-0.5 text-right font-mono"
-                            />
-                          ) : (
-                            <span>{line.allocatedFreight.toFixed(2)}</span>
-                          )}
-                        </td>
-                        <td className="py-2 px-3 text-right font-mono font-bold text-indigo-800">
-                          {line.landedUnitCost.toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer bg-amber-50/60 border border-amber-200 rounded-xl p-3">
-                <input
-                  type="checkbox"
-                  checked={grnUpdateCatalogCost}
-                  onChange={(e) => setGrnUpdateCatalogCost(e.target.checked)}
-                  className="rounded border-slate-300 text-indigo-600"
-                />
-                <span>
-                  Also overwrite base catalog <strong>Cost Price</strong> with new Landed Unit Cost (by default, only <code className="font-mono">last_landed_cost</code> is updated so catalog baseline prices stay protected)
-                </span>
-              </label>
-            </div>
-
-            <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setGrnTargetPo(null)}
-                className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isSubmittingGrn}
-                onClick={handleConfirmGrn}
-                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
-              >
-                {isSubmittingGrn ? 'Posting GRN...' : 'Confirm GRN & Add to Warehouse Stock'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 3: RECORD / EDIT SUPPLIER BILL & 3-WAY MATCH */}
-      {showBillModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full overflow-hidden flex flex-col max-h-[92vh]">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-              <div>
-                <h3 className="text-sm font-black text-slate-900">
-                  {editingBill ? `Edit Supplier Bill (${editingBill.bill_number})` : 'Record Supplier Bill & 3-Way Match'}
-                </h3>
-                <p className="text-[11px] text-slate-500">
-                  Compare Vendor Invoice against PO &amp; GRN quantities/rates and attach compressed PDF scan
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowBillModal(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-5 overflow-y-auto space-y-4 text-xs">
-              {/* 3-Way Match Live Banner */}
-              <div
-                className={`p-3 rounded-xl border flex items-center justify-between gap-3 ${
-                  liveThreeWayMatch.status === 'matched'
-                    ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900'
-                    : liveThreeWayMatch.status === 'no_po'
-                    ? 'bg-slate-50 border-slate-200 text-slate-700'
-                    : 'bg-amber-50 border-amber-300 text-amber-950'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  {liveThreeWayMatch.status === 'matched' ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  ) : (
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                  )}
-                  <div>
-                    <div className="font-bold">3-Way Match Check: {liveThreeWayMatch.summary}</div>
-                    {duplicateBillWarning && (
-                      <div className="text-rose-700 font-bold mt-0.5">
-                        Duplicate Warning: Vendor Invoice #{billVendorInvoiceNo} is already recorded on {duplicateBillWarning.bill_number}!
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <label className="flex items-center gap-1.5 font-bold cursor-pointer whitespace-nowrap">
-                  <input
-                    type="checkbox"
-                    checked={billIsOnHold}
-                    onChange={(e) => setBillIsOnHold(e.target.checked)}
-                    className="rounded border-slate-300 text-rose-600"
-                  />
-                  <span>Place Payment Hold</span>
-                </label>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 items-end">
-                <div>
-                  <FieldLabel
-                    label="Link to Supplier PO"
-                    hint="Link an issued Supplier PO to automatically load ordered & received GRN quantities for 3-Way Match verification."
-                  />
-                  <select
-                    value={billPoId}
-                    onChange={(e) => handleSelectBillPo(e.target.value)}
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
-                  >
-                    <option value="">-- Direct Bill (No Linked PO) --</option>
-                    {supplierPOs.map((po) => (
-                      <option key={po.id} value={po.id}>
-                        {po.purchase_order_metadata?.po_ref || po.formatted_quote_ref} — {po.purchase_order_metadata?.supplier_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <FieldLabel label="Select Vendor from Directory" />
-                  <select
-                    value={billVendorId}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      setBillVendorId(id);
-                      const v = companies.find((c) => c.id === id);
-                      if (v) {
-                        setBillVendorName(getCompanyName(v));
-                        if (v.tax_registration_no) setBillVendorTrn(v.tax_registration_no);
-                        if (v.default_currency) setBillCurrency(v.default_currency);
-                      }
-                    }}
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
-                  >
-                    <option value="">-- Pick from Vendor Directory --</option>
-                    {vendors.map((v) => {
-                      const vName = getCompanyName(v);
-                      return (
-                        <option key={v.id} value={v.id}>
-                          {vName} {v.relationship_type ? `(${v.relationship_type})` : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-                <div>
-                  <FieldLabel label="Vendor / Supplier Legal Name" required />
-                  <input
-                    type="text"
-                    value={billVendorName}
-                    onChange={(e) => setBillVendorName(e.target.value)}
-                    placeholder="Supplier Legal Name"
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
-                  />
-                </div>
-                <div>
-                  <FieldLabel label="Vendor Invoice #" required />
-                  <input
-                    type="text"
-                    value={billVendorInvoiceNo}
-                    onChange={(e) => setBillVendorInvoiceNo(e.target.value)}
-                    placeholder="e.g. INV-2026-9921"
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 font-mono bg-white text-xs leading-normal"
-                  />
-                </div>
-                <div>
-                  <FieldLabel label="Invoice & Due Dates" />
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="date"
-                      value={billInvoiceDate}
-                      onChange={(e) => setBillInvoiceDate(e.target.value)}
-                      title="Invoice Date"
-                      className="w-full h-9 rounded-xl border border-slate-300 px-2.5 py-1.5 font-mono bg-white text-[11px] leading-normal"
-                    />
-                    <input
-                      type="date"
-                      value={billDueDate}
-                      onChange={(e) => setBillDueDate(e.target.value)}
-                      title="Payment Due Date"
-                      className="w-full h-9 rounded-xl border border-slate-300 px-2.5 py-1.5 font-mono bg-white text-[11px] leading-normal"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 items-end">
-                  <div>
-                    <FieldLabel label="Currency" />
-                    <input
-                      type="text"
-                      value={billCurrency}
-                      onChange={(e) => setBillCurrency(e.target.value.toUpperCase())}
-                      className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 font-mono bg-white text-xs leading-normal"
-                    />
-                  </div>
-                  <div>
-                    <FieldLabel label="Exch. Rate" />
-                    <input
-                      type="number"
-                      step="0.0001"
-                      value={billExchangeRate}
-                      onChange={(e) => setBillExchangeRate(Number(e.target.value) || 1)}
-                      className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 font-mono bg-white text-xs leading-normal"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Line Items Table for 3-Way Match */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <div className="bg-slate-50 px-3 py-2 border-b border-slate-200 flex items-center justify-between">
-                  <span className="font-bold text-slate-700">Bill Line Items (PO vs GRN vs Billed)</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setBillLines((prev) => [
-                        ...prev,
-                        {
-                          id: `bline_${Date.now()}`,
-                          item_name: '',
-                          unit: 'Nos',
-                          po_qty: 0,
-                          grn_qty: 0,
-                          billed_qty: 1,
-                          po_unit_cost: 0,
-                          billed_unit_cost: 0,
-                          tax_rate: 5,
-                          line_total: 0
-                        }
-                      ])
-                    }
-                    className="px-2 py-1 rounded bg-indigo-50 text-indigo-700 font-bold text-[10.5px] cursor-pointer"
-                  >
-                    + Add Line
-                  </button>
-                </div>
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="bg-slate-50/60 border-b border-slate-200 text-[10px] font-bold uppercase text-slate-500">
-                      <th className="py-2 px-3">Item</th>
-                      <th className="py-2 px-2 text-right">PO Qty</th>
-                      <th className="py-2 px-2 text-right">GRN Qty</th>
-                      <th className="py-2 px-2 text-right">Billed Qty</th>
-                      <th className="py-2 px-2 text-right">PO Rate</th>
-                      <th className="py-2 px-2 text-right">Billed Rate</th>
-                      <th className="py-2 px-3 text-right">Line Total</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {billLines.map((l, idx) => (
-                      <tr key={l.id}>
-                        <td className="py-1.5 px-3">
-                          <input
-                            type="text"
-                            value={l.item_name}
-                            onChange={(e) =>
-                              setBillLines((prev) =>
-                                prev.map((row, i) =>
-                                  i === idx ? { ...row, item_name: e.target.value } : row
-                                )
-                              )
-                            }
-                            placeholder="Description"
-                            className="w-full rounded border border-slate-200 px-2 py-1"
-                          />
-                        </td>
-                        <td className="py-1.5 px-2 text-right font-mono text-slate-500">{l.po_qty ?? 0}</td>
-                        <td className="py-1.5 px-2 text-right font-mono text-slate-500">{l.grn_qty ?? 0}</td>
-                        <td className="py-1.5 px-2 text-right">
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={l.billed_qty === 0 ? '' : l.billed_qty}
-                            placeholder="0"
-                            onChange={(e) => {
-                              const q = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
-                              setBillLines((prev) =>
-                                prev.map((row, i) =>
-                                  i === idx
-                                    ? {
-                                        ...row,
-                                        billed_qty: q,
-                                        line_total: QuotationRepository.roundCurrency(q * row.billed_unit_cost)
-                                      }
-                                    : row
-                                )
-                              );
-                            }}
-                            className="w-20 rounded border border-slate-300 px-1.5 py-1 text-right font-mono"
-                          />
-                        </td>
-                        <td className="py-1.5 px-2 text-right font-mono text-slate-500">
-                          {Number(l.po_unit_cost || 0).toFixed(2)}
-                        </td>
-                        <td className="py-1.5 px-2 text-right">
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={l.billed_unit_cost === 0 ? '' : l.billed_unit_cost}
-                            placeholder="0.00"
-                            onChange={(e) => {
-                              const r = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
-                              setBillLines((prev) =>
-                                prev.map((row, i) =>
-                                  i === idx
-                                    ? {
-                                        ...row,
-                                        billed_unit_cost: r,
-                                        line_total: QuotationRepository.roundCurrency(row.billed_qty * r)
-                                      }
-                                    : row
-                                )
-                              );
-                            }}
-                            className="w-24 rounded border border-slate-300 px-1.5 py-1 text-right font-mono"
-                          />
-                        </td>
-                        <td className="py-1.5 px-3 text-right font-mono font-bold">
-                          {l.line_total.toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* PDF Compression & Scan Upload Row */}
-              <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="font-bold text-slate-700">
-                      Attach Vendor Invoice Scan (PDF / Image)
-                    </label>
-                    <select
-                      value={pdfPreset}
-                      onChange={(e) => setPdfPreset(e.target.value as PdfCompressionPreset)}
-                      className="rounded border border-slate-300 px-2 py-0.5 text-[10.5px] bg-white"
-                    >
-                      <option value="standard">Standard Compress (~150 DPI)</option>
-                      <option value="extreme">Extreme Compress (~110 DPI)</option>
-                      <option value="original">Keep Original</option>
-                    </select>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-xs font-semibold cursor-pointer">
-                      <Upload className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>{isUploadingBillFile ? 'Compressing & Uploading...' : 'Upload Invoice PDF / Image'}</span>
-                      <input
-                        type="file"
-                        accept=".pdf,image/*"
-                        className="hidden"
-                        disabled={isUploadingBillFile}
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f) handleUploadBillAttachment(f);
-                        }}
-                      />
-                    </label>
-                    {billAttachment && (
-                      <div className="flex items-center gap-2 text-[11px]">
-                        <span className="font-semibold text-emerald-700 truncate max-w-[160px]">
-                          {billAttachment.name}
-                        </span>
-                        {billAttachment.original_size_bytes &&
-                          billAttachment.compressed_size_bytes && (
-                            <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-mono text-[10px]">
-                              {formatByteSize(billAttachment.original_size_bytes)} →{' '}
-                              {formatByteSize(billAttachment.compressed_size_bytes)}
-                            </span>
-                          )}
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            if (billAttachment.url) {
-                              await deleteFromStorageBucket(billAttachment.url);
-                            }
-                            setBillAttachment(undefined);
-                          }}
-                          className="text-rose-600 hover:underline text-[10px]"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Tax / VAT Amount</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={billTaxAmount === 0 ? '' : billTaxAmount}
-                      placeholder="0.00"
-                      onChange={(e) => setBillTaxAmount(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
-                      className="w-full rounded-lg border border-slate-300 p-1.5 font-mono bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Freight / Duty</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={billFreightCustoms === 0 ? '' : billFreightCustoms}
-                      placeholder="0.00"
-                      onChange={(e) => setBillFreightCustoms(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
-                      className="w-full rounded-lg border border-slate-300 p-1.5 font-mono bg-white"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Live Bill Financial Summary Bar */}
-              {(() => {
-                const itemsSub = QuotationRepository.roundCurrency(
-                  billLines.reduce((s, r) => s + (Number(r.line_total) || 0), 0)
-                );
-                const taxVal = QuotationRepository.roundCurrency(Number(billTaxAmount) || 0);
-                const freightVal = QuotationRepository.roundCurrency(Number(billFreightCustoms) || 0);
-                const grandVal = QuotationRepository.roundCurrency(itemsSub + taxVal + freightVal);
-                return (
-                  <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-amber-50/80 border border-amber-200 text-xs">
-                    <div className="flex items-center gap-4 text-slate-700 font-mono">
-                      <span>Items: <strong>{defaultCurrency} {itemsSub.toFixed(2)}</strong></span>
-                      <span>+ VAT: <strong>{defaultCurrency} {taxVal.toFixed(2)}</strong></span>
-                      <span>+ Freight/Duty: <strong>{defaultCurrency} {freightVal.toFixed(2)}</strong></span>
-                    </div>
-                    <div className="font-mono font-black text-sm text-amber-950">
-                      Grand Total Payable: {defaultCurrency} {grandVal.toFixed(2)}
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-
-            <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowBillModal(false)}
-                className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isSavingBill}
-                onClick={handleSaveSupplierBill}
-                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
-              >
-                {isSavingBill ? 'Saving Bill...' : 'Save Supplier Bill'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 4: ISSUE OUTBOUND PAYMENT VOUCHER (PV) */}
-      {showCreatePvModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-amber-50/70">
-              <div>
-                <h3 className="text-sm font-black text-slate-900">
-                  Issue Outbound Payment Voucher (PV)
-                </h3>
-                <p className="text-[11px] text-slate-600">
-                  Select Payee / Vendor, allocate against open Supplier Bills or POs, and save or open in A4 Studio
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowCreatePvModal(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-5 overflow-y-auto space-y-4 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end">
-                <div>
-                  <FieldLabel label="Select Vendor from Directory" />
-                  <select
-                    value={pvVendorId}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      setPvVendorId(id);
-                      const v = companies.find((c) => c.id === id);
-                      if (v) {
-                        const vName = getCompanyName(v);
-                        setPvPayeeName(vName);
-                        const matchingBills = supplierBills.filter(
-                          (b) =>
-                            (b.vendor_company_id === id ||
-                              b.supplier_id === id ||
-                              (b as any).vendor_id === id ||
-                              b.vendor_name === vName ||
-                              b.supplier_name === vName) &&
-                            b.balance_due > 0 &&
-                            !b.is_on_hold
-                        );
-                        if (matchingBills.length > 0 && Object.keys(pvSelectedBills).length === 0) {
-                          const first = matchingBills[0];
-                          setPvSelectedBills({ [first.id]: first.balance_due });
-                          setPvAmountPaid(first.balance_due);
-                          setPvNarration(`Settlement of Supplier Invoice #${first.vendor_invoice_no} (${first.bill_number})`);
-                        }
-                      }
-                    }}
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
-                  >
-                    <option value="">-- Select Registered Vendor (or type Payee name) --</option>
-                    {vendors.map((v) => {
-                      const vName = getCompanyName(v);
-                      return (
-                        <option key={v.id} value={v.id}>
-                          {vName} {v.relationship_type ? `(${v.relationship_type})` : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-                <div>
-                  <FieldLabel label="Payee / Vendor Legal Name" required />
-                  <input
-                    type="text"
-                    value={pvPayeeName}
-                    onChange={(e) => setPvPayeeName(e.target.value)}
-                    placeholder="e.g. Atlas Industrial Supply LLC"
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
-                  />
-                </div>
-                <div>
-                  <FieldLabel
-                    label="Link to Supplier PO"
-                    hint="Optional — Link an issued Supplier PO when recording an advance payment or direct PO settlement."
-                  />
-                  <select
-                    value={pvPoId}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      setPvPoId(id);
-                      const po = supplierPOs.find((p) => p.id === id);
-                      if (po) {
-                        const sName = po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name || '';
-                        if (sName && !pvPayeeName) setPvPayeeName(sName);
-                        const poTotal = Number(po.financial_totals?.grand_total ?? po.grand_total ?? 0);
-                        if (pvAmountPaid === 0 && poTotal > 0) setPvAmountPaid(poTotal);
-                        if (!pvNarration) {
-                          setPvNarration(`Advance / Payment against PO ${po.purchase_order_metadata?.po_ref || po.formatted_quote_ref}`);
-                        }
-                      }
-                    }}
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
-                  >
-                    <option value="">-- Direct / Bill Settlement (No Specific PO) --</option>
-                    {supplierPOs.map((po) => (
-                      <option key={po.id} value={po.id}>
-                        {po.purchase_order_metadata?.po_ref || po.formatted_quote_ref} — {po.purchase_order_metadata?.supplier_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-2 items-end">
-                  <div>
-                    <FieldLabel label="Payment Mode" />
-                    <select
-                      value={pvPaymentMethod}
-                      onChange={(e) => setPvPaymentMethod(e.target.value as any)}
-                      className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
-                    >
-                      <option value="Bank Transfer / TT">Bank Transfer / TT</option>
-                      <option value="Cheque">Cheque</option>
-                      <option value="Cash">Cash</option>
-                      <option value="Corporate Card">Corporate Card</option>
-                      <option value="Letter of Credit (LC)">Letter of Credit (LC)</option>
-                      <option value="Online">Online</option>
-                    </select>
-                  </div>
-                  <div>
-                    <FieldLabel label="UTR / Cheque #" />
-                    <input
-                      type="text"
-                      value={pvReferenceNo}
-                      onChange={(e) => setPvReferenceNo(e.target.value)}
-                      placeholder="e.g. UTR-994120"
-                      className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 font-mono bg-white text-xs leading-normal"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Open Supplier Bills Allocation */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <div className="bg-slate-50 px-3 py-2 border-b border-slate-200 flex items-center justify-between">
-                  <span className="font-bold text-slate-700">
-                    Allocate Against Open Supplier Bills (Optional)
-                  </span>
-                  <span className="text-[11px] text-slate-500">
-                    Select bills to automatically update their Balance Due
-                  </span>
-                </div>
-                <div className="max-h-44 overflow-y-auto divide-y divide-slate-100">
-                  {supplierBills
-                    .filter((b) => {
-                      if (b.balance_due <= 0) return false;
-                      if (!pvPayeeName.trim() && !pvVendorId) return true;
-                      const bName = (b.vendor_name || b.supplier_name || '').toLowerCase();
-                      return (
-                        (Boolean(pvPayeeName.trim()) &&
-                          bName.includes(pvPayeeName.trim().toLowerCase())) ||
-                        Boolean(
-                          pvVendorId &&
-                            (b.vendor_company_id === pvVendorId ||
-                              b.supplier_id === pvVendorId ||
-                              (b as any).vendor_id === pvVendorId)
-                        )
-                      );
-                    })
-                    .map((bill) => {
-                      const allocAmount = pvSelectedBills[bill.id];
-                      const isChecked = allocAmount !== undefined && allocAmount > 0;
-                      return (
-                        <div key={bill.id} className="px-3 py-2 flex items-center justify-between gap-3 hover:bg-slate-50">
-                          <label className="flex items-center gap-2 cursor-pointer flex-1">
+                              className="w-full h-8 rounded-lg border border-slate-300 dark:border-slate-700 px-2.5 py-1 bg-white dark:bg-slate-800/90 text-[11px] text-slate-800 dark:text-slate-100 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                            >
+                              <option value="">-- Pick Catalog Item or Type --</option>
+                              {products.filter((p) => !p.is_deleted).map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {formatProductVariantSelectorLabel(p, products)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="col-span-3">
                             <input
-                              type="checkbox"
-                              checked={isChecked}
-                              disabled={bill.is_on_hold}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  const next = {
-                                    ...pvSelectedBills,
-                                    [bill.id]: bill.balance_due
-                                  };
-                                  setPvSelectedBills(next);
-                                  setPvAmountPaid(
-                                    QuotationRepository.roundCurrency(
-                                      (Object.values(next) as any[]).reduce((s: number, v: any) => s + Number(v || 0), 0)
-                                    )
-                                  );
-                                  if (!pvPayeeName) setPvPayeeName(bill.vendor_name);
-                                } else {
-                                  const next = { ...pvSelectedBills };
-                                  delete next[bill.id];
-                                  setPvSelectedBills(next);
-                                  setPvAmountPaid(
-                                    QuotationRepository.roundCurrency(
-                                      (Object.values(next) as any[]).reduce((s: number, v: any) => s + Number(v || 0), 0)
-                                    )
-                                  );
-                                }
-                              }}
-                              className="rounded border-slate-300 text-amber-600"
+                              type="text"
+                              value={line.item_name}
+                              onChange={(e) =>
+                                setNewPoLines((prev) =>
+                                  prev.map((l, i) => (i === idx ? { ...l, item_name: e.target.value } : l))
+                                )
+                              }
+                              placeholder="Item Description *"
+                              className="w-full h-8 rounded-lg border border-slate-300 dark:border-slate-700 px-2.5 py-1 bg-white dark:bg-slate-800/90 text-[11px] text-slate-800 dark:text-slate-100 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                             />
-                            <div>
-                              <div className="font-mono font-bold text-slate-900">
-                                {bill.bill_number} • Inv #{bill.vendor_invoice_no}{' '}
-                                <span className="font-sans font-semibold text-slate-600">({bill.vendor_name})</span>
-                              </div>
-                              <div className="text-[10.5px] text-slate-500">
-                                Total: {bill.currency} {bill.grand_total.toFixed(2)} • Balance Due: {bill.currency}{' '}
-                                {bill.balance_due.toFixed(2)}
-                              </div>
-                            </div>
-                          </label>
-                          {isChecked && (
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[10.5px] text-slate-500">Allocate:</span>
-                              <input
-                                type="number"
-                                step="0.01"
-                                value={allocAmount}
-                                onChange={(e) => {
-                                  const val = Math.max(0, Number(e.target.value) || 0);
-                                  const next = {
-                                    ...pvSelectedBills,
-                                    [bill.id]: val
-                                  };
-                                  setPvSelectedBills(next);
-                                  setPvAmountPaid(
-                                    QuotationRepository.roundCurrency(
-                                      (Object.values(next) as any[]).reduce((s: number, v: any) => s + Number(v || 0), 0)
-                                    )
-                                  );
-                                }}
-                                className="w-28 rounded-lg border border-amber-400 px-2 py-1 text-right font-mono font-bold bg-amber-50/40"
-                              />
-                            </div>
-                          )}
+                          </div>
+                          <div className="col-span-1">
+                            <input
+                              type="number"
+                              min="1"
+                              value={line.qty === 0 ? '' : line.qty}
+                              onChange={(e) =>
+                                setNewPoLines((prev) =>
+                                  prev.map((l, i) =>
+                                    i === idx ? { ...l, qty: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) } : l
+                                  )
+                                )
+                              }
+                              placeholder="1"
+                              className="w-full h-8 rounded-lg border border-slate-300 dark:border-slate-700 px-2 py-1 bg-white dark:bg-slate-800/90 font-mono text-[11px] text-slate-800 dark:text-slate-100 text-right leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                            />
+                          </div>
+                          <div className="col-span-2">
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={line.unit_cost === 0 ? '' : line.unit_cost}
+                              onChange={(e) =>
+                                setNewPoLines((prev) =>
+                                  prev.map((l, i) =>
+                                    i === idx ? { ...l, unit_cost: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) } : l
+                                  )
+                                )
+                              }
+                              placeholder="0.00"
+                              className="w-full h-8 rounded-lg border border-slate-300 dark:border-slate-700 px-2.5 py-1 bg-white dark:bg-slate-800/90 font-mono text-[11px] text-slate-800 dark:text-slate-100 text-right leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                            />
+                          </div>
+                          <div className="col-span-2 flex items-center justify-end gap-1.5">
+                            <span className="font-mono font-bold text-slate-900 dark:text-slate-100 text-[11px] whitespace-nowrap">
+                              {lineTotal.toFixed(2)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setNewPoLines((prev) =>
+                                  prev.length <= 1
+                                    ? [{ product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }]
+                                    : prev.filter((_, i) => i !== idx)
+                                )
+                              }
+                              title={newPoLines.length <= 1 ? 'Clear line item' : 'Remove line item'}
+                              className="p-1 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded cursor-pointer transition"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
-                  {supplierBills.filter((b) => b.balance_due > 0).length === 0 && (
-                    <div className="p-3 text-center text-slate-400 text-[11px]">
-                      No open unpaid Supplier Bills found. You can still issue an Advance / Direct Payment Voucher below.
-                    </div>
-                  )}
+                  </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Amount Paid ({defaultCurrency}) *
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={pvAmountPaid === 0 ? '' : pvAmountPaid}
-                    placeholder="0.00"
-                    onChange={(e) => setPvAmountPaid(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
-                    className="w-full rounded-xl border border-amber-400 p-2 font-mono font-bold bg-amber-50/30 text-slate-900"
-                  />
+              {/* Executive Sticky Summary Footer Bar */}
+              <div className="px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3 text-xs font-mono">
+                  <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                    Net: <strong className="text-slate-900 dark:text-slate-100">{defaultCurrency} {poNetSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                  </span>
+                  <span className="text-slate-300 dark:text-slate-700">·</span>
+                  <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                    VAT (5%): <strong className="text-slate-700 dark:text-slate-300">{defaultCurrency} {poEstVat.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                  </span>
+                  <span className="text-slate-300 dark:text-slate-700">·</span>
+                  <span className="text-indigo-700 dark:text-indigo-300 font-bold whitespace-nowrap">
+                    Grand Total: {defaultCurrency} {poGrandTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
                 </div>
-                <div className="col-span-2">
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Payment Narration / Purpose
-                  </label>
-                  <input
-                    type="text"
-                    value={pvNarration}
-                    onChange={(e) => setPvNarration(e.target.value)}
-                    placeholder="e.g. Settlement of Supplier Invoice / Advance against PO"
-                    className="w-full rounded-xl border border-slate-300 p-2 bg-white"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowCreatePvModal(false)}
-                className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700 cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isCreatingPv}
-                onClick={() => handleConfirmCreatePv(false)}
-                className="px-4 py-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 disabled:opacity-50 text-amber-900 text-xs font-bold cursor-pointer"
-              >
-                {isCreatingPv ? 'Saving...' : 'Save PV'}
-              </button>
-              <button
-                type="button"
-                disabled={isCreatingPv}
-                onClick={() => handleConfirmCreatePv(true)}
-                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer"
-              >
-                {isCreatingPv ? 'Saving...' : 'Save & Open in Studio'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 5: ISSUE MATERIAL RETURN NOTE (MRN) OR VENDOR DEBIT NOTE (DN) */}
-      {showCreateReturnModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-rose-50/70">
-              <div>
-                <h3 className="text-sm font-black text-slate-900">
-                  {retMode === 'material_return_note'
-                    ? 'Issue Material Return Note (MRN — Unpriced Gate-Pass)'
-                    : 'Issue Vendor Debit Note (DN — Commercial Claim)'}
-                </h3>
-                <p className="text-[11px] text-slate-600">
-                  Select Supplier, linked PO or Bill, return reason, and items to return
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowCreateReturnModal(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-5 overflow-y-auto space-y-4 text-xs">
-              <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl w-fit">
-                <button
-                  type="button"
-                  onClick={() => setRetMode('material_return_note')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                    retMode === 'material_return_note'
-                      ? 'bg-white text-slate-900 shadow-2xs'
-                      : 'text-slate-600'
-                  }`}
-                >
-                  Material Return Note (MRN)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRetMode('debit_note')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                    retMode === 'debit_note'
-                      ? 'bg-rose-600 text-white shadow-2xs'
-                      : 'text-slate-600'
-                  }`}
-                >
-                  Vendor Debit Note (DN)
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end">
-                <div>
-                  <FieldLabel label="Select Vendor from Directory" />
-                  <select
-                    value={retVendorId}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      setRetVendorId(id);
-                      const v = companies.find((c) => c.id === id);
-                      if (v) setRetSupplierName(getCompanyName(v));
-                    }}
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
-                  >
-                    <option value="">-- Select Registered Vendor --</option>
-                    {vendors.map((v) => {
-                      const vName = getCompanyName(v);
-                      return (
-                        <option key={v.id} value={v.id}>
-                          {vName}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-                <div>
-                  <FieldLabel label="Supplier / Vendor Legal Name" required />
-                  <input
-                    type="text"
-                    value={retSupplierName}
-                    onChange={(e) => setRetSupplierName(e.target.value)}
-                    placeholder="Supplier Name"
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
-                  />
-                </div>
-                <div>
-                  <FieldLabel
-                    label="Link to Supplier PO"
-                    hint="Optional — Select an issued Supplier PO to import its line items into this Material Return or Debit Note."
-                  />
-                  <select
-                    value={retPoId}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      setRetPoId(id);
-                      const po = supplierPOs.find((p) => p.id === id);
-                      if (po) {
-                        setRetSupplierName(
-                          po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name || retSupplierName
-                        );
-                        if (po.line_items && po.line_items.length > 0) {
-                          setRetLines(
-                            po.line_items.map((li) => ({
-                              product_id: li.product_id || '',
-                              item_name: li.item_name || li.description || '',
-                              part_no: li.part_no || '',
-                              qty: Number(li.qty_ordered ?? li.quantity ?? li.qty) || 1,
-                              unit: li.unit || 'Nos',
-                              unit_cost: Number(li.unit_price ?? li.cost_price ?? 0) || 0
-                            }))
-                          );
-                        }
-                      }
-                    }}
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
-                  >
-                    <option value="">-- No Linked PO --</option>
-                    {supplierPOs.map((po) => (
-                      <option key={po.id} value={po.id}>
-                        {po.purchase_order_metadata?.po_ref || po.formatted_quote_ref} — {po.purchase_order_metadata?.supplier_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <FieldLabel
-                    label="Link to Supplier Bill"
-                    hint="Optional — When issuing a Vendor Debit Note (DN), linking a Supplier Bill automatically deducts the claim value from that bill's Balance Due."
-                    hintAlign="right"
-                  />
-                  <select
-                    value={retBillId}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      setRetBillId(id);
-                      const bill = supplierBills.find((b) => b.id === id);
-                      if (bill) {
-                        setRetSupplierName(bill.vendor_name);
-                        if (bill.line_items && bill.line_items.length > 0) {
-                          setRetLines(
-                            bill.line_items.map((li) => ({
-                              product_id: li.product_id || '',
-                              item_name: li.item_name || '',
-                              part_no: li.part_no || '',
-                              qty: Number(li.billed_qty) || 1,
-                              unit: li.unit || 'Nos',
-                              unit_cost: Number(li.billed_unit_cost) || 0
-                            }))
-                          );
-                        }
-                      }
-                    }}
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
-                  >
-                    <option value="">-- No Linked Supplier Bill --</option>
-                    {supplierBills.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.bill_number} (Inv #{b.vendor_invoice_no}) — {b.vendor_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <FieldLabel label="Return / Claim Reason" />
-                  <select
-                    value={retReason}
-                    onChange={(e) => setRetReason(e.target.value as any)}
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
-                  >
-                    <option value="Defective / Damaged">Defective / Damaged</option>
-                    <option value="Wrong Item Supplied">Wrong Item Supplied</option>
-                    <option value="Excess Quantity">Excess Quantity</option>
-                    <option value="Quality Rejection">Quality Rejection</option>
-                    <option value="Commercial Price Adjustment">Commercial Price Adjustment</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-                <div>
-                  <FieldLabel label="Resolution Requested" />
-                  <select
-                    value={retResolution}
-                    onChange={(e) => setRetResolution(e.target.value as any)}
-                    className="w-full h-9 rounded-xl border border-slate-300 px-3 py-1.5 bg-white text-xs leading-normal"
-                  >
-                    <option value="Credit / Bill Deduction">Credit / Bill Deduction</option>
-                    <option value="Replacement Required">Replacement Required</option>
-                    <option value="Refund Requested">Refund Requested</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800">Return / Claim Line Items</span>
+                <div className="flex items-center gap-2 ml-auto">
                   <button
                     type="button"
-                    onClick={() =>
-                      setRetLines((prev) => [
-                        ...prev,
-                        { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
-                      ])
-                    }
-                    className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 font-bold text-[11px] cursor-pointer"
+                    onClick={() => setShowCreatePoModal(false)}
+                    className="h-9 px-4 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
                   >
-                    + Add Line
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isCreatingPo}
+                    onClick={() => handleCreateSupplierPo(false)}
+                    className="h-9 px-4 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 disabled:opacity-50 text-indigo-800 dark:text-indigo-300 text-xs font-semibold cursor-pointer"
+                  >
+                    {isCreatingPo ? 'Saving...' : 'Save PO'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isCreatingPo}
+                    onClick={() => handleCreateSupplierPo(true)}
+                    className="h-9 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer shadow-xs"
+                  >
+                    {isCreatingPo ? 'Saving...' : 'Save & Open in Studio'}
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
-                <div className="grid grid-cols-12 gap-2 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                  <div className="col-span-4">Catalog / Item</div>
-                  <div className="col-span-3">Description</div>
-                  <div className="col-span-1 text-right">Return Qty</div>
-                  <div className="col-span-2 text-right">Unit Rate ({defaultCurrency})</div>
-                  <div className="col-span-2 text-right">Line Total</div>
+      {/* MODAL 2: RECEIVE STOCK (GRN) & LANDED COST ALLOCATION */}
+      {grnTargetPo && (() => {
+        const totalReceivingNow = grnLandedPreview.reduce((s, l) => s + (Number(l.qty_receiving_now) || 0), 0);
+        const totalBatchLandedVal = QuotationRepository.roundCurrency(
+          grnLandedPreview.reduce((s, l) => s + (Number(l.qty_receiving_now) || 0) * (Number(l.landedUnitCost) || 0), 0)
+        );
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-4xl w-full overflow-hidden flex flex-col max-h-[92vh]">
+              <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                    Receive Stock (GRN) — {grnTargetPo.purchase_order_metadata?.po_ref || grnTargetPo.formatted_quote_ref}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Supplier: {grnTargetPo.purchase_order_metadata?.supplier_name} · Proportional Landed Cost Calculation
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setGrnTargetPo(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-5 overflow-y-auto space-y-4 text-xs bg-slate-50/80 dark:bg-slate-950/70 flex-1">
+                {/* Chapter 1: GRN Receipt & Landed Cost Metadata */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs space-y-3.5">
+                  <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+                    <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0">
+                      1
+                    </span>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                        GRN Receipt &amp; Landed Cost Parameters
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Record warehouse receipt number, date, and inbound freight/duty allocation mode
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                    <div>
+                      <FieldLabel label="GRN Number" />
+                      <input
+                        type="text"
+                        value={grnNumber}
+                        onChange={(e) => setGrnNumber(e.target.value)}
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel label="Receipt Date" />
+                      <input
+                        type="date"
+                        value={grnReceivedDate}
+                        onChange={(e) => setGrnReceivedDate(e.target.value)}
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 dark:[color-scheme:dark] text-xs leading-normal"
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel
+                        label={`Freight / Duty (${grnTargetPo.currency})`}
+                        hint="Total inbound freight, customs duty, and clearing charges to allocate across received items."
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={grnFreightCustoms === 0 ? '' : grnFreightCustoms}
+                        placeholder="0.00"
+                        onChange={(e) => setGrnFreightCustoms(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel
+                        label="Landed Cost Mode"
+                        hint="Choose Proportional by Line Value to automatically distribute Freight/Duty across items, or Manual Per-Line Override."
+                        hintAlign="right"
+                      />
+                      <select
+                        value={grnAllocationMode}
+                        onChange={(e) => setGrnAllocationMode(e.target.value as any)}
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                      >
+                        <option value="proportional_value">Proportional by Line Value</option>
+                        <option value="manual">Manual Per-Line Override</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
 
-                {retLines.map((line, idx) => {
-                  const lineTotal = QuotationRepository.roundCurrency(
-                    (Number(line.qty) || 0) * (Number(line.unit_cost) || 0)
-                  );
-                  return (
-                    <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-slate-50 p-2 rounded-xl border border-slate-200">
-                      <div className="col-span-4">
-                        <select
-                          value={line.product_id || ''}
-                          onChange={(e) => {
-                            const pid = e.target.value;
-                            const prod = products.find((p) => p.id === pid);
-                            setRetLines((prev) =>
-                              prev.map((l, i) =>
-                                i === idx
-                                  ? {
-                                      ...l,
-                                      product_id: pid,
-                                      item_name: prod?.name || prod?.description || l.item_name,
-                                      part_no: prod?.part_no || prod?.sku || l.part_no,
-                                      unit: prod?.unit || l.unit || 'Nos',
-                                      unit_cost: Number(
-                                        prod?.cost_price ||
-                                          prod?.last_landed_cost ||
-                                          (prod as any)?.selling_price ||
-                                          (prod as any)?.unit_price ||
-                                          l.unit_cost ||
-                                          0
+                {/* Chapter 2: Line-by-Line Receipt & Landed Cost Preview */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs space-y-3.5">
+                  <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+                    <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0">
+                      2
+                    </span>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                        Line Items &amp; Landed Cost Allocation
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Enter quantities received in this batch and verify landed unit cost
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-200/80 dark:border-slate-800 rounded-xl overflow-x-auto scrollbar-thin">
+                    <table className="w-full min-w-[680px] text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">
+                          <th className="py-2.5 px-3">Item</th>
+                          <th className="py-2.5 px-2 text-right whitespace-nowrap">Ordered</th>
+                          <th className="py-2.5 px-2 text-right whitespace-nowrap">Prev Recv</th>
+                          <th className="py-2.5 px-2 text-right whitespace-nowrap">Receive Now</th>
+                          <th className="py-2.5 px-2 text-right whitespace-nowrap">PO Unit Cost</th>
+                          <th className="py-2.5 px-2 text-right whitespace-nowrap">Allocated Freight</th>
+                          <th className="py-2.5 px-3 text-right whitespace-nowrap">Landed Unit Cost</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {grnLandedPreview.map((line, idx) => (
+                          <tr key={line.line_item_id}>
+                            <td className="py-2 px-3">
+                              <div className="font-semibold text-slate-900 dark:text-slate-100">{line.item_name}</div>
+                              {line.part_no && (
+                                <div className="text-[10px] font-mono text-slate-400">PN: {line.part_no}</div>
+                              )}
+                            </td>
+                            <td className="py-2 px-2 text-right font-mono text-slate-700 dark:text-slate-300">{line.qty_ordered}</td>
+                            <td className="py-2 px-2 text-right font-mono text-slate-500">
+                              {line.qty_already_received}
+                            </td>
+                            <td className="py-2 px-2 text-right">
+                              <input
+                                type="number"
+                                min="0"
+                                value={line.qty_receiving_now}
+                                onChange={(e) => {
+                                  const val = Math.max(0, Number(e.target.value) || 0);
+                                  setGrnLines((prev) =>
+                                    prev.map((l, i) => (i === idx ? { ...l, qty_receiving_now: val } : l))
+                                  );
+                                }}
+                                className="w-20 rounded-lg border border-emerald-400 dark:border-emerald-700 px-2 py-1 text-right font-mono font-bold bg-emerald-50/40 dark:bg-emerald-950/40 text-slate-900 dark:text-slate-100"
+                              />
+                            </td>
+                            <td className="py-2 px-2 text-right font-mono text-slate-700 dark:text-slate-300">
+                              {line.po_unit_cost.toFixed(2)}
+                            </td>
+                            <td className="py-2 px-2 text-right font-mono text-slate-700 dark:text-slate-300">
+                              {grnAllocationMode === 'manual' ? (
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={line.manual_landed_cost_addition}
+                                  onChange={(e) => {
+                                    const val = Math.max(0, Number(e.target.value) || 0);
+                                    setGrnLines((prev) =>
+                                      prev.map((l, i) =>
+                                        i === idx ? { ...l, manual_landed_cost_addition: val } : l
                                       )
-                                    }
-                                  : l
-                              )
-                            );
-                          }}
-                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-[11px]"
-                        >
-                          <option value="">-- Pick Catalog Item or Type --</option>
-                          {products.filter((p) => !p.is_deleted).map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {formatProductVariantSelectorLabel(p, products)}
+                                    );
+                                  }}
+                                  className="w-24 rounded border border-slate-300 dark:border-slate-700 px-1.5 py-0.5 text-right font-mono bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+                                />
+                              ) : (
+                                <span>{line.allocatedFreight.toFixed(2)}</span>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-indigo-800 dark:text-indigo-300">
+                              {line.landedUnitCost.toFixed(2)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/80 rounded-xl p-3">
+                    <input
+                      type="checkbox"
+                      checked={grnUpdateCatalogCost}
+                      onChange={(e) => setGrnUpdateCatalogCost(e.target.checked)}
+                      className="rounded border-slate-300 text-indigo-600"
+                    />
+                    <span>
+                      Also overwrite base catalog <strong>Cost Price</strong> with new Landed Unit Cost (by default, only <code className="font-mono">last_landed_cost</code> is updated so catalog baseline prices stay protected)
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Executive Sticky Summary Footer Bar */}
+              <div className="px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3 text-xs font-mono">
+                  <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                    Receiving Now: <strong className="text-slate-900 dark:text-slate-100">{totalReceivingNow} Units</strong>
+                  </span>
+                  <span className="text-slate-300 dark:text-slate-700">·</span>
+                  <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                    Freight/Duty: <strong className="text-slate-700 dark:text-slate-300">{grnTargetPo.currency} {Number(grnFreightCustoms || 0).toFixed(2)}</strong>
+                  </span>
+                  <span className="text-slate-300 dark:text-slate-700">·</span>
+                  <span className="text-emerald-700 dark:text-emerald-400 font-bold whitespace-nowrap">
+                    Batch Landed Value: {grnTargetPo.currency} {totalBatchLandedVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => setGrnTargetPo(null)}
+                    className="h-9 px-4 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSubmittingGrn}
+                    onClick={handleConfirmGrn}
+                    className="h-9 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer disabled:opacity-50 shadow-xs"
+                  >
+                    {isSubmittingGrn ? 'Posting GRN...' : 'Confirm GRN & Add to Stock'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* MODAL 3: RECORD / EDIT SUPPLIER BILL & 3-WAY MATCH */}
+      {showBillModal && (() => {
+        const itemsSub = QuotationRepository.roundCurrency(
+          billLines.reduce((s, r) => s + (Number(r.line_total) || 0), 0)
+        );
+        const taxVal = QuotationRepository.roundCurrency(Number(billTaxAmount) || 0);
+        const freightVal = QuotationRepository.roundCurrency(Number(billFreightCustoms) || 0);
+        const grandVal = QuotationRepository.roundCurrency(itemsSub + taxVal + freightVal);
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-4xl w-full overflow-hidden flex flex-col max-h-[92vh]">
+              <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                    {editingBill ? `Edit Supplier Bill (${editingBill.bill_number})` : 'Record Supplier Bill & 3-Way Match'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Compare Vendor Invoice against PO &amp; GRN quantities/rates and attach compressed PDF scan
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowBillModal(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-5 overflow-y-auto space-y-4 text-xs bg-slate-50/80 dark:bg-slate-950/70 flex-1">
+                {/* 3-Way Match Live Banner */}
+                <div
+                  className={`p-3 rounded-xl border flex items-center justify-between gap-3 ${
+                    liveThreeWayMatch.status === 'matched'
+                      ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
+                      : liveThreeWayMatch.status === 'no_po'
+                      ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                      : 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    {liveThreeWayMatch.status === 'matched' ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                    )}
+                    <div>
+                      <div className="font-bold">3-Way Match Check: {liveThreeWayMatch.summary}</div>
+                      {duplicateBillWarning && (
+                        <div className="text-rose-700 dark:text-rose-400 font-bold mt-0.5">
+                          Duplicate Warning: Vendor Invoice #{billVendorInvoiceNo} is already recorded on {duplicateBillWarning.bill_number}!
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-1.5 font-bold cursor-pointer whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      checked={billIsOnHold}
+                      onChange={(e) => setBillIsOnHold(e.target.checked)}
+                      className="rounded border-slate-300 text-rose-600"
+                    />
+                    <span>Place Payment Hold</span>
+                  </label>
+                </div>
+
+                {/* Chapter 1: Vendor & Document Metadata */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs space-y-3.5">
+                  <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+                    <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0">
+                      1
+                    </span>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                        Vendor &amp; Document Metadata
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Link an issued Supplier PO, choose vendor, and enter invoice reference and dates
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 items-end">
+                    <div>
+                      <FieldLabel
+                        label="Link to Supplier PO"
+                        hint="Link an issued Supplier PO to automatically load ordered & received GRN quantities for 3-Way Match verification."
+                      />
+                      <select
+                        value={billPoId}
+                        onChange={(e) => handleSelectBillPo(e.target.value)}
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                      >
+                        <option value="">-- Direct Bill (No Linked PO) --</option>
+                        {supplierPOs.map((po) => (
+                          <option key={po.id} value={po.id}>
+                            {po.purchase_order_metadata?.po_ref || po.formatted_quote_ref} — {po.purchase_order_metadata?.supplier_name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <FieldLabel label="Select Vendor from Directory" />
+                      <select
+                        value={billVendorId}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          setBillVendorId(id);
+                          const v = companies.find((c) => c.id === id);
+                          if (v) {
+                            setBillVendorName(getCompanyName(v));
+                            if (v.tax_registration_no) setBillVendorTrn(v.tax_registration_no);
+                            if (v.default_currency) setBillCurrency(v.default_currency);
+                          }
+                        }}
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                      >
+                        <option value="">-- Pick from Vendor Directory --</option>
+                        {vendors.map((v) => {
+                          const vName = getCompanyName(v);
+                          return (
+                            <option key={v.id} value={v.id}>
+                              {vName} {v.relationship_type ? `(${v.relationship_type})` : ''}
                             </option>
-                          ))}
-                        </select>
+                          );
+                        })}
+                      </select>
+                    </div>
+                    <div>
+                      <FieldLabel label="Vendor / Supplier Legal Name" required />
+                      <input
+                        type="text"
+                        value={billVendorName}
+                        onChange={(e) => setBillVendorName(e.target.value)}
+                        placeholder="Supplier Legal Name"
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel label="Vendor Invoice #" required />
+                      <input
+                        type="text"
+                        value={billVendorInvoiceNo}
+                        onChange={(e) => setBillVendorInvoiceNo(e.target.value)}
+                        placeholder="e.g. INV-2026-9921"
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel label="Invoice & Due Dates" />
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="date"
+                          value={billInvoiceDate}
+                          onChange={(e) => setBillInvoiceDate(e.target.value)}
+                          title="Invoice Date"
+                          className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 dark:[color-scheme:dark] text-[11px] leading-normal"
+                        />
+                        <input
+                          type="date"
+                          value={billDueDate}
+                          onChange={(e) => setBillDueDate(e.target.value)}
+                          title="Payment Due Date"
+                          className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 dark:[color-scheme:dark] text-[11px] leading-normal"
+                        />
                       </div>
-                      <div className="col-span-3">
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 items-end">
+                      <div>
+                        <FieldLabel label="Currency" />
                         <input
                           type="text"
-                          value={line.item_name}
-                          onChange={(e) =>
-                            setRetLines((prev) =>
-                              prev.map((l, i) => (i === idx ? { ...l, item_name: e.target.value } : l))
-                            )
-                          }
-                          placeholder="Item Description"
-                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white text-[11px]"
+                          value={billCurrency}
+                          onChange={(e) => setBillCurrency(e.target.value.toUpperCase())}
+                          className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
                         />
                       </div>
-                      <div className="col-span-1">
+                      <div>
+                        <FieldLabel label="Exch. Rate" />
                         <input
                           type="number"
-                          min="1"
-                          value={line.qty === 0 ? '' : line.qty}
-                          onChange={(e) =>
-                            setRetLines((prev) =>
-                              prev.map((l, i) =>
-                                i === idx ? { ...l, qty: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) } : l
-                              )
-                            )
-                          }
-                          placeholder="1"
-                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white font-mono text-[11px] text-right"
+                          step="0.0001"
+                          value={billExchangeRate}
+                          onChange={(e) => setBillExchangeRate(Number(e.target.value) || 1)}
+                          className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
                         />
                       </div>
-                      <div className="col-span-2">
+                    </div>
+                  </div>
+                </div>
+
+                {/* Chapter 2: Line Items & Bill Allocation */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs space-y-3">
+                  <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0">
+                        2
+                      </span>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                          Line Items &amp; Bill Allocation
+                        </h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Verify billed quantities and unit rates against PO and Warehouse GRN
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setBillLines((prev) => [
+                          ...prev,
+                          {
+                            id: `bline_${Date.now()}`,
+                            item_name: '',
+                            unit: 'Nos',
+                            po_qty: 0,
+                            grn_qty: 0,
+                            billed_qty: 1,
+                            po_unit_cost: 0,
+                            billed_unit_cost: 0,
+                            tax_rate: 5,
+                            line_total: 0
+                          }
+                        ])
+                      }
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800 font-bold text-[11px] cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Line</span>
+                    </button>
+                  </div>
+
+                  <div className="border border-slate-200/80 dark:border-slate-800 rounded-xl overflow-x-auto scrollbar-thin">
+                    <table className="w-full min-w-[680px] text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">
+                          <th className="py-2 px-3">Item</th>
+                          <th className="py-2 px-2 text-right whitespace-nowrap">PO Qty</th>
+                          <th className="py-2 px-2 text-right whitespace-nowrap">GRN Qty</th>
+                          <th className="py-2 px-2 text-right whitespace-nowrap">Billed Qty</th>
+                          <th className="py-2 px-2 text-right whitespace-nowrap">PO Rate</th>
+                          <th className="py-2 px-2 text-right whitespace-nowrap">Billed Rate</th>
+                          <th className="py-2 px-3 text-right whitespace-nowrap">Line Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {billLines.map((l, idx) => (
+                          <tr key={l.id}>
+                            <td className="py-1.5 px-3">
+                              <input
+                                type="text"
+                                value={l.item_name}
+                                onChange={(e) =>
+                                  setBillLines((prev) =>
+                                    prev.map((row, i) =>
+                                      i === idx ? { ...row, item_name: e.target.value } : row
+                                    )
+                                  )
+                                }
+                                placeholder="Description"
+                                className="w-full rounded-lg border border-slate-200 dark:border-slate-700 px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+                              />
+                            </td>
+                            <td className="py-1.5 px-2 text-right font-mono text-slate-500">{l.po_qty ?? 0}</td>
+                            <td className="py-1.5 px-2 text-right font-mono text-slate-500">{l.grn_qty ?? 0}</td>
+                            <td className="py-1.5 px-2 text-right">
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={l.billed_qty === 0 ? '' : l.billed_qty}
+                                placeholder="0"
+                                onChange={(e) => {
+                                  const q = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
+                                  setBillLines((prev) =>
+                                    prev.map((row, i) =>
+                                      i === idx
+                                        ? {
+                                            ...row,
+                                            billed_qty: q,
+                                            line_total: QuotationRepository.roundCurrency(q * row.billed_unit_cost)
+                                          }
+                                        : row
+                                    )
+                                  );
+                                }}
+                                className="w-20 rounded-lg border border-slate-300 dark:border-slate-700 px-1.5 py-1 text-right font-mono bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+                              />
+                            </td>
+                            <td className="py-1.5 px-2 text-right font-mono text-slate-500">
+                              {Number(l.po_unit_cost || 0).toFixed(2)}
+                            </td>
+                            <td className="py-1.5 px-2 text-right">
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={l.billed_unit_cost === 0 ? '' : l.billed_unit_cost}
+                                placeholder="0.00"
+                                onChange={(e) => {
+                                  const r = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
+                                  setBillLines((prev) =>
+                                    prev.map((row, i) =>
+                                      i === idx
+                                        ? {
+                                            ...row,
+                                            billed_unit_cost: r,
+                                            line_total: QuotationRepository.roundCurrency(row.billed_qty * r)
+                                          }
+                                        : row
+                                    )
+                                  );
+                                }}
+                                className="w-24 rounded-lg border border-slate-300 dark:border-slate-700 px-1.5 py-1 text-right font-mono bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+                              />
+                            </td>
+                            <td className="py-1.5 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                              {l.line_total.toFixed(2)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Chapter 3: Financial Summary, Taxes & Attachments */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs space-y-3.5">
+                  <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+                    <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0">
+                      3
+                    </span>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                        Financial Summary, Taxes &amp; Attachments
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Configure VAT, freight/duty, and attach compressed vendor invoice scan
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="font-bold text-slate-700 dark:text-slate-300">
+                          Attach Vendor Invoice Scan (PDF / Image)
+                        </label>
+                        <select
+                          value={pdfPreset}
+                          onChange={(e) => setPdfPreset(e.target.value as PdfCompressionPreset)}
+                          className="rounded-lg border border-slate-300 dark:border-slate-700 px-2 py-0.5 text-[10.5px] bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+                        >
+                          <option value="standard">Standard Compress (~150 DPI)</option>
+                          <option value="extreme">Extreme Compress (~110 DPI)</option>
+                          <option value="original">Keep Original</option>
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <label className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
+                          <Upload className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                          <span>{isUploadingBillFile ? 'Compressing & Uploading...' : 'Upload Invoice PDF / Image'}</span>
+                          <input
+                            type="file"
+                            accept=".pdf,image/*"
+                            className="hidden"
+                            disabled={isUploadingBillFile}
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) handleUploadBillAttachment(f);
+                            }}
+                          />
+                        </label>
+                        {billAttachment && (
+                          <div className="flex items-center gap-2 text-[11px]">
+                            <span className="font-semibold text-emerald-700 dark:text-emerald-400 truncate max-w-[160px]">
+                              {billAttachment.name}
+                            </span>
+                            {billAttachment.original_size_bytes &&
+                              billAttachment.compressed_size_bytes && (
+                                <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-mono text-[10px]">
+                                  {formatByteSize(billAttachment.original_size_bytes)} →{' '}
+                                  {formatByteSize(billAttachment.compressed_size_bytes)}
+                                </span>
+                              )}
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (billAttachment.url) {
+                                  await deleteFromStorageBucket(billAttachment.url);
+                                }
+                                setBillAttachment(undefined);
+                              }}
+                              className="text-rose-600 hover:underline text-[10px] cursor-pointer"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <FieldLabel label={`Tax / VAT (${billCurrency})`} />
                         <input
                           type="number"
                           step="0.01"
-                          value={line.unit_cost === 0 ? '' : line.unit_cost}
-                          onChange={(e) =>
-                            setRetLines((prev) =>
-                              prev.map((l, i) =>
-                                i === idx ? { ...l, unit_cost: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) } : l
-                              )
-                            )
-                          }
+                          value={billTaxAmount === 0 ? '' : billTaxAmount}
                           placeholder="0.00"
-                          className="w-full rounded-lg border border-slate-300 p-1.5 bg-white font-mono text-[11px] text-right"
+                          onChange={(e) => setBillTaxAmount(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
+                          className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100"
                         />
                       </div>
-                      <div className="col-span-2 flex items-center justify-end gap-1.5">
-                        <span className="font-mono font-bold text-slate-900 text-[11px]">
-                          {lineTotal.toFixed(2)}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setRetLines((prev) => prev.filter((_, i) => i !== idx))}
-                          className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                      <div>
+                        <FieldLabel label={`Freight / Duty (${billCurrency})`} />
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={billFreightCustoms === 0 ? '' : billFreightCustoms}
+                          placeholder="0.00"
+                          onChange={(e) => setBillFreightCustoms(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
+                          className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100"
+                        />
                       </div>
                     </div>
-                  );
-                })}
+                  </div>
+                </div>
+              </div>
 
-                <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-rose-50/70 border border-rose-200/80 text-xs">
-                  <span className="font-bold text-rose-950">
-                    {retMode === 'material_return_note'
-                      ? 'Total Return Value (Reference):'
-                      : 'Total Debit Note Claim Amount (Excl. VAT):'}
+              {/* Executive Sticky Summary Footer Bar */}
+              <div className="px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3 text-xs font-mono">
+                  <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                    Net: <strong className="text-slate-900 dark:text-slate-100">{billCurrency} {itemsSub.toFixed(2)}</strong>
                   </span>
-                  <span className="font-mono font-black text-sm text-rose-900">
-                    {defaultCurrency}{' '}
-                    {retLines
-                      .reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unit_cost) || 0), 0)
-                      .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  <span className="text-slate-300 dark:text-slate-700">·</span>
+                  <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                    VAT: <strong className="text-slate-700 dark:text-slate-300">{billCurrency} {taxVal.toFixed(2)}</strong>
                   </span>
+                  {freightVal > 0 && (
+                    <>
+                      <span className="text-slate-300 dark:text-slate-700">·</span>
+                      <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                        Freight: <strong className="text-slate-700 dark:text-slate-300">{billCurrency} {freightVal.toFixed(2)}</strong>
+                      </span>
+                    </>
+                  )}
+                  <span className="text-slate-300 dark:text-slate-700">·</span>
+                  <span className="text-amber-700 dark:text-amber-400 font-bold whitespace-nowrap">
+                    Grand Total: {billCurrency} {grandVal.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => setShowBillModal(false)}
+                    className="h-9 px-4 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSavingBill}
+                    onClick={handleSaveSupplierBill}
+                    className="h-9 px-4 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold cursor-pointer disabled:opacity-50 shadow-xs"
+                  >
+                    {isSavingBill ? 'Saving Bill...' : 'Save Supplier Bill'}
+                  </button>
                 </div>
               </div>
             </div>
+          </div>
+        );
+      })()}
 
-            <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowCreateReturnModal(false)}
-                className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700 cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isCreatingReturn}
-                onClick={() => handleConfirmCreateReturn(false)}
-                className="px-4 py-2 rounded-xl border border-rose-300 bg-rose-50 hover:bg-rose-100 disabled:opacity-50 text-rose-900 text-xs font-bold cursor-pointer"
-              >
-                {isCreatingReturn
-                  ? 'Saving...'
-                  : retMode === 'material_return_note'
-                  ? 'Save MRN'
-                  : 'Save Debit Note'}
-              </button>
-              <button
-                type="button"
-                disabled={isCreatingReturn}
-                onClick={() => handleConfirmCreateReturn(true)}
-                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer"
-              >
-                {isCreatingReturn
-                  ? 'Saving...'
-                  : retMode === 'material_return_note'
-                  ? 'Save & Open MRN in Studio'
-                  : 'Save & Open DN in Studio'}
-              </button>
+      {/* MODAL 4: ISSUE OUTBOUND PAYMENT VOUCHER (PV) */}
+      {showCreatePvModal && (() => {
+        const allocatedBillsCount = Object.values(pvSelectedBills).filter((v) => Number(v) > 0).length;
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-3xl w-full overflow-hidden flex flex-col max-h-[92vh]">
+              <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                    Issue Outbound Payment Voucher (PV)
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Select Payee / Vendor, allocate against open Supplier Bills or POs, and save or open in A4 Studio
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCreatePvModal(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-5 overflow-y-auto space-y-4 text-xs bg-slate-50/80 dark:bg-slate-950/70 flex-1">
+                {/* Chapter 1: Vendor & Document Metadata */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs space-y-3.5">
+                  <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+                    <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0">
+                      1
+                    </span>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                        Vendor &amp; Document Metadata
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Select beneficiary vendor, linked PO, payment method, and UTR/cheque reference
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end">
+                    <div>
+                      <FieldLabel label="Select Vendor from Directory" />
+                      <select
+                        value={pvVendorId}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          setPvVendorId(id);
+                          const v = companies.find((c) => c.id === id);
+                          if (v) {
+                            const vName = getCompanyName(v);
+                            setPvPayeeName(vName);
+                            const matchingBills = supplierBills.filter(
+                              (b) =>
+                                (b.vendor_company_id === id ||
+                                  b.supplier_id === id ||
+                                  (b as any).vendor_id === id ||
+                                  b.vendor_name === vName ||
+                                  b.supplier_name === vName) &&
+                                b.balance_due > 0 &&
+                                !b.is_on_hold
+                            );
+                            if (matchingBills.length > 0 && Object.keys(pvSelectedBills).length === 0) {
+                              const first = matchingBills[0];
+                              setPvSelectedBills({ [first.id]: first.balance_due });
+                              setPvAmountPaid(first.balance_due);
+                              setPvNarration(`Settlement of Supplier Invoice #${first.vendor_invoice_no} (${first.bill_number})`);
+                            }
+                          }
+                        }}
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                      >
+                        <option value="">-- Select Registered Vendor (or type Payee name) --</option>
+                        {vendors.map((v) => {
+                          const vName = getCompanyName(v);
+                          return (
+                            <option key={v.id} value={v.id}>
+                              {vName} {v.relationship_type ? `(${v.relationship_type})` : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                    <div>
+                      <FieldLabel label="Payee / Vendor Legal Name" required />
+                      <input
+                        type="text"
+                        value={pvPayeeName}
+                        onChange={(e) => setPvPayeeName(e.target.value)}
+                        placeholder="e.g. Atlas Industrial Supply LLC"
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel
+                        label="Link to Supplier PO"
+                        hint="Optional — Link an issued Supplier PO when recording an advance payment or direct PO settlement."
+                      />
+                      <select
+                        value={pvPoId}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          setPvPoId(id);
+                          const po = supplierPOs.find((p) => p.id === id);
+                          if (po) {
+                            const sName = po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name || '';
+                            if (sName && !pvPayeeName) setPvPayeeName(sName);
+                            const poTotal = Number(po.financial_totals?.grand_total ?? po.grand_total ?? 0);
+                            if (pvAmountPaid === 0 && poTotal > 0) setPvAmountPaid(poTotal);
+                            if (!pvNarration) {
+                              setPvNarration(`Advance / Payment against PO ${po.purchase_order_metadata?.po_ref || po.formatted_quote_ref}`);
+                            }
+                          }
+                        }}
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                      >
+                        <option value="">-- Direct / Bill Settlement (No Specific PO) --</option>
+                        {supplierPOs.map((po) => (
+                          <option key={po.id} value={po.id}>
+                            {po.purchase_order_metadata?.po_ref || po.formatted_quote_ref} — {po.purchase_order_metadata?.supplier_name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 items-end">
+                      <div>
+                        <FieldLabel label="Payment Mode" />
+                        <select
+                          value={pvPaymentMethod}
+                          onChange={(e) => setPvPaymentMethod(e.target.value as any)}
+                          className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                        >
+                          <option value="Bank Transfer / TT">Bank Transfer / TT</option>
+                          <option value="Cheque">Cheque</option>
+                          <option value="Cash">Cash</option>
+                          <option value="Corporate Card">Corporate Card</option>
+                          <option value="Letter of Credit (LC)">Letter of Credit (LC)</option>
+                          <option value="Online">Online</option>
+                        </select>
+                      </div>
+                      <div>
+                        <FieldLabel label="UTR / Cheque #" />
+                        <input
+                          type="text"
+                          value={pvReferenceNo}
+                          onChange={(e) => setPvReferenceNo(e.target.value)}
+                          placeholder="e.g. UTR-994120"
+                          className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Chapter 2: Line Items & Bill Allocation */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs space-y-3">
+                  <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0">
+                        2
+                      </span>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                          Line Items &amp; Bill Allocation
+                        </h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Select open supplier bills to automatically settle their balance due
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="max-h-44 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200/80 dark:border-slate-800 rounded-xl">
+                    {supplierBills
+                      .filter((b) => {
+                        if (b.balance_due <= 0) return false;
+                        if (!pvPayeeName.trim() && !pvVendorId) return true;
+                        const bName = (b.vendor_name || b.supplier_name || '').toLowerCase();
+                        return (
+                          (Boolean(pvPayeeName.trim()) &&
+                            bName.includes(pvPayeeName.trim().toLowerCase())) ||
+                          Boolean(
+                            pvVendorId &&
+                              (b.vendor_company_id === pvVendorId ||
+                                b.supplier_id === pvVendorId ||
+                                (b as any).vendor_id === pvVendorId)
+                          )
+                        );
+                      })
+                      .map((bill) => {
+                        const allocAmount = pvSelectedBills[bill.id];
+                        const isChecked = allocAmount !== undefined && allocAmount > 0;
+                        return (
+                          <div key={bill.id} className="px-3 py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                            <label className="flex items-center gap-2.5 cursor-pointer flex-1">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                disabled={bill.is_on_hold}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    const next = {
+                                      ...pvSelectedBills,
+                                      [bill.id]: bill.balance_due
+                                    };
+                                    setPvSelectedBills(next);
+                                    setPvAmountPaid(
+                                      QuotationRepository.roundCurrency(
+                                        (Object.values(next) as any[]).reduce((s: number, v: any) => s + Number(v || 0), 0)
+                                      )
+                                    );
+                                    if (!pvPayeeName) setPvPayeeName(bill.vendor_name);
+                                  } else {
+                                    const next = { ...pvSelectedBills };
+                                    delete next[bill.id];
+                                    setPvSelectedBills(next);
+                                    setPvAmountPaid(
+                                      QuotationRepository.roundCurrency(
+                                        (Object.values(next) as any[]).reduce((s: number, v: any) => s + Number(v || 0), 0)
+                                      )
+                                    );
+                                  }
+                                }}
+                                className="rounded border-slate-300 text-amber-600"
+                              />
+                              <div>
+                                <div className="font-mono font-bold text-slate-900 dark:text-slate-100">
+                                  {bill.bill_number} · Inv #{bill.vendor_invoice_no}{' '}
+                                  <span className="font-sans font-semibold text-slate-600 dark:text-slate-400">({bill.vendor_name})</span>
+                                </div>
+                                <div className="text-[10.5px] text-slate-500 dark:text-slate-400">
+                                  Total: {bill.currency} {bill.grand_total.toFixed(2)} · Balance Due: {bill.currency}{' '}
+                                  {bill.balance_due.toFixed(2)}
+                                </div>
+                              </div>
+                            </label>
+                            {isChecked && (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10.5px] text-slate-500 dark:text-slate-400">Allocate:</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={allocAmount}
+                                  onChange={(e) => {
+                                    const val = Math.max(0, Number(e.target.value) || 0);
+                                    const next = {
+                                      ...pvSelectedBills,
+                                      [bill.id]: val
+                                    };
+                                    setPvSelectedBills(next);
+                                    setPvAmountPaid(
+                                      QuotationRepository.roundCurrency(
+                                        (Object.values(next) as any[]).reduce((s: number, v: any) => s + Number(v || 0), 0)
+                                      )
+                                    );
+                                  }}
+                                  className="w-28 rounded-lg border border-amber-400 dark:border-amber-700 px-2 py-1 text-right font-mono font-bold bg-amber-50/40 dark:bg-amber-950/40 text-slate-900 dark:text-slate-100"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    {supplierBills.filter((b) => b.balance_due > 0).length === 0 && (
+                      <div className="p-3 text-center text-slate-400 text-[11px]">
+                        No open unpaid Supplier Bills found. You can still issue an Advance / Direct Payment Voucher below.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Chapter 3: Financial Summary & Narration */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs space-y-3.5">
+                  <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+                    <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0">
+                      3
+                    </span>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                        Financial Summary &amp; Narration
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Confirm total disbursed amount and treasury payment narration
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 items-end">
+                    <div>
+                      <FieldLabel label={`Amount Paid (${defaultCurrency})`} required />
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={pvAmountPaid === 0 ? '' : pvAmountPaid}
+                        placeholder="0.00"
+                        onChange={(e) => setPvAmountPaid(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
+                        className="w-full h-9 rounded-xl border border-amber-400 dark:border-amber-700 px-3 py-1.5 font-mono font-bold bg-amber-50/30 dark:bg-amber-950/30 text-slate-900 dark:text-slate-100"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <FieldLabel label="Payment Narration / Purpose" />
+                      <input
+                        type="text"
+                        value={pvNarration}
+                        onChange={(e) => setPvNarration(e.target.value)}
+                        placeholder="e.g. Settlement of Supplier Invoice / Advance against PO"
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Executive Sticky Summary Footer Bar */}
+              <div className="px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3 text-xs font-mono">
+                  <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                    Bills Allocated: <strong className="text-slate-900 dark:text-slate-100">{allocatedBillsCount}</strong>
+                  </span>
+                  <span className="text-slate-300 dark:text-slate-700">·</span>
+                  <span className="text-amber-700 dark:text-amber-400 font-bold whitespace-nowrap">
+                    Disbursed Total: {defaultCurrency} {Number(pvAmountPaid || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreatePvModal(false)}
+                    className="h-9 px-4 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isCreatingPv}
+                    onClick={() => handleConfirmCreatePv(false)}
+                    className="h-9 px-4 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 disabled:opacity-50 text-amber-900 dark:text-amber-300 text-xs font-semibold cursor-pointer"
+                  >
+                    {isCreatingPv ? 'Saving...' : 'Save PV'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isCreatingPv}
+                    onClick={() => handleConfirmCreatePv(true)}
+                    className="h-9 px-4 rounded-lg bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer shadow-xs"
+                  >
+                    {isCreatingPv ? 'Saving...' : 'Save & Open in Studio'}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
+
+      {/* MODAL 5: ISSUE MATERIAL RETURN NOTE (MRN) OR VENDOR DEBIT NOTE (DN) */}
+      {showCreateReturnModal && (() => {
+        const retNetSubtotal = QuotationRepository.roundCurrency(
+          retLines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unit_cost) || 0), 0)
+        );
+        const retVat = retMode === 'debit_note' ? QuotationRepository.roundCurrency(retNetSubtotal * 0.05) : 0;
+        const retGrandTotal = QuotationRepository.roundCurrency(retNetSubtotal + retVat);
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-3xl w-full overflow-hidden flex flex-col max-h-[92vh]">
+              <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                    {retMode === 'material_return_note'
+                      ? 'Issue Material Return Note (MRN — Unpriced Gate-Pass)'
+                      : 'Issue Vendor Debit Note (DN — Commercial Claim)'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Select Supplier, linked PO or Bill, return reason, and items to return
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCreateReturnModal(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-5 overflow-y-auto space-y-4 text-xs bg-slate-50/80 dark:bg-slate-950/70 flex-1">
+                <div className="flex items-center gap-2 bg-slate-200/70 dark:bg-slate-800 p-1 rounded-xl w-fit">
+                  <button
+                    type="button"
+                    onClick={() => setRetMode('material_return_note')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      retMode === 'material_return_note'
+                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-2xs'
+                        : 'text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    Material Return Note (MRN)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRetMode('debit_note')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      retMode === 'debit_note'
+                        ? 'bg-rose-600 text-white shadow-2xs'
+                        : 'text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    Vendor Debit Note (DN)
+                  </button>
+                </div>
+
+                {/* Chapter 1: Vendor & Return Metadata */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs space-y-3.5">
+                  <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+                    <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0">
+                      1
+                    </span>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                        Vendor &amp; Document Metadata
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Link original Supplier PO or Bill and specify return reason and resolution
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end">
+                    <div>
+                      <FieldLabel label="Select Vendor from Directory" />
+                      <select
+                        value={retVendorId}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          setRetVendorId(id);
+                          const v = companies.find((c) => c.id === id);
+                          if (v) setRetSupplierName(getCompanyName(v));
+                        }}
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                      >
+                        <option value="">-- Select Registered Vendor --</option>
+                        {vendors.map((v) => {
+                          const vName = getCompanyName(v);
+                          return (
+                            <option key={v.id} value={v.id}>
+                              {vName}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                    <div>
+                      <FieldLabel label="Supplier / Vendor Legal Name" required />
+                      <input
+                        type="text"
+                        value={retSupplierName}
+                        onChange={(e) => setRetSupplierName(e.target.value)}
+                        placeholder="Supplier Name"
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel
+                        label="Link to Supplier PO"
+                        hint="Optional — Select an issued Supplier PO to import its line items into this Material Return or Debit Note."
+                      />
+                      <select
+                        value={retPoId}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          setRetPoId(id);
+                          const po = supplierPOs.find((p) => p.id === id);
+                          if (po) {
+                            setRetSupplierName(
+                              po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name || retSupplierName
+                            );
+                            if (po.line_items && po.line_items.length > 0) {
+                              setRetLines(
+                                po.line_items.map((li) => ({
+                                  product_id: li.product_id || '',
+                                  item_name: li.item_name || li.description || '',
+                                  part_no: li.part_no || '',
+                                  qty: Number(li.qty_ordered ?? li.quantity ?? li.qty) || 1,
+                                  unit: li.unit || 'Nos',
+                                  unit_cost: Number(li.unit_price ?? li.cost_price ?? 0) || 0
+                                }))
+                              );
+                            }
+                          }
+                        }}
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                      >
+                        <option value="">-- No Linked PO --</option>
+                        {supplierPOs.map((po) => (
+                          <option key={po.id} value={po.id}>
+                            {po.purchase_order_metadata?.po_ref || po.formatted_quote_ref} — {po.purchase_order_metadata?.supplier_name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <FieldLabel
+                        label="Link to Supplier Bill"
+                        hint="Optional — When issuing a Vendor Debit Note (DN), linking a Supplier Bill automatically deducts the claim value from that bill's Balance Due."
+                        hintAlign="right"
+                      />
+                      <select
+                        value={retBillId}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          setRetBillId(id);
+                          const bill = supplierBills.find((b) => b.id === id);
+                          if (bill) {
+                            setRetSupplierName(bill.vendor_name);
+                            if (bill.line_items && bill.line_items.length > 0) {
+                              setRetLines(
+                                bill.line_items.map((li) => ({
+                                  product_id: li.product_id || '',
+                                  item_name: li.item_name || '',
+                                  part_no: li.part_no || '',
+                                  qty: Number(li.billed_qty) || 1,
+                                  unit: li.unit || 'Nos',
+                                  unit_cost: Number(li.billed_unit_cost) || 0
+                                }))
+                              );
+                            }
+                          }
+                        }}
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                      >
+                        <option value="">-- No Linked Supplier Bill --</option>
+                        {supplierBills.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.bill_number} (Inv #{b.vendor_invoice_no}) — {b.vendor_name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <FieldLabel label="Return / Claim Reason" />
+                      <select
+                        value={retReason}
+                        onChange={(e) => setRetReason(e.target.value as any)}
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                      >
+                        <option value="Defective / Damaged">Defective / Damaged</option>
+                        <option value="Wrong Item Supplied">Wrong Item Supplied</option>
+                        <option value="Excess Quantity">Excess Quantity</option>
+                        <option value="Quality Rejection">Quality Rejection</option>
+                        <option value="Commercial Price Adjustment">Commercial Price Adjustment</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                    <div>
+                      <FieldLabel label="Resolution Requested" />
+                      <select
+                        value={retResolution}
+                        onChange={(e) => setRetResolution(e.target.value as any)}
+                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                      >
+                        <option value="Credit / Bill Deduction">Credit / Bill Deduction</option>
+                        <option value="Replacement Required">Replacement Required</option>
+                        <option value="Refund Requested">Refund Requested</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Chapter 2: Line Items & Claim Allocation */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs space-y-3">
+                  <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0">
+                        2
+                      </span>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                          Line Items &amp; Claim Allocation
+                        </h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Specify returned quantities and unit rates for claim calculation
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setRetLines((prev) => [
+                          ...prev,
+                          { product_id: '', item_name: '', part_no: '', qty: 1, unit: 'Nos', unit_cost: 0 }
+                        ])
+                      }
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200/80 dark:border-rose-800 font-bold text-[11px] cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Line</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-12 gap-2 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    <div className="col-span-4">Catalog / Item</div>
+                    <div className="col-span-3">Description</div>
+                    <div className="col-span-1 text-right">Qty</div>
+                    <div className="col-span-2 text-right whitespace-nowrap">Unit Rate ({defaultCurrency})</div>
+                    <div className="col-span-2 text-right">Line Total</div>
+                  </div>
+
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {retLines.map((line, idx) => {
+                      const lineTotal = QuotationRepository.roundCurrency(
+                        (Number(line.qty) || 0) * (Number(line.unit_cost) || 0)
+                      );
+                      return (
+                        <div key={idx} className="grid grid-cols-12 gap-2 items-center py-2 px-1">
+                          <div className="col-span-4">
+                            <select
+                              value={line.product_id || ''}
+                              onChange={(e) => {
+                                const pid = e.target.value;
+                                const prod = products.find((p) => p.id === pid);
+                                setRetLines((prev) =>
+                                  prev.map((l, i) =>
+                                    i === idx
+                                      ? {
+                                          ...l,
+                                          product_id: pid,
+                                          item_name: prod?.name || prod?.description || l.item_name,
+                                          part_no: prod?.part_no || prod?.sku || l.part_no,
+                                          unit: prod?.unit || l.unit || 'Nos',
+                                          unit_cost: Number(
+                                            prod?.cost_price ||
+                                              prod?.last_landed_cost ||
+                                              (prod as any)?.selling_price ||
+                                              (prod as any)?.unit_price ||
+                                              l.unit_cost ||
+                                              0
+                                          )
+                                        }
+                                      : l
+                                  )
+                                );
+                              }}
+                              className="w-full h-8 rounded-lg border border-slate-300 dark:border-slate-700 px-2 py-1 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-[11px]"
+                            >
+                              <option value="">-- Pick Catalog Item or Type --</option>
+                              {products.filter((p) => !p.is_deleted).map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {formatProductVariantSelectorLabel(p, products)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="col-span-3">
+                            <input
+                              type="text"
+                              value={line.item_name}
+                              onChange={(e) =>
+                                setRetLines((prev) =>
+                                  prev.map((l, i) => (i === idx ? { ...l, item_name: e.target.value } : l))
+                                )
+                              }
+                              placeholder="Item Description"
+                              className="w-full h-8 rounded-lg border border-slate-300 dark:border-slate-700 px-2.5 py-1 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-[11px]"
+                            />
+                          </div>
+                          <div className="col-span-1">
+                            <input
+                              type="number"
+                              min="1"
+                              value={line.qty === 0 ? '' : line.qty}
+                              onChange={(e) =>
+                                setRetLines((prev) =>
+                                  prev.map((l, i) =>
+                                    i === idx ? { ...l, qty: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) } : l
+                                  )
+                                )
+                              }
+                              placeholder="1"
+                              className="w-full h-8 rounded-lg border border-slate-300 dark:border-slate-700 px-2 py-1 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 font-mono text-[11px] text-right"
+                            />
+                          </div>
+                          <div className="col-span-2">
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={line.unit_cost === 0 ? '' : line.unit_cost}
+                              onChange={(e) =>
+                                setRetLines((prev) =>
+                                  prev.map((l, i) =>
+                                    i === idx ? { ...l, unit_cost: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) } : l
+                                  )
+                                )
+                              }
+                              placeholder="0.00"
+                              className="w-full h-8 rounded-lg border border-slate-300 dark:border-slate-700 px-2 py-1 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 font-mono text-[11px] text-right"
+                            />
+                          </div>
+                          <div className="col-span-2 flex items-center justify-end gap-1.5">
+                            <span className="font-mono font-bold text-slate-900 dark:text-slate-100 text-[11px] whitespace-nowrap">
+                              {lineTotal.toFixed(2)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setRetLines((prev) => prev.filter((_, i) => i !== idx))}
+                              className="p-1 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Executive Sticky Summary Footer Bar */}
+              <div className="px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3 text-xs font-mono">
+                  <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                    Net: <strong className="text-slate-900 dark:text-slate-100">{defaultCurrency} {retNetSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                  </span>
+                  {retMode === 'debit_note' && (
+                    <>
+                      <span className="text-slate-300 dark:text-slate-700">·</span>
+                      <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                        VAT (5%): <strong className="text-slate-700 dark:text-slate-300">{defaultCurrency} {retVat.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                      </span>
+                    </>
+                  )}
+                  <span className="text-slate-300 dark:text-slate-700">·</span>
+                  <span className="text-rose-700 dark:text-rose-400 font-bold whitespace-nowrap">
+                    {retMode === 'material_return_note' ? 'Return Value' : 'Total Claim'}: {defaultCurrency} {retGrandTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateReturnModal(false)}
+                    className="h-9 px-4 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isCreatingReturn}
+                    onClick={() => handleConfirmCreateReturn(false)}
+                    className="h-9 px-4 rounded-lg border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 disabled:opacity-50 text-rose-900 dark:text-rose-300 text-xs font-semibold cursor-pointer"
+                  >
+                    {isCreatingReturn
+                      ? 'Saving...'
+                      : retMode === 'material_return_note'
+                      ? 'Save MRN'
+                      : 'Save Debit Note'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isCreatingReturn}
+                    onClick={() => handleConfirmCreateReturn(true)}
+                    className="h-9 px-4 rounded-lg bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer shadow-xs"
+                  >
+                    {isCreatingReturn
+                      ? 'Saving...'
+                      : retMode === 'material_return_note'
+                      ? 'Save & Open MRN in Studio'
+                      : 'Save & Open DN in Studio'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* MODAL 6: PRINTABLE 3-WAY MATCH BILL SUMMARY & VOUCHER SHEET */}
       {viewingBillSummary && (
@@ -5069,8 +5327,8 @@ export default function ProcurementPayablesHub({
               </div>
 
               {/* Line-by-Line 3-Way Match Table */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <table className="w-full text-left border-collapse">
+              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto scrollbar-thin">
+                <table className="w-full min-w-[680px] text-left border-collapse text-xs">
                   <thead>
                     <tr className="bg-slate-100 text-[10px] font-black uppercase text-slate-600 border-b border-slate-200">
                       <th className="py-2.5 px-3">Item Description</th>
@@ -5311,8 +5569,8 @@ export default function ProcurementPayablesHub({
                 </div>
               </div>
 
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <table className="w-full text-left border-collapse">
+              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto scrollbar-thin">
+                <table className="w-full min-w-[680px] text-left border-collapse text-xs">
                   <thead>
                     <tr className="bg-slate-100 text-[10px] font-black uppercase text-slate-600 border-b border-slate-200">
                       <th className="py-2.5 px-3">#</th>

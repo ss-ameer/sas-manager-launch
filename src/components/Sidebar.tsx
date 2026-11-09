@@ -113,16 +113,16 @@ export default function Sidebar({
   };
 
   const sidebarContent = (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full bg-white dark:bg-slate-900">
       {/* Brand Header */}
-      <div className="p-5 border-b border-slate-200 flex items-start justify-between">
+      <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-start justify-between">
         <div>
           <div className="flex items-center space-x-2.5 mb-1">
-            <span className="text-lg font-black text-slate-900 tracking-wider font-sans uppercase">
+            <span className="text-lg font-black text-slate-900 dark:text-slate-100 tracking-wider font-sans uppercase">
               {BRAND_CONFIG.appName}
             </span>
           </div>
-          <div className="text-[10px] text-slate-400 font-mono uppercase tracking-widest">
+          <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono uppercase tracking-widest">
             Technical Component Sales Registry
           </div>
         </div>
@@ -130,7 +130,7 @@ export default function Sidebar({
           <button
             type="button"
             onClick={onClose}
-            className="md:hidden p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+            className="md:hidden p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition"
             aria-label="Close navigation"
           >
             <X className="w-5 h-5" />
@@ -139,10 +139,10 @@ export default function Sidebar({
       </div>
 
       {/* Workspace Switcher Header Block */}
-      <div className="p-3.5 border-b border-slate-200 bg-slate-50/80">
+      <div className="p-3.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/60">
         <div className="flex items-center justify-between mb-1.5">
-          <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center space-x-1">
-            <Layers className="w-3 h-3 text-blue-600" />
+          <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center space-x-1">
+            <Layers className="w-3 h-3 text-blue-600 dark:text-blue-400" />
             <span>Active Workspace</span>
           </div>
           <button
@@ -150,7 +150,7 @@ export default function Sidebar({
               onOpenWorkspaceManager();
               if (onClose) onClose();
             }}
-            className="text-[10px] text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer"
+            className="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-bold hover:underline cursor-pointer"
           >
             Manage
           </button>
@@ -169,56 +169,56 @@ export default function Sidebar({
               }
               if (onClose) onClose();
             }}
-            className="w-full bg-white text-slate-900 font-bold text-xs px-3 py-2 rounded-xl border border-slate-200/90 shadow-2xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer appearance-none truncate pr-8"
+            className="w-full bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-bold text-xs px-3 py-2 rounded-xl border border-slate-200/90 dark:border-slate-700 shadow-2xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer appearance-none truncate pr-8"
           >
             {assignedWorkspaces.map((ws) => (
               <option key={ws?.id || Math.random().toString()} value={ws?.id || 'ws_default'}>
                 {ws?.name || 'Workspace'}
               </option>
             ))}
-            <option value="__manage__">+ Manage / New Workspace...</option>
+            <option value="__manage__">Manage / New Workspace...</option>
           </select>
           <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
         </div>
       </div>
 
       {/* User Information */}
-      <div className="px-4 py-3 border-b border-slate-200 bg-slate-50/60">
+      <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40">
         <div className="flex items-center space-x-3">
           <div
             className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 font-extrabold text-xs transition-colors ${
               profileBadge.isSuperAdmin
-                ? 'bg-purple-100 border border-purple-300 text-purple-900 shadow-2xs'
+                ? 'bg-purple-100 dark:bg-purple-950/60 border border-purple-300 dark:border-purple-700 text-purple-900 dark:text-purple-200 shadow-2xs'
                 : profileBadge.role === 'admin'
-                ? 'bg-indigo-100 border border-indigo-200 text-indigo-900'
-                : 'bg-slate-200 border border-slate-300 text-slate-800'
+                ? 'bg-indigo-100 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-700 text-indigo-900 dark:text-indigo-200'
+                : 'bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200'
             }`}
           >
             {(user?.username || user?.full_name || user?.email || 'U').charAt(0).toUpperCase()}
           </div>
           <div className="overflow-hidden min-w-0 flex-1">
-            <div className="text-xs font-bold text-slate-900 truncate font-sans">
+            <div className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate font-sans">
               {user?.full_name || user?.username || user?.email || 'User'}
             </div>
             <div className="flex items-center space-x-1.5 mt-1">
               {profileBadge.isSuperAdmin ? (
-                <span className="inline-flex items-center space-x-1.5 text-[9px] font-mono font-bold tracking-tight px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-300 shadow-2xs">
-                  <span className="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse" />
+                <span className="inline-flex items-center space-x-1.5 text-[9px] font-mono font-bold tracking-tight px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-700/80 shadow-2xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-600 dark:bg-purple-400" />
                   <span>Super Admin</span>
                 </span>
               ) : profileBadge.role === 'admin' ? (
-                <span className="inline-flex items-center space-x-1.5 text-[9px] font-mono font-bold tracking-tight px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                <span className="inline-flex items-center space-x-1.5 text-[9px] font-mono font-bold tracking-tight px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700/80">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 dark:bg-indigo-400" />
                   <span>Admin</span>
                 </span>
               ) : profileBadge.role === 'viewer' ? (
-                <span className="inline-flex items-center space-x-1.5 text-[9px] font-mono font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                <span className="inline-flex items-center space-x-1.5 text-[9px] font-mono font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                   <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
                   <span>Viewer</span>
                 </span>
               ) : (
-                <span className="inline-flex items-center space-x-1.5 text-[9px] font-mono font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <span className="inline-flex items-center space-x-1.5 text-[9px] font-mono font-semibold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700/80">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400" />
                   <span>Member</span>
                 </span>
               )}
@@ -250,37 +250,37 @@ export default function Sidebar({
               onClick={() => handleTabClick(item.id)}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition duration-150 ${
                 isActive
-                  ? 'bg-slate-900 text-white shadow'
-                  : 'text-slate-600 hover:text-slate-950 hover:bg-slate-100'
+                  ? 'bg-slate-900 dark:bg-blue-600 text-white shadow'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/80'
               }`}
             >
               <div className="flex items-center space-x-2.5">
-                <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400 dark:text-slate-500'}`} />
                 <span className="font-sans">{item.label}</span>
               </div>
-              {isActive && <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
+              {isActive && <ChevronRight className="w-3.5 h-3.5 text-slate-400 dark:text-blue-200" />}
             </button>
           );
         })}
       </nav>
 
       {/* Footer Block */}
-      <div className="p-3 border-t border-slate-200 space-y-1">
+      <div className="p-3 border-t border-slate-200 dark:border-slate-800 space-y-1">
         {onOpenTrashBin && isAdmin && (
           <button
             onClick={() => {
               onOpenTrashBin();
               if (onClose) onClose();
             }}
-            className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition duration-150 cursor-pointer"
+            className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition duration-150 cursor-pointer"
           >
-            <Trash2 className="w-4 h-4 text-slate-400" />
+            <Trash2 className="w-4 h-4 text-slate-400 dark:text-slate-500" />
             <span className="font-sans">Recycle Bin</span>
           </button>
         )}
         <button
           onClick={handleLogout}
-          className="w-full flex items-center justify-center space-x-2 p-2.5 rounded-xl text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 transition duration-150"
+          className="w-full flex items-center justify-center space-x-2 p-2.5 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition duration-150"
         >
           <LogOut className="w-4 h-4" />
           <span className="font-sans">Sign Out</span>
@@ -292,7 +292,7 @@ export default function Sidebar({
   return (
     <>
       {/* Desktop Persistent Sidebar */}
-      <aside id="sidebar-layout" className="hidden md:flex w-64 border-r border-slate-200 flex-col h-[100dvh] shrink-0 sticky top-0 bg-white">
+      <aside id="sidebar-layout" className="hidden md:flex w-64 border-r border-slate-200 dark:border-slate-800 flex-col h-[100dvh] shrink-0 sticky top-0 bg-white dark:bg-slate-900">
         {sidebarContent}
       </aside>
 
@@ -305,7 +305,7 @@ export default function Sidebar({
         >
           <aside
             id="mobile-sidebar-drawer"
-            className="w-72 max-w-[85vw] bg-white h-full flex flex-col shadow-2xl animate-in slide-in-from-left duration-200"
+            className="w-72 max-w-[85vw] bg-white dark:bg-slate-900 h-full flex flex-col shadow-2xl animate-in slide-in-from-left duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             {sidebarContent}

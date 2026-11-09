@@ -2668,7 +2668,7 @@ export default function CallLogManager({
         currentUser={user}
         onOpenSidebar={onOpenMobileMenu}
         primaryAction={{
-          label: '+ Log / Schedule New Call',
+          label: 'Log / Schedule New Call',
           icon: Plus,
           onClick: () => {
             setDrawerMode('create');
@@ -3544,7 +3544,7 @@ export default function CallLogManager({
                     type="date"
                     value={customDateStart}
                     onChange={(e) => setCustomDateStart(e.target.value)}
-                    className="px-2.5 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500"
+                    className="px-2.5 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 dark:[color-scheme:dark]"
                   />
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -3554,7 +3554,7 @@ export default function CallLogManager({
                     type="date"
                     value={customDateEnd}
                     onChange={(e) => setCustomDateEnd(e.target.value)}
-                    className="px-2.5 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500"
+                    className="px-2.5 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 dark:[color-scheme:dark]"
                   />
                 </div>
                 {(customDateStart || customDateEnd) && (
@@ -4273,8 +4273,8 @@ export default function CallLogManager({
               );
               })
             ) : (
-              <div className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xs overflow-x-clip">
-                <table className="w-full table-fixed text-left border-collapse text-xs font-sans text-slate-600 dark:text-slate-400">
+              <div className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xs overflow-x-auto scrollbar-thin">
+                <table className="w-full min-w-[760px] sm:min-w-[840px] text-left border-collapse text-xs font-sans text-slate-600 dark:text-slate-400">
                   <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
                     {historyActivityType === 'internal' ? (
                       <tr>
@@ -5595,8 +5595,7 @@ export default function CallLogManager({
                     value={logFormDate}
                     onChange={(e) => setLogFormDate(e.target.value)}
                     max={todayStr}
-                    style={{ colorScheme: 'dark' }}
-                    className="[color-scheme:dark] w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 rounded-xl font-semibold"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 rounded-xl font-semibold dark:[color-scheme:dark]"
                   />
                 </div>
 
@@ -5819,8 +5818,7 @@ export default function CallLogManager({
                   required={['Scheduled', 'Scheduled / Planned', 'Scheduled / Draft'].includes(logFormStatus)}
                   value={logFormFollowupDate}
                   onChange={(e) => setLogFormFollowupDate(e.target.value)}
-                  style={{ colorScheme: 'dark' }}
-                  className="[color-scheme:dark] w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 rounded-xl font-semibold"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 rounded-xl font-semibold dark:[color-scheme:dark]"
                 />
               </div>
 

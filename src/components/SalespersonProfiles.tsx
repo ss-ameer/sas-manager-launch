@@ -198,13 +198,23 @@ export default function SalespersonProfiles({
       });
     }
 
+    if (Array.isArray(activeWorkspace?.member_emails)) {
+      activeWorkspace.member_emails.forEach((em) => {
+        if (em && typeof em === 'string' && em.trim()) {
+          rawWsMembers.push({ email: em.trim(), role: 'Team Member' });
+        }
+      });
+    }
+
     if (currentUser) {
       rawWsMembers.push({
         uid: currentUser.uid || currentUser.id,
         email: currentUser.email,
         full_name: currentUser.full_name || currentUser.name || currentUser.displayName || currentUser.username,
         initials: currentUser.initials,
-        role: getUserWorkspaceRole(currentUser, activeWorkspace?.id, activeWorkspace) || currentUser.role || 'Admin',
+        role: isSuperAdmin(currentUser)
+          ? 'Super Admin'
+          : getUserWorkspaceRole(currentUser, activeWorkspace?.id, activeWorkspace) || currentUser.role || 'Admin',
         phone: (currentUser as any).phone
       });
     }
@@ -1074,20 +1084,25 @@ export default function SalespersonProfiles({
                           {s.full_name}
                         </span>
                         {isUserSelf && (
-                          <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">
-                            &middot; You
+                          <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 shrink-0 whitespace-nowrap">
+                            · You
                           </span>
                         )}
                       </div>
-                      <span className="text-xs text-slate-500 dark:text-slate-400 block truncate">
+                      <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 block truncate">
                         {repRole}
                       </span>
+                      {s.email && (
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 block truncate">
+                          {s.email}
+                        </span>
+                      )}
                     </div>
                   </div>
 
-                  <div className="text-right shrink-0 pl-2 border-l border-slate-100 dark:border-slate-800">
+                  <div className="text-right shrink-0 pl-2.5 border-l border-slate-100 dark:border-slate-800">
                     <span className="text-xs font-mono font-semibold tabular-nums text-slate-800 dark:text-slate-200 block whitespace-nowrap">
-                      {m.enquiries.length} {m.enquiries.length === 1 ? 'Enquiry' : 'Enquiries'}
+                      {m.enquiries.length} {m.enquiries.length === 1 ? 'Enq' : 'Enqs'}
                     </span>
                     {m.enquiries.length > 0 && m.closedCount > 0 ? (
                       <span className="text-[11px] font-mono tabular-nums text-emerald-600 dark:text-emerald-400 block whitespace-nowrap">
@@ -1095,7 +1110,7 @@ export default function SalespersonProfiles({
                       </span>
                     ) : (
                       <span className="text-[11px] font-mono tabular-nums text-slate-400 dark:text-slate-500 block whitespace-nowrap">
-                        &mdash; Win Rate
+                        — conversion
                       </span>
                     )}
                   </div>
@@ -1644,143 +1659,199 @@ export default function SalespersonProfiles({
             )}
           </div>
 
-          {/* Add/Edit Salesperson Modal Form */}
+          {/* Add/Edit Team Member Modal Form */}
           {showFormModal && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
               <form
                 onSubmit={handleSaveSalesperson}
-                className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 overflow-hidden animate-in zoom-in-95 duration-150 space-y-4"
+                className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]"
               >
-                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white font-sans">
-                    {editingSalesperson
-                      ? isOwnProfile(editingSalesperson) && !canManageTeam
-                        ? 'Edit Your Profile'
-                        : 'Edit Team Member Profile'
-                      : 'Add New Team Member'}
-                  </h3>
+                {/* Modal Header */}
+                <div className="px-6 py-4 bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/80 border border-blue-200/60 dark:border-blue-800/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs shrink-0">
+                      <Users2 className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white font-sans truncate">
+                        {editingSalesperson
+                          ? isOwnProfile(editingSalesperson) && !canManageTeam
+                            ? 'Edit Your Member Profile'
+                            : 'Edit Team Member Profile'
+                          : 'Add New Team Member'}
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                        Configure workspace identity, role, and proposal attribution code.
+                      </p>
+                    </div>
+                  </div>
                   <button
                     type="button"
                     onClick={() => setShowFormModal(false)}
-                    className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+                    className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
                   >
-                    <X className="w-5 h-5" />
+                    <X className="w-4 h-4" />
                   </button>
                 </div>
 
-                <div className="space-y-3 font-sans">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                      Initials / Code (Uppercase, 2-3 Letters)
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. AM"
-                      maxLength={4}
-                      value={formInitials}
-                      disabled={Boolean(editingSalesperson && !canManageTeam)}
-                      readOnly={Boolean(editingSalesperson && !canManageTeam)}
-                      onChange={(e) => setFormInitials(e.target.value.toUpperCase())}
-                      className={`w-full rounded-xl py-2 px-3 text-sm uppercase font-mono focus:outline-none ${
-                        editingSalesperson && !canManageTeam
-                          ? 'bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed select-none'
-                          : 'bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:border-blue-500'
-                      }`}
-                    />
+                {/* Modal Body */}
+                <div className="p-6 bg-slate-50/80 dark:bg-slate-950/70 space-y-4 overflow-y-auto flex-1 font-sans">
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-4 shadow-2xs space-y-4">
+                    <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800/80">
+                      <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0">
+                        1
+                      </span>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                          Member Identity &amp; Role
+                        </h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Full name, attribution code, and workspace function
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                          Full Name <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Ameer S."
+                          value={formFullName}
+                          onChange={(e) => setFormFullName(e.target.value)}
+                          className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl py-2 px-3 text-xs font-medium text-slate-900 dark:text-slate-100 focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 whitespace-nowrap">
+                          Initials / Code <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. AM"
+                          maxLength={4}
+                          value={formInitials}
+                          disabled={Boolean(editingSalesperson && !canManageTeam)}
+                          readOnly={Boolean(editingSalesperson && !canManageTeam)}
+                          onChange={(e) => setFormInitials(e.target.value.toUpperCase())}
+                          className={`w-full rounded-xl py-2 px-3 text-xs uppercase font-mono font-bold focus:outline-none ${
+                            editingSalesperson && !canManageTeam
+                              ? 'bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed select-none'
+                              : 'bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:border-blue-500'
+                          }`}
+                        />
+                      </div>
+                    </div>
+
                     {editingSalesperson && !canManageTeam && (
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center space-x-1">
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                         <Lock className="w-3 h-3 text-slate-400 shrink-0" />
-                        <span>Rep attribution code is locked by Admin.</span>
+                        <span>Attribution code is managed by Workspace Admins.</span>
                       </p>
                     )}
-                  </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                      Full Name
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Ameer S."
-                      value={formFullName}
-                      onChange={(e) => setFormFullName(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl py-2 px-3 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        Role / Function <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Sales Representative, Operations, Admin..."
+                        value={formRole}
+                        onChange={(e) => setFormRole(e.target.value)}
+                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl py-2 px-3 text-xs font-medium text-slate-900 dark:text-slate-100 focus:outline-none focus:border-blue-500"
+                      />
+                      <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                        {[
+                          'Sales Representative',
+                          'Admin',
+                          'Super Admin',
+                          'Operations',
+                          'Procurement',
+                          'Marketing'
+                        ].map((presetRole) => (
+                          <button
+                            key={presetRole}
+                            type="button"
+                            onClick={() => setFormRole(presetRole)}
+                            className={`px-2 py-0.5 rounded-md text-[10.5px] font-semibold transition cursor-pointer whitespace-nowrap ${
+                              formRole === presetRole
+                                ? 'bg-blue-600 text-white shadow-2xs'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                            }`}
+                          >
+                            {presetRole}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                      Role Description
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Sales Representative"
-                      value={formRole}
-                      onChange={(e) => setFormRole(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl py-2 px-3 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
+                    <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <FieldLabel
+                          label="Email Address"
+                          hint="Used to match this member's login account and excluded from client contact detection during AI RFQ extraction."
+                        />
+                        <input
+                          type="email"
+                          placeholder="e.g. ameer@ourcompany.com"
+                          value={formEmail}
+                          disabled={Boolean(editingSalesperson && !canManageTeam)}
+                          readOnly={Boolean(editingSalesperson && !canManageTeam)}
+                          onChange={(e) => setFormEmail(e.target.value)}
+                          className={`w-full rounded-xl py-2 px-3 text-xs focus:outline-none ${
+                            editingSalesperson && !canManageTeam
+                              ? 'bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed select-none'
+                              : 'bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:border-blue-500'
+                          }`}
+                        />
+                      </div>
 
-                  <div>
-                    <FieldLabel
-                      label="Email Address"
-                      hint="Used to match this representative's account and automatically excluded from client contact detection during AI RFQ extraction."
-                    />
-                    <input
-                      type="email"
-                      placeholder="e.g. ameer@ourcompany.com"
-                      value={formEmail}
-                      disabled={Boolean(editingSalesperson && !canManageTeam)}
-                      readOnly={Boolean(editingSalesperson && !canManageTeam)}
-                      onChange={(e) => setFormEmail(e.target.value)}
-                      className={`w-full rounded-xl py-2 px-3 text-sm focus:outline-none ${
-                        editingSalesperson && !canManageTeam
-                          ? 'bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed select-none'
-                          : 'bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:border-blue-500'
-                      }`}
-                    />
-                    {editingSalesperson && !canManageTeam && (
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center space-x-1">
-                        <Lock className="w-3 h-3 text-slate-400 shrink-0" />
-                        <span>Linked to login authentication.</span>
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <FieldLabel
-                      label="Direct Phone / Mobile"
-                      hint="Representative's direct phone or mobile number — automatically excluded from client contact detection during AI RFQ extraction."
-                    />
-                    <input
-                      type="text"
-                      placeholder="e.g. +971 50 123 4567"
-                      value={formPhone}
-                      onChange={(e) => setFormPhone(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl py-2 px-3 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500"
-                    />
+                      <div>
+                        <FieldLabel
+                          label="Direct Phone / Mobile"
+                          hint="Direct phone or mobile number — automatically excluded from client contact detection."
+                        />
+                        <input
+                          type="text"
+                          placeholder="e.g. +971 50 123 4567"
+                          value={formPhone}
+                          onChange={(e) => setFormPhone(e.target.value)}
+                          className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl py-2 px-3 text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => setShowFormModal(false)}
-                    className="py-2 px-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 transition cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting || !activeWorkspace?.id}
-                    className="py-2 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 rounded-xl text-xs font-bold text-white transition flex items-center space-x-1.5 cursor-pointer"
-                  >
-                    {isSubmitting && <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-                    <span>{isSubmitting ? 'Saving...' : 'Save Profile'}</span>
-                  </button>
+                {/* Executive Sticky Footer */}
+                <div className="px-6 py-3.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
+                  <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate">
+                    {formInitials ? `Code: ${formInitials.toUpperCase()}` : 'Auto-generates initials'} · {formRole || 'Sales Representative'}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowFormModal(false)}
+                      className="h-9 px-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 transition cursor-pointer whitespace-nowrap"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmitting || !activeWorkspace?.id}
+                      className="h-9 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 rounded-lg text-xs font-semibold text-white transition inline-flex items-center gap-1.5 shadow-2xs cursor-pointer whitespace-nowrap"
+                    >
+                      {isSubmitting && <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+                      <span>{isSubmitting ? 'Saving...' : 'Save Member Profile'}</span>
+                    </button>
+                  </div>
                 </div>
               </form>
             </div>

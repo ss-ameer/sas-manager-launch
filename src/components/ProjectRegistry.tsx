@@ -872,16 +872,16 @@ export default function ProjectRegistry({
         </div>
 
         {/* Standalone Filter Toolbar Card */}
-        <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div className="relative flex-1 max-w-md">
+            <div className="relative flex-1 max-w-md min-w-[260px]">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Search projects by reference, client, title..."
-                className="w-full h-10 pl-10 pr-4 rounded-xl bg-slate-50/70 focus:bg-white border border-slate-200 text-xs sm:text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-sans transition"
+                className="w-full h-10 pl-10 pr-4 rounded-xl bg-slate-50/70 dark:bg-slate-800/80 focus:bg-white dark:focus:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-700 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-sans transition"
               />
             </div>
 
@@ -893,8 +893,8 @@ export default function ProjectRegistry({
                   onClick={() => setStatusFilter(tab)}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition whitespace-nowrap cursor-pointer ${
                     statusFilter === tab
-                      ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
-                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                      ? 'bg-slate-900 dark:bg-blue-600 text-white border-slate-900 dark:border-blue-600 shadow-xs'
+                      : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
                   {tab}
@@ -921,7 +921,7 @@ export default function ProjectRegistry({
         {/* Standalone Table Card */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs overflow-clip">
           {/* Projects Table */}
-          <div className="w-full overflow-x-clip relative">
+          <div className="w-full overflow-x-auto scrollbar-thin relative">
             {filteredProjects.length === 0 ? (
               <div className="py-16 px-4 text-center font-sans">
                 {searchTerm.trim() || statusFilter !== 'All' ? (
@@ -970,7 +970,7 @@ export default function ProjectRegistry({
                 )}
               </div>
             ) : (
-              <table className="w-full table-fixed text-left border-collapse font-sans">
+              <table className="w-full min-w-[760px] sm:min-w-[820px] text-left border-collapse font-sans">
                 <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
                   <tr>
                     <th className="py-3 px-3.5 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Project / Ref</th>
@@ -1130,7 +1130,7 @@ export default function ProjectRegistry({
 
                       const siteOrTitleLine = [
                         project.title && project.title !== project.client_name ? project.title : null,
-                        project.site_location ? `📍 ${project.site_location}` : null
+                        project.site_location ? project.site_location : null
                       ]
                         .filter(Boolean)
                         .join(' · ') || project.project_type || 'Standard Scope';
@@ -1339,24 +1339,24 @@ export default function ProjectRegistry({
 
       {/* Project Details & Fulfillment Modal */}
       {selectedProject && (
-        <div className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] w-full max-w-3xl xl:max-w-4xl animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] w-full max-w-3xl xl:max-w-4xl animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-3">
-                <span className="p-2.5 rounded-xl bg-blue-50 border border-blue-200/80 text-blue-600">
+                <span className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950 border border-blue-200/80 dark:border-blue-800 text-blue-600 dark:text-blue-400">
                   <Briefcase className="w-5 h-5" />
                 </span>
                 <div>
                   <div className="flex items-center space-x-2">
-                    <h3 className="text-base font-bold text-slate-900 font-sans">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 font-sans">
                       {selectedProject.project_number}
                     </h3>
-                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-mono font-medium bg-slate-100 text-slate-600">
+                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-mono font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
                       {selectedProject.project_type}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500 font-sans">{selectedProject.title}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-sans">{selectedProject.title}</p>
                 </div>
               </div>
 
@@ -1369,7 +1369,7 @@ export default function ProjectRegistry({
                       handleCloseModal();
                       onSelectEnquiry(enqId);
                     }}
-                    className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 hover:border-blue-200 transition inline-flex items-center gap-1.5 cursor-pointer"
+                    className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-50 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/50 text-slate-700 dark:text-slate-200 hover:text-blue-700 dark:hover:text-blue-300 border border-slate-200 dark:border-slate-700 hover:border-blue-200 transition inline-flex items-center gap-1.5 cursor-pointer"
                     title="Open Source Enquiry & Commercial Document Suite"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
@@ -1380,15 +1380,15 @@ export default function ProjectRegistry({
                 <button
                   type="button"
                   onClick={handleCloseModal}
-                  className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                  className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
-            {/* Modal Body */}
-            <div className="px-6 sm:px-8 py-6 space-y-6 overflow-y-auto flex-1 font-sans">
+            {/* Modal Body: Calm Tinted Scroll Canvas with Numbered Chapter Cards */}
+            <div className="p-5 sm:p-6 space-y-4 overflow-y-auto flex-1 font-sans bg-slate-50/80 dark:bg-slate-950/70">
               {selectedProject.status === 'Cancelled' && (
                 <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 flex items-center space-x-3 text-rose-700 dark:text-rose-300">
                   <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
@@ -1403,193 +1403,37 @@ export default function ProjectRegistry({
                 </div>
               )}
 
-              {/* Metadata Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
-                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
-                    Client Account
-                  </span>
-                  <div className="font-bold text-sm text-slate-800 dark:text-slate-100 flex items-center space-x-1.5">
-                    <Building className="w-4 h-4 text-blue-500 shrink-0" />
-                    <span>{selectedProject.client_name}</span>
-                  </div>
-                </div>
-
-                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
-                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
-                    Contract Value
-                  </span>
-                  <div className="font-bold text-sm text-emerald-600 dark:text-emerald-400 font-mono">
-                    AED{' '}
-                    {Number(selectedProject.contract_value).toLocaleString('en-US', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    })}
-                  </div>
-                </div>
-
-                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
-                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
-                    Created / Initiated
-                  </span>
-                  <div className="font-medium text-xs text-slate-700 dark:text-slate-300 flex items-center space-x-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <span>
-                      {selectedProject.created_at
-                        ? new Date(selectedProject.created_at).toLocaleDateString()
-                        : 'N/A'}
+              {/* Chapter 1: Project Identity, Commercial Margin & Handover Schedule */}
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 shadow-2xs space-y-4">
+                <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0">
+                      1
                     </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Project Procurement, GRN & Realized Net Margin Rollup (Gated to Workspace Admins/Managers - DEF-17) */}
-              {canViewConfidentialMargins && (() => {
-                const estCatalogCost = (selectedProject.line_items || []).reduce((s, li) => {
-                  const qty = Number(li.quantity) || 1;
-                  const prod = li.product_id ? productMap.get(li.product_id) : null;
-                  const unitCost =
-                    li.cost_price !== undefined && Number(li.cost_price) > 0
-                      ? Number(li.cost_price)
-                      : Number(prod?.cost_price) || 0;
-                  return s + qty * unitCost;
-                }, 0);
-                const rollup = ProcurementRepository.computeProcurementRollup({
-                  enquiryId: selectedProject.enquiry_id,
-                  projectId: selectedProject.id,
-                  clientContractValueAed: Number(selectedProject.contract_value) || 0,
-                  estimatedCatalogCostAed: estCatalogCost,
-                  procurementDocs: workspaceProcurementDocs,
-                  supplierBills: workspaceSupplierBills
-                });
-
-                return (
-                  <div className="p-4 rounded-2xl bg-indigo-50/40 border border-indigo-200/80 space-y-2.5">
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <span className="text-[10px] font-mono uppercase tracking-widest text-indigo-800 font-bold">
-                        Procurement, Landed Cost &amp; Realized Project Margin
-                      </span>
-                      <span className="text-[11px] font-mono text-slate-500">
-                        {rollup.linkedPos.length} PO(s) • {rollup.linkedBills.length} Bill(s) •{' '}
-                        {rollup.linkedPaymentVouchers.length} PV(s)
-                      </span>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                        Project Identity, Margin &amp; Handover Schedule
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Client account, contract value, procurement rollup, and assigned field coordinator
+                      </p>
                     </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
-                      <div className="p-2.5 rounded-xl bg-white border border-slate-200/80">
-                        <span className="text-[10px] font-mono uppercase text-slate-400 block">
-                          POs Committed
-                        </span>
-                        <span className="font-mono font-bold text-indigo-700">
-                          AED{' '}
-                          {rollup.poCommittedTotalAed.toLocaleString('en-US', {
-                            minimumFractionDigits: 2
-                          })}
-                        </span>
-                      </div>
-                      <div className="p-2.5 rounded-xl bg-white border border-slate-200/80">
-                        <span className="text-[10px] font-mono uppercase text-slate-400 block">
-                          Actual / Landed Cost
-                        </span>
-                        <span className="font-mono font-bold text-slate-900">
-                          AED{' '}
-                          {rollup.netActualProcurementCostAed.toLocaleString('en-US', {
-                            minimumFractionDigits: 2
-                          })}
-                        </span>
-                      </div>
-                      <div className="p-2.5 rounded-xl bg-white border border-slate-200/80">
-                        <span className="text-[10px] font-mono uppercase text-slate-400 block">
-                          Vendor Credits (DN)
-                        </span>
-                        <span className="font-mono font-bold text-purple-700">
-                          AED{' '}
-                          {rollup.debitNoteCreditsAed.toLocaleString('en-US', {
-                            minimumFractionDigits: 2
-                          })}
-                        </span>
-                      </div>
-                      <div className="p-2.5 rounded-xl bg-white border border-slate-200/80">
-                        <span className="text-[10px] font-mono uppercase text-slate-400 block">
-                          Paid Out (PVs)
-                        </span>
-                        <span className="font-mono font-bold text-amber-700">
-                          AED{' '}
-                          {rollup.totalPaidOutAed.toLocaleString('en-US', {
-                            minimumFractionDigits: 2
-                          })}
-                        </span>
-                      </div>
-                      <div className="p-2.5 rounded-xl bg-white border border-slate-200/80">
-                        <span className="text-[10px] font-mono uppercase text-slate-400 block">
-                          Realized Net Margin
-                        </span>
-                        <span
-                          className={`font-mono font-extrabold ${
-                            rollup.realizedNetMarginAed >= 0 ? 'text-emerald-700' : 'text-rose-700'
-                          }`}
-                        >
-                          AED{' '}
-                          {rollup.realizedNetMarginAed.toLocaleString('en-US', {
-                            minimumFractionDigits: 2
-                          })}{' '}
-                          ({rollup.realizedNetMarginPct}%)
-                        </span>
-                      </div>
-                    </div>
-                    {(rollup.linkedPos.length > 0 || rollup.linkedBills.length > 0) && (
-                      <div className="mt-3 pt-2.5 border-t border-indigo-200/60 flex flex-wrap items-center gap-2 text-[11px]">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-800 mr-1">
-                          Linked Docs:
-                        </span>
-                        {rollup.linkedPos.map((po: any) => (
-                          <span
-                            key={po.id}
-                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white border border-indigo-200 text-indigo-900 font-mono font-semibold"
-                          >
-                            <span>{po.quotation_ref || 'PO'}</span>
-                            <span className="text-[9px] uppercase px-1 py-0.2 rounded bg-indigo-50 text-indigo-700 font-sans">
-                              {po.po_metadata?.receiving_status || po.status || 'issued'}
-                            </span>
-                          </span>
-                        ))}
-                        {rollup.linkedBills.map((bill: any) => (
-                          <span
-                            key={bill.id}
-                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white border border-amber-200 text-amber-900 font-mono font-semibold"
-                          >
-                            <span>Bill #{bill.supplier_invoice_no || 'INV'}</span>
-                            <span className="text-[9px] uppercase px-1 py-0.2 rounded bg-amber-50 text-amber-700 font-sans">
-                              {bill.status || 'unpaid'}
-                            </span>
-                          </span>
-                        ))}
-                      </div>
-                    )}
                   </div>
-                );
-              })()}
-
-              {/* Secondary Operational Metadata Strip (with inline Edit toggle) */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono uppercase tracking-widest text-slate-400 font-bold">
-                    Operational Assignment & Handover Schedule
-                  </span>
                   {!isEditingMetadata ? (
                     <button
                       type="button"
                       onClick={() => setIsEditingMetadata(true)}
-                      className="text-xs font-semibold text-blue-600 hover:text-blue-700 inline-flex items-center gap-1 cursor-pointer"
+                      className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50/70 dark:bg-blue-950/60 hover:bg-blue-100 border border-blue-200/70 dark:border-blue-800 inline-flex items-center gap-1.5 cursor-pointer"
                     >
-                      <Edit2 className="w-3 h-3" />
-                      <span>Edit Details</span>
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>Edit Operational Details</span>
                     </button>
                   ) : (
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => setIsEditingMetadata(false)}
-                        className="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 cursor-pointer"
+                        className="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                       >
                         Cancel
                       </button>
@@ -1606,10 +1450,51 @@ export default function ProjectRegistry({
                   )}
                 </div>
 
+                {/* Metadata Summary Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                  <div className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/60">
+                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
+                      Client Account
+                    </span>
+                    <div className="font-bold text-sm text-slate-800 dark:text-slate-100 flex items-center space-x-1.5">
+                      <Building className="w-4 h-4 text-blue-500 shrink-0" />
+                      <span className="truncate">{selectedProject.client_name}</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/60">
+                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
+                      Contract Value
+                    </span>
+                    <div className="font-bold text-sm text-emerald-600 dark:text-emerald-400 font-mono whitespace-nowrap">
+                      AED{' '}
+                      {Number(selectedProject.contract_value).toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/60">
+                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
+                      Created / Initiated
+                    </span>
+                    <div className="font-medium text-xs text-slate-700 dark:text-slate-300 flex items-center space-x-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span>
+                        {selectedProject.created_at
+                          ? new Date(selectedProject.created_at).toLocaleDateString()
+                          : 'N/A'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Operational Assignment & Handover Schedule */}
                 {isEditingMetadata ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-blue-50/40 border border-blue-200/80">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-xl bg-blue-50/40 dark:bg-blue-950/20 border border-blue-200/80 dark:border-blue-800/70">
                     <div>
-                      <label className="text-[10px] font-mono text-slate-500 uppercase tracking-widest block mb-1">
+                      <label className="text-[10px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-widest block mb-1">
                         Lead Engineer / Coordinator
                       </label>
                       <input
@@ -1618,7 +1503,7 @@ export default function ProjectRegistry({
                         value={editEngineerName}
                         onChange={(e) => setEditEngineerName(e.target.value)}
                         placeholder="Select or type name..."
-                        className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                        className="w-full h-9 px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500"
                       />
                       <datalist id="project-engineers-list">
                         {salespersons.map((sp) => (
@@ -1627,7 +1512,7 @@ export default function ProjectRegistry({
                       </datalist>
                     </div>
                     <div>
-                      <label className="text-[10px] font-mono text-slate-500 uppercase tracking-widest block mb-1">
+                      <label className="text-[10px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-widest block mb-1">
                         Site / Delivery Location
                       </label>
                       <input
@@ -1635,36 +1520,36 @@ export default function ProjectRegistry({
                         value={editSiteLocation}
                         onChange={(e) => setEditSiteLocation(e.target.value)}
                         placeholder="e.g. Client Warehouse / Site"
-                        className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                        className="w-full h-9 px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500"
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-mono text-slate-500 uppercase tracking-widest block mb-1">
+                      <label className="text-[10px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-widest block mb-1">
                         Target Delivery Date
                       </label>
                       <input
                         type="date"
                         value={editTargetDate}
                         onChange={(e) => setEditTargetDate(e.target.value)}
-                        className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-800 font-mono focus:outline-none focus:border-blue-500"
+                        className="w-full h-9 px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-100 dark:[color-scheme:dark] font-mono focus:outline-none focus:border-blue-500"
                       />
                     </div>
                     <div className="sm:col-span-3">
-                      <label className="text-[10px] font-mono text-slate-500 uppercase tracking-widest block mb-1">
-                        Operational & Dispatch Notes
+                      <label className="text-[10px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-widest block mb-1">
+                        Operational &amp; Dispatch Notes
                       </label>
                       <textarea
                         rows={2}
                         value={editOperationalNotes}
                         onChange={(e) => setEditOperationalNotes(e.target.value)}
                         placeholder="Add site access instructions, dispatch notes, or special handling requirements..."
-                        className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-blue-500 resize-y"
+                        className="w-full px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500 resize-y"
                       />
                     </div>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                    <div className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/60">
                       <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
                         Lead Engineer
                       </span>
@@ -1674,7 +1559,7 @@ export default function ProjectRegistry({
                       </div>
                     </div>
 
-                    <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
+                    <div className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/60">
                       <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
                         Site / Delivery Location
                       </span>
@@ -1684,7 +1569,7 @@ export default function ProjectRegistry({
                       </div>
                     </div>
 
-                    <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
+                    <div className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/60">
                       <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
                         Target Delivery / Handover
                       </span>
@@ -1699,34 +1584,179 @@ export default function ProjectRegistry({
                     </div>
                   </div>
                 )}
+
+                {/* Project Procurement, GRN & Realized Net Margin Rollup (Gated to Workspace Admins/Managers - DEF-17) */}
+                {canViewConfidentialMargins && (() => {
+                  const estCatalogCost = (selectedProject.line_items || []).reduce((s, li) => {
+                    const qty = Number(li.quantity) || 1;
+                    const prod = li.product_id ? productMap.get(li.product_id) : null;
+                    const unitCost =
+                      li.cost_price !== undefined && Number(li.cost_price) > 0
+                        ? Number(li.cost_price)
+                        : Number(prod?.cost_price) || 0;
+                    return s + qty * unitCost;
+                  }, 0);
+                  const rollup = ProcurementRepository.computeProcurementRollup({
+                    enquiryId: selectedProject.enquiry_id,
+                    projectId: selectedProject.id,
+                    clientContractValueAed: Number(selectedProject.contract_value) || 0,
+                    estimatedCatalogCostAed: estCatalogCost,
+                    procurementDocs: workspaceProcurementDocs,
+                    supplierBills: workspaceSupplierBills
+                  });
+
+                  return (
+                    <div className="p-3.5 rounded-xl bg-indigo-50/40 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-800/70 space-y-2.5">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="text-[10px] font-mono uppercase tracking-widest text-indigo-800 dark:text-indigo-300 font-bold">
+                          Procurement, Landed Cost &amp; Realized Project Margin
+                        </span>
+                        <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                          {rollup.linkedPos.length} PO(s) · {rollup.linkedBills.length} Bill(s) ·{' '}
+                          {rollup.linkedPaymentVouchers.length} PV(s)
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+                          <span className="text-[10px] font-mono uppercase text-slate-400 block">
+                            POs Committed
+                          </span>
+                          <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300 whitespace-nowrap">
+                            AED{' '}
+                            {rollup.poCommittedTotalAed.toLocaleString('en-US', {
+                              minimumFractionDigits: 2
+                            })}
+                          </span>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+                          <span className="text-[10px] font-mono uppercase text-slate-400 block">
+                            Actual / Landed Cost
+                          </span>
+                          <span className="font-mono font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                            AED{' '}
+                            {rollup.netActualProcurementCostAed.toLocaleString('en-US', {
+                              minimumFractionDigits: 2
+                            })}
+                          </span>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+                          <span className="text-[10px] font-mono uppercase text-slate-400 block">
+                            Vendor Credits (DN)
+                          </span>
+                          <span className="font-mono font-bold text-purple-700 dark:text-purple-300 whitespace-nowrap">
+                            AED{' '}
+                            {rollup.debitNoteCreditsAed.toLocaleString('en-US', {
+                              minimumFractionDigits: 2
+                            })}
+                          </span>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+                          <span className="text-[10px] font-mono uppercase text-slate-400 block">
+                            Paid Out (PVs)
+                          </span>
+                          <span className="font-mono font-bold text-amber-700 dark:text-amber-300 whitespace-nowrap">
+                            AED{' '}
+                            {rollup.totalPaidOutAed.toLocaleString('en-US', {
+                              minimumFractionDigits: 2
+                            })}
+                          </span>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+                          <span className="text-[10px] font-mono uppercase text-slate-400 block">
+                            Realized Net Margin
+                          </span>
+                          <span
+                            className={`font-mono font-extrabold whitespace-nowrap ${
+                              rollup.realizedNetMarginAed >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'
+                            }`}
+                          >
+                            AED{' '}
+                            {rollup.realizedNetMarginAed.toLocaleString('en-US', {
+                              minimumFractionDigits: 2
+                            })}{' '}
+                            ({rollup.realizedNetMarginPct}%)
+                          </span>
+                        </div>
+                      </div>
+                      {(rollup.linkedPos.length > 0 || rollup.linkedBills.length > 0) && (
+                        <div className="mt-3 pt-2.5 border-t border-indigo-200/60 dark:border-indigo-800/60 flex flex-wrap items-center gap-2 text-[11px]">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-800 dark:text-indigo-300 mr-1">
+                            Linked Docs:
+                          </span>
+                          {rollup.linkedPos.map((po: any) => (
+                            <span
+                              key={po.id}
+                              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-indigo-900 dark:text-indigo-200 font-mono font-semibold"
+                            >
+                              <span>{po.quotation_ref || 'PO'}</span>
+                              <span className="text-[9px] uppercase px-1 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-sans">
+                                {po.po_metadata?.receiving_status || po.status || 'issued'}
+                              </span>
+                            </span>
+                          ))}
+                          {rollup.linkedBills.map((bill: any) => (
+                            <span
+                              key={bill.id}
+                              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 font-mono font-semibold"
+                            >
+                              <span>Bill #{bill.supplier_invoice_no || 'INV'}</span>
+                              <span className="text-[9px] uppercase px-1 py-0.2 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-sans">
+                                {bill.status || 'unpaid'}
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Operational Remarks */}
+                {selectedProject.operational_notes && !isEditingMetadata && (
+                  <div className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/60">
+                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
+                      Operational Notes
+                    </span>
+                    <p className="text-xs text-slate-600 dark:text-slate-300">
+                      {selectedProject.operational_notes}
+                    </p>
+                  </div>
+                )}
               </div>
 
-              {/* Interactive Milestone Pipeline */}
+              {/* Chapter 2: Interactive Milestone Pipeline */}
               {selectedProject.milestones && selectedProject.milestones.length > 0 && (() => {
                 const totalMilestones = selectedProject.milestones.length;
                 const completedCount = selectedProject.milestones.filter((m) => m.status === 'Completed').length;
                 const progressPercent = Math.round((completedCount / totalMilestones) * 100);
 
                 return (
-                  <div className="space-y-3 p-4 rounded-2xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60">
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <div className="flex items-center space-x-2">
-                        <Flag className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                        <h4 className="text-xs font-mono uppercase tracking-widest text-slate-700 dark:text-slate-300 font-bold">
-                          Operational Milestones & Field Execution
-                        </h4>
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 shadow-2xs space-y-3.5">
+                    <div className="flex items-center justify-between flex-wrap gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0">
+                          2
+                        </span>
+                        <div>
+                          <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                            Operational Milestones &amp; Field Execution
+                          </h4>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Click any phase badge to advance status from Pending to In Progress and Completed
+                          </p>
+                        </div>
                       </div>
                       <div className="flex items-center space-x-2">
-                        <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                        <span className="text-[11px] font-mono font-bold px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                           {completedCount} / {totalMilestones} Completed ({progressPercent}%)
                         </span>
                       </div>
                     </div>
 
                     {/* Progress Bar */}
-                    <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                    <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
                       <div
-                        className="bg-emerald-500 h-1.5 rounded-full transition-all duration-300"
+                        className="bg-emerald-500 h-2 rounded-full transition-all duration-300"
                         style={{ width: `${progressPercent}%` }}
                       />
                     </div>
@@ -1746,7 +1776,7 @@ export default function ProjectRegistry({
                                 ? 'bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/60'
                                 : isInProgress
                                 ? 'bg-amber-50/40 dark:bg-amber-950/20 border-amber-200/80 dark:border-amber-800/60 shadow-2xs'
-                                : 'bg-white dark:bg-slate-900 border-slate-200/70 dark:border-slate-800'
+                                : 'bg-slate-50/60 dark:bg-slate-800/40 border-slate-200/70 dark:border-slate-800'
                             }`}
                           >
                             <div className="flex items-center space-x-3 min-w-0">
@@ -1756,7 +1786,7 @@ export default function ProjectRegistry({
                                     ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
                                     : isInProgress
                                     ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
-                                    : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                                    : 'bg-slate-200/80 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
                                 }`}
                               >
                                 {idx + 1}
@@ -1779,13 +1809,13 @@ export default function ProjectRegistry({
                               <button
                                 type="button"
                                 onClick={() => handleToggleMilestone(m.id)}
-                                title="Click to cycle status: Pending ➔ In Progress ➔ Completed"
+                                title="Click to cycle status: Pending → In Progress → Completed"
                                 className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold flex items-center space-x-1.5 transition cursor-pointer ${
                                   isCompleted
                                     ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-950/70 dark:hover:bg-emerald-900/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
                                     : isInProgress
                                     ? 'bg-amber-100 hover:bg-amber-200 text-amber-800 dark:bg-amber-950/70 dark:hover:bg-amber-900/80 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
-                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                    : 'bg-white hover:bg-slate-100 text-slate-600 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
                                 }`}
                               >
                                 {isCompleted && (
@@ -1796,7 +1826,7 @@ export default function ProjectRegistry({
                                 )}
                                 {isInProgress && (
                                   <>
-                                    <PlayCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 animate-pulse" />
+                                    <PlayCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                                     <span>In Progress</span>
                                   </>
                                 )}
@@ -1812,7 +1842,7 @@ export default function ProjectRegistry({
                                   type="button"
                                   onClick={() => handleDeleteMilestone(m.id)}
                                   title="Remove milestone"
-                                  className="p-1 rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                                  className="p-1 rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition cursor-pointer"
                                 >
                                   <X className="w-3.5 h-3.5" />
                                 </button>
@@ -1837,48 +1867,53 @@ export default function ProjectRegistry({
                             }
                           }}
                           placeholder="Add custom operational milestone (e.g. Site Readiness Inspection)..."
-                          className="flex-1 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-blue-500"
+                          className="flex-1 h-9 px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-blue-500"
                         />
                         <button
                           type="button"
                           disabled={!newMilestoneTitle.trim()}
                           onClick={handleAddMilestone}
-                          className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white text-xs font-semibold inline-flex items-center gap-1 transition cursor-pointer"
+                          className="h-9 px-3.5 rounded-xl bg-slate-900 dark:bg-blue-600 hover:bg-slate-800 dark:hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" />
                           <span>Add Phase</span>
                         </button>
                       </div>
                     )}
-
-                    <div className="flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500 pt-1 font-mono">
-                      <span>Click milestone status to advance phase</span>
-                      <span>Cycle: Pending ➔ In Progress ➔ Completed</span>
-                    </div>
                   </div>
                 );
               })()}
 
-              {/* Line Items Breakdown Table */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-mono uppercase tracking-widest text-slate-500 font-bold">
-                    Project Line Items & Warehouse Stock
-                  </h4>
-                  <span className="text-xs text-slate-400">
+              {/* Chapter 3: Line Items Breakdown & Warehouse Stock */}
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 shadow-2xs space-y-3.5">
+                <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0">
+                      3
+                    </span>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                        Project Line Items &amp; Warehouse Stock
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Contracted bill of materials, quantities, and live warehouse stock availability
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
                     {selectedProject.line_items?.length || 0} line items
                   </span>
                 </div>
 
-                <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-2xs">
-                  <table className="w-full text-left text-xs border-collapse">
+                <div className="border border-slate-200/80 dark:border-slate-800 rounded-xl overflow-x-auto scrollbar-thin">
+                  <table className="w-full min-w-[680px] text-left text-xs border-collapse">
                     <thead>
-                      <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/75 dark:bg-slate-800/50 text-[10px] font-mono text-slate-400 uppercase tracking-widest">
+                      <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/75 dark:bg-slate-800/50 text-[10px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-widest">
                         <th className="py-2.5 px-3">Item Description</th>
-                        <th className="py-2.5 px-3">Qty & Unit</th>
-                        <th className="py-2.5 px-3 text-right">Unit Price</th>
-                        <th className="py-2.5 px-3 text-right">Total</th>
-                        <th className="py-2.5 px-3 text-center">Warehouse Stock Info</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap">Qty &amp; Unit</th>
+                        <th className="py-2.5 px-3 text-right whitespace-nowrap">Unit Price</th>
+                        <th className="py-2.5 px-3 text-right whitespace-nowrap">Total</th>
+                        <th className="py-2.5 px-3 text-center whitespace-nowrap">Warehouse Stock Info</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
@@ -1912,13 +1947,13 @@ export default function ProjectRegistry({
                                 Type: {it.product_type || 'General'}
                               </div>
                             </td>
-                            <td className="py-3 px-3 font-mono font-medium whitespace-nowrap">
+                            <td className="py-3 px-3 font-mono font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
                               {it.quantity} {it.unit || 'Nos'}
                             </td>
-                            <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
+                            <td className="py-3 px-3 text-right font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">
                               {Number(it.unit_price || 0).toFixed(2)}
                             </td>
-                            <td className="py-3 px-3 text-right font-mono font-bold whitespace-nowrap">
+                            <td className="py-3 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
                               {lineTotal.toFixed(2)}
                             </td>
                             <td className="py-3 px-3 text-center whitespace-nowrap">
@@ -1947,30 +1982,18 @@ export default function ProjectRegistry({
                   </table>
                 </div>
               </div>
-
-              {/* Operational Remarks */}
-              {selectedProject.operational_notes && (
-                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
-                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1">
-                    Operational Notes
-                  </span>
-                  <p className="text-xs text-slate-600 dark:text-slate-300">
-                    {selectedProject.operational_notes}
-                  </p>
-                </div>
-              )}
             </div>
 
-            {/* Modal Operations Action Bar */}
-            <div className="py-4 px-6 sm:px-8 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/50 flex flex-wrap items-center justify-between gap-3 shrink-0">
-              <div className="flex items-center space-x-3">
+            {/* Executive Sticky Operations Footer Bar */}
+            <div className="py-3.5 px-6 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-wrap items-center justify-between gap-3 shrink-0">
+              <div className="flex flex-wrap items-center gap-2.5">
                 <div className="flex items-center space-x-2">
-                  <span className="text-xs font-mono text-slate-400">Change Status:</span>
+                  <span className="text-xs font-mono text-slate-500 dark:text-slate-400">Status:</span>
                   <select
                     value={selectedProject.status}
                     disabled={isUpdatingStatus}
                     onChange={(e) => handleUpdateStatus(e.target.value as Project['status'])}
-                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
+                    className="h-9 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
                   >
                     <option value="Draft">Draft</option>
                     <option value="In Progress">In Progress</option>
@@ -1984,7 +2007,7 @@ export default function ProjectRegistry({
                   <button
                     type="button"
                     onClick={() => handleInitiateVoidProject(selectedProject)}
-                    className="px-3 py-1.5 border border-amber-200 hover:bg-amber-50 text-amber-700 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center space-x-1.5 shadow-2xs"
+                    className="h-9 px-3 border border-amber-200 dark:border-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/50 text-amber-700 dark:text-amber-300 rounded-lg text-xs font-semibold transition cursor-pointer inline-flex items-center space-x-1.5"
                     title="Cancel project and release reserved stock"
                   >
                     <AlertTriangle className="w-3.5 h-3.5" />
@@ -1995,7 +2018,7 @@ export default function ProjectRegistry({
                 <button
                   type="button"
                   onClick={() => setDeleteConfirmTarget(selectedProject)}
-                  className="px-3 py-1.5 border border-rose-200 hover:bg-rose-50 text-rose-600 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center space-x-1.5 shadow-2xs"
+                  className="h-9 px-3 border border-rose-200 dark:border-rose-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-semibold transition cursor-pointer inline-flex items-center space-x-1.5"
                   title="Move project to Recycle Bin and unlink from Enquiry"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -2003,7 +2026,7 @@ export default function ProjectRegistry({
                 </button>
               </div>
 
-              <div className="flex items-center space-x-3">
+              <div className="flex items-center gap-2.5 ml-auto">
                 {(() => {
                   const projectItems = selectedProject.line_items || [];
                   const hasItems = projectItems.length > 0;
@@ -2054,7 +2077,7 @@ export default function ProjectRegistry({
                         type="button"
                         disabled={true}
                         title="Cannot dispatch a project with 0 line items"
-                        className="px-4 py-2 opacity-50 cursor-not-allowed bg-slate-400 text-white font-bold text-xs rounded-xl shadow-xs flex items-center space-x-1.5"
+                        className="h-9 px-4 opacity-50 cursor-not-allowed bg-slate-400 text-white font-semibold text-xs rounded-lg shadow-xs inline-flex items-center space-x-1.5"
                       >
                         <Truck className="w-4 h-4" />
                         <span>Mark Dispatched</span>
@@ -2067,7 +2090,7 @@ export default function ProjectRegistry({
                       <button
                         type="button"
                         onClick={() => setConfirmDispatchOpen(true)}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
+                        className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-lg shadow-xs transition inline-flex items-center space-x-1.5 cursor-pointer"
                       >
                         <CheckCircle2 className="w-4 h-4" />
                         <span>Mark Fulfilled / Dispatched</span>
@@ -2079,10 +2102,10 @@ export default function ProjectRegistry({
                     <button
                       type="button"
                       onClick={() => setConfirmDispatchOpen(true)}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center space-x-1.5 cursor-pointer"
+                      className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-lg shadow-xs transition inline-flex items-center space-x-1.5 cursor-pointer"
                     >
                       <Truck className="w-4 h-4" />
-                      <span>Mark Dispatched & Deduct Stock</span>
+                      <span>Mark Dispatched &amp; Deduct Stock</span>
                     </button>
                   );
                 })()}
@@ -2090,7 +2113,7 @@ export default function ProjectRegistry({
                 <button
                   type="button"
                   onClick={handleCloseModal}
-                  className="px-4 py-2 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl transition cursor-pointer"
+                  className="h-9 px-4 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs rounded-lg transition cursor-pointer"
                 >
                   Close
                 </button>

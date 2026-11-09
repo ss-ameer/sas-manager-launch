@@ -530,7 +530,7 @@ export default function CompanyEditModal({
   return (
     <div
       id="global-company-edit-modal-overlay"
-      className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-[120] flex items-center justify-center p-4 animate-in fade-in duration-150"
+      className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-[120] flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-150"
       onClick={(e) => {
         e.stopPropagation();
         onClose();
@@ -538,7 +538,7 @@ export default function CompanyEditModal({
     >
       <div
         id="global-company-edit-modal-card"
-        className="max-w-3xl w-full max-h-[90vh] flex flex-col bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150"
+        className="max-w-3xl w-full max-h-[96vh] sm:max-h-[90vh] flex flex-col bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -584,454 +584,493 @@ export default function CompanyEditModal({
 
         {/* Scrollable Form Body */}
         <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden font-sans">
-          <div className="flex-1 overflow-y-auto px-6 py-5 pb-8 space-y-4">
-            {/* Canonical Name, Company Code & Legal Suffix */}
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
-              <div className="sm:col-span-6">
+          <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-slate-50/80 dark:bg-slate-950/70">
+            {/* CHAPTER 1: CORPORATE IDENTITY & LOCATION */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-5 shadow-2xs space-y-4">
+              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-mono font-bold text-xs shrink-0">1</span>
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Corporate Identity &amp; Location</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Canonical legal entity name, corporate identifier code, aliases, and geographic location.</p>
+                </div>
+              </div>
+
+              {/* Canonical Name, Company Code & Legal Suffix */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+                <div className="sm:col-span-6">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
+                    Canonical Name <span className="text-rose-500 font-bold ml-0.5">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Celar Water Equipment"
+                    value={canonicalName}
+                    onChange={(e) => setCanonicalName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
+                  />
+                </div>
+                <div className="sm:col-span-3">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5" title="Short code used in structured Quote References ({COMPANY_CODE})">
+                    Company Code
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. CWE, BME"
+                    value={companyCode}
+                    onChange={(e) => setCompanyCode(e.target.value.toUpperCase())}
+                    className="w-full px-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm font-mono font-bold uppercase placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                  />
+                </div>
+                <div className="sm:col-span-3">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
+                    Legal Suffix
+                  </label>
+                  <select
+                    value={legalSuffix}
+                    onChange={(e) => setLegalSuffix(e.target.value as LegalSuffix)}
+                    className="w-full px-3.5 py-2.5 pr-8 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans cursor-pointer truncate"
+                  >
+                    {['None (Clean Name)', 'None / To Be Added Later', 'LLC', 'FZE', 'FZC', 'Co. LLC', 'Ltd', 'W.L.L.', 'Est.', 'PJSC', 'PrJSC', 'None / Other'].map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Aliases */}
+              <div>
                 <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
-                  Canonical Name <span className="text-rose-500 font-bold ml-0.5">*</span>
+                  Fuzzy Search Aliases (comma-separated)
                 </label>
                 <input
                   type="text"
-                  required
-                  placeholder="e.g. Celar Water Equipment"
-                  value={canonicalName}
-                  onChange={(e) => setCanonicalName(e.target.value)}
+                  placeholder="e.g. Veolia Water, Veolia Solutions, VWS"
+                  value={aliasesInput}
+                  onChange={(e) => setAliasesInput(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
                 />
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-1.5 block leading-normal">
+                  Search variants to match and block subsequent duplicates.
+                </span>
               </div>
-              <div className="sm:col-span-3">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5" title="Short code used in structured Quote References ({COMPANY_CODE})">
-                  Company Code
+
+              {/* Mark as Internal / Sister Company Toggle */}
+              <div className="p-3.5 bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200/80 dark:border-purple-800/40 rounded-xl flex items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-purple-900 dark:text-purple-200">Mark as Internal / Sister Company (Our Company)</span>
+                    {isInternalCompany && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-700/60">
+                        Active
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Designates this organization as an in-house entity or branch. Internal entities are prioritized for internal tasks and excluded from client directory exports.
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={isInternalCompany}
+                    onChange={(e) => setIsInternalCompany(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
                 </label>
-                <input
-                  type="text"
-                  placeholder="e.g. CWE, BME"
-                  value={companyCode}
-                  onChange={(e) => setCompanyCode(e.target.value.toUpperCase())}
-                  className="w-full px-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm font-mono font-bold uppercase placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                />
               </div>
-              <div className="sm:col-span-3">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
-                  Legal Suffix
-                </label>
-                <select
-                  value={legalSuffix}
-                  onChange={(e) => setLegalSuffix(e.target.value as LegalSuffix)}
-                  className="w-full px-3.5 py-2.5 pr-8 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans cursor-pointer truncate"
-                >
-                  {['None (Clean Name)', 'None / To Be Added Later', 'LLC', 'FZE', 'FZC', 'Co. LLC', 'Ltd', 'W.L.L.', 'Est.', 'PJSC', 'PrJSC', 'None / Other'].map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
+
+              {/* Duplicate Match Warning */}
+              {duplicateMatchResult && (
+                <div className="p-3.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 rounded-xl space-y-2">
+                  <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 text-xs font-bold">
+                    <ShieldAlert className="w-4 h-4" />
+                    <span>Potential Duplicate Account Detected</span>
+                  </div>
+                  <p className="text-xs text-slate-700 dark:text-slate-300">
+                    A company matching "{duplicateMatchResult.target?.display_name || duplicateMatchResult.target?.canonical_name}" already exists ({duplicateMatchResult.matchReason}).
+                  </p>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPendingBypass(true);
+                        setDuplicateMatchResult(null);
+                      }}
+                      className="text-xs px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-lg transition cursor-pointer"
+                    >
+                      Bypass &amp; Save Anyway
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDuplicateMatchResult(null)}
+                      className="text-xs px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-lg transition cursor-pointer"
+                    >
+                      Review Name
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* City, Country & Country Code Override */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+                <div className="sm:col-span-5">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
+                    City <span className="text-rose-500 font-bold ml-0.5">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Sharjah"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
+                  />
+                </div>
+                <div className="sm:col-span-4">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
+                    Country <span className="text-rose-500 font-bold ml-0.5">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. UAE"
+                    value={country}
+                    onChange={(e) => setCountry(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
+                  />
+                </div>
+                <div className="sm:col-span-3">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5" title="3-letter Country Code for {COUNTRY} token (auto-mapped if blank)">
+                    Country Code
+                  </label>
+                  <input
+                    type="text"
+                    placeholder={resolveCountryCode(country) || 'e.g. UAE'}
+                    value={countryCode}
+                    onChange={(e) => setCountryCode(e.target.value.toUpperCase())}
+                    className="w-full px-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm font-mono font-bold uppercase placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                  />
+                </div>
               </div>
             </div>
 
-            {/* Aliases */}
-            <div>
-              <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
-                Fuzzy Search Aliases (comma-separated)
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. Veolia Water, Veolia Solutions, VWS"
-                value={aliasesInput}
-                onChange={(e) => setAliasesInput(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
+            {/* CHAPTER 2: INDUSTRY SECTOR & RELATIONSHIP */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-5 shadow-2xs space-y-4">
+              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-mono font-bold text-xs shrink-0">2</span>
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Industry Sector &amp; Relationship</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Activity taxonomy classification, engagement relationship, and temperature status.</p>
+                </div>
+              </div>
+
+              {/* Industry Taxonomy */}
+              <IndustryTaxonomySelector
+                parentSectorId={industryParent}
+                onParentSectorChange={setIndustryParent}
+                subTypeValue={businessTypeRaw}
+                onSubTypeChange={setBusinessTypeRaw}
+                userIdentifier={user?.email || user?.full_name || 'Operator'}
+                variant="auto"
+                size="md"
+                idPrefix="edit-modal-ind"
+                className="mb-1"
               />
-              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-1.5 block leading-normal">
-                Search variants to match and block subsequent duplicates.
-              </span>
-            </div>
 
-            {/* Mark as Internal / Sister Company Toggle */}
-            <div className="p-3.5 bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/40 rounded-xl flex items-center justify-between gap-3">
-              <div className="space-y-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-purple-900 dark:text-purple-200">🏢 Mark as Internal / Sister Company (Our Company)</span>
-                  {isInternalCompany && (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-700/60">
-                      Active
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Designates this organization as an in-house entity or branch. Internal entities are prioritized for internal tasks and excluded from client directory exports.
-                </p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                <input
-                  type="checkbox"
-                  checked={isInternalCompany}
-                  onChange={(e) => setIsInternalCompany(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
-              </label>
-            </div>
-
-            {/* Duplicate Match Warning */}
-            {duplicateMatchResult && (
-              <div className="p-3.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 rounded-xl space-y-2">
-                <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 text-xs font-bold">
-                  <ShieldAlert className="w-4 h-4" />
-                  <span>Potential Duplicate Account Detected</span>
-                </div>
-                <p className="text-xs text-slate-700 dark:text-slate-300">
-                  A company matching "{duplicateMatchResult.target?.display_name || duplicateMatchResult.target?.canonical_name}" already exists ({duplicateMatchResult.matchReason}).
-                </p>
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPendingBypass(true);
-                      setDuplicateMatchResult(null);
+              {/* Relationship & Temperature */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
+                    Relationship <span className="text-rose-500 font-bold ml-0.5">*</span>
+                  </label>
+                  <select
+                    value={relationship}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setRelationship(val);
+                      if (val.toLowerCase().includes('vendor') || val.toLowerCase().includes('supplier')) {
+                        setShowVendorBankSection(true);
+                      }
                     }}
-                    className="text-xs px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-lg transition cursor-pointer"
+                    className="w-full h-11 px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans font-semibold cursor-pointer"
                   >
-                    Bypass & Save Anyway
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDuplicateMatchResult(null)}
-                    className="text-xs px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-lg transition cursor-pointer"
+                    {(companyRelationships.length > 0 ? companyRelationships : [
+                      { id: 'rel_prospect', name: 'Prospect' },
+                      { id: 'rel_customer', name: 'Customer' },
+                      { id: 'rel_partner', name: 'Partner' },
+                      { id: 'rel_vendor', name: 'Vendor' }
+                    ]).map((r) => (
+                      <option key={r.id} value={r.name}>{r.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
+                    Temperature (Heat Level)
+                  </label>
+                  <select
+                    value={temperature}
+                    onChange={(e) => setTemperature(e.target.value as any)}
+                    className="w-full h-11 px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans font-semibold cursor-pointer"
                   >
-                    Review Name
-                  </button>
+                    <option value="Cold">Cold</option>
+                    <option value="Warm">Warm</option>
+                    <option value="Hot">Hot</option>
+                    <option value="DNC">DNC (Do Not Call)</option>
+                  </select>
                 </div>
               </div>
-            )}
-
-            {/* City, Country & Country Code Override */}
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
-              <div className="sm:col-span-5">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
-                  City <span className="text-rose-500 font-bold ml-0.5">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Sharjah"
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
-                />
-              </div>
-              <div className="sm:col-span-4">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
-                  Country <span className="text-rose-500 font-bold ml-0.5">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. UAE"
-                  value={country}
-                  onChange={(e) => setCountry(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
-                />
-              </div>
-              <div className="sm:col-span-3">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5" title="3-letter Country Code for {COUNTRY} token (auto-mapped if blank)">
-                  Country Code
-                </label>
-                <input
-                  type="text"
-                  placeholder={resolveCountryCode(country) || 'e.g. UAE'}
-                  value={countryCode}
-                  onChange={(e) => setCountryCode(e.target.value.toUpperCase())}
-                  className="w-full px-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm font-mono font-bold uppercase placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                />
-              </div>
             </div>
 
-            {/* Industry Taxonomy */}
-            <IndustryTaxonomySelector
-              parentSectorId={industryParent}
-              onParentSectorChange={setIndustryParent}
-              subTypeValue={businessTypeRaw}
-              onSubTypeChange={setBusinessTypeRaw}
-              userIdentifier={user?.email || user?.full_name || 'Operator'}
-              variant="auto"
-              size="md"
-              idPrefix="edit-modal-ind"
-              className="mb-1"
-            />
-
-            {/* Relationship & Temperature */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
-              <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
-                  Relationship <span className="text-rose-500 font-bold ml-0.5">*</span>
-                </label>
-                <select
-                  value={relationship}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setRelationship(val);
-                    if (val.toLowerCase().includes('vendor') || val.toLowerCase().includes('supplier')) {
-                      setShowVendorBankSection(true);
-                    }
-                  }}
-                  className="w-full h-11 px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans font-semibold cursor-pointer"
-                >
-                  {(companyRelationships.length > 0 ? companyRelationships : [
-                    { id: 'rel_prospect', name: 'Prospect' },
-                    { id: 'rel_customer', name: 'Customer' },
-                    { id: 'rel_partner', name: 'Partner' },
-                    { id: 'rel_vendor', name: 'Vendor' }
-                  ]).map((r) => (
-                    <option key={r.id} value={r.name}>{r.name}</option>
-                  ))}
-                </select>
+            {/* CHAPTER 3: COMMUNICATION CHANNELS */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-5 shadow-2xs space-y-4">
+              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-mono font-bold text-xs shrink-0">3</span>
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Communication Channels</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Company telephone numbers, inquiries emails, and digital web portals.</p>
+                </div>
               </div>
-              <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
-                  Temperature (Heat Level)
-                </label>
-                <select
-                  value={temperature}
-                  onChange={(e) => setTemperature(e.target.value as any)}
-                  className="w-full h-11 px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans font-semibold cursor-pointer"
-                >
-                  <option value="Cold">Cold ❄️</option>
-                  <option value="Warm">Warm 🌤️</option>
-                  <option value="Hot">Hot 🔥</option>
-                  <option value="DNC">DNC 🚫</option>
-                </select>
-              </div>
-            </div>
 
-            {/* Company Phones */}
-            <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
-              <div className="flex items-center justify-between">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
-                  Company Phone Numbers
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setCompanyPhones((prev) => [...prev, { id: generateId(), label: 'Main', value: '' }])}
-                  className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Phone</span>
-                </button>
-              </div>
-              <datalist id="company-edit-phone-tags">
-                <option value="Landline" />
-                <option value="Main" />
-                <option value="Reception" />
-                <option value="Direct Line" />
-                <option value="Mobile" />
-                <option value="WhatsApp" />
-                <option value="Fax" />
-              </datalist>
-              {companyPhones.map((ph, idx) => {
-                const currentRestriction = getLineRestriction(restrictedLines, ph.value);
+              {/* Company Phones */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
+                    Company Phone Numbers
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setCompanyPhones((prev) => [...prev, { id: generateId(), label: 'Main', value: '' }])}
+                    className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Phone</span>
+                  </button>
+                </div>
+                <datalist id="company-edit-phone-tags">
+                  <option value="Landline" />
+                  <option value="Main" />
+                  <option value="Reception" />
+                  <option value="Direct Line" />
+                  <option value="Mobile" />
+                  <option value="WhatsApp" />
+                  <option value="Fax" />
+                </datalist>
+                {companyPhones.map((ph, idx) => {
+                  const currentRestriction = getLineRestriction(restrictedLines, ph.value);
 
-                return (
-                  <div key={ph.id || idx} className="flex items-center space-x-2">
+                  return (
+                    <div key={ph.id || idx} className="flex items-center space-x-2">
+                      <input
+                        list="company-edit-phone-tags"
+                        value={ph.label}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setCompanyPhones((prev) => prev.map((item, i) => (i === idx ? { ...item, label: val } : item)));
+                        }}
+                        placeholder="Tag"
+                        className="w-28 sm:w-32 px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-sans bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shrink-0"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Phone number..."
+                        value={ph.value}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setCompanyPhones((prev) => prev.map((item, i) => (i === idx ? { ...item, value: val } : item)));
+                        }}
+                        className="flex-1 min-w-0 px-3.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-mono bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => togglePhoneRestriction(ph.value)}
+                        disabled={!ph.value.trim()}
+                        className={`px-2.5 py-2 rounded-lg text-[10px] font-bold flex items-center gap-1 border transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0 ${
+                          currentRestriction === 'DNC'
+                            ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100'
+                            : currentRestriction === 'Invalid'
+                            ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100'
+                            : 'bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+                        }`}
+                        title={
+                          currentRestriction === 'DNC'
+                            ? 'Restriction: DNC (Click to Clear)'
+                            : currentRestriction === 'Invalid'
+                            ? 'Restriction: Invalid (Click for DNC)'
+                            : 'Line Active (Click to flag Invalid)'
+                        }
+                      >
+                        <ShieldAlert
+                          className={`w-3.5 h-3.5 ${
+                            currentRestriction === 'DNC'
+                              ? 'text-rose-600 dark:text-rose-400'
+                              : currentRestriction === 'Invalid'
+                              ? 'text-amber-600 dark:text-amber-400'
+                              : 'text-slate-400'
+                          }`}
+                        />
+                        <span>{currentRestriction || 'Clear'}</span>
+                      </button>
+
+                      {companyPhones.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setCompanyPhones((prev) => prev.filter((_, i) => i !== idx))}
+                          className="p-2 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer shrink-0"
+                          title="Remove Phone"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Company Emails */}
+              <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
+                    Company Email Addresses
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setCompanyEmails((prev) => [...prev, { id: generateId(), label: 'Main', value: '' }])}
+                    className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Email</span>
+                  </button>
+                </div>
+                <datalist id="company-edit-email-tags">
+                  <option value="Work" />
+                  <option value="Main" />
+                  <option value="Inquiries" />
+                  <option value="Sales" />
+                  <option value="Support" />
+                </datalist>
+                {companyEmails.map((em, idx) => (
+                  <div key={em.id || idx} className="flex items-center space-x-2">
                     <input
-                      list="company-edit-phone-tags"
-                      value={ph.label}
+                      list="company-edit-email-tags"
+                      value={em.label}
                       onChange={(e) => {
                         const val = e.target.value;
-                        setCompanyPhones((prev) => prev.map((item, i) => (i === idx ? { ...item, label: val } : item)));
+                        setCompanyEmails((prev) => prev.map((item, i) => (i === idx ? { ...item, label: val } : item)));
                       }}
                       placeholder="Tag"
                       className="w-28 sm:w-32 px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-sans bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shrink-0"
                     />
                     <input
-                      type="text"
-                      placeholder="Phone number..."
-                      value={ph.value}
+                      type="email"
+                      placeholder="Email address..."
+                      value={em.value}
                       onChange={(e) => {
                         const val = e.target.value;
-                        setCompanyPhones((prev) => prev.map((item, i) => (i === idx ? { ...item, value: val } : item)));
+                        setCompanyEmails((prev) => prev.map((item, i) => (i === idx ? { ...item, value: val } : item)));
                       }}
-                      className="flex-1 min-w-0 px-3.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-mono bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      className="flex-1 min-w-0 px-3.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-sans bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                     />
-
-                    <button
-                      type="button"
-                      onClick={() => togglePhoneRestriction(ph.value)}
-                      disabled={!ph.value.trim()}
-                      className={`px-2.5 py-2 rounded-lg text-[10px] font-bold flex items-center gap-1 border transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0 ${
-                        currentRestriction === 'DNC'
-                          ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60 hover:bg-rose-100'
-                          : currentRestriction === 'Invalid'
-                          ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100'
-                          : 'bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
-                      }`}
-                      title={
-                        currentRestriction === 'DNC'
-                          ? 'Restriction: DNC (Click to Clear)'
-                          : currentRestriction === 'Invalid'
-                          ? 'Restriction: Invalid (Click for DNC)'
-                          : 'Line Active (Click to flag Invalid)'
-                      }
-                    >
-                      <ShieldAlert
-                        className={`w-3.5 h-3.5 ${
-                          currentRestriction === 'DNC'
-                            ? 'text-rose-600 dark:text-rose-400'
-                            : currentRestriction === 'Invalid'
-                            ? 'text-amber-600 dark:text-amber-400'
-                            : 'text-slate-400'
-                        }`}
-                      />
-                      <span>{currentRestriction || 'Clear'}</span>
-                    </button>
-
-                    {companyPhones.length > 1 && (
+                    {companyEmails.length > 1 && (
                       <button
                         type="button"
-                        onClick={() => setCompanyPhones((prev) => prev.filter((_, i) => i !== idx))}
+                        onClick={() => setCompanyEmails((prev) => prev.filter((_, i) => i !== idx))}
                         className="p-2 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer shrink-0"
-                        title="Remove Phone"
+                        title="Remove Email"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     )}
                   </div>
-                );
-              })}
+                ))}
+              </div>
+
+              {/* Links & Portals */}
+              <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
+                    Company Links &amp; Portals
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setCompanyLinks((prev) => [...prev, { id: generateId(), label: 'Website', url: '' }])}
+                    className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Link</span>
+                  </button>
+                </div>
+                <datalist id="company-edit-link-tags">
+                  <option value="Website" />
+                  <option value="LinkedIn" />
+                  <option value="Facebook" />
+                  <option value="Instagram" />
+                  <option value="Portal" />
+                </datalist>
+                {companyLinks.map((link, idx) => (
+                  <div key={link.id || idx} className="flex items-center space-x-2">
+                    <input
+                      list="company-edit-link-tags"
+                      value={link.label}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCompanyLinks((prev) => prev.map((item, i) => (i === idx ? { ...item, label: val } : item)));
+                      }}
+                      placeholder="Tag (e.g. Website)"
+                      className="w-28 sm:w-32 px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-sans bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shrink-0"
+                    />
+                    <input
+                      type="url"
+                      placeholder="https://..."
+                      value={link.url}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCompanyLinks((prev) => prev.map((item, i) => (i === idx ? { ...item, url: val } : item)));
+                      }}
+                      className="flex-1 min-w-0 px-3.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-mono bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                    />
+                    {companyLinks.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setCompanyLinks((prev) => prev.filter((_, i) => i !== idx))}
+                        className="p-2 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer shrink-0"
+                        title="Remove Link"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
 
-            {/* Company Emails */}
-            <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
-              <div className="flex items-center justify-between">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
-                  Company Email Addresses
-                </label>
+            {/* CHAPTER 4: VENDOR / SUPPLIER PROCUREMENT & BANKING */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-5 shadow-2xs space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-mono font-bold text-xs shrink-0">4</span>
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Commercial Terms &amp; Vendor Banking</h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">TRN/VAT registration, settlement terms, incoterms, and beneficiary banking credentials.</p>
+                  </div>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setCompanyEmails((prev) => [...prev, { id: generateId(), label: 'Main', value: '' }])}
-                  className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
+                  onClick={() => setShowVendorBankSection((prev) => !prev)}
+                  className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition cursor-pointer"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Email</span>
+                  {showVendorBankSection ? 'Collapse ▲' : 'Expand ▼'}
                 </button>
               </div>
-              <datalist id="company-edit-email-tags">
-                <option value="Work" />
-                <option value="Main" />
-                <option value="Inquiries" />
-                <option value="Sales" />
-                <option value="Support" />
-              </datalist>
-              {companyEmails.map((em, idx) => (
-                <div key={em.id || idx} className="flex items-center space-x-2">
-                  <input
-                    list="company-edit-email-tags"
-                    value={em.label}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setCompanyEmails((prev) => prev.map((item, i) => (i === idx ? { ...item, label: val } : item)));
-                    }}
-                    placeholder="Tag"
-                    className="w-28 sm:w-32 px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-sans bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shrink-0"
-                  />
-                  <input
-                    type="email"
-                    placeholder="Email address..."
-                    value={em.value}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setCompanyEmails((prev) => prev.map((item, i) => (i === idx ? { ...item, value: val } : item)));
-                    }}
-                    className="flex-1 min-w-0 px-3.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-sans bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                  />
-                  {companyEmails.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => setCompanyEmails((prev) => prev.filter((_, i) => i !== idx))}
-                      className="p-2 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer shrink-0"
-                      title="Remove Email"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Links & Portals */}
-            <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
-              <div className="flex items-center justify-between">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
-                  Company Links & Portals
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setCompanyLinks((prev) => [...prev, { id: generateId(), label: 'Website', url: '' }])}
-                  className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Link</span>
-                </button>
-              </div>
-              <datalist id="company-edit-link-tags">
-                <option value="Website" />
-                <option value="LinkedIn" />
-                <option value="Facebook" />
-                <option value="Instagram" />
-                <option value="Portal" />
-              </datalist>
-              {companyLinks.map((link, idx) => (
-                <div key={link.id || idx} className="flex items-center space-x-2">
-                  <input
-                    list="company-edit-link-tags"
-                    value={link.label}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setCompanyLinks((prev) => prev.map((item, i) => (i === idx ? { ...item, label: val } : item)));
-                    }}
-                    placeholder="Tag (e.g. Website)"
-                    className="w-28 sm:w-32 px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-sans bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shrink-0"
-                  />
-                  <input
-                    type="url"
-                    placeholder="https://..."
-                    value={link.url}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setCompanyLinks((prev) => prev.map((item, i) => (i === idx ? { ...item, url: val } : item)));
-                    }}
-                    className="flex-1 min-w-0 px-3.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg font-mono bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                  />
-                  {companyLinks.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => setCompanyLinks((prev) => prev.filter((_, i) => i !== idx))}
-                      className="p-2 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer shrink-0"
-                      title="Remove Link"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Vendor / Supplier Procurement, Tax ID (TRN) & Beneficiary Bank Details */}
-            <div className="pt-3 border-t border-slate-200 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={() => setShowVendorBankSection((prev) => !prev)}
-                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-indigo-50/70 hover:bg-indigo-100/70 border border-indigo-200 text-xs font-bold text-indigo-900 transition cursor-pointer"
-              >
-                <span>Vendor / Commercial Profile (Tax ID / TRN, Terms &amp; Beneficiary Bank Details)</span>
-                <span className="text-[11px] font-mono text-indigo-600">
-                  {showVendorBankSection ? 'Hide ▲' : 'Configure ▼'}
-                </span>
-              </button>
 
               {showVendorBankSection && (
-                <div className="mt-2.5 p-4 rounded-xl border border-indigo-200/80 bg-indigo-50/30 space-y-3 text-xs">
+                <div className="space-y-4 pt-1">
                   <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                     <div>
-                      <label className="block text-[10.5px] font-bold uppercase text-slate-600 mb-1">
+                      <label className="block text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-400 mb-1">
                         Tax ID / TRN / VAT #
                       </label>
                       <input
@@ -1039,11 +1078,11 @@ export default function CompanyEditModal({
                         value={taxRegistrationNo}
                         onChange={(e) => setTaxRegistrationNo(e.target.value)}
                         placeholder="e.g. 100239481900003"
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono text-xs"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                       />
                     </div>
                     <div>
-                      <label className="block text-[10.5px] font-bold uppercase text-slate-600 mb-1">
+                      <label className="block text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-400 mb-1">
                         Default Currency
                       </label>
                       <input
@@ -1051,17 +1090,17 @@ export default function CompanyEditModal({
                         value={defaultCurrency}
                         onChange={(e) => setDefaultCurrency(e.target.value.toUpperCase())}
                         placeholder="AED / USD / EUR"
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono text-xs"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                       />
                     </div>
                     <div>
-                      <label className="block text-[10.5px] font-bold uppercase text-slate-600 mb-1">
+                      <label className="block text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-400 mb-1">
                         Default Incoterms
                       </label>
                       <select
                         value={defaultIncoterms}
                         onChange={(e) => setDefaultIncoterms(e.target.value as any)}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none cursor-pointer"
                       >
                         <option value="Ex-Works">Ex-Works</option>
                         <option value="FOB">FOB</option>
@@ -1071,7 +1110,7 @@ export default function CompanyEditModal({
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[10.5px] font-bold uppercase text-slate-600 mb-1">
+                      <label className="block text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-400 mb-1">
                         Payment Terms
                       </label>
                       <input
@@ -1079,13 +1118,13 @@ export default function CompanyEditModal({
                         value={defaultPaymentTerms}
                         onChange={(e) => setDefaultPaymentTerms(e.target.value)}
                         placeholder="e.g. 30 Days PDC / Net 30"
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                       />
                     </div>
                   </div>
 
-                  <div className="pt-2 border-t border-indigo-200/60">
-                    <span className="block text-[10.5px] font-bold uppercase text-indigo-900 mb-2">
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800">
+                    <span className="block text-[10.5px] font-bold uppercase text-slate-700 dark:text-slate-300 mb-2">
                       Beneficiary Bank Account (Auto-Fills Supplier POs &amp; Payment Vouchers)
                     </span>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -1094,21 +1133,21 @@ export default function CompanyEditModal({
                         value={beneficiaryName}
                         onChange={(e) => setBeneficiaryName(e.target.value)}
                         placeholder="Beneficiary Account Holder Name"
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                       />
                       <input
                         type="text"
                         value={bankName}
                         onChange={(e) => setBankName(e.target.value)}
-                        placeholder="Bank Name & Branch"
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+                        placeholder="Bank Name &amp; Branch"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                       />
                       <input
                         type="text"
                         value={iban}
                         onChange={(e) => setIban(e.target.value)}
                         placeholder="IBAN"
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono text-xs"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                       />
                       <div className="grid grid-cols-2 gap-2">
                         <input
@@ -1116,14 +1155,14 @@ export default function CompanyEditModal({
                           value={accountNumber}
                           onChange={(e) => setAccountNumber(e.target.value)}
                           placeholder="Account Number"
-                          className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono text-xs"
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                         />
                         <input
                           type="text"
                           value={swiftCode}
                           onChange={(e) => setSwiftCode(e.target.value)}
                           placeholder="SWIFT / BIC"
-                          className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono text-xs"
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                         />
                       </div>
                     </div>
@@ -1132,14 +1171,18 @@ export default function CompanyEditModal({
               )}
             </div>
 
-            {/* Internal Notes */}
-            <div>
-              <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
-                Internal Notes
-              </label>
+            {/* CHAPTER 5: INTERNAL NOTES */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-5 shadow-2xs space-y-3">
+              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-mono font-bold text-xs shrink-0">5</span>
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Internal Operational Notes</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Private internal intelligence, client requirements, or special handling notes.</p>
+                </div>
+              </div>
               <textarea
                 rows={3}
-                placeholder="Provide any client profiles, special conditions..."
+                placeholder="Provide any client profiles, special conditions, key milestones..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
@@ -1147,26 +1190,47 @@ export default function CompanyEditModal({
             </div>
           </div>
 
-          {/* Harmonized Modal Action Footer */}
-          <div className="shrink-0 border-t border-slate-200 dark:border-slate-800 px-6 py-4 bg-white dark:bg-slate-900 flex justify-end items-center gap-3">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onClose();
-              }}
-              className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-              <span>{isSaving ? 'Saving Record...' : 'Save Canonical Record'}</span>
-            </button>
+          {/* Harmonized Executive Sticky Footer */}
+          <div className="shrink-0 border-t border-slate-200/80 dark:border-slate-800 px-4 py-3 sm:px-6 sm:py-3.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+            {/* Live Summary Chips */}
+            <div className="flex items-center gap-2 overflow-x-auto min-w-0 py-0.5">
+              <span className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 truncate max-w-[200px]">
+                {canonicalName.trim() || 'New Company'}
+              </span>
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 shrink-0">
+                {relationship}
+              </span>
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shrink-0">
+                {companyPhones.filter(p => p.value.trim()).length} Phone(s)
+              </span>
+              {isInternalCompany && (
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-purple-50 dark:purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 shrink-0">
+                  Sister Co.
+                </span>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto sm:ml-auto">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClose();
+                }}
+                className="h-9 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer w-full sm:w-auto text-center"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="h-9 px-4 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 w-full sm:w-auto"
+              >
+                {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>{isSaving ? 'Saving...' : 'Save Canonical Record'}</span>
+              </button>
+            </div>
           </div>
         </form>
       </div>

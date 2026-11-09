@@ -90,17 +90,17 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   };
 
   return (
-    <div className={`sticky top-0 z-30 shrink-0 w-full px-6 py-4 lg:px-8 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs ${className}`}>
-      <div className={`${maxWidth} mx-auto w-full flex flex-col sm:flex-row sm:items-center justify-between gap-4`}>
+    <div className={`sticky top-0 z-30 shrink-0 w-full px-4 py-3 sm:px-6 sm:py-4 lg:px-8 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs ${className}`}>
+      <div className={`${maxWidth} mx-auto w-full flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4`}>
         {/* Left Info Column with Mobile Hamburger & Secret 5-click trigger */}
-        <div className="flex items-center space-x-3.5 min-w-0">
+        <div className="flex items-center space-x-3 sm:space-x-3.5 w-full sm:w-auto min-w-0">
           <button
             type="button"
             onClick={() => {
               if (onOpenSidebar) onOpenSidebar();
               else window.dispatchEvent(new CustomEvent('open-mobile-sidebar'));
             }}
-            className="md:hidden p-2 -ml-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition cursor-pointer shrink-0"
+            className="md:hidden p-2 -ml-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer shrink-0"
             title="Open Navigation Menu"
             aria-label="Open Navigation Menu"
           >
@@ -110,21 +110,21 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
           <div
             onClick={handleTitleClick}
             title="Secret Trigger: Click 5 times or press Ctrl+Shift+Alt+G for God Mode Console"
-            className="flex items-start sm:items-center space-x-3.5 min-w-0 cursor-pointer select-none group flex-1"
+            className="flex items-center space-x-3 sm:space-x-3.5 min-w-0 cursor-pointer select-none group flex-1"
           >
             {Icon && (
-              <div className="p-2.5 bg-blue-50 border border-blue-200/80 rounded-xl text-blue-600 shrink-0 shadow-2xs group-hover:border-purple-500/50 transition">
-                {React.isValidElement(Icon) ? Icon : React.createElement(Icon as React.ComponentType<{ className?: string }>, { className: 'w-6 h-6' })}
+              <div className="p-2 sm:p-2.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200/80 dark:border-blue-800/60 rounded-xl text-blue-600 dark:text-blue-400 shrink-0 shadow-2xs group-hover:border-purple-500/50 transition">
+                {React.isValidElement(Icon) ? Icon : React.createElement(Icon as React.ComponentType<{ className?: string }>, { className: 'w-5 h-5 sm:w-6 sm:h-6' })}
               </div>
             )}
-            <div className="min-w-0">
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight font-sans truncate group-hover:text-purple-600 transition">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
+                <h1 className="text-lg sm:text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight font-sans group-hover:text-purple-600 dark:group-hover:text-purple-400 transition break-words sm:truncate">
                   {title}
                 </h1>
                 {badge && (
                   <span
-                    className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                    className={`px-2 sm:px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-semibold border shrink-0 ${
                       badgeClasses[badge.variant || 'blue']
                     }`}
                   >
@@ -132,7 +132,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-500 font-medium mt-0.5 truncate">
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5 line-clamp-2 sm:line-clamp-1 sm:truncate">
                 {subtitle}
               </p>
             </div>
@@ -141,7 +141,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
 
         {/* Right Action Bar Column */}
         {(primaryAction || (secondaryActions && secondaryActions.length > 0) || children) && (
-          <div className="flex items-center gap-2 flex-nowrap justify-end shrink-0">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end shrink-0 pt-1 sm:pt-0">
             {secondaryActions?.map((act, index) => {
               const SecIcon = act.icon;
               const isGhost = act.variant === 'ghost';
@@ -152,14 +152,14 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
                   onClick={act.onClick}
                   className={
                     isGhost
-                      ? 'px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0'
-                      : 'px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 shadow-2xs rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0'
+                      ? 'px-3 py-1.5 sm:px-3.5 sm:py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap'
+                      : 'px-3 py-1.5 sm:px-3.5 sm:py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/60 shadow-2xs rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap'
                   }
                 >
                   {SecIcon && (
                     React.isValidElement(SecIcon)
                       ? SecIcon
-                      : React.createElement(SecIcon as React.ComponentType<{ className?: string }>, { className: 'w-4 h-4 text-slate-500 shrink-0' })
+                      : React.createElement(SecIcon as React.ComponentType<{ className?: string }>, { className: 'w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0' })
                   )}
                   <span>{act.label}</span>
                 </button>
@@ -170,7 +170,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
               <button
                 type="button"
                 onClick={primaryAction.onClick}
-                className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition cursor-pointer flex items-center gap-2 border border-blue-500/20 active:scale-[0.98] whitespace-nowrap shrink-0"
+                className="px-3.5 py-1.5 sm:px-4 sm:py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1.5 sm:gap-2 border border-blue-500/20 active:scale-[0.98] whitespace-nowrap"
               >
                 {primaryAction.icon && (
                   React.isValidElement(primaryAction.icon)
