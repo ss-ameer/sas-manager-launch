@@ -563,7 +563,7 @@ export const AtMentionTextarea: React.FC<AtMentionTextareaProps> = ({
             className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 text-[10px] font-semibold transition cursor-pointer"
           >
             <AtSign className="w-3 h-3" />
-            <span>+ Insert @Tag</span>
+            <span>Insert @Tag</span>
           </button>
         </div>
       )}

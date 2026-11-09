@@ -1235,6 +1235,7 @@ export default function EnquiryForm({
   // Multi-level Hierarchical Token Expansion for Line Items
   const [expandedLineItemsToken, setExpandedLineItemsToken] = useState<boolean>(false);
   const [expandedItemIndices, setExpandedItemIndices] = useState<number[]>([]);
+  const [editingLineTotalIdx, setEditingLineTotalIdx] = useState<number | null>(null);
 
   // Modal state for Confirm Entity Registration
   const [showConfirmRegistrationModal, setShowConfirmRegistrationModal] = useState<boolean>(false);
@@ -1934,7 +1935,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     return () => {
       isMounted = false;
     };
-  }, [enquiryToEdit, activeWorkspace?.id, enquiries, calibratedDefaultSn, nextSn]);
+  }, [enquiryToEdit?.id, activeWorkspace?.id]);
 
   // Check if target S/N is already assigned to an existing, non-deleted enquiry
   const occupiedEnquiry = React.useMemo(() => {
@@ -4864,16 +4865,595 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               className="flex-1 overflow-x-hidden overflow-y-auto p-6 pb-24 space-y-6 bg-slate-50/80 dark:bg-slate-950/70 border-0 m-0 min-w-0"
             >
             
-            {/* Section 1: Standard Metadata */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
-                  <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  <span>Log Metadata &amp; Ownership</span>
-                </span>
+            {/* Chapter 1: 1. Client & Ownership Metadata */}
+            <div
+              id="field-company"
+              className={`scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-5 shadow-2xs transition-all duration-300 ${getHighlightClasses('company')}`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3.5 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0 border border-blue-200/60 dark:border-blue-800/60">
+                    1
+                  </span>
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">
+                      Client &amp; Ownership Metadata
+                    </h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                      Assign account, contact personnel, and log dates
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={handleAutoDetectClipboard}
+                    className="px-2.5 py-1 sm:px-3 sm:py-1.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 shadow-2xs cursor-pointer z-10"
+                    title="Read clipboard text & auto-detect unregistered companies or contacts with AI"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 fill-emerald-600" />
+                    <span>Auto-Detect Clipboard</span>
+                  </button>
+                </div>
               </div>
 
-              <div className="w-full">
+              {/* Subsection 1A: Account & Contact Pairing (Primary Task First) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 relative">
+                {/* Company search */}
+                <div className="relative min-w-0">
+                  <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[28px]">
+                    <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                      <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                        Search &amp; Pair Company
+                      </span>
+                      {renderConfidenceBadge('company_name')}
+                    </div>
+
+                    {/* Explicit Inline Company Actions */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {companyId && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCompanyMenuOpen(false);
+                            const comp = companies.find((c) => c.id === companyId);
+                            if (comp) {
+                              let baseName = comp.display_name;
+                              if (comp.legal_suffix && comp.legal_suffix !== 'None / Other') {
+                                if (comp.display_name.endsWith(comp.legal_suffix)) {
+                                  baseName = comp.display_name.slice(0, -comp.legal_suffix.length).trim();
+                                }
+                              }
+                              setSubCompanyName(baseName);
+                              setSubLegalSuffix(comp.legal_suffix || 'None / To Be Added Later');
+                              setSubCompanyCode(comp.company_code || '');
+                              setSubCountryCode(comp.country_code || '');
+                              setSubCity(comp.city);
+                              setSubCountry(comp.country);
+                              setSubGeneralPhone(comp.general_phone || '');
+                              setSubGeneralEmail(comp.general_email || '');
+                              setSubNotes(comp.notes || '');
+                              setIsEditingCompany(true);
+                              setNewCompanyModal(true);
+                            }
+                          }}
+                          className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-md text-[10px] font-semibold inline-flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+                          title="Edit selected Company"
+                        >
+                          <Pencil className="w-2.5 h-2.5" />
+                          <span>Edit</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCompanyMenuOpen(false);
+                          setSubCompanyName(companySearch);
+                          setSubLegalSuffix('None / To Be Added Later');
+                          setSubCompanyCode('');
+                          setSubCountryCode('');
+                          setSubCity('');
+                          setSubCountry('UAE');
+                          setSubGeneralPhone('');
+                          setSubGeneralEmail('');
+                          setSubNotes('');
+                          setIsEditingCompany(false);
+                          setNewCompanyModal(true);
+                        }}
+                        className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-md text-[10px] font-semibold inline-flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+                        title="Register a new Company"
+                      >
+                        <Plus className="w-2.5 h-2.5" />
+                        <span>New</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 items-center min-w-0">
+                    <div className="relative flex-1 min-w-0">
+                      <input
+                        type="text"
+                        required={status !== 'Gap / Reserved'}
+                        placeholder={status === 'Gap / Reserved' ? '[Reserved Sequence / Missing File]' : BRAND_CONFIG.placeholderSearchText}
+                        value={companySearch ?? ''}
+                        onChange={(e) => {
+                          setCompanySearch(e.target.value);
+                          if (companyId) setCompanyId('');
+                          setShowCompanyList(true);
+                        }}
+                        onFocus={() => setShowCompanyList(true)}
+                        className={`w-full min-w-0 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 pl-3 pr-14 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none transition-all ${getHighlightClasses('company')}`}
+                      />
+                      {companyId && (() => {
+                        const selComp = companies.find((c) => c.id === companyId);
+                        return selComp?.company_code ? (
+                          <span className="absolute right-2.5 top-2 px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-mono font-bold text-[10px] pointer-events-none">
+                            {selComp.company_code}
+                          </span>
+                        ) : null;
+                      })()}
+                    </div>
+                    {companySearch.trim().length > 0 && !companyId && (
+                      <button
+                        type="button"
+                        disabled={isCreatingCompanyInline}
+                        onClick={() => handleCreateCompanyInline(companySearch)}
+                        className="px-2.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shrink-0 shadow-2xs transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                        title="Save typed company name directly to Companies Registry"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Save</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {showCompanyList && companySearch.trim().length > 0 && (
+                    <div className="absolute top-full left-0 right-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl mt-1.5 max-h-52 overflow-y-auto z-50 shadow-2xl divide-y divide-slate-100 dark:divide-slate-800">
+                      {matchingCompanies.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => {
+                            setCompanyId(c.id!);
+                            setCompanySearch(c.display_name);
+                            setCountry(c.country);
+                            setProjectLocation(c.city);
+                            setShowCompanyList(false);
+                            const prim = contacts.find((ct) => ct.company_id === c.id && ct.is_primary);
+                            if (prim) {
+                              setContactId(prim.id!);
+                            } else {
+                              setContactId('');
+                            }
+                          }}
+                          className="w-full p-3 hover:bg-slate-50 dark:hover:bg-slate-800 text-left text-xs font-sans text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer transition"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">{c.display_name}</span>
+                            {c.company_code && (
+                              <span className="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-mono font-bold text-[10px] shrink-0">
+                                {c.company_code}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-400 font-mono uppercase shrink-0 ml-2">{c.city}, {c.country}</span>
+                        </button>
+                      ))}
+                      {matchingCompanies.length === 0 ? (
+                        <button
+                          type="button"
+                          disabled={isCreatingCompanyInline}
+                          onClick={() => handleCreateCompanyInline(companySearch)}
+                          className="w-full p-3.5 bg-blue-50/90 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 text-left text-xs font-semibold flex items-center space-x-2.5 transition cursor-pointer disabled:opacity-50"
+                        >
+                          {isCreatingCompanyInline ? (
+                            <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0" />
+                          ) : (
+                            <Plus className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                          )}
+                          <span className="truncate">
+                            Create New Company: <strong className="underline underline-offset-2">"{companySearch.trim()}"</strong>
+                          </span>
+                        </button>
+                      ) : (
+                        !matchingCompanies.some((c) => c.display_name.toLowerCase() === companySearch.trim().toLowerCase()) && (
+                          <button
+                            type="button"
+                            disabled={isCreatingCompanyInline}
+                            onClick={() => handleCreateCompanyInline(companySearch)}
+                            className="w-full p-2.5 bg-slate-50 hover:bg-blue-50/80 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-600 hover:text-blue-700 dark:text-slate-400 dark:hover:text-blue-300 text-left text-[11px] font-medium flex items-center space-x-2 transition cursor-pointer border-t border-slate-100 dark:border-slate-800"
+                          >
+                            <Plus className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                            <span className="truncate">
+                              Create New Company: <strong>"{companySearch.trim()}"</strong>
+                            </span>
+                          </button>
+                        )
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Contact lookup */}
+                <div className="min-w-0">
+                  <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[28px]">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                        Account Contact Personnel
+                      </span>
+                      {renderConfidenceBadge('contact_name')}
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {companyId && contactId && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowContactMenu(false);
+                            const ct = contacts.find((c) => c.id === contactId);
+                            if (ct) {
+                              setSubContactName(ct.full_name);
+                              setSubContactDesignation(ct.designation || '');
+                              setSubContactMobile(ct.mobile || '');
+                              setSubContactEmail(ct.email || '');
+                              setSubContactIsPrimary(ct.is_primary || false);
+                              setIsEditingContact(true);
+                              setShowNewContactModal(true);
+                            }
+                          }}
+                          className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-md text-[10px] font-semibold inline-flex items-center gap-1 shrink-0 transition cursor-pointer whitespace-nowrap"
+                          title="Edit selected contact"
+                        >
+                          <Pencil className="w-2.5 h-2.5" />
+                          <span>Edit</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowContactMenu(false);
+                          if (!companyId) {
+                            if (triggerToast) {
+                              triggerToast('Please search or select a Company first before adding a contact person.', 'info');
+                            } else {
+                              alert('Please search or select a Company first before adding a contact person.');
+                            }
+                            return;
+                          }
+                          setSubContactName('');
+                          setSubContactDesignation('');
+                          setSubContactMobile('');
+                          setSubContactEmail('');
+                          setSubContactIsPrimary(false);
+                          setIsEditingContact(false);
+                          setShowNewContactModal(true);
+                        }}
+                        className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-md text-[10px] font-semibold inline-flex items-center gap-1 shrink-0 transition cursor-pointer whitespace-nowrap"
+                        title="Add a new contact person for this account"
+                      >
+                        <UserPlus className="w-2.5 h-2.5" />
+                        <span>New</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 min-w-0">
+                    <select
+                      value={contactId ?? ''}
+                      onChange={(e) => setContactId(e.target.value)}
+                      disabled={!companyId}
+                      className={`w-full min-w-0 truncate bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none disabled:opacity-50 font-sans transition-all ${getHighlightClasses('contact')}`}
+                    >
+                      <option value="" className="text-slate-500">-- Choose Contact Manager --</option>
+                      {companyContacts.map((ct) => (
+                        <option key={ct.id} value={ct.id}>
+                          {ct.full_name} {ct.designation ? `(${ct.designation})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {companyId && !contactId && (
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <input
+                          type="text"
+                          placeholder="Or type new contact name to quick-save..."
+                          value={customContactInput ?? ''}
+                          onChange={(e) => setCustomContactInput(e.target.value)}
+                          className="flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg py-1 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500"
+                        />
+                        {customContactInput.trim().length > 0 && (
+                          <button
+                            type="button"
+                            disabled={isCreatingContactInline}
+                            onClick={() => handleCreateContactInline(customContactInput)}
+                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-semibold flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>Save</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Unregistered Entities Confirmation & One-Click Registration Card */}
+              {unregisteredEntities && (
+                <div 
+                  id="field-unregistered_entities" 
+                  className={`bg-gradient-to-r from-amber-50/90 via-slate-50 to-emerald-50/90 border-2 border-emerald-400 rounded-2xl p-5 shadow-sm space-y-4 transition-all duration-300 ${getHighlightClasses('unregistered_entities')}`}
+                >
+                  <div className="flex items-start justify-between border-b border-emerald-200/60 pb-3">
+                    <div className="flex items-center space-x-2.5">
+                      <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-xs">
+                        <Sparkles className="w-5 h-5 animate-pulse" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900 font-sans flex items-center gap-2">
+                          <span>Detected New / Unregistered Entities</span>
+                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-mono rounded-full font-bold">
+                            AI Match Action Required
+                          </span>
+                        </h4>
+                        <p className="text-xs text-slate-600 font-sans mt-0.5">
+                          Review extracted data and click "Confirm &amp; Register" to instantly record into Company and Contact database catalogs.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setUnregisteredEntities(null)}
+                      className="p-1.5 hover:bg-red-50 text-red-500 rounded-lg transition border border-transparent hover:border-red-100 flex items-center space-x-1"
+                      title="Dismiss confirmation"
+                    >
+                      <span className="text-[11px] font-bold">Discard / Ignore AI Suggestion</span>
+                      <X className="w-4 h-4 inline" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-sans">
+                    {/* Company Fields */}
+                    <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-2.5 shadow-2xs">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                        <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                          <Building className="w-4 h-4 text-blue-600" />
+                          <span>1. Company Resolution</span>
+                        </span>
+                        <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                          <button 
+                            type="button"
+                            onClick={() => setUnregisteredEntities({...unregisteredEntities, companyResolutionMode: 'create'})}
+                            className={`px-2 py-1 rounded-md text-[10px] font-bold transition ${unregisteredEntities.companyResolutionMode !== 'link' ? 'bg-white shadow-2xs text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}
+                          >
+                            Create New
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => setUnregisteredEntities({...unregisteredEntities, companyResolutionMode: 'link'})}
+                            className={`px-2 py-1 rounded-md text-[10px] font-bold transition ${unregisteredEntities.companyResolutionMode === 'link' ? 'bg-white shadow-2xs text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}
+                          >
+                            Link Existing
+                          </button>
+                        </div>
+                      </div>
+                      
+                      {unregisteredEntities.companyResolutionMode === 'link' ? (
+                        <div className="space-y-2">
+                          <div>
+                            <label className="text-[10px] font-semibold text-slate-500 uppercase">Search Existing Company</label>
+                            <select
+                              value={unregisteredEntities.linkedCompanyId || ''}
+                              onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, linkedCompanyId: e.target.value })}
+                              className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                            >
+                              <option value="">-- Select Company --</option>
+                              {companies.map(c => (
+                                <option key={c.id} value={c.id}>{c.display_name} ({c.city}, {c.country})</option>
+                              ))}
+                            </select>
+                          </div>
+                          <p className="text-[10px] text-slate-500 font-sans italic">
+                            Select an existing company to link this contact and enquiry to.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 animate-in fade-in duration-200">
+                          <div className="flex flex-wrap gap-2">
+                            <div className="flex-1 min-w-[250px]">
+                              <label className="text-[10px] font-semibold text-slate-500 uppercase">Company Name</label>
+                              <input
+                                type="text"
+                                value={unregisteredEntities.companyName || ''}
+                                onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, companyName: e.target.value })}
+                                className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-blue-500"
+                              />
+                            </div>
+                            <div className="flex-1 min-w-[150px]">
+                              <label className="text-[10px] font-semibold text-slate-500 uppercase">Legal Suffix</label>
+                              <select
+                                value={unregisteredEntities.legalSuffix !== undefined ? unregisteredEntities.legalSuffix : 'None / To Be Added Later'}
+                                onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, legalSuffix: e.target.value })}
+                                className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 font-sans cursor-pointer"
+                              >
+                                {['None / To Be Added Later', 'LLC', 'FZE', 'FZCO', 'FZC', 'Co. LLC', 'PJSC', 'JSC', 'Corp', 'Ltd', 'W.L.L.', 'Est.', 'None / Other'].map((suf) => (
+                                  <option key={suf} value={suf}>{suf}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[10px] font-semibold text-slate-500 uppercase">City / Location</label>
+                              <input
+                                type="text"
+                                value={unregisteredEntities.city || ''}
+                                onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, city: e.target.value })}
+                                className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-semibold text-slate-500 uppercase">Country</label>
+                              <input
+                                type="text"
+                                value={unregisteredEntities.country || 'UAE'}
+                                onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, country: e.target.value })}
+                                className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[10px] font-semibold text-slate-500 uppercase">Relationship</label>
+                              <select
+                                value={unregisteredEntities.relationship || 'Prospect'}
+                                onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, relationship: e.target.value })}
+                                className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                              >
+                                <option value="Prospect">Prospect</option>
+                                <option value="Client">Client</option>
+                                <option value="Partner">Partner</option>
+                                <option value="Vendor">Vendor</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-semibold text-slate-500 uppercase">Temperature</label>
+                              <select
+                                value={unregisteredEntities.temperature || 'Cold ❄️'}
+                                onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, temperature: e.target.value })}
+                                className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                              >
+                                <option value="Cold ❄️">Cold ❄️</option>
+                                <option value="Warm 🔥">Warm 🔥</option>
+                                <option value="Hot 🚨">Hot 🚨</option>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Contact Person Fields */}
+                    <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-2.5 shadow-2xs">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                        <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                          <User className="w-4 h-4 text-emerald-600" />
+                          <span>2. Contact Resolution</span>
+                        </span>
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={unregisteredEntities.ignoreContact || false}
+                            onChange={(e) => setUnregisteredEntities({...unregisteredEntities, ignoreContact: e.target.checked})}
+                            className="rounded border-slate-300 text-rose-500 focus:ring-rose-500" 
+                          />
+                          <span className="text-[10px] font-bold text-rose-600">Ignore/Do not register</span>
+                        </label>
+                      </div>
+
+                      <div className={`space-y-2 transition-opacity ${unregisteredEntities.ignoreContact ? 'opacity-40 pointer-events-none' : ''}`}>
+                        <div className="flex flex-wrap gap-2">
+                          <div className="flex-1 min-w-[250px]">
+                            <label className="text-[10px] font-semibold text-slate-500 uppercase">Full Name</label>
+                            <input
+                              type="text"
+                              value={unregisteredEntities.contactName || ''}
+                              onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, contactName: e.target.value })}
+                              className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-blue-500"
+                            />
+                          </div>
+                          <div className="flex-1 min-w-[150px]">
+                            <label className="text-[10px] font-semibold text-slate-500 uppercase">Designation / Job Title</label>
+                            <input
+                              type="text"
+                              value={unregisteredEntities.contactDesignation || ''}
+                              onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, contactDesignation: e.target.value })}
+                              className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] font-semibold text-slate-500 uppercase">Email Address</label>
+                            <input
+                              type="email"
+                              value={unregisteredEntities.contactEmail || ''}
+                              onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, contactEmail: e.target.value })}
+                              className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-mono focus:bg-white focus:outline-none focus:border-blue-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-semibold text-slate-500 uppercase">Phone / Mobile</label>
+                            <input
+                              type="text"
+                              value={unregisteredEntities.contactMobile || ''}
+                              onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, contactMobile: e.target.value })}
+                              className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-mono focus:bg-white focus:outline-none focus:border-blue-500"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Interactive Field Assignment Routing */}
+                  <div className="bg-white/80 p-3 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+                    <div className={`flex flex-wrap items-center gap-4 ${unregisteredEntities.ignoreContact ? 'opacity-40 pointer-events-none' : ''}`}>
+                      <div className="flex items-center space-x-2">
+                        <span className="font-semibold text-slate-700 text-[11px]">Route Email To:</span>
+                        <div className="inline-flex p-0.5 bg-slate-100 border border-slate-200 rounded-lg">
+                          <button
+                            type="button"
+                            onClick={() => setUnregisteredEntities({ ...unregisteredEntities, emailDestination: 'contact' })}
+                            className={`px-2.5 py-0.5 text-[11px] font-bold rounded-md transition ${unregisteredEntities.emailDestination === 'contact' ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
+                          >
+                            Contact Person
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setUnregisteredEntities({ ...unregisteredEntities, emailDestination: 'company' })}
+                            className={`px-2.5 py-0.5 text-[11px] font-bold rounded-md transition ${unregisteredEntities.emailDestination === 'company' ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
+                          >
+                            Company General
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <span className="font-semibold text-slate-700 text-[11px]">Route Phone To:</span>
+                        <div className="inline-flex p-0.5 bg-slate-100 border border-slate-200 rounded-lg">
+                          <button
+                            type="button"
+                            onClick={() => setUnregisteredEntities({ ...unregisteredEntities, phoneDestination: 'contact' })}
+                            className={`px-2.5 py-0.5 text-[11px] font-bold rounded-md transition ${unregisteredEntities.phoneDestination === 'contact' ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
+                          >
+                            Contact Person
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setUnregisteredEntities({ ...unregisteredEntities, phoneDestination: 'company' })}
+                            className={`px-2.5 py-0.5 text-[11px] font-bold rounded-md transition ${unregisteredEntities.phoneDestination === 'company' ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
+                          >
+                            Company General
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleConfirmRegisterEntities()}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md hover:shadow-lg transition flex items-center space-x-2 cursor-pointer"
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-emerald-100" />
+                      <span>Process Entity Resolutions</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Subsection 1B: Log Metadata & Ownership */}
+              <div className="border-t border-slate-100 dark:border-slate-800 pt-4">
                 <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
                     <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
@@ -5010,592 +5590,26 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
             </div>
 
-          {/* Unregistered Entities Confirmation & One-Click Registration Card */}
-          {unregisteredEntities && (
-            <div 
-              id="field-unregistered_entities" 
-              className={`bg-gradient-to-r from-amber-50/90 via-slate-50 to-emerald-50/90 border-2 border-emerald-400 rounded-2xl p-5 shadow-sm space-y-4 transition-all duration-300 ${getHighlightClasses('unregistered_entities')}`}
-            >
-              <div className="flex items-start justify-between border-b border-emerald-200/60 pb-3">
-                <div className="flex items-center space-x-2.5">
-                  <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-xs">
-                    <Sparkles className="w-5 h-5 animate-pulse" />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-900 font-sans flex items-center gap-2">
-                      <span>Detected New / Unregistered Entities</span>
-                      <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-mono rounded-full font-bold">
-                        AI Match Action Required
-                      </span>
-                    </h4>
-                    <p className="text-xs text-slate-600 font-sans mt-0.5">
-                      Review extracted data and click "Confirm & Register" to instantly record into Company and Contact database catalogs.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setUnregisteredEntities(null)}
-                  className="p-1.5 hover:bg-red-50 text-red-500 rounded-lg transition border border-transparent hover:border-red-100 flex items-center space-x-1"
-                  title="Dismiss confirmation"
-                >
-                  <span className="text-[11px] font-bold">Discard / Ignore AI Suggestion</span>
-                  <X className="w-4 h-4 inline" />
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-sans">
-                {/* Company Fields */}
-                <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-2.5 shadow-2xs">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                    <span className="font-bold text-slate-800 flex items-center gap-1.5">
-                      <Building className="w-4 h-4 text-blue-600" />
-                      <span>1. Company Resolution</span>
-                    </span>
-                    <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-                      <button 
-                        type="button"
-                        onClick={() => setUnregisteredEntities({...unregisteredEntities, companyResolutionMode: 'create'})}
-                        className={`px-2 py-1 rounded-md text-[10px] font-bold transition ${unregisteredEntities.companyResolutionMode !== 'link' ? 'bg-white shadow-2xs text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}
-                      >
-                        Create New
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => setUnregisteredEntities({...unregisteredEntities, companyResolutionMode: 'link'})}
-                        className={`px-2 py-1 rounded-md text-[10px] font-bold transition ${unregisteredEntities.companyResolutionMode === 'link' ? 'bg-white shadow-2xs text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}
-                      >
-                        Link Existing
-                      </button>
-                    </div>
-                  </div>
-                  
-                  {unregisteredEntities.companyResolutionMode === 'link' ? (
-                    <div className="space-y-2">
-                      <div>
-                        <label className="text-[10px] font-semibold text-slate-500 uppercase">Search Existing Company</label>
-                        <select
-                          value={unregisteredEntities.linkedCompanyId || ''}
-                          onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, linkedCompanyId: e.target.value })}
-                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
-                        >
-                          <option value="">-- Select Company --</option>
-                          {companies.map(c => (
-                            <option key={c.id} value={c.id}>{c.display_name} ({c.city}, {c.country})</option>
-                          ))}
-                        </select>
-                      </div>
-                      <p className="text-[10px] text-slate-500 font-sans italic">
-                        Select an existing company to link this contact and enquiry to.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2 animate-in fade-in duration-200">
-                      <div className="flex flex-wrap gap-2">
-                        <div className="flex-1 min-w-[250px]">
-                          <label className="text-[10px] font-semibold text-slate-500 uppercase">Company Name</label>
-                          <input
-                            type="text"
-                            value={unregisteredEntities.companyName || ''}
-                            onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, companyName: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-blue-500"
-                          />
-                        </div>
-                        <div className="flex-1 min-w-[150px]">
-                          <label className="text-[10px] font-semibold text-slate-500 uppercase">Legal Suffix</label>
-                          <select
-                            value={unregisteredEntities.legalSuffix !== undefined ? unregisteredEntities.legalSuffix : 'None / To Be Added Later'}
-                            onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, legalSuffix: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500 font-sans cursor-pointer"
-                          >
-                            {['None / To Be Added Later', 'LLC', 'FZE', 'FZCO', 'FZC', 'Co. LLC', 'PJSC', 'JSC', 'Corp', 'Ltd', 'W.L.L.', 'Est.', 'None / Other'].map((suf) => (
-                              <option key={suf} value={suf}>{suf}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-[10px] font-semibold text-slate-500 uppercase">City / Location</label>
-                          <input
-                            type="text"
-                            value={unregisteredEntities.city || ''}
-                            onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, city: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-semibold text-slate-500 uppercase">Country</label>
-                          <input
-                            type="text"
-                            value={unregisteredEntities.country || 'UAE'}
-                            onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, country: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-[10px] font-semibold text-slate-500 uppercase">Relationship</label>
-                          <select
-                            value={unregisteredEntities.relationship || 'Prospect'}
-                            onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, relationship: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
-                          >
-                            <option value="Prospect">Prospect</option>
-                            <option value="Client">Client</option>
-                            <option value="Partner">Partner</option>
-                            <option value="Vendor">Vendor</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-semibold text-slate-500 uppercase">Temperature</label>
-                          <select
-                            value={unregisteredEntities.temperature || 'Cold ❄️'}
-                            onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, temperature: e.target.value })}
-                            className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
-                          >
-                            <option value="Cold ❄️">Cold ❄️</option>
-                            <option value="Warm 🔥">Warm 🔥</option>
-                            <option value="Hot 🚨">Hot 🚨</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Contact Person Fields */}
-                <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-2.5 shadow-2xs">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                    <span className="font-bold text-slate-800 flex items-center gap-1.5">
-                      <User className="w-4 h-4 text-emerald-600" />
-                      <span>2. Contact Resolution</span>
-                    </span>
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input 
-                        type="checkbox" 
-                        checked={unregisteredEntities.ignoreContact || false}
-                        onChange={(e) => setUnregisteredEntities({...unregisteredEntities, ignoreContact: e.target.checked})}
-                        className="rounded border-slate-300 text-rose-500 focus:ring-rose-500" 
-                      />
-                      <span className="text-[10px] font-bold text-rose-600">Ignore/Do not register</span>
-                    </label>
-                  </div>
-
-                  <div className={`space-y-2 transition-opacity ${unregisteredEntities.ignoreContact ? 'opacity-40 pointer-events-none' : ''}`}>
-                    <div className="flex flex-wrap gap-2">
-                      <div className="flex-1 min-w-[250px]">
-                        <label className="text-[10px] font-semibold text-slate-500 uppercase">Full Name</label>
-                        <input
-                          type="text"
-                          value={unregisteredEntities.contactName || ''}
-                          onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, contactName: e.target.value })}
-                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-semibold focus:bg-white focus:outline-none focus:border-blue-500"
-                        />
-                      </div>
-                      <div className="flex-1 min-w-[150px]">
-                        <label className="text-[10px] font-semibold text-slate-500 uppercase">Designation / Job Title</label>
-                        <input
-                          type="text"
-                          value={unregisteredEntities.contactDesignation || ''}
-                          onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, contactDesignation: e.target.value })}
-                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none focus:border-blue-500"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[10px] font-semibold text-slate-500 uppercase">Email Address</label>
-                        <input
-                          type="email"
-                          value={unregisteredEntities.contactEmail || ''}
-                          onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, contactEmail: e.target.value })}
-                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-mono focus:bg-white focus:outline-none focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-semibold text-slate-500 uppercase">Phone / Mobile</label>
-                        <input
-                          type="text"
-                          value={unregisteredEntities.contactMobile || ''}
-                          onChange={(e) => setUnregisteredEntities({ ...unregisteredEntities, contactMobile: e.target.value })}
-                          className="w-full bg-slate-50 border border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 font-mono focus:bg-white focus:outline-none focus:border-blue-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
+          {/* Chapter 2: 2. Commercial Scope & Project Specs */}
+          <div id="field-country" className="scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs">
+            <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0 border border-blue-200/60 dark:border-blue-800/60">
+                  2
+                </span>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">
+                    Commercial Scope &amp; Project Specs
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                    Location, quotation reference, option scope, and custom project attributes
+                  </p>
                 </div>
               </div>
-
-              {/* Interactive Field Assignment Routing */}
-              <div className="bg-white/80 p-3 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
-                <div className={`flex flex-wrap items-center gap-4 ${unregisteredEntities.ignoreContact ? 'opacity-40 pointer-events-none' : ''}`}>
-                  <div className="flex items-center space-x-2">
-                    <span className="font-semibold text-slate-700 text-[11px]">Route Email To:</span>
-                    <div className="inline-flex p-0.5 bg-slate-100 border border-slate-200 rounded-lg">
-                      <button
-                        type="button"
-                        onClick={() => setUnregisteredEntities({ ...unregisteredEntities, emailDestination: 'contact' })}
-                        className={`px-2.5 py-0.5 text-[11px] font-bold rounded-md transition ${unregisteredEntities.emailDestination === 'contact' ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
-                      >
-                        Contact Person
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setUnregisteredEntities({ ...unregisteredEntities, emailDestination: 'company' })}
-                        className={`px-2.5 py-0.5 text-[11px] font-bold rounded-md transition ${unregisteredEntities.emailDestination === 'company' ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
-                      >
-                        Company General
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    <span className="font-semibold text-slate-700 text-[11px]">Route Phone To:</span>
-                    <div className="inline-flex p-0.5 bg-slate-100 border border-slate-200 rounded-lg">
-                      <button
-                        type="button"
-                        onClick={() => setUnregisteredEntities({ ...unregisteredEntities, phoneDestination: 'contact' })}
-                        className={`px-2.5 py-0.5 text-[11px] font-bold rounded-md transition ${unregisteredEntities.phoneDestination === 'contact' ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
-                      >
-                        Contact Person
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setUnregisteredEntities({ ...unregisteredEntities, phoneDestination: 'company' })}
-                        className={`px-2.5 py-0.5 text-[11px] font-bold rounded-md transition ${unregisteredEntities.phoneDestination === 'company' ? 'bg-blue-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
-                      >
-                        Company General
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => handleConfirmRegisterEntities()}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md hover:shadow-lg transition flex items-center space-x-2 cursor-pointer"
-                >
-                  <CheckCircle2 className="w-4 h-4 text-emerald-100" />
-                  <span>Process Entity Resolutions</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Section 2: Account and Contact selection */}
-          <div id="field-company" className={`scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs transition-all duration-300 ${getHighlightClasses('company')}`}>
-            <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
-              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
-                <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span>Account &amp; Contact Pairing</span>
-              </span>
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={handleAutoDetectClipboard}
-                  className="px-2.5 py-1 sm:px-3 sm:py-1.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shrink-0 shadow-2xs cursor-pointer z-10"
-                  title="Read clipboard text & auto-detect unregistered companies or contacts with AI"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 fill-emerald-600" />
-                  <span>Auto-Detect Clipboard</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 relative">
-              {/* Company search */}
-              <div className="relative min-w-0">
-                <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[28px]">
-                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                    <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
-                      Search & Pair Company
-                    </span>
-                    {renderConfidenceBadge('company_name')}
-                  </div>
-
-                  {/* Explicit Inline Company Actions */}
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {companyId && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCompanyMenuOpen(false);
-                          const comp = companies.find((c) => c.id === companyId);
-                          if (comp) {
-                            let baseName = comp.display_name;
-                            if (comp.legal_suffix && comp.legal_suffix !== 'None / Other') {
-                              if (comp.display_name.endsWith(comp.legal_suffix)) {
-                                baseName = comp.display_name.slice(0, -comp.legal_suffix.length).trim();
-                              }
-                            }
-                            setSubCompanyName(baseName);
-                            setSubLegalSuffix(comp.legal_suffix || 'None / To Be Added Later');
-                            setSubCompanyCode(comp.company_code || '');
-                            setSubCountryCode(comp.country_code || '');
-                            setSubCity(comp.city);
-                            setSubCountry(comp.country);
-                            setSubGeneralPhone(comp.general_phone || '');
-                            setSubGeneralEmail(comp.general_email || '');
-                            setSubNotes(comp.notes || '');
-                            setIsEditingCompany(true);
-                            setNewCompanyModal(true);
-                          }
-                        }}
-                        className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-md text-[10px] font-semibold inline-flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
-                        title="Edit selected Company"
-                      >
-                        <Pencil className="w-2.5 h-2.5" />
-                        <span>Edit</span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCompanyMenuOpen(false);
-                        setSubCompanyName(companySearch);
-                        setSubLegalSuffix('None / To Be Added Later');
-                        setSubCompanyCode('');
-                        setSubCountryCode('');
-                        setSubCity('');
-                        setSubCountry('UAE');
-                        setSubGeneralPhone('');
-                        setSubGeneralEmail('');
-                        setSubNotes('');
-                        setIsEditingCompany(false);
-                        setNewCompanyModal(true);
-                      }}
-                      className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-md text-[10px] font-semibold inline-flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
-                      title="Register a new Company"
-                    >
-                      <Plus className="w-2.5 h-2.5" />
-                      <span>New</span>
-                    </button>
-                  </div>
-                </div>
-                <div className="flex gap-2 items-center min-w-0">
-                  <div className="relative flex-1 min-w-0">
-                    <input
-                      type="text"
-                      required={status !== 'Gap / Reserved'}
-                      placeholder={status === 'Gap / Reserved' ? '[Reserved Sequence / Missing File]' : BRAND_CONFIG.placeholderSearchText}
-                      value={companySearch ?? ''}
-                      onChange={(e) => {
-                        setCompanySearch(e.target.value);
-                        if (companyId) setCompanyId('');
-                        setShowCompanyList(true);
-                      }}
-                      onFocus={() => setShowCompanyList(true)}
-                      className={`w-full min-w-0 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 pl-3 pr-14 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none transition-all ${getHighlightClasses('company')}`}
-                    />
-                    {companyId && (() => {
-                      const selComp = companies.find((c) => c.id === companyId);
-                      return selComp?.company_code ? (
-                        <span className="absolute right-2.5 top-2 px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-mono font-bold text-[10px] pointer-events-none">
-                          {selComp.company_code}
-                        </span>
-                      ) : null;
-                    })()}
-                  </div>
-                  {companySearch.trim().length > 0 && !companyId && (
-                    <button
-                      type="button"
-                      disabled={isCreatingCompanyInline}
-                      onClick={() => handleCreateCompanyInline(companySearch)}
-                      className="px-2.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shrink-0 shadow-2xs transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
-                      title="Save typed company name directly to Companies Registry"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Save</span>
-                    </button>
-                  )}
-                </div>
-
-                {showCompanyList && companySearch.trim().length > 0 && (
-                  <div className="absolute top-full left-0 right-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl mt-1.5 max-h-52 overflow-y-auto z-50 shadow-2xl divide-y divide-slate-100 dark:divide-slate-800">
-                    {matchingCompanies.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => {
-                          setCompanyId(c.id!);
-                          setCompanySearch(c.display_name);
-                          setCountry(c.country);
-                          setProjectLocation(c.city);
-                          setShowCompanyList(false);
-                          const prim = contacts.find((ct) => ct.company_id === c.id && ct.is_primary);
-                          if (prim) {
-                            setContactId(prim.id!);
-                          } else {
-                            setContactId('');
-                          }
-                        }}
-                        className="w-full p-3 hover:bg-slate-50 dark:hover:bg-slate-800 text-left text-xs font-sans text-slate-700 dark:text-slate-200 flex items-center justify-between cursor-pointer transition"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">{c.display_name}</span>
-                          {c.company_code && (
-                            <span className="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-mono font-bold text-[10px] shrink-0">
-                              {c.company_code}
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-[10px] text-slate-400 font-mono uppercase shrink-0 ml-2">{c.city}, {c.country}</span>
-                      </button>
-                    ))}
-                    {matchingCompanies.length === 0 ? (
-                      <button
-                        type="button"
-                        disabled={isCreatingCompanyInline}
-                        onClick={() => handleCreateCompanyInline(companySearch)}
-                        className="w-full p-3.5 bg-blue-50/90 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 text-left text-xs font-semibold flex items-center space-x-2.5 transition cursor-pointer disabled:opacity-50"
-                      >
-                        {isCreatingCompanyInline ? (
-                          <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0" />
-                        ) : (
-                          <Plus className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                        )}
-                        <span className="truncate">
-                          Create New Company: <strong className="underline underline-offset-2">"{companySearch.trim()}"</strong>
-                        </span>
-                      </button>
-                    ) : (
-                      !matchingCompanies.some((c) => c.display_name.toLowerCase() === companySearch.trim().toLowerCase()) && (
-                        <button
-                          type="button"
-                          disabled={isCreatingCompanyInline}
-                          onClick={() => handleCreateCompanyInline(companySearch)}
-                          className="w-full p-2.5 bg-slate-50 hover:bg-blue-50/80 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-600 hover:text-blue-700 dark:text-slate-400 dark:hover:text-blue-300 text-left text-[11px] font-medium flex items-center space-x-2 transition cursor-pointer border-t border-slate-100 dark:border-slate-800"
-                        >
-                          <Plus className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                          <span className="truncate">
-                            Create New Company: <strong>"{companySearch.trim()}"</strong>
-                          </span>
-                        </button>
-                      )
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Contact lookup */}
-              <div className="min-w-0">
-                <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[28px]">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
-                      Account Contact Personnel
-                    </span>
-                    {renderConfidenceBadge('contact_name')}
-                  </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {companyId && contactId && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowContactMenu(false);
-                          const ct = contacts.find((c) => c.id === contactId);
-                          if (ct) {
-                            setSubContactName(ct.full_name);
-                            setSubContactDesignation(ct.designation || '');
-                            setSubContactMobile(ct.mobile || '');
-                            setSubContactEmail(ct.email || '');
-                            setSubContactIsPrimary(ct.is_primary || false);
-                            setIsEditingContact(true);
-                            setShowNewContactModal(true);
-                          }
-                        }}
-                        className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-md text-[10px] font-semibold inline-flex items-center gap-1 shrink-0 transition cursor-pointer whitespace-nowrap"
-                        title="Edit selected contact"
-                      >
-                        <Pencil className="w-2.5 h-2.5" />
-                        <span>Edit</span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowContactMenu(false);
-                        if (!companyId) {
-                          if (triggerToast) {
-                            triggerToast('Please search or select a Company first before adding a contact person.', 'info');
-                          } else {
-                            alert('Please search or select a Company first before adding a contact person.');
-                          }
-                          return;
-                        }
-                        setSubContactName('');
-                        setSubContactDesignation('');
-                        setSubContactMobile('');
-                        setSubContactEmail('');
-                        setSubContactIsPrimary(false);
-                        setIsEditingContact(false);
-                        setShowNewContactModal(true);
-                      }}
-                      className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-md text-[10px] font-semibold inline-flex items-center gap-1 shrink-0 transition cursor-pointer whitespace-nowrap"
-                      title="Add a new contact person for this account"
-                    >
-                      <UserPlus className="w-2.5 h-2.5" />
-                      <span>New</span>
-                    </button>
-                  </div>
-                </div>
-                <div className="space-y-1.5 min-w-0">
-                  <select
-                    value={contactId ?? ''}
-                    onChange={(e) => setContactId(e.target.value)}
-                    disabled={!companyId}
-                    className={`w-full min-w-0 truncate bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none disabled:opacity-50 font-sans transition-all ${getHighlightClasses('contact')}`}
-                  >
-                    <option value="" className="text-slate-500">-- Choose Contact Manager --</option>
-                    {companyContacts.map((ct) => (
-                      <option key={ct.id} value={ct.id}>
-                        {ct.full_name} {ct.designation ? `(${ct.designation})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  {companyId && !contactId && (
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <input
-                        type="text"
-                        placeholder="Or type new contact name to quick-save..."
-                        value={customContactInput ?? ''}
-                        onChange={(e) => setCustomContactInput(e.target.value)}
-                        className="flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg py-1 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500"
-                      />
-                      {customContactInput.trim().length > 0 && (
-                        <button
-                          type="button"
-                          disabled={isCreatingContactInline}
-                          onClick={() => handleCreateContactInline(customContactInput)}
-                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-semibold flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-50 whitespace-nowrap"
-                        >
-                          <Plus className="w-3 h-3" />
-                          <span>Save</span>
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 3: Proposal Location and identifiers */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
-                <Compass className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span>Commercial Scope &amp; References</span>
-              </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              <div id="field-country" className="scroll-mt-4">
+              <div>
                 <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Country</MarqueeLabel>
                 <input
                   type="text"
@@ -6093,14 +6107,21 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             </div>
           </div>
 
-          {/* Section 4: Line Items Table */}
+          {/* Chapter 3: 3. Proposal Line Items */}
           <div id="field-line_items" className={`scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs ${getHighlightClasses('line_items')}`}>
-            <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2 whitespace-nowrap">
-                  <Package className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  <span>Proposal Line Items ({lineItems.length})</span>
+            <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3.5 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-3 min-w-0 flex-wrap">
+                <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0 border border-blue-200/60 dark:border-blue-800/60">
+                  3
                 </span>
+                <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-tight whitespace-nowrap">
+                    Proposal Line Items
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono text-[11px] font-bold">
+                    {lineItems.length}
+                  </span>
+                </div>
                 {renderConfidenceBadge('line_items')}
                 <div
                   className="inline-flex items-center rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5 border border-slate-200/80 dark:border-slate-700"
@@ -6451,9 +6472,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         </div>
                       </div>
 
-                      {/* Row 1 (Identity & Scope): Item Name / Heading, Product Category, Classification, Option Scope */}
+                      {/* Row 1A (Identity): Item Name / Heading (8 cols) + Product Category / Charge Type (4 cols) */}
                       <div className="grid grid-cols-12 gap-3">
-                        <div className="col-span-12 sm:col-span-5 min-w-0">
+                        <div className="col-span-12 sm:col-span-8 min-w-0">
                           <div className="flex items-center justify-between gap-2 h-5 mb-1 min-w-0">
                             <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
                               Item Name / Heading
@@ -6488,7 +6509,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           />
                         </div>
 
-                        <div className="col-span-12 sm:col-span-3 min-w-0">
+                        <div className="col-span-12 sm:col-span-4 min-w-0">
                           {item.item_type === 'charge' || item.item_type === 'discount' ? (
                             <>
                               <div className="flex items-center justify-between h-5 mb-1">
@@ -6529,8 +6550,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             </>
                           )}
                         </div>
+                      </div>
 
-                        <div className="col-span-6 sm:col-span-2 min-w-0">
+                      {/* Row 1B (Scope & Delivery): Classification (4 cols), Option Scope (4 cols), Lead Time / Duration (4 cols) */}
+                      <div className="grid grid-cols-12 gap-3">
+                        <div className="col-span-12 sm:col-span-4 min-w-0">
                           <div className="flex items-center justify-between h-5 mb-1">
                             <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
                               Classification
@@ -6553,7 +6577,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           </select>
                         </div>
 
-                        <div className="col-span-6 sm:col-span-2 min-w-0">
+                        <div className="col-span-12 sm:col-span-4 min-w-0">
                           <div className="flex items-center justify-between h-5 mb-1">
                             <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
                               Option Scope
@@ -6590,6 +6614,36 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               )}
                           </select>
                         </div>
+
+                        {(() => {
+                          const isDiscount =
+                            (item as any).classification === 'Discount / Rebate' || item.item_type === 'discount';
+                          const isService =
+                            (item as any).classification === 'Charge / Fee (Service)' ||
+                            item.item_type === 'charge' ||
+                            (item.item_type as string) === 'service';
+
+                          if (isDiscount) {
+                            return <div className="col-span-12 sm:col-span-4 opacity-0 pointer-events-none" />;
+                          }
+
+                          return (
+                            <div className="col-span-12 sm:col-span-4 min-w-0">
+                              <div className="flex items-center justify-between h-5 mb-1">
+                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                                  {isService ? 'Duration' : 'Lead Time'}
+                                </label>
+                              </div>
+                              <input
+                                type="text"
+                                placeholder={isService ? 'e.g. 1–2 Days' : 'Ex-Stock / 2-3 Wks'}
+                                value={item.lead_time_note ?? ''}
+                                onChange={(e) => handleLineItemChange(index, 'lead_time_note', e.target.value)}
+                                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                              />
+                            </div>
+                          );
+                        })()}
                       </div>
 
                       {/* Row 2 (Technical Description & Brand): Full-width Description + 4-col Brand/Model/Origin/Media */}
@@ -6853,204 +6907,296 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         </div>
                       )}
 
-                      {/* Row 3 (Commercial & Pricing): Qty, Unit, Cost, Selling, Lead Time — directly above Line Total Footer Bar */}
+                      {/* Row 3 (Commercial & Pricing) or Streamlined BOM Kit Package Summary */}
                       <div className="pt-3 border-t border-slate-200/80 dark:border-slate-700/80 space-y-2.5">
-                        <div className="grid grid-cols-12 gap-3">
-                          <div className="col-span-6 sm:col-span-2 min-w-0">
-                            <div className="flex items-center justify-between h-5 mb-1">
-                              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                                Qty
-                              </label>
-                            </div>
-                            <input
-                              type="number"
-                              required
-                              value={item.quantity ?? ''}
-                              onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
-                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
-                            />
-                          </div>
-
-                          <div className="col-span-6 sm:col-span-2 min-w-0">
-                            <div className="flex items-center justify-between h-5 mb-1">
-                              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                                Unit
-                              </label>
-                              {renderSortButton(unitsSort, setUnitsSort, 'Unit Suffixes')}
-                            </div>
-                            <CreatableCombobox
-                              options={sortedUnits}
-                              value={item.unit}
-                              onChange={(val: string) => handleLineItemChange(index, 'unit', val)}
-                              onCreateOption={(val: string) => {
-                                handleLineItemChange(index, 'unit', val);
-                              }}
-                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans"
-                            />
-                          </div>
-
-                          <div className="col-span-6 sm:col-span-3 min-w-0">
-                            <div className="flex items-center justify-between gap-1 h-5 mb-1 min-w-0">
-                              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap truncate">
-                                Cost ({formCurrency})
-                              </label>
-                              {(() => {
-                                const sell = Number(item.unit_price) || 0;
-                                const cost = Number(item.cost_price) || 0;
-                                if (sell > 0 && cost > 0) {
-                                  const marginPct = ((sell - cost) / sell) * 100;
-                                  const isHealthy = marginPct >= 20;
-                                  const isThin = marginPct >= 0 && marginPct < 20;
-                                  return (
-                                    <span
-                                      className={`font-mono tabular-nums text-[10px] font-bold px-1.5 py-0.2 rounded whitespace-nowrap shrink-0 ${
-                                        isHealthy
-                                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
-                                          : isThin
-                                          ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
-                                          : 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300'
-                                      }`}
-                                      title="Gross Margin: (Selling - Cost) / Selling"
-                                    >
-                                      {marginPct.toFixed(1)}%
-                                    </span>
-                                  );
-                                }
-                                return (
-                                  <span className="text-[10px] font-mono text-slate-400 whitespace-nowrap shrink-0">
-                                    Base Cost
-                                  </span>
-                                );
-                              })()}
-                            </div>
-                            <FormattedNumberInput
-                              value={item.cost_price ?? ''}
-                              placeholder="0.00"
-                              onChange={(val: number) => handleLineItemChange(index, 'cost_price', val)}
-                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
-                            />
-                          </div>
-
-                          <div className="col-span-6 sm:col-span-3 min-w-0">
-                            <div className="flex items-center justify-between gap-1 h-5 mb-1 min-w-0">
-                              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap truncate">
-                                Selling ({formCurrency})
-                              </label>
-                              {formCurrency === 'USD' ? (
-                                <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono tabular-nums whitespace-nowrap">
-                                  ≈ {(item.unit_price * 3.6725).toFixed(0)} AED
-                                </span>
-                              ) : (
-                                <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono tabular-nums whitespace-nowrap">
-                                  ≈ ${(item.unit_price / 3.6725).toFixed(1)}
-                                </span>
-                              )}
-                            </div>
-                            <FormattedNumberInput
-                              required
-                              value={item.unit_price}
-                              onChange={(val: number) => handleLineItemChange(index, 'unit_price', val)}
-                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
-                            />
-                          </div>
-
-                          {(() => {
-                            const isDiscount =
-                              (item as any).classification === 'Discount / Rebate' || item.item_type === 'discount';
-                            const isService =
-                              (item as any).classification === 'Charge / Fee (Service)' ||
-                              item.item_type === 'charge' ||
-                              (item.item_type as string) === 'service';
-
-                            if (isDiscount) {
-                              return <div className="col-span-12 sm:col-span-2 opacity-0 pointer-events-none" />;
-                            }
+                        {!isServiceOrFee && isCompositeItem ? (
+                          (() => {
+                            const qtyVal = Number(item.quantity) || 0;
+                            const unitVal = Number(item.unit_price) || 0;
+                            const currentTotal = Number(item.total_price) || 0;
+                            const cleanUom =
+                              !item.unit || String(item.unit).toLowerCase() === 'custom unit' ? 'Sets' : item.unit;
 
                             return (
-                              <div className="col-span-12 sm:col-span-2 min-w-0">
-                                <div className="flex items-center justify-between h-5 mb-1">
-                                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
-                                    {isService ? 'Duration' : 'Lead Time'}
-                                  </label>
+                              <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
+                                <div className="flex items-center gap-3 flex-wrap">
+                                  <div className="flex items-center gap-2">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                      Package Qty:
+                                    </label>
+                                    <input
+                                      type="number"
+                                      required
+                                      value={item.quantity ?? ''}
+                                      onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
+                                      className="w-20 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1 px-2 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
+                                    />
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                      Unit:
+                                    </label>
+                                    <div className="w-28">
+                                      <CreatableCombobox
+                                        options={sortedUnits}
+                                        value={item.unit}
+                                        onChange={(val: string) => handleLineItemChange(index, 'unit', val)}
+                                        onCreateOption={(val: string) => {
+                                          handleLineItemChange(index, 'unit', val);
+                                        }}
+                                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1 px-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans"
+                                      />
+                                    </div>
+                                  </div>
                                 </div>
-                                <input
-                                  type="text"
-                                  placeholder={isService ? 'e.g. 1–2 Days' : 'Ex-Stock / 2-3 Wks'}
-                                  value={item.lead_time_note ?? ''}
-                                  onChange={(e) => handleLineItemChange(index, 'lead_time_note', e.target.value)}
-                                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-                                />
-                              </div>
-                            );
-                          })()}
-                        </div>
 
-                        {/* Structured Line Item Total Footer Bar */}
-                        {(() => {
-                          const qtyVal = Number(item.quantity) || 0;
-                          const unitVal = Number(item.unit_price) || 0;
-                          const calcTotal = Number((qtyVal * unitVal).toFixed(2));
-                          const currentTotal = Number(item.total_price) || 0;
-                          const isOverridden =
-                            !item.is_composite_set &&
-                            !(item.sub_components && item.sub_components.length > 0) &&
-                            Math.abs(currentTotal - calcTotal) > 0.01;
-                          const cleanUom =
-                            !item.unit || String(item.unit).toLowerCase() === 'custom unit' ? 'Nos' : item.unit;
-
-                          return (
-                            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
-                              <div className="flex items-center gap-2 flex-wrap text-xs font-mono tabular-nums">
-                                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                                  Line Total ({formCurrency})
-                                </span>
-                                <span className="px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-[11px] font-medium text-slate-600 dark:text-slate-300">
-                                  {qtyVal} {cleanUom} × {formCurrency}{' '}
-                                  {unitVal.toLocaleString(undefined, {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2
-                                  })}
-                                </span>
-                                {isOverridden && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleLineItemChange(index, 'total_price', calcTotal)}
-                                    className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-[10px] font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-100 transition cursor-pointer"
-                                    title="Line total was manually overridden. Click to reset to Qty × Unit Price."
-                                  >
-                                    Manual Override · Reset
-                                  </button>
-                                )}
-                              </div>
-
-                              <div className="flex items-center gap-2 font-mono tabular-nums">
-                                <FormattedNumberInput
-                                  value={item.total_price}
-                                  onChange={(val: number) => handleLineItemChange(index, 'total_price', val)}
-                                  className="w-32 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg py-1 px-2.5 text-xs font-bold text-slate-900 dark:text-white text-right focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shrink-0"
-                                />
-                                {formCurrency === 'USD' ? (
-                                  <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap shrink-0">
-                                    ≈ AED{' '}
-                                    {Number(currentTotal * 3.6725).toLocaleString(undefined, {
+                                <div className="flex items-center gap-2.5 flex-wrap font-mono tabular-nums">
+                                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                                    Package Line Total:{' '}
+                                    <span className="text-slate-700 dark:text-slate-300 font-medium">
+                                      {qtyVal} {cleanUom} × {formCurrency}{' '}
+                                      {unitVal.toLocaleString(undefined, {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
+                                      })}
+                                    </span>{' '}
+                                    =
+                                  </span>
+                                  <span className="text-sm font-bold text-slate-900 dark:text-white">
+                                    {formCurrency}{' '}
+                                    {currentTotal.toLocaleString(undefined, {
                                       minimumFractionDigits: 2,
                                       maximumFractionDigits: 2
                                     })}
                                   </span>
-                                ) : (
-                                  <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap shrink-0">
-                                    ≈ $
-                                    {Number(currentTotal / 3.6725).toLocaleString(undefined, {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2
-                                    })}{' '}
-                                    USD
-                                  </span>
-                                )}
+                                  {formCurrency === 'USD' ? (
+                                    <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap shrink-0">
+                                      ≈ AED{' '}
+                                      {Number(currentTotal * 3.6725).toLocaleString(undefined, {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
+                                      })}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap shrink-0">
+                                      ≈ $
+                                      {Number(currentTotal / 3.6725).toLocaleString(undefined, {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
+                                      })}{' '}
+                                      USD
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()
+                        ) : (
+                          <>
+                            <div className="grid grid-cols-12 gap-3">
+                              <div className="col-span-6 sm:col-span-2 min-w-0">
+                                <div className="flex items-center justify-between h-5 mb-1">
+                                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                    Qty
+                                  </label>
+                                </div>
+                                <input
+                                  type="number"
+                                  required
+                                  value={item.quantity ?? ''}
+                                  onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
+                                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
+                                />
+                              </div>
+
+                              <div className="col-span-6 sm:col-span-3 min-w-0">
+                                <div className="flex items-center justify-between h-5 mb-1">
+                                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                    Unit
+                                  </label>
+                                  {renderSortButton(unitsSort, setUnitsSort, 'Unit Suffixes')}
+                                </div>
+                                <CreatableCombobox
+                                  options={sortedUnits}
+                                  value={item.unit}
+                                  onChange={(val: string) => handleLineItemChange(index, 'unit', val)}
+                                  onCreateOption={(val: string) => {
+                                    handleLineItemChange(index, 'unit', val);
+                                  }}
+                                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans"
+                                />
+                              </div>
+
+                              <div className="col-span-6 sm:col-span-3 min-w-0">
+                                <div className="flex items-center justify-between gap-1 h-5 mb-1 min-w-0">
+                                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                    Cost ({formCurrency})
+                                  </label>
+                                  {(() => {
+                                    const sell = Number(item.unit_price) || 0;
+                                    const cost = Number(item.cost_price) || 0;
+                                    if (sell > 0 && cost > 0) {
+                                      const marginPct = ((sell - cost) / sell) * 100;
+                                      const isHealthy = marginPct >= 20;
+                                      const isThin = marginPct >= 0 && marginPct < 20;
+                                      return (
+                                        <span
+                                          className={`font-mono tabular-nums text-[10px] font-bold px-1.5 py-0.2 rounded whitespace-nowrap shrink-0 ${
+                                            isHealthy
+                                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
+                                              : isThin
+                                              ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
+                                              : 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300'
+                                          }`}
+                                          title="Gross Margin: (Selling - Cost) / Selling"
+                                        >
+                                          {marginPct.toFixed(1)}%
+                                        </span>
+                                      );
+                                    }
+                                    return (
+                                      <span className="text-[10px] font-mono text-slate-400 whitespace-nowrap shrink-0">
+                                        Base Cost
+                                      </span>
+                                    );
+                                  })()}
+                                </div>
+                                <FormattedNumberInput
+                                  value={item.cost_price ?? ''}
+                                  placeholder="0.00"
+                                  onChange={(val: number) => handleLineItemChange(index, 'cost_price', val)}
+                                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
+                                />
+                              </div>
+
+                              <div className="col-span-6 sm:col-span-4 min-w-0">
+                                <div className="flex items-center justify-between gap-1.5 h-5 mb-1 min-w-0">
+                                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                    Selling ({formCurrency})
+                                  </label>
+                                  {formCurrency === 'USD' ? (
+                                    <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono tabular-nums whitespace-nowrap">
+                                      ≈ {(item.unit_price * 3.6725).toFixed(0)} AED
+                                    </span>
+                                  ) : (
+                                    <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono tabular-nums whitespace-nowrap">
+                                      ≈ ${(item.unit_price / 3.6725).toFixed(1)} USD
+                                    </span>
+                                  )}
+                                </div>
+                                <FormattedNumberInput
+                                  required
+                                  value={item.unit_price}
+                                  onChange={(val: number) => handleLineItemChange(index, 'unit_price', val)}
+                                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
+                                />
                               </div>
                             </div>
-                          );
-                        })()}
+
+                            {/* Structured Line Item Total Footer Bar (Read-Only Figure by Default + Progressive Override Toggle) */}
+                            {(() => {
+                              const qtyVal = Number(item.quantity) || 0;
+                              const unitVal = Number(item.unit_price) || 0;
+                              const calcTotal = Number((qtyVal * unitVal).toFixed(2));
+                              const currentTotal = Number(item.total_price) || 0;
+                              const isOverridden =
+                                !item.is_composite_set &&
+                                !(item.sub_components && item.sub_components.length > 0) &&
+                                Math.abs(currentTotal - calcTotal) > 0.01;
+                              const isEditingOverride = editingLineTotalIdx === index || isOverridden;
+                              const cleanUom =
+                                !item.unit || String(item.unit).toLowerCase() === 'custom unit' ? 'Nos' : item.unit;
+
+                              return (
+                                <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
+                                  <div className="flex items-center gap-2 flex-wrap text-xs font-mono tabular-nums">
+                                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                                      Line Total ({formCurrency})
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                                      {qtyVal} {cleanUom} × {formCurrency}{' '}
+                                      {unitVal.toLocaleString(undefined, {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
+                                      })}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 font-mono tabular-nums">
+                                    {isEditingOverride ? (
+                                      <>
+                                        <FormattedNumberInput
+                                          value={item.total_price}
+                                          onChange={(val: number) => handleLineItemChange(index, 'total_price', val)}
+                                          className="w-32 bg-slate-50 dark:bg-slate-800 border border-blue-400 dark:border-blue-600 rounded-lg py-1 px-2.5 text-xs font-bold text-slate-900 dark:text-white text-right focus:outline-none focus:ring-2 focus:ring-blue-500/20 shrink-0"
+                                        />
+                                        {isOverridden ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              handleLineItemChange(index, 'total_price', calcTotal);
+                                              setEditingLineTotalIdx(null);
+                                            }}
+                                            className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-[10px] font-sans font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-100 transition cursor-pointer whitespace-nowrap"
+                                            title="Reset line total to Qty × Unit Price"
+                                          >
+                                            Reset
+                                          </button>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => setEditingLineTotalIdx(null)}
+                                            className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-sans font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition cursor-pointer whitespace-nowrap"
+                                          >
+                                            Done
+                                          </button>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <span className="text-sm font-bold text-slate-900 dark:text-white">
+                                        {formCurrency}{' '}
+                                        {currentTotal.toLocaleString(undefined, {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2
+                                        })}
+                                      </span>
+                                    )}
+
+                                    {formCurrency === 'USD' ? (
+                                      <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap shrink-0">
+                                        ≈ AED{' '}
+                                        {Number(currentTotal * 3.6725).toLocaleString(undefined, {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2
+                                        })}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap shrink-0">
+                                        ≈ $
+                                        {Number(currentTotal / 3.6725).toLocaleString(undefined, {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2
+                                        })}{' '}
+                                        USD
+                                      </span>
+                                    )}
+
+                                    {!isEditingOverride && !isReadOnly && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingLineTotalIdx(index)}
+                                        className="px-2 py-0.5 rounded-md text-[10px] font-sans font-semibold text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 bg-slate-50 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/40 border border-slate-200/80 dark:border-slate-700 transition cursor-pointer whitespace-nowrap"
+                                        title="Manually override calculated line total"
+                                      >
+                                        Override
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </>
+                        )}
                       </div>
                     </div>
                   );
@@ -7094,13 +7240,22 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             )}
           </div>
 
-          {/* Section 5: Proposal State, Evaluation & Integrated Deal Profitability / VAT Summary */}
-          <div id="field-value" className="scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs">
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
-              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
-                <TrendingUp className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span>Proposal State &amp; Evaluation</span>
-              </span>
+          {/* Chapter 4: 4. Evaluation, Terms & Source Files */}
+          <div id="field-value" className="scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-5 shadow-2xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3.5 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0 border border-blue-200/60 dark:border-blue-800/60">
+                  4
+                </span>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">
+                    Evaluation, Terms &amp; Source Files
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                    Pipeline status, profitability &amp; VAT summary, commercial terms, and AI source documents
+                  </p>
+                </div>
+              </div>
               {isLumpSum && (
                 <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-[10px] font-mono font-bold text-amber-700 dark:text-amber-300">
                   Lump-Sum Override Active
@@ -7285,20 +7440,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     </div>
 
                     <div className={`bg-slate-50/80 dark:bg-slate-800/50 border ${isLumpSum ? 'border-blue-400 dark:border-blue-600 ring-2 ring-blue-500/15' : 'border-slate-200/80 dark:border-slate-700/80'} rounded-xl px-3 py-2 flex flex-col justify-between ${getHighlightClasses('value')}`}>
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-semibold block truncate">
-                          Net Proposal Total (Excl. VAT)
-                        </span>
-                        {formCurrency === 'USD' ? (
-                          <span className="text-blue-500 dark:text-blue-400 font-semibold text-[9.5px] whitespace-nowrap shrink-0">
-                            ≈ AED {Number(effectiveSubtotal * 3.6725).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                          </span>
-                        ) : (
-                          <span className="text-blue-500 dark:text-blue-400 font-semibold text-[9.5px] whitespace-nowrap shrink-0">
-                            ≈ ${Number(effectiveSubtotal / 3.6725).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                          </span>
-                        )}
-                      </div>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-semibold block truncate">
+                        Net Proposal Total (Excl. VAT)
+                      </span>
                       {isLumpSum ? (
                         <div className="flex items-center gap-1 mt-0.5">
                           <span className="text-xs font-bold text-blue-600 dark:text-blue-400 shrink-0">{formCurrency}</span>
@@ -7311,6 +7455,15 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       ) : (
                         <span className="font-bold text-slate-900 dark:text-white mt-0.5">
                           {formCurrency} {effectiveSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      )}
+                      {formCurrency === 'USD' ? (
+                        <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] whitespace-nowrap mt-0.5 block">
+                          ≈ AED {Number(effectiveSubtotal * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      ) : (
+                        <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] whitespace-nowrap mt-0.5 block">
+                          ≈ ${Number(effectiveSubtotal / 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                         </span>
                       )}
                     </div>
@@ -7332,89 +7485,88 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 </div>
               );
             })()}
-          </div>
 
-          {/* Section 6: Remarks & Payment Terms */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
-                <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span>Commercial Terms &amp; Remarks</span>
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="md:col-span-2">
-                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Remarks / Status Updates</MarqueeLabel>
-                <textarea
-                  rows={3}
-                  placeholder="e.g. Quotation sent. Customer requested 5% discount."
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-sans"
-                />
-              </div>
-
-              <div className="space-y-3">
-                <div>
-                  <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Invoice PO #</MarqueeLabel>
-                  <input
-                    type="text"
-                    placeholder="e.g. PO-4500989583"
-                    value={invoicePoNo}
-                    onChange={(e) => setInvoicePoNo(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
-                  />
-                </div>
-                <div>
-                  <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Payment Status</MarqueeLabel>
-                  <input
-                    type="text"
-                    placeholder="e.g. 50% Advance, 50% PDC"
-                    value={paymentStatus}
-                    onChange={(e) => setPaymentStatus(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-3 text-sm text-slate-900 dark:text-white focus:outline-none"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 7: Proposal source document upload & AI Autofill */}
-          <div id="field-source_files" className="scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs">
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
-              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
-                <Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                <span>Source PDF Proposal &amp; Excel AI Data</span>
-              </span>
+            {/* Subsection 4C: Commercial Terms & Remarks */}
+            <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4 space-y-3">
               <div className="flex items-center gap-2">
-                <select
-                  value={selectedAiModel}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setSelectedAiModel(val);
-                    localStorage.setItem('omni_gemini_model_preference', val);
-                  }}
-                  title="Select Gemini Engine"
-                  aria-label="Select Gemini Engine"
-                  className="text-xs bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1.5 font-medium text-slate-700 dark:text-slate-200 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
-                >
-                  {AVAILABLE_GEMINI_MODELS.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.label}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => setRawTextModalOpen(true)}
-                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 font-semibold text-xs rounded-xl border border-emerald-200 dark:border-emerald-800 shadow-2xs transition cursor-pointer"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                  <span>Paste Excel Row / Raw Text</span>
-                </button>
+                <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+                  Commercial Terms &amp; Remarks
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:col-span-2">
+                  <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Remarks / Status Updates</MarqueeLabel>
+                  <textarea
+                    rows={3}
+                    placeholder="e.g. Quotation sent. Customer requested 5% discount."
+                    value={remarks}
+                    onChange={(e) => setRemarks(e.target.value)}
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-sans"
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Invoice PO #</MarqueeLabel>
+                    <input
+                      type="text"
+                      placeholder="e.g. PO-4500989583"
+                      value={invoicePoNo}
+                      onChange={(e) => setInvoicePoNo(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
+                    />
+                  </div>
+                  <div>
+                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Payment Status</MarqueeLabel>
+                    <input
+                      type="text"
+                      placeholder="e.g. 50% Advance, 50% PDC"
+                      value={paymentStatus}
+                      onChange={(e) => setPaymentStatus(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-3 text-sm text-slate-900 dark:text-white focus:outline-none"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
+
+            {/* Subsection 4D: Source PDF Proposal & Excel AI Data */}
+            <div id="field-source_files" className="scroll-mt-4 border-t border-slate-100 dark:border-slate-800/80 pt-4 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                  <Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                  <span>Source PDF Proposal &amp; Excel AI Data</span>
+                </span>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selectedAiModel}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedAiModel(val);
+                      localStorage.setItem('omni_gemini_model_preference', val);
+                    }}
+                    title="Select Gemini Engine"
+                    aria-label="Select Gemini Engine"
+                    className="text-xs bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1.5 font-medium text-slate-700 dark:text-slate-200 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                  >
+                    {AVAILABLE_GEMINI_MODELS.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setRawTextModalOpen(true)}
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 font-semibold text-xs rounded-xl border border-emerald-200 dark:border-emerald-800 shadow-2xs transition cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Paste Excel Row / Raw Text</span>
+                  </button>
+                </div>
+              </div>
 
             {/* Quiet Storage Mode Indicator / Destination Target Selection */}
             {!Boolean(activeWorkspace?.settings?.storage?.supabaseUrl && activeWorkspace?.settings?.storage?.bucket && activeWorkspace?.settings?.storage?.supabaseAnonKey) ? (
@@ -7722,6 +7874,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 ))}
               </div>
             )}
+            </div>
           </div>
 
           {/* Section 7.5: Original Pasted Source / Raw Context */}
@@ -7758,70 +7911,107 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
             </fieldset> {/* End of scrollable Form body */}
 
-            {/* Sticky Footer: Section 8 Save controls */}
-            <div className="sticky bottom-0 z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 p-4 shadow-lg flex items-center justify-between gap-3 shrink-0">
+            {/* Executive Sticky Footer Bar with Live Deal Summary */}
+            <div className="sticky bottom-0 z-20 px-6 py-3.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 shadow-lg flex flex-wrap items-center justify-between gap-4 shrink-0">
+              {(() => {
+                const baselineList = lineItems.filter((li) => {
+                  const opt = String((li as any).option_designation || li.option || 'Default / Included').trim();
+                  return !opt || opt === 'Default / Included' || opt === 'Baseline / All' || opt === 'Option A' || opt.startsWith('Option A ');
+                });
+                const calcList = baselineList.length > 0 ? baselineList : lineItems;
+                const totalSelling = calcList.reduce((sum, li) => {
+                  const isDisc = li.item_type === 'discount' || (li as any).classification === 'Discount / Rebate';
+                  const lineVal = Number(li.total_price) || (Number(li.quantity) || 0) * (Number(li.unit_price) || 0);
+                  return isDisc ? sum - Math.abs(lineVal) : sum + lineVal;
+                }, 0);
+                const effectiveSubtotal = isLumpSum ? (Number(manualValue) || 0) : totalSelling;
+                const vatAmount = Math.round(effectiveSubtotal * 0.05 * 100) / 100;
+                const grandTotalInclVat = effectiveSubtotal + vatAmount;
+
+                return (
+                  <div className="flex items-center gap-3 flex-wrap text-xs font-mono tabular-nums min-w-0">
+                    <span className="text-slate-500 dark:text-slate-400">
+                      Items: <strong className="text-slate-800 dark:text-slate-200">{lineItems.length}</strong>
+                    </span>
+                    <span className="text-slate-300 dark:text-slate-700">·</span>
+                    <span className="text-slate-500 dark:text-slate-400">
+                      Net (Excl. VAT):{' '}
+                      <strong className="text-slate-800 dark:text-slate-200">
+                        {formCurrency}{' '}
+                        {effectiveSubtotal.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
+                        })}
+                      </strong>
+                    </span>
+                    <span className="text-slate-300 dark:text-slate-700">·</span>
+                    <span className="text-slate-600 dark:text-slate-300 font-sans font-medium">
+                      Grand Total:{' '}
+                      <strong className="font-mono font-bold text-blue-600 dark:text-blue-400">
+                        {formCurrency}{' '}
+                        {grandTotalInclVat.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
+                        })}
+                      </strong>
+                    </span>
+                  </div>
+                );
+              })()}
+
               {isReadOnly ? (
-                <div className="flex items-center justify-between w-full">
-                  <div className="flex items-center space-x-2 text-amber-700 dark:text-amber-400 text-xs font-semibold">
-                    <Lock className="w-4 h-4 shrink-0" />
-                    <span>Read-Only View: Modifications cannot be saved.</span>
+                <div className="flex items-center gap-3 ml-auto">
+                  <div className="flex items-center space-x-1.5 text-amber-700 dark:text-amber-400 text-xs font-semibold">
+                    <Lock className="w-3.5 h-3.5 shrink-0" />
+                    <span>Read-Only View</span>
                   </div>
                   <button
                     type="button"
                     onClick={onClose}
-                    className="px-6 py-2.5 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-sm transition cursor-pointer"
+                    className="h-9 px-4 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold rounded-lg text-xs inline-flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap"
                   >
                     Close
                   </button>
                 </div>
-              ) : enquiryToEdit ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="flex-1 py-2.5 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-sm transition text-center cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    onClick={() => updateSubmitMode('close')}
-                    className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl text-sm transition shadow-sm text-center flex items-center justify-center cursor-pointer"
-                  >
-                    {isSubmitting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                    {isSubmitting ? 'Saving Changes...' : 'Save Changes'}
-                  </button>
-                </>
               ) : (
-                <>
+                <div className="flex items-center gap-2.5 ml-auto flex-wrap">
                   <button
                     type="button"
                     disabled={isSubmitting}
                     onClick={onClose}
-                    className="flex-1 py-2.5 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-sm transition text-center cursor-pointer"
+                    className="h-9 px-4 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 text-slate-700 dark:text-slate-300 font-semibold rounded-lg text-xs inline-flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap"
                   >
                     Cancel
                   </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    onClick={() => updateSubmitMode('another')}
-                    className="flex-1 py-2.5 border border-blue-200 dark:border-blue-800 bg-blue-50/70 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 disabled:opacity-50 text-blue-700 dark:text-blue-300 font-bold rounded-xl text-sm transition shadow-2xs text-center flex items-center justify-center cursor-pointer"
-                  >
-                    {isSubmitting && <Loader2 className="w-4 h-4 animate-spin mr-1.5" />}
-                    {isSubmitting ? 'Saving...' : 'Register & Add Another'}
-                  </button>
+                  {!enquiryToEdit && (
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      onClick={() => updateSubmitMode('another')}
+                      className="h-9 px-4 border border-blue-200 dark:border-blue-800 bg-blue-50/70 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 disabled:opacity-50 text-blue-700 dark:text-blue-300 font-semibold rounded-lg text-xs inline-flex items-center justify-center gap-1.5 transition shadow-2xs cursor-pointer whitespace-nowrap"
+                    >
+                      {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>{isSubmitting ? 'Saving...' : 'Register & Add Another'}</span>
+                    </button>
+                  )}
                   <button
                     type="submit"
                     disabled={isSubmitting}
                     onClick={() => updateSubmitMode('close')}
-                    className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl text-sm transition shadow-sm text-center flex items-center justify-center cursor-pointer"
+                    className="h-9 px-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold rounded-lg text-xs inline-flex items-center justify-center gap-1.5 transition shadow-sm cursor-pointer whitespace-nowrap"
                   >
-                    {isSubmitting && <Loader2 className="w-4 h-4 animate-spin mr-1.5" />}
-                    {isSubmitting ? 'Registering...' : 'Register & Close'}
+                    {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>
+                      {enquiryToEdit
+                        ? isSubmitting
+                          ? 'Saving Changes...'
+                          : 'Save Changes'
+                        : isSubmitting
+                        ? 'Registering...'
+                        : 'Register & Close'}
+                    </span>
                   </button>
-                </>
+                </div>
               )}
             </div>
 

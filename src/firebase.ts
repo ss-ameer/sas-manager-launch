@@ -70,11 +70,25 @@ export interface FirestoreErrorInfo {
   };
 }
 
+let quotaCircuitBrokenUntil = 0;
+
+export function isQuotaCircuitBroken(): boolean {
+  return Date.now() < quotaCircuitBrokenUntil;
+}
+
+export function tripQuotaCircuitBreaker(durationMs = 60_000): void {
+  quotaCircuitBrokenUntil = Math.max(quotaCircuitBrokenUntil, Date.now() + durationMs);
+}
+
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   const errMsg = error instanceof Error ? error.message : String(error);
   const isQuotaError = errMsg.includes('Quota limit exceeded') || errMsg.includes('quota') || errMsg.includes('resource-exhausted') || (error as any)?.code === 'resource-exhausted';
   const isUnavailable = errMsg.includes('unavailable') || errMsg.includes('Could not reach Cloud Firestore backend') || errMsg.includes('Connection failed') || (error as any)?.code === 'unavailable';
   const isPermissionError = errMsg.includes('insufficient permissions') || errMsg.includes('permission-denied') || (error as any)?.code === 'permission-denied';
+
+  if (isQuotaError || isUnavailable) {
+    tripQuotaCircuitBreaker(60_000);
+  }
 
   const errInfo: FirestoreErrorInfo = {
     error: errMsg,
@@ -111,8 +125,11 @@ function applySimulations() {
 }
 
 // Wrapped safe helper methods to easily ensure error reporting
-export async function safeGetDoc(collectionPath: string, docId: string) {
-  const path = `${collectionPath}/${docId}`;
+export async function safeGetDoc(collectionPath: string, docId: string, ...subPathSegments: string[]) {
+  const path = [collectionPath, docId, ...subPathSegments].join('/');
+  if (isQuotaCircuitBroken()) {
+    return null;
+  }
   const { isQuota, isOffline, latency } = applySimulations();
   if (latency > 0) await new Promise((r) => setTimeout(r, latency));
 
@@ -122,15 +139,18 @@ export async function safeGetDoc(collectionPath: string, docId: string) {
   }
 
   try {
-    const docRef = doc(db, collectionPath, docId);
+    const docRef = doc(db, collectionPath, docId, ...subPathSegments);
     return await getDoc(docRef);
   } catch (error) {
-        handleFirestoreError(error, OperationType.GET, path);
+    handleFirestoreError(error, OperationType.GET, path);
     return null;
   }
 }
 
 export async function safeGetDocs(collectionPath: string, ...constraints: QueryConstraint[]) {
+  if (isQuotaCircuitBroken()) {
+    return null;
+  }
   const { isQuota, isOffline, latency } = applySimulations();
   if (latency > 0) await new Promise((r) => setTimeout(r, latency));
 
@@ -144,7 +164,7 @@ export async function safeGetDocs(collectionPath: string, ...constraints: QueryC
     const q = query(colRef, ...constraints);
     return await getDocs(q);
   } catch (error) {
-        handleFirestoreError(error, OperationType.LIST, collectionPath);
+    handleFirestoreError(error, OperationType.LIST, collectionPath);
     return null;
   }
 }

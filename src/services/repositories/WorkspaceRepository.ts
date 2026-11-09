@@ -55,6 +55,8 @@ export class WorkspaceRepository {
     }
   }
 
+  private static healedWorkspaceKeys = new Set<string>();
+
   /**
    * Auto-Heal Workspace Membership:
    * When an Admin selects or switches into a workspace, verify if their current user.uid
@@ -69,6 +71,12 @@ export class WorkspaceRepository {
     if (!workspaceId || !user?.uid || !this.isUserAdmin(user)) {
       return;
     }
+
+    const healKey = `${workspaceId}_${user.uid}`;
+    if (this.healedWorkspaceKeys.has(healKey)) {
+      return;
+    }
+    this.healedWorkspaceKeys.add(healKey);
 
     try {
       const userUid = user.uid;
@@ -111,7 +119,6 @@ export class WorkspaceRepository {
         isAlreadyMember = true;
       }
 
-      // If already membership is verified, verify workspace_members document exists in background
       const wmDocId = `wm_${workspaceId}_${userUid}`;
       const nowIso = new Date().toISOString();
 
@@ -156,22 +163,22 @@ export class WorkspaceRepository {
           },
           { merge: true }
         );
-      }
 
-      // Auto-heal workspace_members collection entry for subcollection rules
-      const wmPayload = {
-        id: wmDocId,
-        workspace_id: workspaceId,
-        workspaceId: workspaceId,
-        user_id: userUid,
-        uid: userUid,
-        email: user.email,
-        name: userName,
-        role: 'Admin',
-        status: 'active',
-        joined_at: nowIso
-      };
-      await safeSetDoc('workspace_members', wmDocId, wmPayload, { merge: true });
+        // Auto-heal workspace_members collection entry for subcollection rules
+        const wmPayload = {
+          id: wmDocId,
+          workspace_id: workspaceId,
+          workspaceId: workspaceId,
+          user_id: userUid,
+          uid: userUid,
+          email: user.email,
+          name: userName,
+          role: 'Admin',
+          status: 'active',
+          joined_at: nowIso
+        };
+        await safeSetDoc('workspace_members', wmDocId, wmPayload, { merge: true });
+      }
 
       // Auto-heal user workspaceIds array if missing
       if (Array.isArray(user.workspaceIds) && !user.workspaceIds.includes(workspaceId)) {

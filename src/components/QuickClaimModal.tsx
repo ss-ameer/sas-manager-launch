@@ -162,28 +162,39 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
       })
       .catch((err) => {
         console.error('Error fetching live sequence counters:', err);
-        previewNextEnquirySequence(activeWorkspace.id, repInitials, new Date(), candidateEnquiries, {
-          country: countryInput || matchedCompany?.country || 'UAE',
-          countryCode: matchedCompany?.country_code || '',
-          companyCode: sanitizeCompanyCode(companyCodeInput || matchedCompany?.company_code)
-        })
-          .then(res => {
-            if (isMounted) {
-              setPreviewRef(res.quoteRef);
-              setPreviewSn(res.sn);
-              setPreviewSeq(res.sequence || null);
-              setIsLoadingPreview(false);
-            }
+        if (!isMounted) return;
+        const now = new Date();
+        const fallbackPattern = (activeWorkspace as any)?.settings?.quote_sequence_pattern || '{SEQ}-{DD}{MM}{YY}';
+        const fallbackPrefix = (activeWorkspace as any)?.settings?.quote_prefix || '';
+        const { maxSn, maxSeq } = getWorkspaceActiveCeilings(
+          candidateEnquiries || [],
+          activeWorkspace.id,
+          fallbackPattern
+        );
+        const displayNextSn = Math.max((activeWorkspace as any)?.settings?.next_sn_baseline || 0, maxSn + 1);
+        const displayNextSeq = Math.max((activeWorkspace as any)?.settings?.next_seq_baseline || 0, maxSeq + 1);
+        setActivePattern(fallbackPattern);
+        setActivePrefix(fallbackPrefix);
+        setPreviewRef(
+          formatPattern(fallbackPattern, {
+            seq: displayNextSeq,
+            prefix: fallbackPrefix,
+            date: now,
+            rep: repInitials,
+            country: countryInput || matchedCompany?.country || 'UAE',
+            countryCode: matchedCompany?.country_code || '',
+            companyCode: sanitizeCompanyCode(companyCodeInput || matchedCompany?.company_code)
           })
-          .catch(() => {
-            if (isMounted) setIsLoadingPreview(false);
-          });
+        );
+        setPreviewSn(displayNextSn);
+        setPreviewSeq(displayNextSeq);
+        setIsLoadingPreview(false);
       });
 
     return () => {
       isMounted = false;
     };
-  }, [isOpen, activeWorkspace?.id, repInitials, enquiries]);
+  }, [isOpen, activeWorkspace?.id, repInitials, enquiries?.length]);
 
   // Live-update previewRef when companyCodeInput, countryInput, or matchedCompany changes
   useEffect(() => {

@@ -627,7 +627,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
     return () => {
       isMounted = false;
     };
-  }, [workspaceId, activeWorkspace, user]);
+  }, [workspaceId, user?.uid]);
 
   // Helper to construct complete, non-destructive WorkspaceDocumentProfile payload
   const buildMergedProfilePayload = (
@@ -3031,6 +3031,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
           activeWorkspaceId={workspaceId}
           user={user}
           isSandboxMode={true}
+          products={[]}
           initialPresetId={
             sandboxPresetId !== '__unsaved_profile__' ? sandboxPresetId : undefined
           }

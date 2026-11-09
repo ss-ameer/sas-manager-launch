@@ -934,32 +934,18 @@ export default function EnquiryList({
   const [quoteLifecycleFilter, setQuoteLifecycleFilter] = useState<QuoteLifecycleFilter>('all');
   const [quotations, setQuotations] = useState<Quotation[]>([]);
 
-  // Load and refresh workspace quotations for real-time badge and lifecycle syncing
+  // Subscribe to workspace quotations for real-time badge and lifecycle syncing without re-fetching on enquiries change or window focus
   React.useEffect(() => {
     let isMounted = true;
     const wsId = activeWorkspace?.id || activeWorkspace?.workspace_id || 'ws_default';
-    QuotationRepository.getQuotationsForWorkspace(wsId)
-      .then((data) => {
-        if (isMounted) setQuotations(data);
-      })
-      .catch((err) => {
-        console.warn('[EnquiryList] Failed loading workspace quotations:', err);
-      });
-
-    const onFocus = () => {
-      QuotationRepository.getQuotationsForWorkspace(wsId)
-        .then((data) => {
-          if (isMounted) setQuotations(data);
-        })
-        .catch(() => {});
-    };
-
-    window.addEventListener('focus', onFocus);
+    const unsub = QuotationRepository.subscribeByWorkspace(wsId, (data) => {
+      if (isMounted) setQuotations(data);
+    });
     return () => {
       isMounted = false;
-      window.removeEventListener('focus', onFocus);
+      unsub();
     };
-  }, [activeWorkspace?.id, activeWorkspace?.workspace_id, enquiries]);
+  }, [activeWorkspace?.id, activeWorkspace?.workspace_id]);
 
   // Debounce search input updates to eliminate typing lag
   React.useEffect(() => {

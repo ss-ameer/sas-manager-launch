@@ -5448,6 +5448,8 @@ export default function ProcurementPayablesHub({
           existingQuotation={studioQuotation as any}
           products={products}
           setProducts={setProducts}
+          companies={companies}
+          supplierBills={supplierBills}
           triggerToast={triggerToast}
           onQuotationCreated={(savedDoc) => {
             setStudioQuotation(savedDoc as any);

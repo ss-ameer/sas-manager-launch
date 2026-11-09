@@ -1,7 +1,26 @@
-import { safeGetDocs, db, handleFirestoreError, OperationType } from '../firebase';
-import { where, doc, runTransaction, getDoc, setDoc } from 'firebase/firestore';
+import { safeGetDoc, safeGetDocs, db, handleFirestoreError, OperationType } from '../firebase';
+import { where, doc, runTransaction, setDoc } from 'firebase/firestore';
 import { WorkspaceSequenceCounters, SequenceFormatTokens, ClaimedSequenceResult, Enquiry, SequenceResetCadence, resolveCountryCode, sanitizeCompanyCode } from '../types';
 import { getFromLocalStore } from './db';
+
+const COUNTERS_CACHE_TTL_MS = 60_000;
+const countersCache = new Map<string, { data: WorkspaceSequenceCounters; fetchedAt: number }>();
+const inFlightCounterPromises = new Map<string, Promise<WorkspaceSequenceCounters>>();
+
+function cloneCounters(c: WorkspaceSequenceCounters): WorkspaceSequenceCounters {
+  return {
+    ...c,
+    sequences: { ...(c.sequences || {}) }
+  };
+}
+
+function setCachedCounters(workspaceId: string, data: WorkspaceSequenceCounters): void {
+  if (!workspaceId) return;
+  countersCache.set(workspaceId, {
+    data: cloneCounters(data),
+    fetchedAt: Date.now()
+  });
+}
 
 export function patternRequiresCompanyCode(pattern?: string | null): boolean {
   if (!pattern) return false;
@@ -104,27 +123,7 @@ export function getWorkspaceCountersDocRef(workspaceId: string) {
  * Fetch existing counters configuration or return default structure.
  */
 export async function getWorkspaceSequenceCounters(workspaceId: string): Promise<WorkspaceSequenceCounters> {
-  const docRef = getWorkspaceCountersDocRef(workspaceId);
-  try {
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      const data = snap.data();
-      return {
-        prefix: data.prefix !== undefined ? data.prefix : '',
-        pattern: data.pattern || '{PREFIX}/{MM}/{YYYY}/{SEQ}',
-        resetCadence: data.resetCadence || 'monthly',
-        lastSnNumber: typeof data.lastSnNumber === 'number' ? data.lastSnNumber : 0,
-        sequences: data.sequences || {},
-        updatedAt: data.updatedAt || new Date().toISOString(),
-        updatedBy: data.updatedBy || 'system'
-      };
-    }
-  } catch (err) {
-    handleFirestoreError(err, OperationType.GET, `workspaces/${workspaceId}/system/counters`);
-  }
-
-  // Fallback defaults
-  return {
+  const defaultCounters: WorkspaceSequenceCounters = {
     prefix: '',
     pattern: '{PREFIX}/{MM}/{YYYY}/{SEQ}',
     resetCadence: 'monthly',
@@ -133,6 +132,51 @@ export async function getWorkspaceSequenceCounters(workspaceId: string): Promise
     updatedAt: new Date().toISOString(),
     updatedBy: 'system'
   };
+
+  if (!workspaceId) return defaultCounters;
+
+  const cached = countersCache.get(workspaceId);
+  if (cached && Date.now() - cached.fetchedAt < COUNTERS_CACHE_TTL_MS) {
+    return cloneCounters(cached.data);
+  }
+
+  const existingPromise = inFlightCounterPromises.get(workspaceId);
+  if (existingPromise) {
+    return existingPromise.then(cloneCounters);
+  }
+
+  const fetchPromise = (async (): Promise<WorkspaceSequenceCounters> => {
+    try {
+      const snap = await safeGetDoc('workspaces', workspaceId, 'system', 'counters');
+      if (snap && snap.exists()) {
+        const data = snap.data();
+        const resolved: WorkspaceSequenceCounters = {
+          prefix: data.prefix !== undefined ? data.prefix : '',
+          pattern: data.pattern || '{PREFIX}/{MM}/{YYYY}/{SEQ}',
+          resetCadence: data.resetCadence || 'monthly',
+          lastSnNumber: typeof data.lastSnNumber === 'number' ? data.lastSnNumber : 0,
+          sequences: data.sequences || {},
+          updatedAt: data.updatedAt || new Date().toISOString(),
+          updatedBy: data.updatedBy || 'system'
+        };
+        setCachedCounters(workspaceId, resolved);
+        return resolved;
+      }
+      if (cached) {
+        return cloneCounters(cached.data);
+      }
+      setCachedCounters(workspaceId, defaultCounters);
+      return defaultCounters;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, `workspaces/${workspaceId}/system/counters`);
+      return cached ? cloneCounters(cached.data) : defaultCounters;
+    } finally {
+      inFlightCounterPromises.delete(workspaceId);
+    }
+  })();
+
+  inFlightCounterPromises.set(workspaceId, fetchPromise);
+  return fetchPromise.then(cloneCounters);
 }
 
 /**
@@ -152,6 +196,7 @@ export async function updateWorkspaceSequenceSettings(
   const docRef = getWorkspaceCountersDocRef(workspaceId);
   const now = new Date();
   const periodKey = getSequencePeriodKey(settings.resetCadence, now);
+  let committedPayload: WorkspaceSequenceCounters | null = null;
 
   try {
     await runTransaction(db, async (transaction) => {
@@ -196,8 +241,12 @@ export async function updateWorkspaceSequenceSettings(
         updatedBy: userId
       };
 
+      committedPayload = updatePayload;
       transaction.set(docRef, updatePayload, { merge: true });
     });
+    if (committedPayload) {
+      setCachedCounters(workspaceId, committedPayload);
+    }
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `workspaces/${workspaceId}/system/counters`);
     throw err;
@@ -417,9 +466,9 @@ export async function healWorkspaceCounters(
   const docRef = getWorkspaceCountersDocRef(workspaceId);
 
   try {
-    let currentData: any = {};
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
+    let currentData: any = countersCache.get(workspaceId)?.data || {};
+    const snap = await safeGetDoc('workspaces', workspaceId, 'system', 'counters');
+    if (snap && snap.exists()) {
       currentData = snap.data();
     }
 
@@ -435,14 +484,24 @@ export async function healWorkspaceCounters(
     const existingSequences = currentData.sequences ? { ...currentData.sequences } : {};
     existingSequences[periodKey] = maxSeq;
 
+    const nowIso = new Date().toISOString();
     const payload: Partial<WorkspaceSequenceCounters> = {
       lastSnNumber: maxSn,
       sequences: existingSequences,
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso,
       updatedBy: 'system-heal'
     };
 
     await setDoc(docRef, payload, { merge: true });
+    setCachedCounters(workspaceId, {
+      prefix: currentData.prefix !== undefined ? currentData.prefix : '',
+      pattern: currentData.pattern || pattern || '{PREFIX}/{MM}/{YYYY}/{SEQ}',
+      resetCadence: cadence,
+      lastSnNumber: maxSn,
+      sequences: existingSequences,
+      updatedAt: nowIso,
+      updatedBy: 'system-heal'
+    });
     console.log(`[healWorkspaceCounters] Workspace ${workspaceId} counters healed: lastSn=${maxSn}, seq[${periodKey}]=${maxSeq}`);
     return { healedSn: maxSn, healedSeq: maxSeq };
   } catch (err) {
@@ -706,6 +765,16 @@ export async function claimNextEnquirySequence(
         { merge: true }
       );
 
+      setCachedCounters(workspaceId, {
+        prefix: counters.prefix,
+        pattern: counters.pattern,
+        resetCadence: counters.resetCadence,
+        lastSnNumber: committedLastSn,
+        sequences: updatedSequences,
+        updatedAt: now.toISOString(),
+        updatedBy: userId
+      });
+
       return {
         sn: nextSn,
         quoteRef,
@@ -769,6 +838,7 @@ export async function syncSequenceHighWaterMark(
         }
       }
 
+      const nowIso = new Date().toISOString();
       if (hasChanges) {
         transaction.set(
           docRef,
@@ -779,12 +849,22 @@ export async function syncSequenceHighWaterMark(
             resetCadence: cadence,
             lastSnNumber: newLastSn,
             sequences,
-            updatedAt: new Date().toISOString(),
+            updatedAt: nowIso,
             updatedBy: userId
           },
           { merge: true }
         );
       }
+
+      setCachedCounters(workspaceId, {
+        prefix,
+        pattern,
+        resetCadence: cadence,
+        lastSnNumber: newLastSn,
+        sequences,
+        updatedAt: nowIso,
+        updatedBy: userId
+      });
 
       return {
         lastSnNumber: newLastSn,

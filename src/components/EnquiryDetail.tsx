@@ -2629,6 +2629,28 @@ export default function EnquiryDetail({
   const matchedCompany = companies.find((c) => c.id === (currentEnquiry.company_id || enquiry.company_id));
   const matchedContact = contacts.find((c) => c.id === (currentEnquiry.contact_id || enquiry.contact_id));
 
+  const studioSpName = useMemo(
+    () => currentEnquiry.assigned_salesperson || resolveSalespersonName(currentEnquiry),
+    [currentEnquiry, salespersons]
+  );
+
+  const enrichedEnquiry = useMemo<Enquiry>(() => {
+    const contactName =
+      currentEnquiry.contact_person_name ||
+      matchedContact?.full_name ||
+      (matchedContact as any)?.name ||
+      currentEnquiry.concerned_person ||
+      (Array.isArray(currentEnquiry.concerned_persons) && currentEnquiry.concerned_persons[0]) ||
+      '';
+    return {
+      ...currentEnquiry,
+      contact_person_name: contactName || undefined,
+      concerned_person: contactName || currentEnquiry.concerned_person,
+      assigned_salesperson: studioSpName || undefined,
+      subject: currentEnquiry.subject || ''
+    };
+  }, [currentEnquiry, matchedContact, studioSpName]);
+
   // Company pairing & creation modal states
   const [isCreateCompanyModalOpen, setIsCreateCompanyModalOpen] = useState(false);
   const [isPairCompanyDropdownOpen, setIsPairCompanyDropdownOpen] = useState(false);
@@ -7265,25 +7287,7 @@ export default function EnquiryDetail({
 
       {/* Quotation Studio Drawer / Modal */}
       {isQuotationStudioOpen && (() => {
-        const contactName =
-          currentEnquiry.contact_person_name ||
-          matchedContact?.full_name ||
-          (matchedContact as any)?.name ||
-          currentEnquiry.concerned_person ||
-          (Array.isArray(currentEnquiry.concerned_persons) && currentEnquiry.concerned_persons[0]) ||
-          '';
-
-        const spName =
-          currentEnquiry.assigned_salesperson ||
-          resolveSalespersonName(currentEnquiry);
-
-        const enrichedEnquiry: Enquiry = {
-          ...currentEnquiry,
-          contact_person_name: contactName || undefined,
-          concerned_person: contactName || currentEnquiry.concerned_person,
-          assigned_salesperson: spName || undefined,
-          subject: currentEnquiry.subject || ''
-        };
+        const spName = studioSpName;
 
         return (
           <QuotationStudioModal
@@ -7301,6 +7305,9 @@ export default function EnquiryDetail({
             editingQuotation={editingQuotation}
             products={products}
             setProducts={setProducts}
+            companies={companies}
+            contacts={contacts}
+            supplierBills={workspaceSupplierBills}
             onEnquirySync={(syncPayload) => {
               const sanitizedRef = QuotationRepository.sanitizeCanonicalQuoteRef(syncPayload.latest_quote_ref);
               if (!sanitizedRef) return;

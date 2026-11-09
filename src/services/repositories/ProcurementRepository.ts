@@ -6,8 +6,8 @@ import {
   Quotation,
   PaymentVoucherAllocationRow
 } from '../../types';
-import { db, safeSetDoc, safeUpdateDoc, safeDeleteDoc } from '../../firebase';
-import { collection, query, where, getDocs, doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { db, safeGetDocs, safeGetDoc, safeSetDoc, safeUpdateDoc, safeDeleteDoc } from '../../firebase';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { QuotationRepository } from './QuotationRepository';
 import { deleteFromStorageBucket, WorkspaceStorageSettings } from '../attachmentStorage';
 
@@ -44,9 +44,35 @@ function upsertLocalBill(bill: SupplierBill) {
 
 export class ProcurementRepository {
   private static workspaceListeners = new Map<string, Set<() => void>>();
+  private static workspaceSubscribers = new Map<string, Set<(bills: SupplierBill[]) => void>>();
+  private static activeSnapshotUnsubs = new Map<string, () => void>();
+  private static workspaceCache = new Map<string, { data: SupplierBill[]; fetchedAt: number }>();
+
+  private static normalizeBill(b: SupplierBill): SupplierBill {
+    return {
+      ...b,
+      vendor_company_id: b.vendor_company_id || b.supplier_id,
+      vendor_name: b.vendor_name || b.supplier_name || 'Vendor',
+      vendor_trn: b.vendor_trn || b.supplier_trn,
+      three_way_match_status: b.three_way_match_status || b.match_status || 'no_po'
+    };
+  }
+
+  private static readNormalizedLocalWorkspaceBills(wsId: string): SupplierBill[] {
+    return readLocalBills()
+      .filter((b) => !b.is_deleted && (b.workspace_id === wsId || (!b.workspace_id && wsId === 'ws_default')))
+      .map((b) => this.normalizeBill(b))
+      .sort((a, b) => (b.invoice_date || b.created_at || '').localeCompare(a.invoice_date || a.created_at || ''));
+  }
 
   public static notifyWorkspaceSubscribers(workspaceId?: string): void {
     const wsId = workspaceId || 'ws_default';
+    if (wsId === '*') {
+      this.workspaceCache.clear();
+    } else {
+      this.workspaceCache.delete(wsId);
+    }
+
     const listeners = this.workspaceListeners.get(wsId);
     if (listeners) {
       listeners.forEach((fn) => {
@@ -62,6 +88,20 @@ export class ProcurementRepository {
           fn();
         } catch (_) {}
       });
+    }
+
+    const targetWsIds = wsId === '*' ? Array.from(this.workspaceSubscribers.keys()) : [wsId];
+    for (const targetWsId of targetWsIds) {
+      const subs = this.workspaceSubscribers.get(targetWsId);
+      if (subs && subs.size > 0) {
+        const localBills = this.readNormalizedLocalWorkspaceBills(targetWsId);
+        this.workspaceCache.set(targetWsId, { data: localBills, fetchedAt: Date.now() });
+        subs.forEach((cb) => {
+          try {
+            cb(localBills);
+          } catch (_) {}
+        });
+      }
     }
   }
   /**
@@ -185,32 +225,40 @@ export class ProcurementRepository {
    */
   static async getWorkspaceSupplierBills(workspaceId: string): Promise<SupplierBill[]> {
     const wsId = workspaceId || 'ws_default';
+    const cached = this.workspaceCache.get(wsId);
+    if (cached && Date.now() - cached.fetchedAt < 10_000) {
+      return [...cached.data];
+    }
+
     const mergedMap = new Map<string, SupplierBill>();
 
     readLocalBills()
       .filter((b) => !b.is_deleted && (b.workspace_id === wsId || (!b.workspace_id && wsId === 'ws_default')))
       .forEach((b) => {
-        if (b.id) mergedMap.set(b.id, b);
+        if (b.id) mergedMap.set(b.id, this.normalizeBill(b));
       });
 
     try {
-      const q = query(collection(db, SUPPLIER_BILLS_COLLECTION), where('workspace_id', '==', wsId));
-      const snap = await getDocs(q);
-      snap.docs.forEach((d) => {
-        const data = { id: d.id, ...d.data() } as SupplierBill;
-        if (!data.is_deleted) {
-          mergedMap.set(d.id, data);
-        } else {
-          mergedMap.delete(d.id);
-        }
-      });
+      const snap = await safeGetDocs(SUPPLIER_BILLS_COLLECTION, where('workspace_id', '==', wsId));
+      if (snap && !snap.empty) {
+        snap.docs.forEach((d) => {
+          const data = { id: d.id, ...d.data() } as SupplierBill;
+          if (!data.is_deleted) {
+            mergedMap.set(d.id, this.normalizeBill(data));
+          } else {
+            mergedMap.delete(d.id);
+          }
+        });
+      }
     } catch (err) {
       console.warn('[ProcurementRepository] Firestore query fallback to local:', err);
     }
 
-    return Array.from(mergedMap.values()).sort((a, b) =>
+    const sorted = Array.from(mergedMap.values()).sort((a, b) =>
       (b.invoice_date || b.created_at || '').localeCompare(a.invoice_date || a.created_at || '')
     );
+    this.workspaceCache.set(wsId, { data: sorted, fetchedAt: Date.now() });
+    return sorted;
   }
 
   /**
@@ -374,24 +422,19 @@ export class ProcurementRepository {
       });
 
     try {
-      const q = workspaceId
-        ? query(collection(db, SUPPLIER_BILLS_COLLECTION), where('workspace_id', '==', wsId))
-        : query(collection(db, SUPPLIER_BILLS_COLLECTION));
-      const snap = await getDocs(q);
-      snap.docs.forEach((d) => {
-        const data = { id: d.id, ...d.data() } as SupplierBill;
-        if (data.is_deleted && (!workspaceId || data.workspace_id === wsId)) {
-          mergedMap.set(d.id, {
-            ...data,
-            vendor_company_id: data.vendor_company_id || data.supplier_id,
-            vendor_name: data.vendor_name || data.supplier_name || 'Vendor',
-            vendor_trn: data.vendor_trn || data.supplier_trn,
-            three_way_match_status: data.three_way_match_status || data.match_status || 'no_po'
-          });
-        } else if (!data.is_deleted) {
-          mergedMap.delete(d.id);
-        }
-      });
+      const snap = workspaceId
+        ? await safeGetDocs(SUPPLIER_BILLS_COLLECTION, where('workspace_id', '==', wsId))
+        : await safeGetDocs(SUPPLIER_BILLS_COLLECTION);
+      if (snap && !snap.empty) {
+        snap.docs.forEach((d) => {
+          const data = { id: d.id, ...d.data() } as SupplierBill;
+          if (data.is_deleted && (!workspaceId || data.workspace_id === wsId)) {
+            mergedMap.set(d.id, this.normalizeBill(data));
+          } else if (!data.is_deleted) {
+            mergedMap.delete(d.id);
+          }
+        });
+      }
     } catch (_) {}
 
     return Array.from(mergedMap.values()).sort((a, b) =>
@@ -410,8 +453,8 @@ export class ProcurementRepository {
 
     if (!target) {
       try {
-        const snap = await getDoc(doc(db, SUPPLIER_BILLS_COLLECTION, billId));
-        if (snap.exists()) {
+        const snap = await safeGetDoc(SUPPLIER_BILLS_COLLECTION, billId);
+        if (snap && snap.exists()) {
           target = { id: snap.id, ...snap.data() } as SupplierBill;
         }
       } catch (_) {}
@@ -456,8 +499,8 @@ export class ProcurementRepository {
     let target = localList.find((b) => b.id === billId);
     if (!target && permanent) {
       try {
-        const snap = await getDoc(doc(db, SUPPLIER_BILLS_COLLECTION, billId));
-        if (snap.exists()) {
+        const snap = await safeGetDoc(SUPPLIER_BILLS_COLLECTION, billId);
+        if (snap && snap.exists()) {
           target = { id: snap.id, ...snap.data() } as SupplierBill;
         }
       } catch (_) {}
@@ -877,8 +920,8 @@ export class ProcurementRepository {
   }
 
   /**
-   * Subscribes to workspace Supplier Bills using event-driven pub/sub + optional Firestore onSnapshot
-   * (zero 4-second polling).
+   * Subscribes to workspace Supplier Bills using a single shared Firestore onSnapshot per workspaceId
+   * that maps snap.docs directly without calling getAllByWorkspace (zero redundant getDocs).
    */
   static subscribe(
     workspaceId: string,
@@ -887,50 +930,106 @@ export class ProcurementRepository {
     const wsId = workspaceId || 'ws_default';
     let active = true;
 
-    const load = () => {
-      if (!active) return;
+    if (!this.workspaceSubscribers.has(wsId)) {
+      this.workspaceSubscribers.set(wsId, new Set());
+    }
+    const subs = this.workspaceSubscribers.get(wsId)!;
+    subs.add(callback);
+
+    const isQuotaSaver =
+      typeof window !== 'undefined' &&
+      window.localStorage?.getItem('sas_quota_saver_mode') === 'true';
+
+    const cached = this.workspaceCache.get(wsId);
+    if (cached) {
+      callback([...cached.data]);
+    } else if (!isQuotaSaver && db) {
+      const localBills = this.readNormalizedLocalWorkspaceBills(wsId);
+      if (localBills.length > 0) {
+        callback(localBills);
+      }
+    } else {
       this.getAllByWorkspace(wsId)
         .then((list) => {
           if (active) callback(list);
         })
         .catch(() => {});
-    };
-
-    if (!this.workspaceListeners.has(wsId)) {
-      this.workspaceListeners.set(wsId, new Set());
     }
-    this.workspaceListeners.get(wsId)!.add(load);
 
-    load();
-
-    let unsubSnapshot: (() => void) | null = null;
-    const isQuotaSaver =
-      typeof window !== 'undefined' &&
-      window.localStorage?.getItem('sas_quota_saver_mode') === 'true';
-
-    if (!isQuotaSaver && db) {
+    if (!isQuotaSaver && db && !this.activeSnapshotUnsubs.has(wsId)) {
       try {
         const q = query(
           collection(db, SUPPLIER_BILLS_COLLECTION),
           where('workspace_id', '==', wsId)
         );
-        unsubSnapshot = onSnapshot(
+        const unsub = onSnapshot(
           q,
-          () => {
-            if (active) load();
+          (snap) => {
+            const mergedMap = new Map<string, SupplierBill>();
+            const allLocal = readLocalBills();
+            const deletedIds = new Set<string>();
+
+            snap.docs.forEach((d) => {
+              const data = { id: d.id, ...d.data() } as SupplierBill;
+              if (!data.is_deleted) {
+                mergedMap.set(d.id, this.normalizeBill(data));
+              } else {
+                deletedIds.add(d.id);
+              }
+            });
+
+            for (const lb of allLocal) {
+              if (
+                lb?.id &&
+                !lb.is_deleted &&
+                (lb.workspace_id === wsId || (!lb.workspace_id && wsId === 'ws_default')) &&
+                !mergedMap.has(lb.id) &&
+                !deletedIds.has(lb.id)
+              ) {
+                mergedMap.set(lb.id, this.normalizeBill(lb));
+              }
+            }
+
+            // Persist merged state to local storage
+            const otherWsLocal = allLocal.filter(
+              (lb) => lb.workspace_id && lb.workspace_id !== wsId
+            );
+            const sorted = Array.from(mergedMap.values()).sort((a, b) =>
+              (b.invoice_date || b.created_at || '').localeCompare(a.invoice_date || a.created_at || '')
+            );
+            writeLocalBills([...sorted, ...otherWsLocal]);
+            this.workspaceCache.set(wsId, { data: sorted, fetchedAt: Date.now() });
+
+            const currentSubs = this.workspaceSubscribers.get(wsId);
+            if (currentSubs) {
+              currentSubs.forEach((cb) => {
+                try {
+                  cb([...sorted]);
+                } catch (_) {}
+              });
+            }
           },
           () => {}
         );
+        this.activeSnapshotUnsubs.set(wsId, unsub);
       } catch (_) {}
     }
 
     return () => {
       active = false;
-      this.workspaceListeners.get(wsId)?.delete(load);
-      if (unsubSnapshot) {
-        try {
-          unsubSnapshot();
-        } catch (_) {}
+      const currentSubs = this.workspaceSubscribers.get(wsId);
+      if (currentSubs) {
+        currentSubs.delete(callback);
+        if (currentSubs.size === 0) {
+          this.workspaceSubscribers.delete(wsId);
+          const unsub = this.activeSnapshotUnsubs.get(wsId);
+          if (unsub) {
+            this.activeSnapshotUnsubs.delete(wsId);
+            try {
+              unsub();
+            } catch (_) {}
+          }
+        }
       }
     };
   }

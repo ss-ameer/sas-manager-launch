@@ -49,10 +49,12 @@ import {
   PaymentVoucherAllocationRow,
   VendorReturnMetadata,
   Company,
+  Contact,
   SupplierBill
 } from '../../types';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
 import { ProcurementRepository } from '../../services/repositories/ProcurementRepository';
+import { CompanyRepository } from '../../services/repositories/CompanyRepository';
 import { processVendorReturnStockDeduction } from '../../services/inventoryService';
 import {
   uploadWorkspaceMediaAsset,
@@ -66,8 +68,8 @@ import SaveToCatalogModal, {
 import CompositePackageEditor from './CompositePackageEditor';
 import LineItemImageOptionsPopover from '../common/LineItemImageOptionsPopover';
 import { formatProductVariantSelectorLabel } from '../../utils/productVariantFormat';
-import { db, safeAddDoc, safeUpdateDoc } from '../../firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { safeGetDocs, safeAddDoc, safeUpdateDoc } from '../../firebase';
+import { where } from 'firebase/firestore';
 import {
   QuotationDocument,
   QUOTATION_THEMES,
@@ -177,9 +179,14 @@ export interface QuotationStudioModalProps {
     savedPreset?: QuotationPreset
   ) => void;
   onQuotationCreated?: (quotation: Quotation) => void;
+  onSaved?: (quotation: Quotation) => void;
+  onStockUpdated?: () => void;
   onEnquirySync?: (syncPayload: EnquiryQuotationSyncPayload) => void;
   products?: Product[];
   setProducts?: React.Dispatch<React.SetStateAction<Product[]>>;
+  companies?: Company[];
+  contacts?: Contact[];
+  supplierBills?: SupplierBill[];
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
@@ -947,6 +954,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   onEnquirySync,
   products: propProducts,
   setProducts: propSetProducts,
+  companies: propCompanies,
+  contacts: propContacts,
+  supplierBills: propSupplierBills,
   triggerToast
 }) => {
   const editingQuotation = propEditingQuotation || propExistingQuotation || null;
@@ -1011,9 +1021,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   );
   const [isDeductingStock, setIsDeductingStock] = useState<boolean>(false);
   const [stockDeductedForDoc, setStockDeductedForDoc] = useState<boolean>(false);
-  const [workspaceCompanies, setWorkspaceCompanies] = useState<Company[]>([]);
-  const [workspaceContacts, setWorkspaceContacts] = useState<any[]>([]);
-  const [workspaceSupplierBills, setWorkspaceSupplierBills] = useState<SupplierBill[]>([]);
+  const [workspaceCompanies, setWorkspaceCompanies] = useState<Company[]>(() => propCompanies || []);
+  const [workspaceContacts, setWorkspaceContacts] = useState<any[]>(() => propContacts || []);
+  const [workspaceSupplierBills, setWorkspaceSupplierBills] = useState<SupplierBill[]>(() => propSupplierBills || []);
 
   const resolveVendorName = (comp?: Company | null): string =>
     (comp?.display_name || comp?.canonical_name || comp?.name || '').trim();
@@ -2017,19 +2027,22 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   const [catalogModalTarget, setCatalogModalTarget] = useState<{ itemKey: string; item: QuotationLineItem } | null>(null);
   // Workspace catalog products for automatic image/datasheet/stock lookup
   const [workspaceProducts, setWorkspaceProducts] = useState<Product[]>(() => propProducts || []);
+  const fetchedProductsWsRef = useRef<string | null>(null);
+  const fetchedBillsWsRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (propProducts && propProducts.length > 0) {
+    if (propProducts !== undefined) {
       setWorkspaceProducts(propProducts.filter((p) => !p.is_deleted));
       return;
     }
+    if (!activeWorkspaceId || fetchedProductsWsRef.current === activeWorkspaceId) return;
+    fetchedProductsWsRef.current = activeWorkspaceId;
     let isMounted = true;
-    if (!activeWorkspaceId) return;
-    getDocs(query(collection(db, 'products'), where('workspace_id', '==', activeWorkspaceId)))
+    safeGetDocs('products', where('workspace_id', '==', activeWorkspaceId))
       .then((snap) => {
-        if (!isMounted) return;
+        if (!isMounted || !snap) return;
         const loaded: Product[] = [];
-        snap.forEach((docSnap) => {
+        snap.forEach((docSnap: any) => {
           const data = docSnap.data() as Product;
           if (!data.is_deleted) {
             loaded.push({ ...data, id: docSnap.id });
@@ -2048,41 +2061,57 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   useEffect(() => {
     let isMounted = true;
     if (!activeWorkspaceId) return;
-    getDocs(query(collection(db, 'companies'), where('workspace_id', '==', activeWorkspaceId)))
-      .then((snap) => {
-        if (!isMounted) return;
-        const list: Company[] = [];
-        snap.forEach((docSnap) => {
-          const data = docSnap.data() as Company;
-          if (!data.is_deleted) list.push({ ...data, id: docSnap.id });
-        });
-        setWorkspaceCompanies(list);
-      })
-      .catch(() => {});
 
-    getDocs(query(collection(db, 'contacts'), where('workspace_id', '==', activeWorkspaceId)))
-      .then((snap) => {
-        if (!isMounted) return;
-        const list: any[] = [];
-        snap.forEach((docSnap) => {
-          const data = docSnap.data();
-          if (!data.is_deleted) list.push({ ...data, id: docSnap.id });
-        });
-        setWorkspaceContacts(list);
-      })
-      .catch(() => {});
+    if (propCompanies !== undefined) {
+      setWorkspaceCompanies(propCompanies.filter((c) => !c.is_deleted));
+    } else {
+      CompanyRepository.getCompaniesLocal()
+        .then((localCompanies) => {
+          if (!isMounted) return;
+          setWorkspaceCompanies(
+            (localCompanies || []).filter(
+              (c) =>
+                !c.is_deleted &&
+                (!c.workspace_id || c.workspace_id === activeWorkspaceId || activeWorkspaceId === 'ws_default')
+            )
+          );
+        })
+        .catch(() => {});
+    }
 
-    ProcurementRepository.getWorkspaceSupplierBills(activeWorkspaceId)
-      .then((bills) => {
-        if (!isMounted) return;
-        setWorkspaceSupplierBills(bills);
-      })
-      .catch(() => {});
+    if (propContacts !== undefined) {
+      setWorkspaceContacts(propContacts.filter((c: any) => !c.is_deleted));
+    } else {
+      CompanyRepository.getContactsLocal()
+        .then((localContacts) => {
+          if (!isMounted) return;
+          setWorkspaceContacts(
+            (localContacts || []).filter(
+              (c: any) =>
+                !c.is_deleted &&
+                (!c.workspace_id || c.workspace_id === activeWorkspaceId || activeWorkspaceId === 'ws_default')
+            )
+          );
+        })
+        .catch(() => {});
+    }
+
+    if (propSupplierBills !== undefined) {
+      setWorkspaceSupplierBills(propSupplierBills);
+    } else if (fetchedBillsWsRef.current !== activeWorkspaceId) {
+      fetchedBillsWsRef.current = activeWorkspaceId;
+      ProcurementRepository.getWorkspaceSupplierBills(activeWorkspaceId)
+        .then((bills) => {
+          if (!isMounted) return;
+          setWorkspaceSupplierBills(bills);
+        })
+        .catch(() => {});
+    }
 
     return () => {
       isMounted = false;
     };
-  }, [activeWorkspaceId]);
+  }, [activeWorkspaceId, propCompanies, propContacts, propSupplierBills]);
 
   const handleUploadLineItemImage = async (itemKey: string, file?: File) => {
     if (!file) return;
@@ -2644,10 +2673,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     [enquiry, profile, presets, salespersonName]
   );
 
-  // Hydrate state when editingQuotation or enquiry.id changes
+  // Hydrate state when editingQuotation?.id or enquiry?.id changes
   useEffect(() => {
     hydrateStudioFromQuotation(editingQuotation || null);
-  }, [editingQuotation, enquiry?.id]);
+  }, [editingQuotation?.id, enquiry?.id]);
 
   // Load revision chain for the current enquiry so the In-Studio Revision History Switcher is populated
   useEffect(() => {
@@ -2672,7 +2701,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [enquiry?.id, activeWorkspaceId, editingQuotation]);
+  }, [enquiry?.id, activeWorkspaceId, editingQuotation?.id]);
 
   // Zoom / Preview scale controls
   const [zoomScale, setZoomScale] = useState<number>(0.85);
@@ -2890,7 +2919,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [activeWorkspaceId, editingQuotation, initialPresetId]);
+  }, [activeWorkspaceId, editingQuotation?.id, initialPresetId]);
 
   // Hydrated workspace document profile state
   const [workspaceProfile, setWorkspaceProfile] = useState<WorkspaceDocumentProfile | null>(profile || null);
@@ -2902,6 +2931,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   }, [profile]);
 
   useEffect(() => {
+    if (profile) {
+      setWorkspaceProfile(profile);
+      return;
+    }
     let isMounted = true;
     if (activeWorkspaceId) {
       QuotationRepository.getWorkspaceDocumentProfile(activeWorkspaceId)
@@ -2964,7 +2997,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [activeWorkspaceId, editingQuotation, selectedPresetId]);
+  }, [activeWorkspaceId, editingQuotation?.id, Boolean(profile)]);
 
   // Resolved active document profile prioritizing freshly fetched workspaceProfile then prop fallback
   const activeProfile = workspaceProfile || profile;

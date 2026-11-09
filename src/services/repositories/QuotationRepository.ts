@@ -34,10 +34,36 @@ export class QuotationRepository {
   private static PRESETS_STORE = 'quotation_presets';
   private static PROFILES_STORE = 'workspace_document_profiles';
   private static workspaceListeners = new Map<string, Set<() => void>>();
+  private static workspaceSubscribers = new Map<string, Set<(quotations: Quotation[]) => void>>();
+  private static activeSnapshotUnsubs = new Map<string, () => void>();
+  private static workspaceCache = new Map<string, { data: Quotation[]; fetchedAt: number }>();
+  private static profileCache = new Map<string, { data: WorkspaceDocumentProfile | null; fetchedAt: number }>();
+  private static presetsCache = new Map<string, { data: QuotationPreset[]; fetchedAt: number }>();
   public static onProcurementDocLifecycleChange?: (workspaceId: string) => Promise<void>;
+
+  private static async readLocalWorkspaceQuotations(wsId: string): Promise<Quotation[]> {
+    const quotes: Quotation[] = [];
+    try {
+      const local = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
+      for (const raw of local) {
+        const item = this.docToQuotation(raw.id!, raw);
+        const itemWsId = item.workspace_id || item.workspaceId;
+        if ((!wsId || itemWsId === wsId) && !item.is_deleted) {
+          quotes.push(item);
+        }
+      }
+    } catch (_) {}
+    return quotes.sort((a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0));
+  }
 
   public static notifyWorkspaceSubscribers(workspaceId?: string): void {
     const wsId = workspaceId || 'ws_default';
+    if (wsId === '*') {
+      this.workspaceCache.clear();
+    } else {
+      this.workspaceCache.delete(wsId);
+    }
+
     const listeners = this.workspaceListeners.get(wsId);
     if (listeners) {
       listeners.forEach((fn) => {
@@ -53,6 +79,23 @@ export class QuotationRepository {
           fn();
         } catch (_) {}
       });
+    }
+
+    const targetWsIds = wsId === '*' ? Array.from(this.workspaceSubscribers.keys()) : [wsId];
+    for (const targetWsId of targetWsIds) {
+      const subs = this.workspaceSubscribers.get(targetWsId);
+      if (subs && subs.size > 0) {
+        this.readLocalWorkspaceQuotations(targetWsId)
+          .then((localQuotes) => {
+            this.workspaceCache.set(targetWsId, { data: localQuotes, fetchedAt: Date.now() });
+            subs.forEach((cb) => {
+              try {
+                cb(localQuotes);
+              } catch (_) {}
+            });
+          })
+          .catch(() => {});
+      }
     }
   }
 
@@ -2082,6 +2125,11 @@ export class QuotationRepository {
    */
   public static async getQuotationsForWorkspace(workspaceId: string): Promise<Quotation[]> {
     const wsId = workspaceId || 'ws_default';
+    const cached = this.workspaceCache.get(wsId);
+    if (cached && Date.now() - cached.fetchedAt < 10_000) {
+      return [...cached.data];
+    }
+
     let quotes: Quotation[] = [];
 
     // Query remote Firestore (scoped by workspace_id)
@@ -2113,7 +2161,9 @@ export class QuotationRepository {
       }
     } catch (_) {}
 
-    return quotes.sort((a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0));
+    const sorted = quotes.sort((a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0));
+    this.workspaceCache.set(wsId, { data: sorted, fetchedAt: Date.now() });
+    return sorted;
   }
 
   /**
@@ -2138,8 +2188,8 @@ export class QuotationRepository {
   }
 
   /**
-   * Subscribes to workspace quotations using event-driven pub/sub + optional Firestore onSnapshot
-   * (zero 4-second polling).
+   * Subscribes to workspace quotations using a single shared Firestore onSnapshot per workspaceId
+   * that maps snap.docs directly (eliminating the triple-read onSnapshot + getDocs anti-pattern).
    */
   public static subscribe(
     workspaceId: string,
@@ -2148,47 +2198,118 @@ export class QuotationRepository {
     const wsId = workspaceId || 'ws_default';
     let active = true;
 
-    const load = () => {
-      if (!active) return;
+    if (!this.workspaceSubscribers.has(wsId)) {
+      this.workspaceSubscribers.set(wsId, new Set());
+    }
+    const subs = this.workspaceSubscribers.get(wsId)!;
+    subs.add(callback);
+
+    const isQuotaSaver =
+      typeof window !== 'undefined' &&
+      window.localStorage?.getItem('sas_quota_saver_mode') === 'true';
+
+    // Deliver immediate initial paint from memory cache or IndexedDB without firing an extra getDocs when onSnapshot is active
+    const cached = this.workspaceCache.get(wsId);
+    if (cached) {
+      callback([...cached.data]);
+    } else if (!isQuotaSaver && db) {
+      this.readLocalWorkspaceQuotations(wsId)
+        .then((localList) => {
+          if (active && !this.workspaceCache.has(wsId) && localList.length > 0) {
+            callback(localList);
+          }
+        })
+        .catch(() => {});
+    } else {
       this.getQuotationsForWorkspace(wsId)
         .then((list) => {
           if (active) callback(list);
         })
         .catch(() => {});
-    };
-
-    if (!this.workspaceListeners.has(wsId)) {
-      this.workspaceListeners.set(wsId, new Set());
     }
-    this.workspaceListeners.get(wsId)!.add(load);
 
-    load();
-
-    let unsubSnapshot: (() => void) | null = null;
-    const isQuotaSaver =
-      typeof window !== 'undefined' &&
-      window.localStorage?.getItem('sas_quota_saver_mode') === 'true';
-
-    if (!isQuotaSaver && db) {
+    if (!isQuotaSaver && db && !this.activeSnapshotUnsubs.has(wsId)) {
       try {
         const q = query(collection(db, 'quotations'), where('workspace_id', '==', wsId));
-        unsubSnapshot = onSnapshot(
+        const unsub = onSnapshot(
           q,
-          () => {
-            if (active) load();
+          async (snap) => {
+            const remoteQuotes: Quotation[] = [];
+            const remoteIds = new Set<string>();
+            const deletedIds = new Set<string>();
+
+            snap.docs.forEach((d) => {
+              const item = this.docToQuotation(d.id, d.data());
+              const itemWsId = item.workspace_id || item.workspaceId;
+              if (!itemWsId || itemWsId === wsId) {
+                if (item.is_deleted) {
+                  deletedIds.add(d.id);
+                } else {
+                  remoteIds.add(d.id);
+                  remoteQuotes.push(item);
+                }
+              }
+            });
+
+            try {
+              const local = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
+              const mergedLocalMap = new Map<string, Quotation>();
+              for (const raw of local) {
+                if (!raw?.id) continue;
+                const item = this.docToQuotation(raw.id, raw);
+                mergedLocalMap.set(raw.id, item);
+                const itemWsId = item.workspace_id || item.workspaceId;
+                if (
+                  itemWsId === wsId &&
+                  !item.is_deleted &&
+                  !remoteIds.has(raw.id) &&
+                  !deletedIds.has(raw.id)
+                ) {
+                  remoteQuotes.push(item);
+                }
+              }
+              for (const rq of remoteQuotes) {
+                if (rq.id) mergedLocalMap.set(rq.id, rq);
+              }
+              deletedIds.forEach((delId) => mergedLocalMap.delete(delId));
+              await saveToLocalStore(this.QUOTATIONS_STORE, Array.from(mergedLocalMap.values()));
+            } catch (_) {}
+
+            const sorted = remoteQuotes.sort(
+              (a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0)
+            );
+            this.workspaceCache.set(wsId, { data: sorted, fetchedAt: Date.now() });
+
+            const currentSubs = this.workspaceSubscribers.get(wsId);
+            if (currentSubs) {
+              currentSubs.forEach((cb) => {
+                try {
+                  cb([...sorted]);
+                } catch (_) {}
+              });
+            }
           },
           () => {}
         );
+        this.activeSnapshotUnsubs.set(wsId, unsub);
       } catch (_) {}
     }
 
     return () => {
       active = false;
-      this.workspaceListeners.get(wsId)?.delete(load);
-      if (unsubSnapshot) {
-        try {
-          unsubSnapshot();
-        } catch (_) {}
+      const currentSubs = this.workspaceSubscribers.get(wsId);
+      if (currentSubs) {
+        currentSubs.delete(callback);
+        if (currentSubs.size === 0) {
+          this.workspaceSubscribers.delete(wsId);
+          const unsub = this.activeSnapshotUnsubs.get(wsId);
+          if (unsub) {
+            this.activeSnapshotUnsubs.delete(wsId);
+            try {
+              unsub();
+            } catch (_) {}
+          }
+        }
       }
     };
   }
@@ -2616,6 +2737,7 @@ export class QuotationRepository {
       await saveToLocalStore(this.PRESETS_STORE, updated);
     } catch (_) {}
 
+    this.presetsCache.delete(wsId);
     return newPreset;
   }
 
@@ -2892,6 +3014,7 @@ export class QuotationRepository {
       await saveToLocalStore(this.PRESETS_STORE, updated);
     } catch (_) {}
 
+    this.presetsCache.delete(normalized.workspace_id || normalized.workspaceId || 'ws_default');
     return normalized;
   }
 
@@ -2944,14 +3067,21 @@ export class QuotationRepository {
       await saveToLocalStore(this.PRESETS_STORE, updatedAllLocal);
     } catch (_) {}
 
+    this.presetsCache.set(wsId, { data: updatedWorkspacePresets, fetchedAt: Date.now() });
     return updatedWorkspacePresets;
   }
 
   /**
    * Retrieves all quotation presets for a workspace, strictly isolated.
+   * Uses a 30-second in-memory cache to prevent redundant reads on modal opens.
    */
   public static async getPresets(workspaceId: string): Promise<QuotationPreset[]> {
     if (!workspaceId) return [];
+
+    const cached = this.presetsCache.get(workspaceId);
+    if (cached && Date.now() - cached.fetchedAt < 30_000) {
+      return [...cached.data];
+    }
 
     let presets: QuotationPreset[] = [];
 
@@ -2980,7 +3110,9 @@ export class QuotationRepository {
       } catch (_) {}
     }
 
-    return presets.sort((a, b) => (a.preset_name || '').localeCompare(b.preset_name || ''));
+    const sorted = presets.sort((a, b) => (a.preset_name || '').localeCompare(b.preset_name || ''));
+    this.presetsCache.set(workspaceId, { data: sorted, fetchedAt: Date.now() });
+    return sorted;
   }
 
   /**
@@ -3005,16 +3137,23 @@ export class QuotationRepository {
       await saveToLocalStore(this.PRESETS_STORE, updated);
     } catch (_) {}
 
+    this.presetsCache.clear();
     return true;
   }
 
   /**
    * Retrieves the active document profile for a workspace, strictly isolated.
+   * Uses a 30-second in-memory cache to prevent redundant reads on modal opens.
    */
   public static async getWorkspaceDocumentProfile(
     workspaceId: string
   ): Promise<WorkspaceDocumentProfile | null> {
     if (!workspaceId) return null;
+
+    const cached = this.profileCache.get(workspaceId);
+    if (cached && Date.now() - cached.fetchedAt < 30_000) {
+      return cached.data ? { ...cached.data } : null;
+    }
 
     // 1. Try Firestore fetch (scoped by workspace_id)
     try {
@@ -3033,7 +3172,10 @@ export class QuotationRepository {
             });
           }
         });
-        if (found) return found;
+        if (found) {
+          this.profileCache.set(workspaceId, { data: found, fetchedAt: Date.now() });
+          return found;
+        }
       }
     } catch (_) {}
 
@@ -3041,13 +3183,18 @@ export class QuotationRepository {
     try {
       const local =
         (await getFromLocalStore<WorkspaceDocumentProfile>(this.PROFILES_STORE)) || [];
-      const cached = local.find((p) => {
+      const localMatch = local.find((p) => {
         const itemWsId = p.workspace_id || p.workspaceId;
         return itemWsId === workspaceId && !p.is_deleted;
       });
-      if (cached) return this.mergeWorkspaceDocumentProfile(null, cached);
+      if (localMatch) {
+        const merged = this.mergeWorkspaceDocumentProfile(null, localMatch);
+        this.profileCache.set(workspaceId, { data: merged, fetchedAt: Date.now() });
+        return merged;
+      }
     } catch (_) {}
 
+    this.profileCache.set(workspaceId, { data: null, fetchedAt: Date.now() });
     return null;
   }
 
@@ -3084,6 +3231,7 @@ export class QuotationRepository {
       await saveToLocalStore(this.PROFILES_STORE, updated);
     } catch (_) {}
 
+    this.profileCache.set(wsId, { data: fullProfile, fetchedAt: Date.now() });
     return fullProfile;
   }
 }
