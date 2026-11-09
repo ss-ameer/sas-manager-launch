@@ -5635,6 +5635,48 @@ export default function EnquiryDetail({
                               </span>
                             )}
 
+                            {!(item.is_composite_set || (item.sub_components && item.sub_components.length > 0)) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const seed = [
+                                    {
+                                      id: `sub_${Date.now()}_1`,
+                                      sn: '1',
+                                      item_name: '',
+                                      remark: '',
+                                      quantity: 1,
+                                      unit: 'Nos',
+                                      cost_price: 0,
+                                      unit_price: 0,
+                                      total_price: 0,
+                                      line_total: 0,
+                                      is_included_accessory: false
+                                    }
+                                  ];
+                                  const totals = recalculateCompositeItemTotals(seed, Number(item.quantity) || 1);
+                                  setDraftLineItems((prev) => {
+                                    const next = [...prev];
+                                    next[idx] = {
+                                      ...next[idx],
+                                      is_composite_set: true,
+                                      sub_components: seed,
+                                      package_pricing_mode: item.package_pricing_mode || 'itemized',
+                                      cost_price: totals.cost_price,
+                                      unit_price: totals.unit_price,
+                                      total_price: totals.total_price
+                                    };
+                                    return next;
+                                  });
+                                }}
+                                className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 transition"
+                                title="Convert this item into a multi-component BOM Kit / Assembly"
+                              >
+                                <Boxes className="w-3 h-3 shrink-0" />
+                                <span>Convert to BOM Kit</span>
+                              </button>
+                            )}
+
                             <button
                               type="button"
                               onClick={() => {
@@ -5662,10 +5704,11 @@ export default function EnquiryDetail({
                                   );
                                 }
                               }}
-                              className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 transition"
+                              className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 transition"
                               title="Clone this item (and all sub-components) into the next Option group (e.g. Option B)"
                             >
-                              <span>🔀 Clone as Next Option</span>
+                              <GitFork className="w-3 h-3 text-indigo-500 shrink-0" />
+                              <span>Clone Option</span>
                             </button>
 
                             <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
@@ -5996,31 +6039,33 @@ export default function EnquiryDetail({
                           )}
                         </div>
 
-                        {/* Multi-Component Set / BOM Editor */}
-                        <div className="pt-2 border-t border-slate-100">
-                          <CompositePackageEditor
-                            isCompositeSet={Boolean(
-                              item.is_composite_set ||
-                                (item.sub_components && item.sub_components.length > 0)
-                            )}
-                            subComponents={item.sub_components || []}
-                            packagePricingMode={item.package_pricing_mode || 'itemized'}
-                            optionScopeNotes={item.option_scope_notes || ''}
-                            parentQuantity={item.quantity || 1}
-                            currency={(currentEnquiry.currency as string) || 'USD'}
-                            products={products || []}
-                            onChange={(patch) => {
-                              setDraftLineItems((prev) => {
-                                const next = [...prev];
-                                next[idx] = {
-                                  ...next[idx],
-                                  ...patch
-                                };
-                                return next;
-                              });
-                            }}
-                          />
-                        </div>
+                        {/* Multi-Component Set / BOM Editor — Rendered only when active */}
+                        {Boolean(
+                          item.is_composite_set ||
+                            (item.sub_components && item.sub_components.length > 0)
+                        ) && (
+                          <div className="pt-2 border-t border-slate-100">
+                            <CompositePackageEditor
+                              isCompositeSet={true}
+                              subComponents={item.sub_components || []}
+                              packagePricingMode={item.package_pricing_mode || 'itemized'}
+                              optionScopeNotes={item.option_scope_notes || ''}
+                              parentQuantity={item.quantity || 1}
+                              currency={(currentEnquiry.currency as string) || 'USD'}
+                              products={products || []}
+                              onChange={(patch) => {
+                                setDraftLineItems((prev) => {
+                                  const next = [...prev];
+                                  next[idx] = {
+                                    ...next[idx],
+                                    ...patch
+                                  };
+                                  return next;
+                                });
+                              }}
+                            />
+                          </div>
+                        )}
                       </div>
                     );
                   })}

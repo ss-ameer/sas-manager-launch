@@ -70,7 +70,11 @@ import {
   Upload,
   Image as ImageIcon,
   Scissors,
-  BookmarkPlus
+  BookmarkPlus,
+  Building2,
+  Compass,
+  TrendingUp,
+  GitBranch
 } from 'lucide-react';
 import SaveToCatalogModal, {
   parseLineItemTitleAndSpec,
@@ -2135,9 +2139,6 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
   const priceDiscrepancyAmount = Math.abs((Number(manualValue) || 0) - computedValue);
 
   const handleAddLineItem = () => {
-    const suggestions = CATEGORY_SUGGESTED_ATTRIBUTES['Other'] || [];
-    const defaultAttributes = suggestions.map(key => ({ key, value: '' }));
-
     const newItem: LineItem = {
       item_type: 'product',
       product_type: 'Other',
@@ -2148,7 +2149,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       total_price: 0,
       lead_time_note: '',
       option: 'Default / Included',
-      attributes: defaultAttributes
+      attributes: []
     };
     setLineItems([...lineItems, newItem]);
   };
@@ -2349,11 +2350,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       item.product_type = 'Service / Charge';
     } else if (field === 'product_type') {
       item.product_type = val;
-      const existingFilled = (item.attributes || []).filter((a) => a.value && a.value.trim() !== '');
-      if (existingFilled.length === 0) {
-        const suggestions = CATEGORY_SUGGESTED_ATTRIBUTES[val] || [];
-        item.attributes = suggestions.map((key) => ({ key, value: '' }));
-      }
+      const existingFilled = (item.attributes || []).filter((a) => (a.key && a.key.trim() !== '') || (a.value && a.value.trim() !== ''));
+      item.attributes = existingFilled;
     } else {
       item[field] = val as any;
     }
@@ -4734,7 +4732,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <div>
                   <div className="flex items-center space-x-2">
                     <h3 className="text-base font-bold text-slate-900 dark:text-white font-sans flex items-center gap-1.5">
-                      <span>{enquiryToEdit ? (isClaimingGap ? `Claim Reserved Gap #${enquiryToEdit.sn}` : `Edit Enquiry #${enquiryToEdit.sn}`) : '📋 Register New Enquiry'}</span>
+                      <span>{enquiryToEdit ? (isClaimingGap ? `Claim Reserved Gap #${enquiryToEdit.sn}` : `Edit Enquiry #${enquiryToEdit.sn}`) : 'Register New Enquiry'}</span>
                     </h3>
                     {quoteRefNo && (
                       <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 max-w-[260px] truncate" title={quoteRefNo}>
@@ -4821,45 +4819,57 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             )}
 
             {/* Sticky Quick-Jump Section Bar */}
-            <div className="px-6 py-2 bg-slate-50/90 dark:bg-slate-900/90 border-b border-slate-200/80 dark:border-slate-800 flex items-center gap-1.5 overflow-x-auto shrink-0 z-10">
-              {(
-                [
-                  { label: '1. Metadata & Client', target: 'company' },
-                  { label: '2. Scope & Specs', target: 'country' },
-                  { label: `3. Line Items (${lineItems.length})`, target: 'line_items' },
-                  { label: `4. Terms & Files (${attachments.length})`, target: 'value' }
-                ] as const
-              ).map((sec) => {
-                const isActive = activeFormSection === sec.target;
-                return (
-                  <button
-                    key={sec.target}
-                    type="button"
-                    onClick={() => scrollToField(sec.target)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold font-sans border transition whitespace-nowrap cursor-pointer ${
-                      isActive
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs ring-2 ring-blue-500/20'
-                        : 'bg-white dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 border-slate-200/80 dark:border-slate-700 shadow-2xs'
-                    }`}
-                  >
-                    {sec.label}
-                  </button>
-                );
-              })}
+            <div className="px-6 py-2 bg-white/95 dark:bg-slate-900/95 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-2 overflow-x-auto shrink-0 z-10">
+              <div className="flex items-center gap-1.5">
+                {(
+                  [
+                    { label: '1. Metadata & Client', target: 'company' },
+                    { label: '2. Scope & Specs', target: 'country' },
+                    { label: `3. Line Items (${lineItems.length})`, target: 'line_items' },
+                    { label: `4. Terms & Files (${attachments.length})`, target: 'value' }
+                  ] as const
+                ).map((sec) => {
+                  const isActive = activeFormSection === sec.target;
+                  return (
+                    <button
+                      key={sec.target}
+                      type="button"
+                      onClick={() => scrollToField(sec.target)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold font-sans border transition whitespace-nowrap cursor-pointer ${
+                        isActive
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-xs ring-2 ring-blue-500/20'
+                          : 'bg-slate-50 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 border-slate-200/80 dark:border-slate-700'
+                      }`}
+                    >
+                      {sec.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => scrollToField('source_files')}
+                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold font-sans bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/80 flex items-center gap-1.5 transition whitespace-nowrap cursor-pointer shrink-0 shadow-2xs"
+                title="Jump to Source PDF / Excel AI Autofill & Smart Paste"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                <span>AI / RFQ Autofill</span>
+              </button>
             </div>
 
             {/* Scrollable Form body */}
             <fieldset
               disabled={isReadOnly}
               onScroll={handleFormScroll}
-              className="flex-1 overflow-x-hidden overflow-y-auto p-6 pb-24 space-y-6 bg-slate-50/40 dark:bg-slate-950/40 border-0 m-0 min-w-0"
+              className="flex-1 overflow-x-hidden overflow-y-auto p-6 pb-24 space-y-6 bg-slate-50/80 dark:bg-slate-950/70 border-0 m-0 min-w-0"
             >
             
             {/* Section 1: Standard Metadata */}
-            <div className="bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
-                <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
-                  <span>📅 Log Metadata & Ownership</span>
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span>Log Metadata &amp; Ownership</span>
                 </span>
               </div>
 
@@ -5278,10 +5288,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           )}
 
           {/* Section 2: Account and Contact selection */}
-          <div id="field-company" className={`scroll-mt-4 bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 transition-all duration-300 ${getHighlightClasses('company')}`}>
-            <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
-              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
-                <span>🏢 Account & Contact Pairing</span>
+          <div id="field-company" className={`scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs transition-all duration-300 ${getHighlightClasses('company')}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span>Account &amp; Contact Pairing</span>
               </span>
               <div className="flex items-center gap-2 flex-wrap">
                 <button
@@ -5296,7 +5307,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 relative bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-700/80 rounded-xl p-4 shadow-2xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 relative">
               {/* Company search */}
               <div className="relative min-w-0">
                 <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[28px]">
@@ -5575,10 +5586,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           </div>
 
           {/* Section 3: Proposal Location and identifiers */}
-          <div className="bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
-              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
-                <span>📍 Commercial Scope & References</span>
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                <Compass className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span>Commercial Scope &amp; References</span>
               </span>
             </div>
 
@@ -5994,33 +6006,34 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             </div>
 
             {/* Custom Project Specifications & Information */}
-            <div 
-              id="field-custom_project_details" 
-              className={`bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-700/80 p-4 rounded-xl space-y-3 transition-all duration-300 ${getHighlightClasses('custom_project_details')}`}
+            <div
+              id="field-custom_project_details"
+              className={`border-t border-slate-100 dark:border-slate-800/80 pt-4 mt-4 space-y-2.5 transition-all duration-300 ${getHighlightClasses('custom_project_details')}`}
             >
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 dark:border-slate-700/80 pb-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
-                  <Sliders className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 font-sans uppercase tracking-wider truncate">
+                  <Sliders className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 font-sans uppercase tracking-wider truncate">
                     Custom Project Specifications
                   </span>
-                  <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap shrink-0">
-                    ({customProjectDetails.filter(d => d.key.trim() || d.value.trim()).length} Defined)
-                  </span>
+                  {customProjectDetails.filter(d => d.key.trim() || d.value.trim()).length > 0 && (
+                    <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap shrink-0">
+                      ({customProjectDetails.filter(d => d.key.trim() || d.value.trim()).length})
+                    </span>
+                  )}
                 </div>
                 <button
                   type="button"
                   onClick={() => setCustomProjectDetails(prev => [...prev, { key: '', value: '' }])}
-                  className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 px-2.5 py-1 rounded-lg border border-blue-200 dark:border-blue-800 transition flex items-center space-x-1 cursor-pointer whitespace-nowrap shrink-0"
+                  className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 px-2.5 py-1 rounded-lg border border-blue-200/80 dark:border-blue-800/80 transition flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Project Spec</span>
+                  <Plus className="w-3 h-3" />
+                  <span>Add Custom Spec</span>
                 </button>
               </div>
 
               {/* Quick Spec Presets */}
               <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-sans">
-                <span className="text-slate-400 font-medium mr-1">Quick Add Presets:</span>
                 {['Consultant', 'Main Contractor', 'Site Location', 'Tender Ref', 'Scope of Work', 'Delivery Terms', 'Payment Terms'].map((quickKey) => (
                   <button
                     key={quickKey}
@@ -6030,7 +6043,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         setCustomProjectDetails(prev => [...prev, { key: quickKey, value: '' }]);
                       }
                     }}
-                    className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg border border-slate-200/80 dark:border-slate-700 transition font-medium cursor-pointer"
+                    className="px-2.5 py-1 bg-slate-50 dark:bg-slate-800/80 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 rounded-lg border border-slate-200/80 dark:border-slate-700 hover:border-blue-200 dark:hover:border-blue-800 transition font-medium cursor-pointer"
                   >
                     + {quickKey}
                   </button>
@@ -6038,13 +6051,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
 
               {/* Active Key-Value Specs List */}
-              <div className="space-y-2 pt-1">
-                {customProjectDetails.length === 0 ? (
-                  <div className="text-center py-3 px-2 border border-dashed border-slate-200 dark:border-slate-700/80 rounded-xl text-slate-400 dark:text-slate-500 text-xs italic">
-                    No custom project specifications defined. Click a preset above (e.g. Consultant, Main Contractor) or click + Add Project Spec to add one.
-                  </div>
-                ) : (
-                  customProjectDetails.map((detail, idx) => (
+              {customProjectDetails.length > 0 && (
+                <div className="space-y-2 pt-1">
+                  {customProjectDetails.map((detail, idx) => (
                     <div key={idx} className="flex items-center space-x-2 bg-slate-50/80 dark:bg-slate-800/40 p-2 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
                       <input
                         type="text"
@@ -6078,22 +6087,23 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         <X className="w-4 h-4" />
                       </button>
                     </div>
-                  ))
-                )}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
           {/* Section 4: Line Items Table */}
-          <div id="field-line_items" className={`scroll-mt-4 bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 ${getHighlightClasses('line_items')}`}>
-            <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+          <div id="field-line_items" className={`scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs ${getHighlightClasses('line_items')}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5 whitespace-nowrap">
-                  <span>📦 Proposal Line Items ({lineItems.length})</span>
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2 whitespace-nowrap">
+                  <Package className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span>Proposal Line Items ({lineItems.length})</span>
                 </span>
                 {renderConfidenceBadge('line_items')}
                 <div
-                  className="inline-flex items-center rounded-lg bg-slate-200/70 dark:bg-slate-800 p-0.5 border border-slate-300/70 dark:border-slate-700"
+                  className="inline-flex items-center rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5 border border-slate-200/80 dark:border-slate-700"
                   title="Switch active proposal currency (converts existing line item rates between AED and USD)"
                 >
                   <button
@@ -6177,7 +6187,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     <option key={type} value={type} />
                   ))}
                 </datalist>
-                
+
                 {lineItems.map((item, index) => {
                   const isServiceOrFee =
                     (item as any).classification === 'Charge / Fee (Service)' ||
@@ -6188,454 +6198,405 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     (item.item_type as string) === 'fee' ||
                     item.product_type === 'Service / Charge';
 
+                  const isCompositeItem = Boolean(
+                    item.is_composite_set || (item.sub_components && item.sub_components.length > 0)
+                  );
+
                   return (
-                  <div key={index} className="bg-white/95 dark:bg-slate-900/80 border border-slate-200/90 dark:border-slate-700/80 p-4 rounded-xl space-y-3.5 shadow-2xs">
-                    {/* Card Header Bar — Single Clean Row */}
-                    <div className="flex items-center justify-between pb-2.5 border-b border-slate-200/80 dark:border-slate-700/80 gap-2 flex-wrap">
-                      <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                        <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-mono text-[11px] font-bold shrink-0">
-                          #{index + 1}
-                        </span>
-                        {(() => {
-                          if (isServiceOrFee) {
-                            return (
-                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-                                <span>⚡ Service / Fee</span>
-                              </span>
-                            );
-                          }
-
-                          const matchedProduct = item.product_id ? (products || []).find((p) => p.id === item.product_id) : null;
-                          if (matchedProduct) {
-                            const availStock = (matchedProduct.stock_on_hand || 0) - (matchedProduct.stock_reserved || 0);
-                            const isLow = Boolean(matchedProduct.is_inventoried) && availStock <= (matchedProduct.reorder_level || 0);
-                            const drifted = hasCatalogDrift(item, matchedProduct, formCurrency);
-                            return (
-                              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 max-w-[220px] truncate" title={`${matchedProduct.name} ${matchedProduct.sku ? `[${matchedProduct.sku}]` : ''}`}>
-                                  <Package className="w-3 h-3 text-emerald-600 shrink-0"/>
-                                  <span className="truncate">{matchedProduct.sku || matchedProduct.name}</span>
-                                </span>
-                                {matchedProduct.is_inventoried ? (
-                                  <span
-                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold border whitespace-nowrap ${
-                                      isLow
-                                        ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                        : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                    }`}
-                                  >
-                                    <span>Avail: {availStock} {matchedProduct.unit}</span>
-                                    {(matchedProduct.stock_reserved || 0) > 0 && (
-                                      <span>(Res: {matchedProduct.stock_reserved})</span>
-                                    )}
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-mono bg-slate-100 text-slate-600 border border-slate-200 whitespace-nowrap">
-                                    {matchedProduct.default_availability || 'Order / Non-Stock'}
-                                  </span>
-                                )}
-                                {drifted && (
-                                  <button
-                                    type="button"
-                                    disabled={syncingCatalogIdx === index}
-                                    onClick={async () => {
-                                      setSyncingCatalogIdx(index);
-                                      try {
-                                        await syncLineItemToCatalogProduct(
-                                          item,
-                                          matchedProduct,
-                                          setProducts,
-                                          triggerToast,
-                                          formCurrency
-                                        );
-                                      } catch (err: any) {
-                                        if (triggerToast) {
-                                          triggerToast('Failed to sync to catalog: ' + (err?.message || 'Error'), 'error');
-                                        }
-                                      } finally {
-                                        setSyncingCatalogIdx(null);
-                                      }
-                                    }}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
-                                    title="Push updated price, cost, brand, model, or specs back to the master Product Catalog"
-                                  >
-                                    <RefreshCw className={`w-2.5 h-2.5 ${syncingCatalogIdx === index ? 'animate-spin' : ''}`} />
-                                    <span>Sync Catalog</span>
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => handleUnlinkCatalogItem(index)}
-                                  className="text-[10px] text-slate-400 hover:text-rose-600 underline cursor-pointer whitespace-nowrap"
-                                  title="Unlink from catalog SKU (converts to custom/non-stock)"
-                                >
-                                  Unlink
-                                </button>
-                              </div>
-                            );
-                          }
-                          return (
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 whitespace-nowrap">
-                                <Wrench className="w-2.5 h-2.5 text-slate-400"/>
-                                <span>Custom Item</span>
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setLinkingLineIndex(index);
-                                  setShowCatalogModal(true);
-                                }}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 border border-blue-200/70 transition cursor-pointer whitespace-nowrap"
-                              >
-                                <Link2 className="w-2.5 h-2.5"/>
-                                <span>Link SKU</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const itemInAed = {
-                                    ...item,
-                                    unit_price:
-                                      formCurrency === 'USD'
-                                        ? Number(((Number(item.unit_price) || 0) * 3.6725).toFixed(2))
-                                        : item.unit_price,
-                                    cost_price:
-                                      item.cost_price !== undefined
-                                        ? formCurrency === 'USD'
-                                          ? Number((Number(item.cost_price) * 3.6725).toFixed(2))
-                                          : item.cost_price
-                                        : undefined
-                                  };
-                                  setSaveToCatalogState({
-                                    isOpen: true,
-                                    item: itemInAed,
-                                    itemIndex: index
-                                  });
-                                }}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition cursor-pointer whitespace-nowrap"
-                                title="Register this custom line item into the master Products Catalog and link it"
-                              >
-                                <BookmarkPlus className="w-2.5 h-2.5" />
-                                <span>Save to Catalog</span>
-                              </button>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {!isServiceOrFee && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const { clonedItem, targetOption, updatedSourceOption } = cloneLineItemToNextOption(
-                                item,
-                                lineItems
-                              );
-                              setLineItems((prev) => {
-                                const next = [...prev];
-                                if (updatedSourceOption) {
-                                  next[index] = {
-                                    ...next[index],
-                                    option: updatedSourceOption,
-                                    item_option: updatedSourceOption,
-                                    option_designation: updatedSourceOption
-                                  };
-                                }
-                                next.splice(index + 1, 0, clonedItem);
-                                return next;
-                              });
-                              if (triggerToast) {
-                                triggerToast(
-                                  `Cloned "${item.item_name || item.product_type || 'Line Item'}" as ${targetOption}!`,
-                                  'success'
-                                );
-                              }
-                            }}
-                            className="px-2 py-1 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 rounded-lg transition-colors flex items-center gap-1 text-[11px] font-sans font-semibold cursor-pointer shrink-0 whitespace-nowrap"
-                            title="Clone this item (and all sub-components) into the next Option group (e.g. Option B)"
-                          >
-                            <span>🔀 Clone as Next Option</span>
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveLineItem(index)}
-                          className="px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:border-rose-200 dark:border-rose-800 hover:text-rose-600 dark:hover:text-rose-400 text-slate-500 rounded-lg transition-colors flex items-center gap-1 text-[11px] font-sans font-medium cursor-pointer shrink-0 whitespace-nowrap"
-                          title="Remove Line Item"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>Remove</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Tier 1: Classification & Product Category */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center justify-between h-5 mb-1">
-                          <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
-                            Classification
-                          </label>
-                        </div>
-                        <select
-                          value={
-                            (item as any).classification === 'Charge / Fee (Service)' || item.item_type === 'charge'
-                              ? 'charge'
-                              : (item as any).classification === 'Discount / Rebate' || item.item_type === 'discount'
-                              ? 'discount'
-                              : 'product'
-                          }
-                          onChange={(e) => handleLineItemChange(index, 'item_type', e.target.value)}
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
-                        >
-                          <option value="product">Product (Hardware / Component)</option>
-                          <option value="charge">Charge / Fee (Service)</option>
-                          <option value="discount">Discount / Rebate</option>
-                        </select>
-                      </div>
-
-                      <div className="min-w-0">
-                        {item.item_type === 'charge' || item.item_type === 'discount' ? (
-                          <>
-                            <div className="flex items-center justify-between h-5 mb-1">
-                              <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
-                                Charge Type
-                              </label>
-                            </div>
-                            <select
-                              value={item.charge_type || 'Transportation'}
-                              onChange={(e) => handleLineItemChange(index, 'charge_type', e.target.value)}
-                              className="w-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-lg py-1.5 px-2.5 text-xs text-amber-900 dark:text-amber-300 focus:outline-none font-sans font-semibold"
-                            >
-                              <option value="Transportation">Transportation / Freight</option>
-                              <option value="Installation">Installation & Commissioning</option>
-                              <option value="Customs">Customs & Clearance</option>
-                              <option value="Testing">Testing & Inspection</option>
-                              <option value="Discount">Discount / Rebate</option>
-                              <option value="Other Charge">Other Non-Product Fee</option>
-                            </select>
-                          </>
-                        ) : (
-                          <>
-                            <div className="flex items-center justify-between h-5 mb-1">
-                              <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
-                                Product Category
-                              </label>
-                              {renderSortButton(categoriesSort, setCategoriesSort, 'Product Categories')}
-                            </div>
-                            <CreatableCombobox
-                              options={sortedCategories}
-                              value={item.product_type}
-                              onChange={(val: string) => handleLineItemChange(index, 'product_type', val)}
-                              onCreateOption={(val: string) => {
-                                handleLineItemChange(index, 'product_type', val);
-                              }}
-                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
-                            />
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Tier 2: Qty, Unit, Selling Price, Unit Cost & Live Margin — Strictly Aligned Labels */}
-                    <div className="grid grid-cols-12 gap-3">
-                      <div className="col-span-6 sm:col-span-2 min-w-0">
-                        <div className="flex items-center justify-between h-5 mb-1">
-                          <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                            Qty
-                          </label>
-                        </div>
-                        <input
-                          type="number"
-                          required
-                          value={item.quantity ?? ''}
-                          onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
-                        />
-                      </div>
-
-                      <div className="col-span-6 sm:col-span-2 min-w-0">
-                        <div className="flex items-center justify-between h-5 mb-1">
-                          <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                            Unit
-                          </label>
-                          {renderSortButton(unitsSort, setUnitsSort, 'Unit Suffixes')}
-                        </div>
-                        <CreatableCombobox
-                          options={sortedUnits}
-                          value={item.unit}
-                          onChange={(val: string) => handleLineItemChange(index, 'unit', val)}
-                          onCreateOption={(val: string) => {
-                            handleLineItemChange(index, 'unit', val);
-                          }}
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans"
-                        />
-                      </div>
-
-                      <div className="col-span-6 sm:col-span-4 min-w-0">
-                        <div className="flex items-center justify-between gap-1 h-5 mb-1 min-w-0">
-                          <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap truncate">
-                            Selling ({formCurrency})
-                          </label>
-                          {formCurrency === 'USD' ? (
-                            <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono tabular-nums whitespace-nowrap">
-                              ≈ {(item.unit_price * 3.6725).toFixed(0)} AED
-                            </span>
-                          ) : (
-                            <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono tabular-nums whitespace-nowrap">
-                              ≈ ${(item.unit_price / 3.6725).toFixed(1)}
-                            </span>
-                          )}
-                        </div>
-                        <FormattedNumberInput
-                          required
-                          value={item.unit_price}
-                          onChange={(val: number) => handleLineItemChange(index, 'unit_price', val)}
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
-                        />
-                      </div>
-
-                      <div className="col-span-6 sm:col-span-4 min-w-0">
-                        <div className="flex items-center justify-between gap-1 h-5 mb-1 min-w-0">
-                          <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap truncate">
-                            Cost ({formCurrency})
-                          </label>
+                    <div
+                      key={index}
+                      className="bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/90 dark:border-slate-700/80 p-4 rounded-xl space-y-3.5"
+                    >
+                      {/* Card Header Bar — Single Clean Row */}
+                      <div className="flex items-center justify-between pb-2.5 border-b border-slate-200/80 dark:border-slate-700/80 gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                          <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-mono text-[11px] font-bold shrink-0">
+                            #{index + 1}
+                          </span>
                           {(() => {
-                            const sell = Number(item.unit_price) || 0;
-                            const cost = Number(item.cost_price) || 0;
-                            if (sell > 0 && cost > 0) {
-                              const marginPct = ((sell - cost) / sell) * 100;
-                              const isHealthy = marginPct >= 20;
-                              const isThin = marginPct >= 0 && marginPct < 20;
+                            if (isServiceOrFee) {
                               return (
-                                <span
-                                  className={`font-mono tabular-nums text-[10px] font-bold px-1.5 py-0.2 rounded whitespace-nowrap shrink-0 ${
-                                    isHealthy
-                                      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
-                                      : isThin
-                                      ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
-                                      : 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300'
-                                  }`}
-                                  title="Gross Margin: (Selling - Cost) / Selling"
-                                >
-                                  {marginPct.toFixed(1)}% Margin
+                                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800">
+                                  <span>Service / Fee</span>
                                 </span>
                               );
                             }
+
+                            const matchedProduct = item.product_id
+                              ? (products || []).find((p) => p.id === item.product_id)
+                              : null;
+                            if (matchedProduct) {
+                              const availStock =
+                                (matchedProduct.stock_on_hand || 0) - (matchedProduct.stock_reserved || 0);
+                              const isLow =
+                                Boolean(matchedProduct.is_inventoried) &&
+                                availStock <= (matchedProduct.reorder_level || 0);
+                              const drifted = hasCatalogDrift(item, matchedProduct, formCurrency);
+                              return (
+                                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                  <span
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 max-w-[220px] truncate"
+                                    title={`${matchedProduct.name} ${matchedProduct.sku ? `[${matchedProduct.sku}]` : ''}`}
+                                  >
+                                    <Package className="w-3 h-3 text-emerald-600 shrink-0" />
+                                    <span className="truncate">{matchedProduct.sku || matchedProduct.name}</span>
+                                  </span>
+                                  {matchedProduct.is_inventoried ? (
+                                    <span
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold border whitespace-nowrap ${
+                                        isLow
+                                          ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                          : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                      }`}
+                                    >
+                                      <span>
+                                        Avail: {availStock} {matchedProduct.unit}
+                                      </span>
+                                      {(matchedProduct.stock_reserved || 0) > 0 && (
+                                        <span>(Res: {matchedProduct.stock_reserved})</span>
+                                      )}
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-mono bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 whitespace-nowrap">
+                                      {matchedProduct.default_availability || 'Order / Non-Stock'}
+                                    </span>
+                                  )}
+                                  {drifted && (
+                                    <button
+                                      type="button"
+                                      disabled={syncingCatalogIdx === index}
+                                      onClick={async () => {
+                                        setSyncingCatalogIdx(index);
+                                        try {
+                                          await syncLineItemToCatalogProduct(
+                                            item,
+                                            matchedProduct,
+                                            setProducts,
+                                            triggerToast,
+                                            formCurrency
+                                          );
+                                        } catch (err: any) {
+                                          if (triggerToast) {
+                                            triggerToast(
+                                              'Failed to sync to catalog: ' + (err?.message || 'Error'),
+                                              'error'
+                                            );
+                                          }
+                                        } finally {
+                                          setSyncingCatalogIdx(null);
+                                        }
+                                      }}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                                      title="Push updated price, cost, brand, model, or specs back to the master Product Catalog"
+                                    >
+                                      <RefreshCw
+                                        className={`w-2.5 h-2.5 ${syncingCatalogIdx === index ? 'animate-spin' : ''}`}
+                                      />
+                                      <span>Sync Catalog</span>
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUnlinkCatalogItem(index)}
+                                    className="text-[10px] text-slate-400 hover:text-rose-600 underline cursor-pointer whitespace-nowrap"
+                                    title="Unlink from catalog SKU (converts to custom/non-stock)"
+                                  >
+                                    Unlink
+                                  </button>
+                                </div>
+                              );
+                            }
                             return (
-                              <span className="text-[10px] font-mono text-slate-400 whitespace-nowrap shrink-0">
-                                Base Cost
-                              </span>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 whitespace-nowrap">
+                                  <Wrench className="w-2.5 h-2.5 text-slate-400" />
+                                  <span>Custom Item</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setLinkingLineIndex(index);
+                                    setShowCatalogModal(true);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 border border-blue-200/70 dark:border-blue-800/70 transition cursor-pointer whitespace-nowrap"
+                                >
+                                  <Link2 className="w-2.5 h-2.5" />
+                                  <span>Link SKU</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const itemInAed = {
+                                      ...item,
+                                      unit_price:
+                                        formCurrency === 'USD'
+                                          ? Number(((Number(item.unit_price) || 0) * 3.6725).toFixed(2))
+                                          : item.unit_price,
+                                      cost_price:
+                                        item.cost_price !== undefined
+                                          ? formCurrency === 'USD'
+                                            ? Number((Number(item.cost_price) * 3.6725).toFixed(2))
+                                            : item.cost_price
+                                          : undefined
+                                    };
+                                    setSaveToCatalogState({
+                                      isOpen: true,
+                                      item: itemInAed,
+                                      itemIndex: index
+                                    });
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/70 transition cursor-pointer whitespace-nowrap"
+                                  title="Register this custom line item into the master Products Catalog and link it"
+                                >
+                                  <BookmarkPlus className="w-2.5 h-2.5" />
+                                  <span>Save to Catalog</span>
+                                </button>
+                              </div>
                             );
                           })()}
                         </div>
-                        <FormattedNumberInput
-                          value={item.cost_price ?? ''}
-                          placeholder="0.00"
-                          onChange={(val: number) => handleLineItemChange(index, 'cost_price', val)}
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
-                        />
-                      </div>
-                    </div>
 
-                    {/* Tier 3: Item Name / Heading, Lead Time & Option Scope (Row A) + Full-Width Description (Row B) */}
-                    <div className="grid grid-cols-12 gap-3">
-                      <div className="col-span-12 sm:col-span-6 min-w-0">
-                        <div className="flex items-center justify-between gap-2 h-5 mb-1 min-w-0">
-                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
-                            Item Name / Heading
-                          </label>
-                          {!item.item_name?.trim() && item.description?.trim() && (
+                        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                          {!isServiceOrFee && !isCompositeItem && (
                             <button
                               type="button"
                               onClick={() => {
-                                const parsed = parseLineItemTitleAndSpec(item.description, item.item_name);
-                                const updated = [...lineItems];
-                                updated[index] = {
-                                  ...updated[index],
-                                  item_name: parsed.title,
-                                  description: parsed.spec
-                                };
-                                setLineItems(updated);
+                                const existingSubs = item.sub_components || [];
+                                const seed =
+                                  existingSubs.length > 0
+                                    ? existingSubs
+                                    : [
+                                        {
+                                          id: `sub_${Date.now()}_1`,
+                                          sn: '1',
+                                          item_name: '',
+                                          remark: '',
+                                          quantity: 1,
+                                          unit: 'Nos',
+                                          cost_price: 0,
+                                          unit_price: 0,
+                                          total_price: 0,
+                                          line_total: 0,
+                                          is_included_accessory: false
+                                        }
+                                      ];
+                                const totals = recalculateCompositeItemTotals(seed, Number(item.quantity) || 1);
+                                setLineItems((prev) => {
+                                  const next = [...prev];
+                                  next[index] = {
+                                    ...next[index],
+                                    is_composite_set: true,
+                                    sub_components: seed,
+                                    package_pricing_mode: item.package_pricing_mode || 'itemized',
+                                    cost_price: totals.cost_price,
+                                    unit_price: totals.unit_price,
+                                    total_price: totals.total_price
+                                  };
+                                  return next;
+                                });
                               }}
-                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-md transition cursor-pointer whitespace-nowrap shrink-0"
-                              title="Split leading title from description"
+                              className="px-2 py-1 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/80 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 rounded-lg transition-colors flex items-center gap-1 text-[11px] font-sans font-semibold cursor-pointer shrink-0 whitespace-nowrap"
+                              title="Convert this item into a multi-component BOM Kit / Assembly"
                             >
-                              <Scissors className="w-2.5 h-2.5 shrink-0" />
-                              <span>Split Title & Spec</span>
+                              <Layers className="w-3 h-3 shrink-0" />
+                              <span>Convert to BOM Kit</span>
                             </button>
                           )}
+
+                          {!isServiceOrFee && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const { clonedItem, targetOption, updatedSourceOption } = cloneLineItemToNextOption(
+                                  item,
+                                  lineItems
+                                );
+                                setLineItems((prev) => {
+                                  const next = [...prev];
+                                  if (updatedSourceOption) {
+                                    next[index] = {
+                                      ...next[index],
+                                      option: updatedSourceOption,
+                                      item_option: updatedSourceOption,
+                                      option_designation: updatedSourceOption
+                                    };
+                                  }
+                                  next.splice(index + 1, 0, clonedItem);
+                                  return next;
+                                });
+                                if (triggerToast) {
+                                  triggerToast(
+                                    `Cloned "${item.item_name || item.product_type || 'Line Item'}" as ${targetOption}!`,
+                                    'success'
+                                  );
+                                }
+                              }}
+                              className="px-2 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg transition-colors flex items-center gap-1 text-[11px] font-sans font-semibold cursor-pointer shrink-0 whitespace-nowrap"
+                              title="Clone this item (and all sub-components) into the next Option group (e.g. Option B)"
+                            >
+                              <GitBranch className="w-3 h-3 text-indigo-500 shrink-0" />
+                              <span>Clone Option</span>
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveLineItem(index)}
+                            className="px-2 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:border-rose-200 dark:border-rose-800 hover:text-rose-600 dark:hover:text-rose-400 text-slate-500 rounded-lg transition-colors flex items-center gap-1 text-[11px] font-sans font-medium cursor-pointer shrink-0 whitespace-nowrap"
+                            title="Remove Line Item"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Remove</span>
+                          </button>
                         </div>
-                        <input
-                          type="text"
-                          placeholder="e.g. Industrial Control Unit / Equipment Package"
-                          value={item.item_name ?? ''}
-                          onChange={(e) => handleLineItemChange(index, 'item_name', e.target.value)}
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none"
-                        />
                       </div>
 
-                      {(() => {
-                        const isDiscount = (item as any).classification === 'Discount / Rebate' || item.item_type === 'discount';
-                        const isService = (item as any).classification === 'Charge / Fee (Service)' || item.item_type === 'charge' || (item.item_type as string) === 'service';
-
-                        if (isDiscount) {
-                          return <div className="col-span-6 sm:col-span-3 opacity-0 pointer-events-none" />;
-                        }
-
-                        return (
-                          <div className="col-span-6 sm:col-span-3 min-w-0">
-                            <div className="flex items-center justify-between h-5 mb-1">
-                              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
-                                {isService ? 'Duration' : 'Lead Time'}
-                              </label>
-                            </div>
-                            <input
-                              type="text"
-                              placeholder={isService ? 'e.g. 1–2 Days' : 'e.g. Ex-Stock / 2-3 Wks'}
-                              value={item.lead_time_note ?? ''}
-                              onChange={(e) => handleLineItemChange(index, 'lead_time_note', e.target.value)}
-                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-                            />
-                          </div>
-                        );
-                      })()}
-
-                      <div className="col-span-6 sm:col-span-3 min-w-0">
-                        <div className="flex items-center justify-between h-5 mb-1">
-                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
-                            Option Scope
-                          </label>
-                        </div>
-                        <select
-                          value={(item as any).option_designation || item.option || 'Default / Included'}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            handleLineItemChange(index, 'option', val);
-                            handleLineItemChange(index, 'option_designation' as any, val);
-                          }}
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
-                        >
-                          <option value="Default / Included">Baseline / Included</option>
-                          <option value="Option A">Option A (Baseline)</option>
-                          <option value="Option B">Option B (Alternative)</option>
-                          <option value="Option C">Option C (Alternative)</option>
-                          <option value="Option D">Option D (Alternative)</option>
-                          <option value="Optional / Add-On">Optional / Add-On</option>
-                          {((item as any).option_designation || item.option) &&
-                            !['Default / Included', 'Option A', 'Option B', 'Option C', 'Option D', 'Optional / Add-On', ''].includes((item as any).option_designation || item.option) && (
-                              <option value={(item as any).option_designation || item.option}>
-                                {(item as any).option_designation || item.option}
-                              </option>
+                      {/* Row 1 (Identity & Scope): Item Name / Heading, Product Category, Classification, Option Scope */}
+                      <div className="grid grid-cols-12 gap-3">
+                        <div className="col-span-12 sm:col-span-5 min-w-0">
+                          <div className="flex items-center justify-between gap-2 h-5 mb-1 min-w-0">
+                            <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                              Item Name / Heading
+                            </label>
+                            {!item.item_name?.trim() && item.description?.trim() && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const parsed = parseLineItemTitleAndSpec(item.description, item.item_name);
+                                  const updated = [...lineItems];
+                                  updated[index] = {
+                                    ...updated[index],
+                                    item_name: parsed.title,
+                                    description: parsed.spec
+                                  };
+                                  setLineItems(updated);
+                                }}
+                                className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-md transition cursor-pointer whitespace-nowrap shrink-0"
+                                title="Split leading title from description"
+                              >
+                                <Scissors className="w-2.5 h-2.5 shrink-0" />
+                                <span>Split Title &amp; Spec</span>
+                              </button>
                             )}
-                        </select>
+                          </div>
+                          <input
+                            type="text"
+                            placeholder="e.g. Industrial Control Unit / Equipment Package"
+                            value={item.item_name ?? ''}
+                            onChange={(e) => handleLineItemChange(index, 'item_name', e.target.value)}
+                            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="col-span-12 sm:col-span-3 min-w-0">
+                          {item.item_type === 'charge' || item.item_type === 'discount' ? (
+                            <>
+                              <div className="flex items-center justify-between h-5 mb-1">
+                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                                  Charge Type
+                                </label>
+                              </div>
+                              <select
+                                value={item.charge_type || 'Transportation'}
+                                onChange={(e) => handleLineItemChange(index, 'charge_type', e.target.value)}
+                                className="w-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-lg py-1.5 px-2.5 text-xs text-amber-900 dark:text-amber-300 focus:outline-none font-sans font-semibold"
+                              >
+                                <option value="Transportation">Transportation / Freight</option>
+                                <option value="Installation">Installation &amp; Commissioning</option>
+                                <option value="Customs">Customs &amp; Clearance</option>
+                                <option value="Testing">Testing &amp; Inspection</option>
+                                <option value="Discount">Discount / Rebate</option>
+                                <option value="Other Charge">Other Non-Product Fee</option>
+                              </select>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex items-center justify-between h-5 mb-1">
+                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                                  Product Category
+                                </label>
+                                {renderSortButton(categoriesSort, setCategoriesSort, 'Product Categories')}
+                              </div>
+                              <CreatableCombobox
+                                options={sortedCategories}
+                                value={item.product_type}
+                                onChange={(val: string) => handleLineItemChange(index, 'product_type', val)}
+                                onCreateOption={(val: string) => {
+                                  handleLineItemChange(index, 'product_type', val);
+                                }}
+                                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
+                              />
+                            </>
+                          )}
+                        </div>
+
+                        <div className="col-span-6 sm:col-span-2 min-w-0">
+                          <div className="flex items-center justify-between h-5 mb-1">
+                            <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                              Classification
+                            </label>
+                          </div>
+                          <select
+                            value={
+                              (item as any).classification === 'Charge / Fee (Service)' || item.item_type === 'charge'
+                                ? 'charge'
+                                : (item as any).classification === 'Discount / Rebate' || item.item_type === 'discount'
+                                ? 'discount'
+                                : 'product'
+                            }
+                            onChange={(e) => handleLineItemChange(index, 'item_type', e.target.value)}
+                            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
+                          >
+                            <option value="product">Product (Hardware)</option>
+                            <option value="charge">Charge / Fee</option>
+                            <option value="discount">Discount / Rebate</option>
+                          </select>
+                        </div>
+
+                        <div className="col-span-6 sm:col-span-2 min-w-0">
+                          <div className="flex items-center justify-between h-5 mb-1">
+                            <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                              Option Scope
+                            </label>
+                          </div>
+                          <select
+                            value={(item as any).option_designation || item.option || 'Default / Included'}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              handleLineItemChange(index, 'option', val);
+                              handleLineItemChange(index, 'option_designation' as any, val);
+                            }}
+                            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
+                          >
+                            <option value="Default / Included">Baseline / Included</option>
+                            <option value="Option A">Option A (Baseline)</option>
+                            <option value="Option B">Option B (Alternative)</option>
+                            <option value="Option C">Option C (Alternative)</option>
+                            <option value="Option D">Option D (Alternative)</option>
+                            <option value="Optional / Add-On">Optional / Add-On</option>
+                            {((item as any).option_designation || item.option) &&
+                              ![
+                                'Default / Included',
+                                'Option A',
+                                'Option B',
+                                'Option C',
+                                'Option D',
+                                'Optional / Add-On',
+                                ''
+                              ].includes((item as any).option_designation || item.option) && (
+                                <option value={(item as any).option_designation || item.option}>
+                                  {(item as any).option_designation || item.option}
+                                </option>
+                              )}
+                          </select>
+                        </div>
                       </div>
 
-                      <div className="col-span-12 min-w-0">
+                      {/* Row 2 (Technical Description & Brand): Full-width Description + 4-col Brand/Model/Origin/Media */}
+                      <div className="min-w-0">
                         <div className="flex items-center justify-between h-5 mb-1">
                           <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
-                            Item Description & Technical Specifications
+                            Item Description &amp; Technical Specifications
                           </label>
                         </div>
                         <input
@@ -6646,298 +6607,457 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
                         />
                       </div>
-                    </div>
 
-                    {/* Tier 3B: Brand/Make, Model/Part No, Country of Origin, Product Image & Datasheet */}
-                    {!isServiceOrFee && (() => {
-                      const matchedProd = item.product_id ? (products || []).find((p) => p.id === item.product_id) : null;
-                      const effectiveImageUrl = item.image_url || matchedProd?.image_url || '';
-                      const effectiveDatasheet = item.datasheet_attachment || matchedProd?.datasheet_attachment;
-                      return (
-                        <LineItemTier3BMediaGrid
-                          index={index}
-                          item={item}
-                          matchedProd={matchedProd}
-                          effectiveImageUrl={effectiveImageUrl}
-                          effectiveDatasheet={effectiveDatasheet}
-                          activeWorkspace={activeWorkspace}
-                          triggerToast={triggerToast}
-                          handleLineItemChange={handleLineItemChange}
-                          onSyncToCatalog={
-                            matchedProd
-                              ? async () => {
-                                  await syncLineItemToCatalogProduct(
-                                    item,
-                                    matchedProd,
-                                    setProducts,
-                                    triggerToast,
-                                    formCurrency
-                                  );
-                                }
-                              : undefined
-                          }
-                          onPatchMedia={(patch) => {
-                            setLineItems((prev) => {
-                              const next = [...prev];
-                              next[index] = {
-                                ...next[index],
-                                ...patch
-                              };
-                              return next;
-                            });
-                          }}
-                        />
-                      );
-                    })()}
-
-                    {/* Specification Attributes section */}
-                    {!isServiceOrFee && (
-                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider font-bold">
-                            Specification Attributes
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const updated = [...lineItems];
-                              const attrList = [...(updated[index].attributes || [])];
-                              attrList.push({ key: '', value: '' });
-                              updated[index] = { ...updated[index], attributes: attrList };
-                              setLineItems(updated);
-                            }}
-                            className="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-bold flex items-center space-x-1 cursor-pointer"
-                          >
-                            <Plus className="w-3 h-3" />
-                            <span>Add Attribute</span>
-                          </button>
-                        </div>
-
-                        {(() => {
-                          const categoryPresets = CATEGORY_SUGGESTED_ATTRIBUTES[item.product_type];
-                          const currentPresets = categoryPresets && categoryPresets.length > 0
-                            ? categoryPresets
-                            : DEFAULT_QUICK_ATTRIBUTES;
-                          const existingKeys = new Set((item.attributes || []).map(a => a.key.trim().toLowerCase()));
-                          const availablePresets = currentPresets.filter(p => !existingKeys.has(p.toLowerCase()));
-
-                          if (availablePresets.length === 0) return null;
-
+                      {/* Tier 3B: Brand/Make, Model/Part No, Country of Origin, Product Image & Datasheet */}
+                      {!isServiceOrFee &&
+                        (() => {
+                          const matchedProd = item.product_id
+                            ? (products || []).find((p) => p.id === item.product_id)
+                            : null;
+                          const effectiveImageUrl = item.image_url || matchedProd?.image_url || '';
+                          const effectiveDatasheet =
+                            item.datasheet_attachment || matchedProd?.datasheet_attachment;
                           return (
-                            <div className="mb-2.5 flex items-center flex-wrap gap-1.5">
-                              <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 font-semibold uppercase mr-0.5">
-                                Quick Add:
-                              </span>
-                              {availablePresets.map((preset) => (
-                                <button
-                                  key={preset}
-                                  type="button"
-                                  onClick={() => {
-                                    const updated = [...lineItems];
-                                    const attrList = [...(updated[index].attributes || [])];
-                                    attrList.push({ key: preset, value: '' });
-                                    updated[index] = { ...updated[index], attributes: attrList };
-                                    setLineItems(updated);
-                                  }}
-                                  className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-emerald-950/40 text-slate-600 hover:text-emerald-700 dark:text-slate-300 dark:hover:text-emerald-300 border border-slate-200/80 hover:border-emerald-300 dark:border-slate-700 dark:hover:border-emerald-700 transition cursor-pointer"
-                                >
-                                  <Plus className="w-2.5 h-2.5 shrink-0 opacity-70" />
-                                  <span>{preset}</span>
-                                </button>
-                              ))}
-                            </div>
+                            <LineItemTier3BMediaGrid
+                              index={index}
+                              item={item}
+                              matchedProd={matchedProd}
+                              effectiveImageUrl={effectiveImageUrl}
+                              effectiveDatasheet={effectiveDatasheet}
+                              activeWorkspace={activeWorkspace}
+                              triggerToast={triggerToast}
+                              handleLineItemChange={handleLineItemChange}
+                              onSyncToCatalog={
+                                matchedProd
+                                  ? async () => {
+                                      await syncLineItemToCatalogProduct(
+                                        item,
+                                        matchedProd,
+                                        setProducts,
+                                        triggerToast,
+                                        formCurrency
+                                      );
+                                    }
+                                  : undefined
+                              }
+                              onPatchMedia={(patch) => {
+                                setLineItems((prev) => {
+                                  const next = [...prev];
+                                  next[index] = {
+                                    ...next[index],
+                                    ...patch
+                                  };
+                                  return next;
+                                });
+                              }}
+                            />
                           );
                         })()}
 
-                        {(item.attributes && item.attributes.length > 0) ? (
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
-                            {item.attributes.map((attr, attrIdx) => {
-                              const suggestedKeys = CATEGORY_SUGGESTED_ATTRIBUTES[item.product_type] || [];
-                              const isCustom = attr.key && !suggestedKeys.includes(attr.key);
-                              const showCustomInput = isCustom || attr.key === '__custom_editing__' || suggestedKeys.length === 0;
+                      {/* Specification Attributes (Progressive Disclosure via Quick-Add Chips) */}
+                      {!isServiceOrFee && (
+                        <div className="pt-2 border-t border-slate-200/70 dark:border-slate-700/70 space-y-2">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center flex-wrap gap-1.5">
+                              <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider font-bold mr-1">
+                                Spec Attributes:
+                              </span>
+                              {(() => {
+                                const categoryPresets = CATEGORY_SUGGESTED_ATTRIBUTES[item.product_type];
+                                const currentPresets =
+                                  categoryPresets && categoryPresets.length > 0
+                                    ? categoryPresets
+                                    : DEFAULT_QUICK_ATTRIBUTES;
+                                const existingKeys = new Set(
+                                  (item.attributes || []).map((a) => a.key.trim().toLowerCase())
+                                );
+                                const availablePresets = currentPresets.filter(
+                                  (p) => !existingKeys.has(p.toLowerCase())
+                                );
 
-                              return (
-                                <div key={attrIdx} className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-1.5 rounded-lg shadow-2xs">
-                                  {showCustomInput ? (
-                                    <div className="min-w-[130px] max-w-[175px] flex-shrink-0 flex items-center gap-1 bg-slate-100/80 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-medium text-xs px-2.5 py-1.5 rounded-md border border-slate-200/80 dark:border-slate-700 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition-colors">
-                                      <input
-                                        type="text"
-                                        value={attr.key === '__custom_editing__' ? '' : (attr.key ?? '')}
-                                        placeholder="Attribute Key"
-                                        onChange={(e) => {
-                                          const updated = [...lineItems];
-                                          const attrList = [...(updated[index].attributes || [])];
-                                          attrList[attrIdx] = { ...attrList[attrIdx], key: e.target.value };
-                                          updated[index] = { ...updated[index], attributes: attrList };
-                                          setLineItems(updated);
-                                        }}
-                                        className="w-full bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-800 dark:text-slate-200 font-semibold focus:outline-none truncate"
-                                      />
-                                      {suggestedKeys.length > 0 && (
-                                        <button
-                                          type="button"
-                                          title="Back to suggestions"
-                                          onClick={() => {
-                                            const updated = [...lineItems];
-                                            const attrList = [...(updated[index].attributes || [])];
-                                            attrList[attrIdx] = { ...attrList[attrIdx], key: '' };
-                                            updated[index] = { ...updated[index], attributes: attrList };
-                                            setLineItems(updated);
-                                          }}
-                                          className="text-[9px] text-blue-600 dark:text-blue-400 hover:underline font-bold px-0.5 shrink-0 cursor-pointer"
-                                        >
-                                          List
-                                        </button>
-                                      )}
-                                    </div>
-                                  ) : (
-                                    <select
-                                      value={attr.key ?? ''}
-                                      title={attr.key || 'Select Attribute Key'}
-                                      onChange={(e) => {
-                                        const val = e.target.value;
-                                        const updated = [...lineItems];
-                                        const attrList = [...(updated[index].attributes || [])];
-                                        if (val === '__custom__') {
-                                          attrList[attrIdx] = { ...attrList[attrIdx], key: '__custom_editing__' };
-                                        } else {
-                                          attrList[attrIdx] = { ...attrList[attrIdx], key: val };
-                                        }
-                                        updated[index] = { ...updated[index], attributes: attrList };
-                                        setLineItems(updated);
-                                      }}
-                                      className="min-w-[130px] max-w-[175px] flex-shrink-0 bg-slate-100/80 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-medium text-xs px-2.5 py-1.5 rounded-md border border-slate-200/80 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors cursor-pointer truncate"
-                                    >
-                                      <option value="">Select Key...</option>
-                                      {suggestedKeys.map((k) => (
-                                        <option key={k} value={k}>{k}</option>
-                                      ))}
-                                      <option value="__custom__">+ Custom Key...</option>
-                                    </select>
-                                  )}
-                                  <input
-                                    type="text"
-                                    value={attr.value ?? ''}
-                                    placeholder="Value (e.g. 10m3 / SS316)"
-                                    onChange={(e) => {
-                                      const updated = [...lineItems];
-                                      const attrList = [...(updated[index].attributes || [])];
-                                      attrList[attrIdx] = { ...attrList[attrIdx], value: e.target.value };
-                                      updated[index] = { ...updated[index], attributes: attrList };
-                                      setLineItems(updated);
-                                    }}
-                                    className="flex-1 min-w-0 bg-transparent border-0 focus:ring-0 px-1.5 py-1 text-xs text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none"
-                                  />
+                                return availablePresets.map((preset) => (
                                   <button
+                                    key={preset}
                                     type="button"
                                     onClick={() => {
                                       const updated = [...lineItems];
-                                      const attrList = (updated[index].attributes || []).filter((_, i) => i !== attrIdx);
+                                      const attrList = [...(updated[index].attributes || [])];
+                                      attrList.push({ key: preset, value: '' });
                                       updated[index] = { ...updated[index], attributes: attrList };
                                       setLineItems(updated);
                                     }}
-                                    className="p-1 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-md transition shrink-0 cursor-pointer"
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-white hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/40 text-slate-600 hover:text-blue-700 dark:text-slate-300 dark:hover:text-blue-300 border border-slate-200/80 hover:border-blue-300 dark:border-slate-700 dark:hover:border-blue-700 transition cursor-pointer"
                                   >
-                                    <X className="w-3.5 h-3.5" />
+                                    <Plus className="w-2.5 h-2.5 shrink-0 opacity-70" />
+                                    <span>{preset}</span>
                                   </button>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <p className="text-[10px] text-slate-400 dark:text-slate-500 italic">No specification attributes assigned to this item. Click 'Add Attribute' or select a category to load suggestions.</p>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Multi-Component Set / Package (BOM) Builder */}
-                    {!isServiceOrFee && (
-                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-                        <CompositePackageEditor
-                          item={item}
-                          isCompositeSet={Boolean(
-                            item.is_composite_set ||
-                              (item.sub_components && item.sub_components.length > 0)
-                          )}
-                          subComponents={item.sub_components || []}
-                          packagePricingMode={item.package_pricing_mode || 'itemized'}
-                          optionScopeNotes={item.option_scope_notes || ''}
-                          parentQuantity={item.quantity || 1}
-                          currency={formCurrency || 'USD'}
-                          products={products || []}
-                          activeWorkspace={activeWorkspace}
-                          onChange={(patch) => {
-                            setLineItems((prev) => {
-                              const next = [...prev];
-                              next[index] = {
-                                ...next[index],
-                                ...patch
-                              };
-                              return next;
-                            });
-                          }}
-                        />
-                      </div>
-                    )}
-
-                    {/* Structured Line Item Total Footer Bar */}
-                    {(() => {
-                      const qtyVal = Number(item.quantity) || 0;
-                      const unitVal = Number(item.unit_price) || 0;
-                      const calcTotal = Number((qtyVal * unitVal).toFixed(2));
-                      const currentTotal = Number(item.total_price) || 0;
-                      const isOverridden =
-                        !item.is_composite_set &&
-                        !(item.sub_components && item.sub_components.length > 0) &&
-                        Math.abs(currentTotal - calcTotal) > 0.01;
-                      const cleanUom = !item.unit || String(item.unit).toLowerCase() === 'custom unit' ? 'Nos' : item.unit;
-
-                      return (
-                        <div className="bg-slate-50/90 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 mt-2">
-                          <div className="flex items-center gap-2 flex-wrap text-xs font-mono tabular-nums">
-                            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                              Line Total ({formCurrency})
-                            </span>
-                            <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] font-medium text-slate-600 dark:text-slate-300">
-                              {qtyVal} {cleanUom} × {formCurrency} {unitVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                            {isOverridden && (
+                                ));
+                              })()}
                               <button
                                 type="button"
-                                onClick={() => handleLineItemChange(index, 'total_price', calcTotal)}
-                                className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-[10px] font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-100 transition cursor-pointer"
-                                title="Line total was manually overridden. Click to reset to Qty × Unit Price."
+                                onClick={() => {
+                                  const updated = [...lineItems];
+                                  const attrList = [...(updated[index].attributes || [])];
+                                  attrList.push({ key: '__custom_editing__', value: '' });
+                                  updated[index] = { ...updated[index], attributes: attrList };
+                                  setLineItems(updated);
+                                }}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-dashed border-blue-300 dark:border-blue-800 transition cursor-pointer"
                               >
-                                Manual Override · Reset
+                                <Plus className="w-2.5 h-2.5 shrink-0" />
+                                <span>Custom Attribute</span>
                               </button>
-                            )}
+                            </div>
                           </div>
 
-                          <div className="flex items-center gap-2 font-mono tabular-nums">
-                            <FormattedNumberInput
-                              value={item.total_price}
-                              onChange={(val: number) => handleLineItemChange(index, 'total_price', val)}
-                              className="w-32 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1 px-2.5 text-xs font-bold text-slate-900 dark:text-white text-right focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shrink-0"
-                            />
-                            {formCurrency === 'USD' ? (
-                              <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap shrink-0">
-                                ≈ AED {Number(currentTotal * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </span>
-                            ) : (
-                              <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap shrink-0">
-                                ≈ ${Number(currentTotal / 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-                              </span>
-                            )}
-                          </div>
+                          {item.attributes && item.attributes.length > 0 && (
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                              {item.attributes.map((attr, attrIdx) => {
+                                const suggestedKeys = CATEGORY_SUGGESTED_ATTRIBUTES[item.product_type] || [];
+                                const isCustom = attr.key && !suggestedKeys.includes(attr.key);
+                                const showCustomInput =
+                                  isCustom || attr.key === '__custom_editing__' || suggestedKeys.length === 0;
+
+                                return (
+                                  <div
+                                    key={attrIdx}
+                                    className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-1.5 rounded-lg shadow-2xs"
+                                  >
+                                    {showCustomInput ? (
+                                      <div className="min-w-[130px] max-w-[175px] flex-shrink-0 flex items-center gap-1 bg-slate-100/80 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-medium text-xs px-2.5 py-1.5 rounded-md border border-slate-200/80 dark:border-slate-700 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition-colors">
+                                        <input
+                                          type="text"
+                                          value={attr.key === '__custom_editing__' ? '' : attr.key ?? ''}
+                                          placeholder="Attribute Key"
+                                          onChange={(e) => {
+                                            const updated = [...lineItems];
+                                            const attrList = [...(updated[index].attributes || [])];
+                                            attrList[attrIdx] = {
+                                              ...attrList[attrIdx],
+                                              key: e.target.value
+                                            };
+                                            updated[index] = { ...updated[index], attributes: attrList };
+                                            setLineItems(updated);
+                                          }}
+                                          className="w-full bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-800 dark:text-slate-200 font-semibold focus:outline-none truncate"
+                                        />
+                                        {suggestedKeys.length > 0 && (
+                                          <button
+                                            type="button"
+                                            title="Back to suggestions"
+                                            onClick={() => {
+                                              const updated = [...lineItems];
+                                              const attrList = [...(updated[index].attributes || [])];
+                                              attrList[attrIdx] = { ...attrList[attrIdx], key: '' };
+                                              updated[index] = { ...updated[index], attributes: attrList };
+                                              setLineItems(updated);
+                                            }}
+                                            className="text-[9px] text-blue-600 dark:text-blue-400 hover:underline font-bold px-0.5 shrink-0 cursor-pointer"
+                                          >
+                                            List
+                                          </button>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <select
+                                        value={attr.key ?? ''}
+                                        title={attr.key || 'Select Attribute Key'}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          const updated = [...lineItems];
+                                          const attrList = [...(updated[index].attributes || [])];
+                                          if (val === '__custom__') {
+                                            attrList[attrIdx] = {
+                                              ...attrList[attrIdx],
+                                              key: '__custom_editing__'
+                                            };
+                                          } else {
+                                            attrList[attrIdx] = { ...attrList[attrIdx], key: val };
+                                          }
+                                          updated[index] = { ...updated[index], attributes: attrList };
+                                          setLineItems(updated);
+                                        }}
+                                        className="min-w-[130px] max-w-[175px] flex-shrink-0 bg-slate-100/80 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-medium text-xs px-2.5 py-1.5 rounded-md border border-slate-200/80 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors cursor-pointer truncate"
+                                      >
+                                        <option value="">Select Key...</option>
+                                        {suggestedKeys.map((k) => (
+                                          <option key={k} value={k}>
+                                            {k}
+                                          </option>
+                                        ))}
+                                        <option value="__custom__">+ Custom Key...</option>
+                                      </select>
+                                    )}
+                                    <input
+                                      type="text"
+                                      value={attr.value ?? ''}
+                                      placeholder="Value (e.g. 10m3 / SS316)"
+                                      onChange={(e) => {
+                                        const updated = [...lineItems];
+                                        const attrList = [...(updated[index].attributes || [])];
+                                        attrList[attrIdx] = {
+                                          ...attrList[attrIdx],
+                                          value: e.target.value
+                                        };
+                                        updated[index] = { ...updated[index], attributes: attrList };
+                                        setLineItems(updated);
+                                      }}
+                                      className="flex-1 min-w-0 bg-transparent border-0 focus:ring-0 px-1.5 py-1 text-xs text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const updated = [...lineItems];
+                                        const attrList = (updated[index].attributes || []).filter(
+                                          (_, i) => i !== attrIdx
+                                        );
+                                        updated[index] = { ...updated[index], attributes: attrList };
+                                        setLineItems(updated);
+                                      }}
+                                      className="p-1 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-md transition shrink-0 cursor-pointer"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
-                      );
-                    })()}
-                  </div>
-                );
-              })}
+                      )}
+
+                      {/* Multi-Component Set / Package (BOM) Builder — Rendered only when active */}
+                      {!isServiceOrFee && isCompositeItem && (
+                        <div className="pt-1">
+                          <CompositePackageEditor
+                            item={item}
+                            isCompositeSet={true}
+                            subComponents={item.sub_components || []}
+                            packagePricingMode={item.package_pricing_mode || 'itemized'}
+                            optionScopeNotes={item.option_scope_notes || ''}
+                            parentQuantity={item.quantity || 1}
+                            currency={formCurrency || 'USD'}
+                            products={products || []}
+                            activeWorkspace={activeWorkspace}
+                            onChange={(patch) => {
+                              setLineItems((prev) => {
+                                const next = [...prev];
+                                next[index] = {
+                                  ...next[index],
+                                  ...patch
+                                };
+                                return next;
+                              });
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {/* Row 3 (Commercial & Pricing): Qty, Unit, Cost, Selling, Lead Time — directly above Line Total Footer Bar */}
+                      <div className="pt-3 border-t border-slate-200/80 dark:border-slate-700/80 space-y-2.5">
+                        <div className="grid grid-cols-12 gap-3">
+                          <div className="col-span-6 sm:col-span-2 min-w-0">
+                            <div className="flex items-center justify-between h-5 mb-1">
+                              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                Qty
+                              </label>
+                            </div>
+                            <input
+                              type="number"
+                              required
+                              value={item.quantity ?? ''}
+                              onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
+                            />
+                          </div>
+
+                          <div className="col-span-6 sm:col-span-2 min-w-0">
+                            <div className="flex items-center justify-between h-5 mb-1">
+                              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                Unit
+                              </label>
+                              {renderSortButton(unitsSort, setUnitsSort, 'Unit Suffixes')}
+                            </div>
+                            <CreatableCombobox
+                              options={sortedUnits}
+                              value={item.unit}
+                              onChange={(val: string) => handleLineItemChange(index, 'unit', val)}
+                              onCreateOption={(val: string) => {
+                                handleLineItemChange(index, 'unit', val);
+                              }}
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans"
+                            />
+                          </div>
+
+                          <div className="col-span-6 sm:col-span-3 min-w-0">
+                            <div className="flex items-center justify-between gap-1 h-5 mb-1 min-w-0">
+                              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap truncate">
+                                Cost ({formCurrency})
+                              </label>
+                              {(() => {
+                                const sell = Number(item.unit_price) || 0;
+                                const cost = Number(item.cost_price) || 0;
+                                if (sell > 0 && cost > 0) {
+                                  const marginPct = ((sell - cost) / sell) * 100;
+                                  const isHealthy = marginPct >= 20;
+                                  const isThin = marginPct >= 0 && marginPct < 20;
+                                  return (
+                                    <span
+                                      className={`font-mono tabular-nums text-[10px] font-bold px-1.5 py-0.2 rounded whitespace-nowrap shrink-0 ${
+                                        isHealthy
+                                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
+                                          : isThin
+                                          ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
+                                          : 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300'
+                                      }`}
+                                      title="Gross Margin: (Selling - Cost) / Selling"
+                                    >
+                                      {marginPct.toFixed(1)}%
+                                    </span>
+                                  );
+                                }
+                                return (
+                                  <span className="text-[10px] font-mono text-slate-400 whitespace-nowrap shrink-0">
+                                    Base Cost
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                            <FormattedNumberInput
+                              value={item.cost_price ?? ''}
+                              placeholder="0.00"
+                              onChange={(val: number) => handleLineItemChange(index, 'cost_price', val)}
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
+                            />
+                          </div>
+
+                          <div className="col-span-6 sm:col-span-3 min-w-0">
+                            <div className="flex items-center justify-between gap-1 h-5 mb-1 min-w-0">
+                              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap truncate">
+                                Selling ({formCurrency})
+                              </label>
+                              {formCurrency === 'USD' ? (
+                                <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono tabular-nums whitespace-nowrap">
+                                  ≈ {(item.unit_price * 3.6725).toFixed(0)} AED
+                                </span>
+                              ) : (
+                                <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono tabular-nums whitespace-nowrap">
+                                  ≈ ${(item.unit_price / 3.6725).toFixed(1)}
+                                </span>
+                              )}
+                            </div>
+                            <FormattedNumberInput
+                              required
+                              value={item.unit_price}
+                              onChange={(val: number) => handleLineItemChange(index, 'unit_price', val)}
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
+                            />
+                          </div>
+
+                          {(() => {
+                            const isDiscount =
+                              (item as any).classification === 'Discount / Rebate' || item.item_type === 'discount';
+                            const isService =
+                              (item as any).classification === 'Charge / Fee (Service)' ||
+                              item.item_type === 'charge' ||
+                              (item.item_type as string) === 'service';
+
+                            if (isDiscount) {
+                              return <div className="col-span-12 sm:col-span-2 opacity-0 pointer-events-none" />;
+                            }
+
+                            return (
+                              <div className="col-span-12 sm:col-span-2 min-w-0">
+                                <div className="flex items-center justify-between h-5 mb-1">
+                                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                                    {isService ? 'Duration' : 'Lead Time'}
+                                  </label>
+                                </div>
+                                <input
+                                  type="text"
+                                  placeholder={isService ? 'e.g. 1–2 Days' : 'Ex-Stock / 2-3 Wks'}
+                                  value={item.lead_time_note ?? ''}
+                                  onChange={(e) => handleLineItemChange(index, 'lead_time_note', e.target.value)}
+                                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                                />
+                              </div>
+                            );
+                          })()}
+                        </div>
+
+                        {/* Structured Line Item Total Footer Bar */}
+                        {(() => {
+                          const qtyVal = Number(item.quantity) || 0;
+                          const unitVal = Number(item.unit_price) || 0;
+                          const calcTotal = Number((qtyVal * unitVal).toFixed(2));
+                          const currentTotal = Number(item.total_price) || 0;
+                          const isOverridden =
+                            !item.is_composite_set &&
+                            !(item.sub_components && item.sub_components.length > 0) &&
+                            Math.abs(currentTotal - calcTotal) > 0.01;
+                          const cleanUom =
+                            !item.unit || String(item.unit).toLowerCase() === 'custom unit' ? 'Nos' : item.unit;
+
+                          return (
+                            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
+                              <div className="flex items-center gap-2 flex-wrap text-xs font-mono tabular-nums">
+                                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                                  Line Total ({formCurrency})
+                                </span>
+                                <span className="px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                                  {qtyVal} {cleanUom} × {formCurrency}{' '}
+                                  {unitVal.toLocaleString(undefined, {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                  })}
+                                </span>
+                                {isOverridden && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleLineItemChange(index, 'total_price', calcTotal)}
+                                    className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-[10px] font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-100 transition cursor-pointer"
+                                    title="Line total was manually overridden. Click to reset to Qty × Unit Price."
+                                  >
+                                    Manual Override · Reset
+                                  </button>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-2 font-mono tabular-nums">
+                                <FormattedNumberInput
+                                  value={item.total_price}
+                                  onChange={(val: number) => handleLineItemChange(index, 'total_price', val)}
+                                  className="w-32 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg py-1 px-2.5 text-xs font-bold text-slate-900 dark:text-white text-right focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shrink-0"
+                                />
+                                {formCurrency === 'USD' ? (
+                                  <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap shrink-0">
+                                    ≈ AED{' '}
+                                    {Number(currentTotal * 3.6725).toLocaleString(undefined, {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2
+                                    })}
+                                  </span>
+                                ) : (
+                                  <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap shrink-0">
+                                    ≈ $
+                                    {Number(currentTotal / 3.6725).toLocaleString(undefined, {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2
+                                    })}{' '}
+                                    USD
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
-              <div className="border border-dashed border-slate-300 dark:border-slate-700 rounded-xl bg-white/90 dark:bg-slate-900/70 p-8 text-center space-y-3">
+              <div className="border border-dashed border-slate-300 dark:border-slate-700 rounded-xl bg-slate-50/50 dark:bg-slate-900/50 p-8 text-center space-y-3">
                 <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/50 border border-blue-200/80 dark:border-blue-800/70 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto">
                   <Package className="w-5 h-5" />
                 </div>
@@ -6975,10 +7095,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           </div>
 
           {/* Section 5: Proposal State, Evaluation & Integrated Deal Profitability / VAT Summary */}
-          <div id="field-value" className="scroll-mt-4 bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
-              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
-                <span>📊 Proposal State &amp; Evaluation</span>
+          <div id="field-value" className="scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                <TrendingUp className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span>Proposal State &amp; Evaluation</span>
               </span>
               {isLumpSum && (
                 <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-[10px] font-mono font-bold text-amber-700 dark:text-amber-300">
@@ -6987,7 +7108,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               )}
             </div>
 
-            <div className={`grid grid-cols-1 sm:grid-cols-2 ${isPreviewActive ? '' : 'xl:grid-cols-4'} gap-4`}>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="min-w-0">
                 <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
                   Enquiry Status
@@ -7049,50 +7170,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   className="dark:[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
                 />
               </div>
-
-              {/* Net Proposal Total & Manual Lump-Sum Override */}
-              <div className="flex flex-col min-w-0">
-                <div className="flex items-center justify-between gap-2 mb-1.5 min-w-0">
-                  <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                    Net Proposal Total ({formCurrency})
-                  </span>
-                  {formCurrency === 'USD' ? (
-                    <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] font-mono tabular-nums whitespace-nowrap shrink-0">
-                      ≈ AED {Number((Number(isLumpSum ? manualValue : computedValue) || 0) * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  ) : (
-                    <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] font-mono tabular-nums whitespace-nowrap shrink-0">
-                      ≈ ${Number((Number(isLumpSum ? manualValue : computedValue) || 0) / 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-                    </span>
-                  )}
-                </div>
-                <div className={`p-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 rounded-lg text-sm font-semibold text-blue-600 dark:text-blue-400 font-mono tabular-nums ${getHighlightClasses('value')}`}>
-                  {isLumpSum ? (
-                    <FormattedNumberInput
-                      value={manualValue}
-                      onChange={(val: number) => setManualValue(val)}
-                      className="w-full bg-transparent border-none text-blue-600 dark:text-blue-400 focus:outline-none font-mono py-0.5 px-1"
-                    />
-                  ) : (
-                    <span>{formCurrency} {Number(computedValue || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                  )}
-                </div>
-                <div className="flex items-center space-x-1.5 mt-1.5">
-                  <input
-                    type="checkbox"
-                    id="lump-sum-chk"
-                    checked={isLumpSum}
-                    onChange={(e) => setIsLumpSum(e.target.checked)}
-                    className="rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500"
-                  />
-                  <label htmlFor="lump-sum-chk" className="text-[10px] text-slate-500 dark:text-slate-400 font-mono cursor-pointer uppercase">
-                    Manual Lump-sum Override
-                  </label>
-                </div>
-              </div>
             </div>
 
-            {/* Integrated Deal Profitability & VAT Summary Strip */}
+            {/* Unified Financial & VAT Summary Strip (Single Source of Truth for Net Proposal Total & Lump-Sum Override) */}
             {(() => {
               const baselineList = lineItems.filter((li) => {
                 const opt = String((li as any).option_designation || li.option || 'Default / Included').trim();
@@ -7117,16 +7197,32 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               const marginPct = effectiveSubtotal > 0 && hasAnyCost ? (grossProfit / effectiveSubtotal) * 100 : null;
 
               return (
-                <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-3.5 space-y-2.5 shadow-2xs">
+                <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200 font-mono">
-                        Deal Profitability &amp; VAT Summary
-                      </span>
-                      <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500">
-                        ({isLumpSum ? 'Lump-Sum Basis' : `${lineItems.length} Line Item${lineItems.length === 1 ? '' : 's'}`})
-                      </span>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <div className="flex items-center gap-1.5">
+                        <DollarSign className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                          Financial &amp; VAT Summary
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500">
+                          ({isLumpSum ? 'Lump-Sum Basis' : `${lineItems.length} Line Item${lineItems.length === 1 ? '' : 's'}`})
+                        </span>
+                      </div>
+
+                      <label
+                        htmlFor="lump-sum-chk"
+                        className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-[10px] text-slate-600 dark:text-slate-300 font-mono cursor-pointer uppercase select-none"
+                      >
+                        <input
+                          type="checkbox"
+                          id="lump-sum-chk"
+                          checked={isLumpSum}
+                          onChange={(e) => setIsLumpSum(e.target.checked)}
+                          className="rounded border-slate-300 dark:border-slate-700 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span>Manual Lump-Sum Override</span>
+                      </label>
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
@@ -7178,32 +7274,57 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs font-mono tabular-nums">
-                    <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs font-mono tabular-nums">
+                    <div className="bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3 py-2 flex flex-col justify-between">
                       <span className="text-[10px] text-slate-400 uppercase block truncate">Total Cost</span>
-                      <span className="font-semibold text-slate-700 dark:text-slate-200">
+                      <span className="font-semibold text-slate-700 dark:text-slate-200 mt-0.5">
                         {hasAnyCost
                           ? `${formCurrency} ${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                           : `${formCurrency} 0.00`}
                       </span>
                     </div>
-                    <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
-                      <span className="text-[10px] text-slate-400 uppercase block truncate">
-                        Net Proposal Total (Excl. VAT)
-                      </span>
-                      <span className="font-bold text-slate-900 dark:text-white">
-                        {formCurrency} {effectiveSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
+
+                    <div className={`bg-slate-50/80 dark:bg-slate-800/50 border ${isLumpSum ? 'border-blue-400 dark:border-blue-600 ring-2 ring-blue-500/15' : 'border-slate-200/80 dark:border-slate-700/80'} rounded-xl px-3 py-2 flex flex-col justify-between ${getHighlightClasses('value')}`}>
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-semibold block truncate">
+                          Net Proposal Total (Excl. VAT)
+                        </span>
+                        {formCurrency === 'USD' ? (
+                          <span className="text-blue-500 dark:text-blue-400 font-semibold text-[9.5px] whitespace-nowrap shrink-0">
+                            ≈ AED {Number(effectiveSubtotal * 3.6725).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          </span>
+                        ) : (
+                          <span className="text-blue-500 dark:text-blue-400 font-semibold text-[9.5px] whitespace-nowrap shrink-0">
+                            ≈ ${Number(effectiveSubtotal / 3.6725).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          </span>
+                        )}
+                      </div>
+                      {isLumpSum ? (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className="text-xs font-bold text-blue-600 dark:text-blue-400 shrink-0">{formCurrency}</span>
+                          <FormattedNumberInput
+                            value={manualValue}
+                            onChange={(val: number) => setManualValue(val)}
+                            className="w-full bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-700 rounded px-1.5 py-0.5 text-xs font-bold text-blue-600 dark:text-blue-400 focus:outline-none font-mono"
+                          />
+                        </div>
+                      ) : (
+                        <span className="font-bold text-slate-900 dark:text-white mt-0.5">
+                          {formCurrency} {effectiveSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      )}
                     </div>
-                    <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
+
+                    <div className="bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3 py-2 flex flex-col justify-between">
                       <span className="text-[10px] text-slate-400 uppercase block truncate">5% VAT</span>
-                      <span className="font-semibold text-slate-700 dark:text-slate-200">
+                      <span className="font-semibold text-slate-700 dark:text-slate-200 mt-0.5">
                         {formCurrency} {vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                     </div>
-                    <div className="bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg px-2.5 py-1.5">
+
+                    <div className="bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200/80 dark:border-blue-800 rounded-xl px-3 py-2 flex flex-col justify-between">
                       <span className="text-[10px] text-blue-600 dark:text-blue-400 uppercase font-bold block truncate">Grand Total (Incl. VAT)</span>
-                      <span className="font-bold text-blue-700 dark:text-blue-300">
+                      <span className="font-bold text-blue-700 dark:text-blue-300 mt-0.5">
                         {formCurrency} {grandTotalInclVat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                     </div>
@@ -7214,10 +7335,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           </div>
 
           {/* Section 6: Remarks & Payment Terms */}
-          <div className="bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
-              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
-                <span>📝 Commercial Terms & Remarks</span>
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span>Commercial Terms &amp; Remarks</span>
               </span>
             </div>
 
@@ -7258,11 +7380,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             </div>
           </div>
 
-          {/* Section 7: Proposal source document upload simulation */}
-          <div className="bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
-              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
-                <span>📎 Source PDF Proposal & Excel AI Data</span>
+          {/* Section 7: Proposal source document upload & AI Autofill */}
+          <div id="field-source_files" className="scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                <Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                <span>Source PDF Proposal &amp; Excel AI Data</span>
               </span>
               <div className="flex items-center gap-2">
                 <select
@@ -7293,16 +7416,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               </div>
             </div>
 
-            {/* Storage Mode Transparency & Destination Target Selection */}
+            {/* Quiet Storage Mode Indicator / Destination Target Selection */}
             {!Boolean(activeWorkspace?.settings?.storage?.supabaseUrl && activeWorkspace?.settings?.storage?.bucket && activeWorkspace?.settings?.storage?.supabaseAnonKey) ? (
-              <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-200 text-xs">
-                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                <div className="space-y-0.5">
-                  <span className="font-bold">Local Storage Mode</span>
-                  <p className="text-[11px] text-amber-700 dark:text-amber-300">
-                    Cloud storage is not configured for this workspace. Files attached will be saved to your local browser only and will not sync across other team members' devices. An admin can configure Cloud Storage in Workspace Settings.
-                  </p>
+              <div className="bg-slate-100/80 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 text-xs px-3 py-2 rounded-lg flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <HardDrive className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span className="truncate">
+                    <strong className="font-semibold text-slate-700 dark:text-slate-300">Local Storage Mode:</strong> Attached files save to this browser until Cloud Storage is configured in Workspace Settings.
+                  </span>
                 </div>
+                <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 text-slate-500 shrink-0">
+                  Browser Local
+                </span>
               </div>
             ) : (
               <div className="space-y-2">
@@ -8413,7 +8538,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             </div>
 
             {/* Catalog Grid/List */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50 dark:bg-slate-950/60">
+            <div className="flex-1 overflow-y-auto p-6 pb-8 space-y-4 bg-slate-50 dark:bg-slate-950/60">
               {filteredCatalog.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {filteredCatalog.map((item) => {
@@ -8425,7 +8550,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     return (
                       <div
                         key={item.id || item.name}
-                        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-xs hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-md transition duration-150 flex flex-col justify-between"
+                        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-2xs hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-sm transition duration-150 flex flex-col justify-between"
                       >
                         <div className="space-y-2.5">
                           <div className="flex items-start justify-between gap-3">
@@ -8449,7 +8574,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                   </span>
                                   {item.is_composite_set && Array.isArray(item.sub_components) && item.sub_components.length > 0 && (
                                     <span className="inline-block px-2 py-0.5 rounded text-[9px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 whitespace-nowrap">
-                                      📦 Kit / BOM ({item.sub_components.length} parts)
+                                      Kit / BOM ({item.sub_components.length} parts)
                                     </span>
                                   )}
                                   {item.is_inventoried ? (
@@ -8544,7 +8669,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         <button
                           type="button"
                           onClick={() => handleAddCatalogItem({ ...item, unit: cleanUom as UnitType })}
-                          className="mt-4 w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center justify-center space-x-1 cursor-pointer"
+                          className="mt-4 w-full py-2 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 hover:bg-blue-600 hover:text-white border border-blue-200/80 dark:border-blue-800/80 text-xs font-semibold rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" />
                           <span>{linkingLineIndex !== null ? 'Link & Populate Line Item' : 'Add to Proposal'}</span>
@@ -8561,12 +8686,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             </div>
 
             {/* Footer */}
-            <div className="p-4 bg-slate-100 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0 font-mono text-[10px] text-slate-400">
+            <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0 font-mono text-[10px] text-slate-400">
               <span>* Pricing converted in real-time from AED to USD if USD is selected.</span>
               <button
                 type="button"
                 onClick={() => setShowCatalogModal(false)}
-                className="py-2 px-4 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-200 font-semibold font-sans text-xs transition cursor-pointer"
+                className="py-2 px-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-200 font-semibold font-sans text-xs transition cursor-pointer"
               >
                 Close Catalog
               </button>
