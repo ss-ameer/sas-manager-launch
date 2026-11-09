@@ -1406,12 +1406,28 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   };
 
   const handleMoveBlock = (index: number, direction: 'up' | 'down') => {
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= layoutBlocks.length) return;
     setLayoutBlocks((prev) => {
+      if (index < 0 || index >= prev.length) return prev;
+      const targetBlock = prev[index];
+      const isPre = (targetBlock.zone || 'post_table') === 'pre_table';
+      const step = direction === 'up' ? -1 : 1;
+      let swapIdx = index + step;
+      while (swapIdx >= 0 && swapIdx < prev.length) {
+        const candidate = prev[swapIdx];
+        const candidateIsPre = (candidate.zone || 'post_table') === 'pre_table';
+        if (
+          candidateIsPre === isPre &&
+          isBlockRelevantForDocumentType(candidate, documentType)
+        ) {
+          break;
+        }
+        swapIdx += step;
+      }
+      if (swapIdx < 0 || swapIdx >= prev.length) return prev;
       const next = [...prev];
-      const [moved] = next.splice(index, 1);
-      next.splice(targetIndex, 0, moved);
+      const temp = next[index];
+      next[index] = next[swapIdx];
+      next[swapIdx] = temp;
       return next;
     });
   };
@@ -3947,7 +3963,21 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       (doc) => (doc.document_type || 'quotation') === nextType
     );
     if (existingForNextType?.id) {
+      hydrateStudioFromQuotation(existingForNextType);
+      setDocumentType(nextType);
       setActiveQuotationId(existingForNextType.id);
+      if (!existingForNextType.preset_id) {
+        const matchingPresetsForExisting = presets.filter(
+          (p) => QuotationRepository.inferPresetDocumentType(p) === nextType
+        );
+        const defaultForExisting =
+          matchingPresetsForExisting.find((p) => p.is_default) ||
+          matchingPresetsForExisting[0];
+        if (defaultForExisting?.id) {
+          setSelectedPresetId(defaultForExisting.id);
+        }
+      }
+      return;
     } else if (nextType !== 'quotation') {
       setActiveQuotationId(
         `${nextType}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
@@ -3955,6 +3985,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     } else if (editingQuotation && (!editingQuotation.document_type || editingQuotation.document_type === 'quotation')) {
       setActiveQuotationId(editingQuotation.id);
     }
+
+    // Immediately synchronize specialized layoutBlocks for the new documentType so Left Drawer Tab 1 is populated
+    setLayoutBlocks((prev) => ensureSpecializedDocumentBlocks(prev, nextType, blockStyle));
 
     const isCleanRefForPrefix = (ref: string | undefined, expectedPrefix: string): boolean => {
       if (!ref || !ref.trim()) return false;
@@ -7385,6 +7418,178 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         </button>
                       </div>
 
+                      {/* Above-Table Sections (Pre-Table Zone) */}
+                      {(() => {
+                        const preTableEntries = layoutBlocks
+                          .map((block, idx) => ({ block, idx }))
+                          .filter(
+                            ({ block }) =>
+                              isBlockRelevantForDocumentType(block, documentType) &&
+                              block.zone === 'pre_table'
+                          );
+                        if (preTableEntries.length === 0) return null;
+                        return (
+                          <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-mono uppercase tracking-wider font-bold text-indigo-600">
+                                Above-Table Sections (Pre-Table Zone)
+                              </span>
+                              <span className="text-[10px] font-mono text-slate-500">
+                                {
+                                  preTableEntries.filter(
+                                    ({ block }) =>
+                                      block.enabled !== false && block.is_visible !== false
+                                  ).length
+                                }{' '}
+                                of {preTableEntries.length} Active
+                              </span>
+                            </div>
+                            <div className="space-y-1.5">
+                              {preTableEntries.map(({ block, idx }, zoneIdx) => {
+                                const meta = getBlockMeta(block);
+                                const Icon = meta.icon;
+                                const isFirstInZone = zoneIdx === 0;
+                                const isLastInZone = zoneIdx === preTableEntries.length - 1;
+                                const isInspected = selectedBlockId === block.id;
+                                const blockType =
+                                  block.type ||
+                                  (block.id.startsWith('break_')
+                                    ? 'page_break'
+                                    : block.id.startsWith('spacer_')
+                                    ? 'spacer'
+                                    : block.id);
+                                const isRemovable =
+                                  blockType === 'page_break' ||
+                                  blockType === 'spacer' ||
+                                  blockType === 'custom' ||
+                                  Array.isArray(block.pieces);
+                                const isCustomLego =
+                                  blockType === 'custom' || Array.isArray(block.pieces);
+
+                                return (
+                                  <div
+                                    key={block.id}
+                                    className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 ${
+                                      isInspected
+                                        ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
+                                        : block.enabled !== false && block.is_visible !== false
+                                        ? blockType === 'page_break'
+                                          ? 'bg-amber-50/40 hover:bg-amber-50/70 border-amber-200'
+                                          : blockType === 'spacer'
+                                          ? 'bg-slate-50/80 hover:bg-slate-100/80 border-slate-200 border-dashed'
+                                          : isCustomLego
+                                          ? 'bg-indigo-50/35 hover:bg-indigo-50/70 border-indigo-200'
+                                          : 'bg-white hover:bg-slate-50/80 border-slate-200'
+                                        : 'bg-slate-50/60 border-slate-200/60 opacity-60'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                                      <div className="flex flex-col gap-0.5 shrink-0">
+                                        <button
+                                          type="button"
+                                          disabled={isFirstInZone}
+                                          onClick={() => handleMoveBlock(idx, 'up')}
+                                          className="p-0.5 rounded hover:bg-slate-200 disabled:opacity-20 text-slate-500 transition cursor-pointer"
+                                          title="Move Up in Pre-Table Zone"
+                                        >
+                                          <ArrowUp className="w-2.5 h-2.5" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={isLastInZone}
+                                          onClick={() => handleMoveBlock(idx, 'down')}
+                                          className="p-0.5 rounded hover:bg-slate-200 disabled:opacity-20 text-slate-500 transition cursor-pointer"
+                                          title="Move Down in Pre-Table Zone"
+                                        >
+                                          <ArrowDown className="w-2.5 h-2.5" />
+                                        </button>
+                                      </div>
+
+                                      <input
+                                        type="checkbox"
+                                        checked={
+                                          block.enabled !== false && block.is_visible !== false
+                                        }
+                                        onChange={(e) =>
+                                          handleToggleBlockEnabled(block.id, e.target.checked)
+                                        }
+                                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                                        title={
+                                          block.enabled !== false
+                                            ? 'Click to hide block'
+                                            : 'Click to show block'
+                                        }
+                                      />
+
+                                      <div
+                                        className="flex items-center gap-1.5 truncate cursor-pointer flex-1"
+                                        onClick={() => handleInspectBlock(block.id)}
+                                      >
+                                        <Icon
+                                          className={`w-3.5 h-3.5 shrink-0 ${
+                                            blockType === 'page_break'
+                                              ? 'text-amber-600'
+                                              : isCustomLego
+                                              ? 'text-indigo-600'
+                                              : 'text-indigo-600'
+                                          }`}
+                                        />
+                                        <div className="min-w-0">
+                                          <div className="flex items-center gap-1">
+                                            <p className="font-semibold text-slate-800 text-xs truncate">
+                                              {meta.label}
+                                            </p>
+                                            {isCustomLego && (
+                                              <span className="px-1 py-0.2 rounded bg-indigo-100 text-indigo-700 font-mono text-[8.5px] font-bold shrink-0">
+                                                LEGO
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="flex items-center gap-1 text-[9.5px] text-slate-400 font-mono mt-0.5">
+                                            <span className="font-semibold text-indigo-600">
+                                              ⬆️ Above Table
+                                            </span>
+                                            <span>•</span>
+                                            <span className="capitalize">
+                                              {block.placement || 'full'}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      {isRemovable && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteBlock(block.id)}
+                                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition cursor-pointer"
+                                          title={`Delete ${meta.label}`}
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() => handleInspectBlock(block.id)}
+                                        className={`px-2.5 py-1 rounded-lg text-[10.5px] font-medium transition flex items-center gap-1 shrink-0 cursor-pointer ${
+                                          isInspected
+                                            ? 'bg-blue-600 text-white shadow-2xs font-semibold'
+                                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                                        }`}
+                                      >
+                                        <Settings2 className="w-3 h-3" />
+                                        <span>{isInspected ? 'Inspecting' : 'Inspect'}</span>
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                       {/* 4. Line Items Table */}
                       <div
                         onClick={() => handleInspectSection('items_table')}
@@ -7417,188 +7622,210 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Bottom Sections (Drag or Reorder) (layoutBlocks) */}
+                    {/* Below-Table Sections (Closing & Signatures) */}
                     <div className="pt-3 border-t border-slate-100 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-mono uppercase tracking-wider font-bold text-slate-400">
-                          Bottom Sections (Drag or Reorder)
-                        </span>
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium border border-slate-200">
-                          {
-                            layoutBlocks.filter(
-                              (b) =>
-                                isBlockRelevantForDocumentType(b, documentType) &&
-                                b.enabled !== false &&
-                                b.is_visible !== false
-                            ).length
-                          }{' '}
-                          of{' '}
-                          {layoutBlocks.filter((b) => isBlockRelevantForDocumentType(b, documentType)).length}{' '}
-                          Active
-                        </span>
-                      </div>
+                      {(() => {
+                        const postTableEntries = layoutBlocks
+                          .map((block, idx) => ({ block, idx }))
+                          .filter(
+                            ({ block }) =>
+                              isBlockRelevantForDocumentType(block, documentType) &&
+                              block.zone !== 'pre_table'
+                          );
+                        return (
+                          <>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-mono uppercase tracking-wider font-bold text-slate-400">
+                                Below-Table Sections (Closing &amp; Signatures)
+                              </span>
+                              <span className="text-[10px] font-mono text-slate-500">
+                                {
+                                  postTableEntries.filter(
+                                    ({ block }) =>
+                                      block.enabled !== false && block.is_visible !== false
+                                  ).length
+                                }{' '}
+                                of {postTableEntries.length} Active
+                              </span>
+                            </div>
 
-                      <div className="space-y-1.5">
-                        {layoutBlocks.map((block, idx) => {
-                          if (!isBlockRelevantForDocumentType(block, documentType)) {
-                            return null;
-                          }
-                          const meta = getBlockMeta(block);
-                          const Icon = meta.icon;
-                          const isFirst = idx === 0;
-                          const isLast = idx === layoutBlocks.length - 1;
-                          const isInspected = selectedBlockId === block.id;
-                          const blockType =
-                            block.type ||
-                            (block.id.startsWith('break_')
-                              ? 'page_break'
-                              : block.id.startsWith('spacer_')
-                              ? 'spacer'
-                              : block.id);
-                          const isRemovable =
-                            blockType === 'page_break' ||
-                            blockType === 'spacer' ||
-                            blockType === 'custom' ||
-                            Array.isArray(block.pieces);
-                          const isCustomLego =
-                            blockType === 'custom' || Array.isArray(block.pieces);
+                            <div className="space-y-1.5">
+                              {postTableEntries.map(({ block, idx }, zoneIdx) => {
+                                const meta = getBlockMeta(block);
+                                const Icon = meta.icon;
+                                const isFirstInZone = zoneIdx === 0;
+                                const isLastInZone = zoneIdx === postTableEntries.length - 1;
+                                const isInspected = selectedBlockId === block.id;
+                                const blockType =
+                                  block.type ||
+                                  (block.id.startsWith('break_')
+                                    ? 'page_break'
+                                    : block.id.startsWith('spacer_')
+                                    ? 'spacer'
+                                    : block.id);
+                                const isRemovable =
+                                  blockType === 'page_break' ||
+                                  blockType === 'spacer' ||
+                                  blockType === 'custom' ||
+                                  Array.isArray(block.pieces);
+                                const isCustomLego =
+                                  blockType === 'custom' || Array.isArray(block.pieces);
 
-                          return (
-                            <div
-                              key={block.id}
-                              className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 ${
-                                isInspected
-                                  ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
-                                  : block.enabled !== false && block.is_visible !== false
-                                  ? blockType === 'page_break'
-                                    ? 'bg-amber-50/40 hover:bg-amber-50/70 border-amber-200'
-                                    : blockType === 'spacer'
-                                    ? 'bg-slate-50/80 hover:bg-slate-100/80 border-slate-200 border-dashed'
-                                    : isCustomLego
-                                    ? 'bg-indigo-50/35 hover:bg-indigo-50/70 border-indigo-200'
-                                    : 'bg-white hover:bg-slate-50/80 border-slate-200'
-                                  : 'bg-slate-50/60 border-slate-200/60 opacity-60'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2 min-w-0 flex-1">
-                                <div className="flex flex-col gap-0.5 shrink-0">
-                                  <button
-                                    type="button"
-                                    disabled={isFirst}
-                                    onClick={() => handleMoveBlock(idx, 'up')}
-                                    className="p-0.5 rounded hover:bg-slate-200 disabled:opacity-20 text-slate-500 transition cursor-pointer"
-                                    title="Move Up"
-                                  >
-                                    <ArrowUp className="w-2.5 h-2.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={isLast}
-                                    onClick={() => handleMoveBlock(idx, 'down')}
-                                    className="p-0.5 rounded hover:bg-slate-200 disabled:opacity-20 text-slate-500 transition cursor-pointer"
-                                    title="Move Down"
-                                  >
-                                    <ArrowDown className="w-2.5 h-2.5" />
-                                  </button>
-                                </div>
-
-                                <input
-                                  type="checkbox"
-                                  checked={block.enabled !== false && block.is_visible !== false}
-                                  onChange={(e) => handleToggleBlockEnabled(block.id, e.target.checked)}
-                                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
-                                  title={block.enabled !== false ? 'Click to hide block' : 'Click to show block'}
-                                />
-
-                                <div
-                                  className="flex items-center gap-1.5 truncate cursor-pointer flex-1"
-                                  onClick={() => handleInspectBlock(block.id)}
-                                >
-                                  <Icon
-                                    className={`w-3.5 h-3.5 shrink-0 ${
-                                      blockType === 'page_break'
-                                        ? 'text-amber-600'
-                                        : isCustomLego
-                                        ? 'text-indigo-600'
-                                        : 'text-slate-500'
+                                return (
+                                  <div
+                                    key={block.id}
+                                    className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 ${
+                                      isInspected
+                                        ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
+                                        : block.enabled !== false && block.is_visible !== false
+                                        ? blockType === 'page_break'
+                                          ? 'bg-amber-50/40 hover:bg-amber-50/70 border-amber-200'
+                                          : blockType === 'spacer'
+                                          ? 'bg-slate-50/80 hover:bg-slate-100/80 border-slate-200 border-dashed'
+                                          : isCustomLego
+                                          ? 'bg-indigo-50/35 hover:bg-indigo-50/70 border-indigo-200'
+                                          : 'bg-white hover:bg-slate-50/80 border-slate-200'
+                                        : 'bg-slate-50/60 border-slate-200/60 opacity-60'
                                     }`}
-                                  />
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-1">
-                                      <p className="font-semibold text-slate-800 text-xs truncate">
-                                        {meta.label}
-                                      </p>
-                                      {isCustomLego && (
-                                        <span className="px-1 py-0.2 rounded bg-indigo-100 text-indigo-700 font-mono text-[8.5px] font-bold shrink-0">
-                                          LEGO
-                                        </span>
-                                      )}
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                                      <div className="flex flex-col gap-0.5 shrink-0">
+                                        <button
+                                          type="button"
+                                          disabled={isFirstInZone}
+                                          onClick={() => handleMoveBlock(idx, 'up')}
+                                          className="p-0.5 rounded hover:bg-slate-200 disabled:opacity-20 text-slate-500 transition cursor-pointer"
+                                          title="Move Up"
+                                        >
+                                          <ArrowUp className="w-2.5 h-2.5" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={isLastInZone}
+                                          onClick={() => handleMoveBlock(idx, 'down')}
+                                          className="p-0.5 rounded hover:bg-slate-200 disabled:opacity-20 text-slate-500 transition cursor-pointer"
+                                          title="Move Down"
+                                        >
+                                          <ArrowDown className="w-2.5 h-2.5" />
+                                        </button>
+                                      </div>
+
+                                      <input
+                                        type="checkbox"
+                                        checked={
+                                          block.enabled !== false && block.is_visible !== false
+                                        }
+                                        onChange={(e) =>
+                                          handleToggleBlockEnabled(block.id, e.target.checked)
+                                        }
+                                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                                        title={
+                                          block.enabled !== false
+                                            ? 'Click to hide block'
+                                            : 'Click to show block'
+                                        }
+                                      />
+
+                                      <div
+                                        className="flex items-center gap-1.5 truncate cursor-pointer flex-1"
+                                        onClick={() => handleInspectBlock(block.id)}
+                                      >
+                                        <Icon
+                                          className={`w-3.5 h-3.5 shrink-0 ${
+                                            blockType === 'page_break'
+                                              ? 'text-amber-600'
+                                              : isCustomLego
+                                              ? 'text-indigo-600'
+                                              : 'text-slate-500'
+                                          }`}
+                                        />
+                                        <div className="min-w-0">
+                                          <div className="flex items-center gap-1">
+                                            <p className="font-semibold text-slate-800 text-xs truncate">
+                                              {meta.label}
+                                            </p>
+                                            {isCustomLego && (
+                                              <span className="px-1 py-0.2 rounded bg-indigo-100 text-indigo-700 font-mono text-[8.5px] font-bold shrink-0">
+                                                LEGO
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="flex items-center gap-1 text-[9.5px] text-slate-400 font-mono mt-0.5">
+                                            {blockType === 'page_break' ? (
+                                              <>
+                                                <span className="text-amber-700 font-semibold">
+                                                  New A4 Sheet
+                                                </span>
+                                                <span>•</span>
+                                                <span>
+                                                  {block.show_continuation_header !== false
+                                                    ? 'Running Header'
+                                                    : 'No Header'}
+                                                </span>
+                                              </>
+                                            ) : blockType === 'spacer' ? (
+                                              <>
+                                                <span>
+                                                  {block.spacer_fill_remaining
+                                                    ? 'Fill Space'
+                                                    : `${block.spacer_height_mm || 20}mm`}
+                                                </span>
+                                                <span>•</span>
+                                                <span>Vertical Gap</span>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <span className="font-semibold text-slate-500">
+                                                  ⬇️ Below Table
+                                                </span>
+                                                <span>•</span>
+                                                <span className="capitalize">
+                                                  {block.placement || 'full'}
+                                                </span>
+                                                {isCustomLego && (
+                                                  <>
+                                                    <span>•</span>
+                                                    <span>{(block.pieces || []).length} pcs</span>
+                                                  </>
+                                                )}
+                                              </>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
                                     </div>
-                                    <div className="flex items-center gap-1 text-[9.5px] text-slate-400 font-mono mt-0.5">
-                                      {blockType === 'page_break' ? (
-                                        <>
-                                          <span className="text-amber-700 font-semibold">New A4 Sheet</span>
-                                          <span>•</span>
-                                          <span>{block.show_continuation_header !== false ? 'Running Header' : 'No Header'}</span>
-                                        </>
-                                      ) : blockType === 'spacer' ? (
-                                        <>
-                                          <span>{block.spacer_fill_remaining ? 'Fill Space' : `${block.spacer_height_mm || 20}mm`}</span>
-                                          <span>•</span>
-                                          <span>Vertical Gap</span>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <span
-                                            className={`font-semibold ${
-                                              block.zone === 'pre_table' ? 'text-indigo-600' : 'text-slate-500'
-                                            }`}
-                                          >
-                                            {block.zone === 'pre_table' ? '⬆️ Above Table' : '⬇️ Below Table'}
-                                          </span>
-                                          <span>•</span>
-                                          <span className="capitalize">{block.placement || 'full'}</span>
-                                          {isCustomLego && (
-                                            <>
-                                              <span>•</span>
-                                              <span>{(block.pieces || []).length} pcs</span>
-                                            </>
-                                          )}
-                                        </>
+
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      {isRemovable && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteBlock(block.id)}
+                                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition cursor-pointer"
+                                          title={`Delete ${meta.label}`}
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
                                       )}
+                                      <button
+                                        type="button"
+                                        onClick={() => handleInspectBlock(block.id)}
+                                        className={`px-2.5 py-1 rounded-lg text-[10.5px] font-medium transition flex items-center gap-1 shrink-0 cursor-pointer ${
+                                          isInspected
+                                            ? 'bg-blue-600 text-white shadow-2xs font-semibold'
+                                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                                        }`}
+                                      >
+                                        <Settings2 className="w-3 h-3" />
+                                        <span>{isInspected ? 'Inspecting' : 'Inspect'}</span>
+                                      </button>
                                     </div>
                                   </div>
-                                </div>
-                              </div>
-
-                              <div className="flex items-center gap-1 shrink-0">
-                                {isRemovable && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteBlock(block.id)}
-                                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition cursor-pointer"
-                                    title={`Delete ${meta.label}`}
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => handleInspectBlock(block.id)}
-                                  className={`px-2.5 py-1 rounded-lg text-[10.5px] font-medium transition flex items-center gap-1 shrink-0 cursor-pointer ${
-                                    isInspected
-                                      ? 'bg-blue-600 text-white shadow-2xs font-semibold'
-                                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                                  }`}
-                                >
-                                  <Settings2 className="w-3 h-3" />
-                                  <span>{isInspected ? 'Inspecting' : 'Inspect'}</span>
-                                </button>
-                              </div>
+                                );
+                              })}
                             </div>
-                          );
-                        })}
-                      </div>
+                          </>
+                        );
+                      })()}
 
                       {/* Universal + Add Custom / Library Block Picker */}
                       <div className="pt-1.5 space-y-2">

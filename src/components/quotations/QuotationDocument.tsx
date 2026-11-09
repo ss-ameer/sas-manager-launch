@@ -177,9 +177,58 @@ export interface QuotationSheetPartition {
   isLastDocumentSheet?: boolean;
 }
 
+export function estimateBlockHeightMm(
+  block: QuotationBlockConfig,
+  quotation?: Quotation
+): number {
+  const bType = block.type || block.id;
+  if (bType === 'spacer') {
+    return Math.max(4, Number(block.spacer_height_mm || 14));
+  }
+  if (bType === 'page_break') {
+    return 0;
+  }
+  if (
+    bType === 'rec_amount_banner' ||
+    bType === 'pv_disbursed_banner' ||
+    bType === 'return_reason_banner'
+  ) {
+    return 24;
+  }
+  if (
+    bType === 'do_dispatch_party' ||
+    bType === 'do_receiving_party' ||
+    bType === 'vendor_return_claim' ||
+    bType === 'vendor_return_ack' ||
+    bType === 'return_dispatch_party' ||
+    bType === 'return_receiving_vendor' ||
+    bType === 'pv_treasury_details' ||
+    bType === 'pv_beneficiary_details' ||
+    bType === 'pv_instrument_details' ||
+    bType === 'rec_payment_instrument' ||
+    bType === 'rec_balance_statement'
+  ) {
+    return (block.placement || 'full') === 'full' ? 28 : 20;
+  }
+  if (bType === 'pv_bill_allocation') {
+    const allocCount = quotation?.payment_voucher_metadata?.allocated_bills?.length || 1;
+    return 20 + Math.min(6, allocCount) * 6;
+  }
+  if (Array.isArray(block.pieces) && block.pieces.length > 0) {
+    return Math.min(75, 14 + block.pieces.filter((p) => p.enabled !== false).length * 9);
+  }
+  return (block.placement || 'full') === 'full' ? 24 : 18;
+}
+
 export function splitLineItemsIntoChunks(
   lineItems: QuotationLineItem[] = [],
-  options?: { autoPaginate?: boolean; columnConfig?: QuotationPresetColumns }
+  options?: {
+    autoPaginate?: boolean;
+    columnConfig?: QuotationPresetColumns;
+    preTableOverheadMm?: number;
+  } | boolean,
+  _density?: 'compact' | 'comfortable' | 'spacious',
+  preTableOverheadMm: number = 0
 ): QuotationTableChunk[] {
   if (!Array.isArray(lineItems) || lineItems.length === 0) {
     return [
@@ -191,8 +240,13 @@ export function splitLineItemsIntoChunks(
     ];
   }
 
-  const autoPaginate = Boolean(options?.autoPaginate);
-  const colCfg = options?.columnConfig || {};
+  const autoPaginate =
+    typeof options === 'boolean' ? options : Boolean(options?.autoPaginate);
+  const colCfg = (typeof options === 'object' && options !== null ? options.columnConfig : undefined) || {};
+  const resolvedPreTableOverheadMm =
+    typeof options === 'object' && options !== null && typeof options.preTableOverheadMm === 'number'
+      ? options.preTableOverheadMm
+      : preTableOverheadMm;
   const showImgs = Boolean(colCfg.showLineItemImages);
   const baseImgLayout = colCfg.lineItemImageLayout || 'inline_left';
   const baseImgSize = colCfg.lineItemImageSize || 'md';
@@ -218,7 +272,7 @@ export function splitLineItemsIntoChunks(
     }
   };
 
-  const SHEET_1_BUDGET_MM = 175;
+  const SHEET_1_BUDGET_MM = Math.max(65, 175 - Math.max(0, resolvedPreTableOverheadMm));
   const CONTINUATION_SHEET_BUDGET_MM = 220;
 
   const estimateParentRowHeightMm = (item: QuotationLineItem): number => {
@@ -444,13 +498,22 @@ export function splitLineItemsIntoChunks(
 export function partitionBlocksIntoSheets(
   blocks: QuotationBlockConfig[],
   lineItems?: QuotationLineItem[],
-  options?: { autoPaginate?: boolean; columnConfig?: QuotationPresetColumns }
+  options?: {
+    autoPaginate?: boolean;
+    columnConfig?: QuotationPresetColumns;
+    preTableOverheadMm?: number;
+  }
 ): QuotationSheetPartition[] {
   const activeBlocks = (blocks || []).filter(
     (b) => b.enabled !== false && b.is_visible !== false
   );
 
-  const tableChunks = splitLineItemsIntoChunks(lineItems || [], options);
+  const tableChunks = splitLineItemsIntoChunks(
+    lineItems || [],
+    options,
+    undefined,
+    options?.preTableOverheadMm ?? 0
+  );
 
   const rawSheets: Array<{
     sheetNumber: number;
@@ -912,7 +975,11 @@ export function resolveDocumentPaginationWithAnnexes(
   lineItems?: QuotationLineItem[],
   flyerAttachments?: Attachment[],
   showSubmittalsIndex: boolean = true,
-  options?: { autoPaginate?: boolean; columnConfig?: QuotationPresetColumns }
+  options?: {
+    autoPaginate?: boolean;
+    columnConfig?: QuotationPresetColumns;
+    preTableOverheadMm?: number;
+  }
 ): {
   coverSheetAttachments: Attachment[];
   coverSheets: QuotationCoverSheetDescriptor[];
@@ -3382,6 +3449,20 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     });
   }, [resolvedBlocks, isDeliveryNote, isMaterialReturnNote, isDebitNote, isPaymentVoucher, isReceiptVoucher]);
 
+  const preTableOverheadMm = React.useMemo(() => {
+    const blocksOverhead = preTableBlocks.reduce(
+      (sum, b) => sum + estimateBlockHeightMm(b, quotation),
+      0
+    );
+    const stackedCardsOverhead =
+      resolvedRecipientConfig.recipientCardWidth === '100' ||
+      resolvedRecipientConfig.offerCardWidth === '100' ||
+      resolvedRecipientConfig.layout === 'stacked'
+        ? 22
+        : 0;
+    return blocksOverhead + stackedCardsOverhead;
+  }, [preTableBlocks, quotation, resolvedRecipientConfig]);
+
   // Partition active post-table layoutBlocks + lineItems + flyer_attachments into discrete A4 cover, main & annex sheets
   const paginationWithAnnexes = React.useMemo(() => {
     const activeBlocks = resolvedBlocks.filter((b) => {
@@ -3424,7 +3505,11 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       rawLineItems,
       quotation.flyer_attachments,
       quotation.show_submittals_index !== false,
-      { autoPaginate: Boolean(quotation.auto_paginate_items), columnConfig }
+      {
+        autoPaginate: Boolean(quotation.auto_paginate_items),
+        columnConfig,
+        preTableOverheadMm
+      }
     );
   }, [
     resolvedBlocks,
@@ -3440,7 +3525,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     resolvedShowBankDetails,
     showStampAndSignatures,
     resolvedShowCompanySeal,
-    customerAcceptanceEnabled
+    customerAcceptanceEnabled,
+    preTableBlocks,
+    resolvedRecipientConfig,
+    preTableOverheadMm
   ]);
 
   const coverSheets = paginationWithAnnexes.coverSheets;

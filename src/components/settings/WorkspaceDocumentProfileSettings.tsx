@@ -1486,7 +1486,7 @@ export const WorkspaceDocumentProfileSettings: React.FC<WorkspaceDocumentProfile
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-150">
+    <div className="doc-profile-settings-light space-y-8 animate-in fade-in duration-150">
       {/* Hidden File Inputs for Native Image Upload */}
       <input
         ref={logoInputRef}

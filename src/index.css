@@ -7,17 +7,28 @@ input, select, textarea {
   line-height: 1.25;
 }
 
-.dark input:not([type="checkbox"]):not([type="radio"]),
-.dark select,
-.dark textarea {
+/* Ensure form elements & tables inside dark-mode views remain readable without corrupting the white A4 document sheet or light-surface Studio drawers */
+.dark input:not([type="checkbox"]):not([type="radio"]):not(:where(.quotation-page-sheet *, .quotation-modal-container *, .doc-profile-settings-light *)),
+.dark select:not(:where(.quotation-page-sheet *, .quotation-modal-container *, .doc-profile-settings-light *)),
+.dark textarea:not(:where(.quotation-page-sheet *, .quotation-modal-container *, .doc-profile-settings-light *)) {
   color: #f8fafc;
   background-color: #0f172a;
   border-color: #334155;
 }
 
-.dark table th,
-.dark table td {
+.dark table th:not(:where(.quotation-page-sheet *, .quotation-modal-container *, .doc-profile-settings-light *)),
+.dark table td:not(:where(.quotation-page-sheet *, .quotation-modal-container *, .doc-profile-settings-light *)) {
   color: #f1f5f9;
+}
+
+.quotation-page-sheet,
+.quotation-modal-container,
+.doc-profile-settings-light {
+  color-scheme: light;
+}
+
+.quotation-page-sheet {
+  color: #0f172a;
 }
 
 @keyframes marquee-slide-back-forth {
