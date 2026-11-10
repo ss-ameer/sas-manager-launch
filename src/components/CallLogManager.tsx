@@ -4273,9 +4273,9 @@ export default function CallLogManager({
               );
               })
             ) : (
-              <div className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xs overflow-x-auto scrollbar-thin">
-                <table className="w-full min-w-[760px] sm:min-w-[840px] text-left border-collapse text-xs font-sans text-slate-600 dark:text-slate-400">
-                  <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+              <div className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xs overflow-x-auto lg:overflow-x-visible scrollbar-thin">
+                <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse text-xs font-sans text-slate-600 dark:text-slate-400">
+                  <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
                     {historyActivityType === 'internal' ? (
                       <tr>
                         {isMarkingMode && <th className="py-3 px-2 w-9 text-center bg-slate-50 dark:bg-slate-900"></th>}

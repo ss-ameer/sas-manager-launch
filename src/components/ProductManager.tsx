@@ -1448,9 +1448,9 @@ export default function ProductManager({
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-xs overflow-clip">
           {paginatedProducts.length > 0 ? (
             <>
-              <div className="w-full overflow-x-auto scrollbar-thin">
-                <table className="w-full min-w-[760px] sm:min-w-[820px] text-left border-collapse">
-                  <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 sticky top-[76px] z-20 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
+              <div className="w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin">
+                <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse">
+                  <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
                     <tr>
                       <th className="py-3 px-4 w-[36%] truncate bg-slate-50 dark:bg-slate-900">Product &amp; Specifications</th>
                       <th className="py-3 px-2.5 w-[14%] truncate bg-slate-50 dark:bg-slate-900">Category</th>

@@ -834,8 +834,39 @@ export async function testSupabaseStorageConnection(storageConfig: {
       return { success: false, message: 'Please provide Supabase URL, Anon Key, and Bucket name.' };
     }
 
-    const testUrl = `${baseUrl}/storage/v1/bucket/${bucket}`;
-    const res = await fetch(testUrl, {
+    // 1. Primary check: List up to 1 object in the bucket via POST /storage/v1/object/list/{bucket}.
+    // Unlike GET /storage/v1/bucket/{bucket} (which requires service_role due to RLS on storage.buckets
+    // and returns a false-negative 404 "Bucket not found" with an anon key), object/list works with
+    // standard public/anon keys and accurately verifies that the bucket exists and is accessible.
+    const listUrl = `${baseUrl}/storage/v1/object/list/${encodeURIComponent(bucket)}`;
+    const listRes = await fetch(listUrl, {
+      method: 'POST',
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        prefix: '',
+        limit: 1,
+        offset: 0,
+        sortBy: { column: 'name', order: 'asc' }
+      })
+    });
+
+    if (listRes.ok) {
+      const items = await listRes.json().catch(() => []);
+      const countHint = Array.isArray(items) && items.length > 0 ? 'verified read/list access' : 'ready for uploads';
+      return {
+        success: true,
+        message: `Connected to Supabase Storage bucket "${bucket}" (${countHint}).`
+      };
+    }
+
+    // 2. Fallback check: Try GET /storage/v1/bucket/{bucket} in case SELECT on storage.objects is restricted
+    // while storage.buckets metadata is readable.
+    const metaUrl = `${baseUrl}/storage/v1/bucket/${encodeURIComponent(bucket)}`;
+    const metaRes = await fetch(metaUrl, {
       method: 'GET',
       headers: {
         apikey: key,
@@ -843,21 +874,21 @@ export async function testSupabaseStorageConnection(storageConfig: {
       }
     });
 
-    if (res.ok) {
-      const data = await res.json();
+    if (metaRes.ok) {
+      const data = await metaRes.json().catch(() => ({}));
       const isPublic = data?.public !== false;
       return {
         success: true,
         message: `Bucket "${bucket}" is reachable and active (${isPublic ? 'Public bucket' : 'Private bucket'}).`
       };
-    } else {
-      let errText = `HTTP ${res.status} ${res.statusText}`;
-      try {
-        const json = await res.json();
-        if (json?.message || json?.error) errText = json.message || json.error;
-      } catch (_) {}
-      return { success: false, message: `Unable to reach bucket: ${errText}` };
     }
+
+    let errText = `HTTP ${listRes.status} ${listRes.statusText}`;
+    try {
+      const json = await listRes.json();
+      if (json?.message || json?.error) errText = json.message || json.error;
+    } catch (_) {}
+    return { success: false, message: `Unable to reach bucket "${bucket}": ${errText}` };
   } catch (err: any) {
     return { success: false, message: `Connection test failed: ${err.message || 'Network error'}` };
   }

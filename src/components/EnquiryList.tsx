@@ -2617,9 +2617,9 @@ export default function EnquiryList({
               })}
             </div>
 
-            <div className="hidden sm:block w-full overflow-x-auto scrollbar-thin relative border-b border-slate-200 dark:border-slate-800">
-            <table className="w-full min-w-[840px] text-left border-collapse">
-              <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 sticky top-[76px] z-20 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
+            <div className="hidden sm:block w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin relative border-b border-slate-200 dark:border-slate-800">
+            <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse">
+              <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
                 <tr>
                   {isMarkingMode && (
                     <th className="py-2.5 px-2 w-9 text-center bg-slate-50 dark:bg-slate-900">

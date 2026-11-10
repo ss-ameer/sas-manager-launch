@@ -808,7 +808,7 @@ export default function Dashboard(props: DashboardProps) {
         {/* TOP QUICK ACTIONS TOOLBAR & DOMAIN FILTER TABS */}
         <div className="bg-white border border-slate-200/90 rounded-2xl p-3.5 shadow-2xs flex flex-col xl:flex-row xl:items-center justify-between gap-3">
           {/* Domain Filter Tabs */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 xl:pb-0">
+          <div className="flex flex-wrap items-center gap-1.5 overflow-x-visible">
             {[
               { id: 'all', label: 'All Domains', icon: Layers },
               { id: 'sales', label: 'Commercial Sales', icon: Briefcase },
@@ -1183,7 +1183,7 @@ export default function Dashboard(props: DashboardProps) {
                       <div
                         key={enq.id}
                         onClick={() => onSelectEnquiry(enq.id)}
-                        className="py-2.5 px-2 -mx-2 rounded-xl hover:bg-slate-50 transition flex items-center justify-between gap-3 cursor-pointer group"
+                        className="py-2.5 px-2 rounded-xl hover:bg-slate-50 transition flex items-center justify-between gap-3 cursor-pointer group"
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
@@ -1311,7 +1311,7 @@ export default function Dashboard(props: DashboardProps) {
                 </div>
               </div>
 
-              <div className="divide-y divide-slate-100 max-h-[320px] overflow-y-auto pr-1">
+              <div className="divide-y divide-slate-100 max-h-[320px] overflow-y-auto overflow-x-hidden pr-1">
                 {/* 1. Open POs awaiting GRN */}
                 {(opsQueueFilter === 'all' || opsQueueFilter === 'grn') &&
                   procurementStats.openPOs.slice(0, 3).map((po) => {
@@ -1336,17 +1336,17 @@ export default function Dashboard(props: DashboardProps) {
                             onNavigate?.('procurement');
                           }
                         }}
-                        className="py-2.5 px-2 -mx-2 rounded-xl hover:bg-slate-50 transition flex items-center justify-between gap-3 cursor-pointer"
+                        className="py-2.5 px-2 rounded-xl hover:bg-slate-50 transition flex items-center justify-between gap-3 cursor-pointer"
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono text-[10px] font-bold">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono text-[10px] font-bold shrink-0">
                               AWAITING GRN
                             </span>
-                            <span className="font-mono text-xs font-bold text-slate-900">{poRef}</span>
-                            <span className="text-xs font-semibold text-slate-700 truncate">{vName}</span>
+                            <span className="font-mono text-xs font-bold text-slate-900 shrink-0">{poRef}</span>
+                            <span className="text-xs font-semibold text-slate-700 truncate min-w-0">{vName}</span>
                           </div>
-                          <div className="text-[11px] text-slate-500 mt-0.5 font-mono">
+                          <div className="text-[11px] text-slate-500 mt-0.5 font-mono truncate">
                             PO Total: {formatCurrency(Number(po.financial_totals?.grand_total ?? po.grand_total ?? 0))}
                           </div>
                         </div>
@@ -1395,12 +1395,12 @@ export default function Dashboard(props: DashboardProps) {
                             onNavigate?.('procurement');
                           }
                         }}
-                        className="py-2.5 px-2 -mx-2 rounded-xl hover:bg-slate-50 transition flex items-center justify-between gap-3 cursor-pointer"
+                        className="py-2.5 px-2 rounded-xl hover:bg-slate-50 transition flex items-center justify-between gap-3 cursor-pointer"
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
                             <span
-                              className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold border ${
+                              className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold border shrink-0 ${
                                 hasVariance
                                   ? 'bg-amber-50 text-amber-800 border-amber-300'
                                   : 'bg-rose-50 text-rose-700 border-rose-200'
@@ -1408,14 +1408,14 @@ export default function Dashboard(props: DashboardProps) {
                             >
                               {hasVariance ? '3-WAY VARIANCE' : 'UNPAID BILL'}
                             </span>
-                            <span className="font-mono text-xs font-bold text-slate-900">
+                            <span className="font-mono text-xs font-bold text-slate-900 shrink-0">
                               {bill.bill_number}
                             </span>
-                            <span className="text-xs font-semibold text-slate-700 truncate">
+                            <span className="text-xs font-semibold text-slate-700 truncate min-w-0">
                               {bill.vendor_name}
                             </span>
                           </div>
-                          <div className="text-[11px] text-slate-500 mt-0.5 font-mono">
+                          <div className="text-[11px] text-slate-500 mt-0.5 font-mono truncate">
                             Balance Due: {formatCurrency(Number(bill.balance_due) || 0)} • Due:{' '}
                             {bill.due_date || 'Upon Receipt'}
                           </div>
@@ -1449,16 +1449,16 @@ export default function Dashboard(props: DashboardProps) {
                     <div
                       key={`sku-${prod.id}`}
                       onClick={() => onNavigate?.('products')}
-                      className="py-2.5 px-2 -mx-2 rounded-xl hover:bg-slate-50 transition flex items-center justify-between gap-3 cursor-pointer"
+                      className="py-2.5 px-2 rounded-xl hover:bg-slate-50 transition flex items-center justify-between gap-3 cursor-pointer"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 font-mono text-[10px] font-bold">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 font-mono text-[10px] font-bold shrink-0">
                             LOW STOCK
                           </span>
-                          <span className="text-xs font-bold text-slate-900 truncate">{prod.name}</span>
+                          <span className="text-xs font-bold text-slate-900 truncate min-w-0">{prod.name}</span>
                         </div>
-                        <div className="text-[11px] text-slate-500 mt-0.5 font-mono">
+                        <div className="text-[11px] text-slate-500 mt-0.5 font-mono truncate">
                           Part #: {prod.part_no || 'N/A'} • On Hand: {Number(prod.stock_quantity) || 0}{' '}
                           {prod.unit || 'Nos'} (Min: {Number(prod.min_stock_level) || 0})
                         </div>

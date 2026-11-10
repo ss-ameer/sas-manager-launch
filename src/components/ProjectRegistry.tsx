@@ -921,7 +921,7 @@ export default function ProjectRegistry({
         {/* Standalone Table Card */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs overflow-clip">
           {/* Projects Table */}
-          <div className="w-full overflow-x-auto scrollbar-thin relative">
+          <div className="w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin relative">
             {filteredProjects.length === 0 ? (
               <div className="py-16 px-4 text-center font-sans">
                 {searchTerm.trim() || statusFilter !== 'All' ? (
@@ -970,8 +970,8 @@ export default function ProjectRegistry({
                 )}
               </div>
             ) : (
-              <table className="w-full min-w-[760px] sm:min-w-[820px] text-left border-collapse font-sans">
-                <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+              <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse font-sans">
+                <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
                   <tr>
                     <th className="py-3 px-3.5 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Project / Ref</th>
                     <th className="py-3 px-3.5 w-[22%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Client &amp; Site</th>

@@ -1721,7 +1721,7 @@ export default function ProcurementPayablesHub({
   };
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 bg-slate-50/50 dark:bg-slate-950">
+    <div className="w-full min-w-0 bg-slate-50/50 dark:bg-slate-950">
       <PageHeader
         title="Procurement & Payables"
         subtitle="Manage Outbound Supplier POs, Warehouse GRN Landed Cost Allocation, 3-Way Bill Matching, and Outbound Payment Vouchers"
@@ -1945,18 +1945,20 @@ export default function ProcurementPayablesHub({
               }}
             />
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs overflow-clip">
-              <div className="w-full overflow-x-auto scrollbar-thin">
-                <table className="w-full min-w-[760px] sm:min-w-[820px] text-left border-collapse text-xs font-sans">
-                  <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
-                    <tr>
-                      <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">PO Ref</th>
-                      <th className="py-3 px-3.5 w-[22%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Vendor / Supplier</th>
-                      <th className="py-3 px-3 w-[12%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Date</th>
-                      <th className="py-3 px-3 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Status / Receiving</th>
-                      <th className="py-3 pl-2 pr-5 w-[14%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Amount</th>
-                      <th className="py-3 px-3.5 w-[215px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
-                    </tr>
-                  </thead>
+              <div className="w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin">
+                <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse text-xs font-sans">
+                  {filteredPos.length > 0 && (
+                    <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                      <tr>
+                        <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">PO Ref</th>
+                        <th className="py-3 px-3.5 w-[22%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Vendor / Supplier</th>
+                        <th className="py-3 px-3 w-[12%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Date</th>
+                        <th className="py-3 px-3 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Status / Receiving</th>
+                        <th className="py-3 pl-2 pr-5 w-[14%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Amount</th>
+                        <th className="py-3 px-3.5 w-[215px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                      </tr>
+                    </thead>
+                  )}
                   <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 bg-white dark:bg-slate-900">
                     {paginatedPos.map((po) => {
                       const meta = po.purchase_order_metadata;
@@ -2336,18 +2338,20 @@ export default function ProcurementPayablesHub({
               }}
             />
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs overflow-clip">
-              <div className="w-full overflow-x-auto scrollbar-thin">
-                <table className="w-full min-w-[760px] sm:min-w-[820px] text-left border-collapse text-xs font-sans">
-                  <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
-                    <tr>
-                      <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">PO Ref &amp; Date</th>
-                      <th className="py-3 px-3.5 w-[22%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Vendor / Supplier</th>
-                      <th className="py-3 px-3.5 w-[25%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Item &amp; Part No</th>
-                      <th className="py-3 px-3 w-[13%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Ordered / Rcvd</th>
-                      <th className="py-3 pl-2 pr-5 w-[13%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Pending &amp; Cost</th>
-                      <th className="py-3 px-3.5 w-[155px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
-                    </tr>
-                  </thead>
+              <div className="w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin">
+                <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse text-xs font-sans">
+                  {filteredGrnRows.length > 0 && (
+                    <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                      <tr>
+                        <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">PO Ref &amp; Date</th>
+                        <th className="py-3 px-3.5 w-[22%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Vendor / Supplier</th>
+                        <th className="py-3 px-3.5 w-[25%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Item &amp; Part No</th>
+                        <th className="py-3 px-3 w-[13%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Ordered / Rcvd</th>
+                        <th className="py-3 pl-2 pr-5 w-[13%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Pending &amp; Cost</th>
+                        <th className="py-3 px-3.5 w-[155px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                      </tr>
+                    </thead>
+                  )}
                   <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 bg-white dark:bg-slate-900">
                     {paginatedGrnRows.map(({ po, li }) => {
                       const ordered = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
@@ -2619,18 +2623,20 @@ export default function ProcurementPayablesHub({
               }}
             />
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs overflow-clip">
-              <div className="w-full overflow-x-auto scrollbar-thin">
-                <table className="w-full min-w-[760px] sm:min-w-[820px] text-left border-collapse text-xs font-sans">
-                  <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
-                    <tr>
-                      <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Bill / Inv #</th>
-                      <th className="py-3 px-3.5 w-[21%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Vendor &amp; Linked PO</th>
-                      <th className="py-3 px-3 w-[13%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Bill / Due Date</th>
-                      <th className="py-3 px-3 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Settlement Status</th>
-                      <th className="py-3 pl-2 pr-5 w-[14%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Total &amp; Balance</th>
-                      <th className="py-3 px-3.5 w-[225px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
-                    </tr>
-                  </thead>
+              <div className="w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin">
+                <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse text-xs font-sans">
+                  {filteredBills.length > 0 && (
+                    <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                      <tr>
+                        <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Bill / Inv #</th>
+                        <th className="py-3 px-3.5 w-[21%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Vendor &amp; Linked PO</th>
+                        <th className="py-3 px-3 w-[13%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Bill / Due Date</th>
+                        <th className="py-3 px-3 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Settlement Status</th>
+                        <th className="py-3 pl-2 pr-5 w-[14%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Total &amp; Balance</th>
+                        <th className="py-3 px-3.5 w-[225px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                      </tr>
+                    </thead>
+                  )}
                   <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 bg-white dark:bg-slate-900">
                     {paginatedBills.map((bill) => {
                       const hasVariance =
@@ -3084,18 +3090,20 @@ export default function ProcurementPayablesHub({
                   </button>
                 </div>
               </div>
-              <div className="w-full overflow-x-auto scrollbar-thin">
-                <table className="w-full min-w-[760px] sm:min-w-[820px] text-left border-collapse text-xs font-sans">
-                  <thead className="sticky top-[76px] z-20 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
-                    <tr>
-                      <th className="py-3 px-3.5 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Voucher / Doc Ref</th>
-                      <th className="py-3 px-3.5 w-[25%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Payee / Vendor</th>
-                      <th className="py-3 px-3 w-[14%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Date &amp; Mode</th>
-                      <th className="py-3 px-3 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Status</th>
-                      <th className="py-3 pl-2 pr-5 w-[14%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Amount</th>
-                      <th className="py-3 px-3.5 w-[120px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
-                    </tr>
-                  </thead>
+              <div className="w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin">
+                <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse text-xs font-sans">
+                  {filteredVouchers.length > 0 && (
+                    <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                      <tr>
+                        <th className="py-3 px-3.5 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Voucher / Doc Ref</th>
+                        <th className="py-3 px-3.5 w-[25%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Payee / Vendor</th>
+                        <th className="py-3 px-3 w-[14%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Date &amp; Mode</th>
+                        <th className="py-3 px-3 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Status</th>
+                        <th className="py-3 pl-2 pr-5 w-[14%] text-right whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Amount</th>
+                        <th className="py-3 px-3.5 w-[120px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                      </tr>
+                    </thead>
+                  )}
                   <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800 bg-white dark:bg-slate-900">
                     {paginatedVouchers.map((doc) => {
                       const isPv = doc.document_type === 'payment_voucher';
