@@ -82,6 +82,8 @@ import SaveToCatalogModal, {
   syncLineItemToCatalogProduct,
   compileDescriptionWithSpecs
 } from './SaveToCatalogModal';
+import { useEnquiryDisclosureState } from '../hooks/useEnquiryDisclosureState';
+import { EnquiryMetadataSummaryBar } from './enquiry/EnquiryMetadataSummaryBar';
 
 interface LineItemTier3BMediaGridProps {
   index: number;
@@ -1294,6 +1296,7 @@ export default function EnquiryForm({
     };
   }, []);
   const [activeFormSection, setActiveFormSection] = useState<'company' | 'country' | 'line_items' | 'value'>('company');
+  const disclosure = useEnquiryDisclosureState(Boolean(enquiryToEdit?.id));
 
   const handleFormScroll = (e: React.UIEvent<HTMLFieldSetElement>) => {
     const container = e.currentTarget;
@@ -1327,6 +1330,7 @@ export default function EnquiryForm({
   };
 
   const scrollToField = (fieldKey: string) => {
+    disclosure.ensureFieldVisible(fieldKey);
     if (fieldKey === 'company' || fieldKey === 'country' || fieldKey === 'line_items' || fieldKey === 'value') {
       setActiveFormSection(fieldKey);
     }
@@ -1348,11 +1352,13 @@ export default function EnquiryForm({
     };
 
     const targetId = idMap[fieldKey] || `field-${fieldKey}`;
-    const el = document.getElementById(targetId);
-    if (el) {
-      const isSectionJump = fieldKey === 'company' || fieldKey === 'country' || fieldKey === 'line_items' || fieldKey === 'value';
-      el.scrollIntoView({ behavior: 'smooth', block: isSectionJump ? 'start' : 'center' });
-    }
+    setTimeout(() => {
+      const el = document.getElementById(targetId);
+      if (el) {
+        const isSectionJump = fieldKey === 'company' || fieldKey === 'country' || fieldKey === 'line_items' || fieldKey === 'value';
+        el.scrollIntoView({ behavior: 'smooth', block: isSectionJump ? 'start' : 'center' });
+      }
+    }, 35);
 
     setTimeout(() => {
       setGlowingField(null);
@@ -4862,25 +4868,61 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             <fieldset
               disabled={isReadOnly}
               onScroll={handleFormScroll}
-              className="flex-1 overflow-x-hidden overflow-y-auto p-6 pb-24 space-y-6 bg-slate-50/80 dark:bg-slate-950/70 border-0 m-0 min-w-0"
+              className="flex-1 overflow-x-hidden overflow-y-auto p-5 pb-24 space-y-4 bg-slate-50/80 dark:bg-slate-950/70 border-0 m-0 min-w-0"
             >
+            {/* Quiet Auto-Metadata Summary Bar (80/20 Progressive Disclosure) */}
+            {(() => {
+              const matchedSp = sortedSalespersons.find(
+                (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
+              );
+              const spDisplay = matchedSp?.full_name || salesPerson || 'Assigned Rep';
+              const needsTokenAttention = Boolean(
+                quoteRefNo?.includes('[COMPANY_CODE]') || quoteRefNo?.includes('[COUNTRY]')
+              );
+              const metaHasWarning = Boolean(isTargetSnOccupied || needsTokenAttention);
+              const metaWarningText = isTargetSnOccupied
+                ? `S/N #${sn} is already occupied — click to resolve sequence collision`
+                : needsTokenAttention
+                ? `Quote Ref contains unresolved token (${quoteRefNo}) — select Company or set Company Code`
+                : undefined;
+
+              return (
+                <EnquiryMetadataSummaryBar
+                  sn={sn}
+                  quoteRefNo={quoteRefNo}
+                  enquiryDate={enquiryDate}
+                  salesPersonDisplay={spDisplay}
+                  enquirySource={enquirySource}
+                  formCurrency={formCurrency}
+                  status={status}
+                  country={country}
+                  projectLocation={projectLocation}
+                  isExpanded={disclosure.isMetadataExpanded}
+                  onToggleExpand={() => disclosure.setIsMetadataExpanded((v) => !v)}
+                  hasWarning={metaHasWarning}
+                  warningText={metaWarningText}
+                  onAutoDetectClipboard={handleAutoDetectClipboard}
+                  onOpenAiAutofill={() => scrollToField('source_files')}
+                />
+              );
+            })()}
             
-            {/* Chapter 1: 1. Client & Ownership Metadata */}
+            {/* Chapter 1: Core Client, Contact & Project Subject (80/20 Primary Surface) */}
             <div
               id="field-company"
-              className={`scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-5 shadow-2xs transition-all duration-300 ${getHighlightClasses('company')}`}
+              className={`scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs transition-all duration-300 ${getHighlightClasses('company')}`}
             >
-              <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3.5 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0 border border-blue-200/60 dark:border-blue-800/60">
                     1
                   </span>
                   <div className="min-w-0">
                     <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">
-                      Client &amp; Ownership Metadata
+                      Client, Contact &amp; Subject
                     </h3>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                      Assign account, contact personnel, and log dates
+                      Pair company, select contact manager, and enter proposal subject
                     </p>
                   </div>
                 </div>
@@ -5452,526 +5494,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 </div>
               )}
 
-              {/* Subsection 1B: Log Metadata & Ownership */}
-              <div className="border-t border-slate-100 dark:border-slate-800 pt-4">
-                <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div>
-                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                      <span>S/N</span>
-                      {isClaimingGap && (
-                        <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold lowercase tracking-normal">
-                          (locked to gap #{sn})
-                        </span>
-                      )}
-                    </MarqueeLabel>
-                    <input
-                      type="number"
-                      required
-                      value={sn ?? ''}
-                      disabled={isClaimingGap}
-                      onChange={(e) => setSn(Number(e.target.value))}
-                      className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono ${
-                        isClaimingGap ? 'opacity-70 bg-slate-100 dark:bg-slate-800 cursor-not-allowed select-none' : ''
-                      }`}
-                      title={isClaimingGap ? `Sequence S/N #${sn} is locked to this reserved gap` : 'Serial Number'}
-                    />
-                  </div>
-
-                  <div id="field-received_date">
-                    <MarqueeLabel required className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1" title="Received Date (YYYY-MM-DD)">Received Date</MarqueeLabel>
-                    <input
-                      type="date"
-                      required
-                      placeholder="YYYY-MM-DD"
-                      value={enquiryDate || ''}
-                      onChange={(e) => setEnquiryDate(e.target.value)}
-                      className={`dark:[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono ${getHighlightClasses('received_date')}`}
-                    />
-                  </div>
-
-                  <div>
-                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1" title="Logged Date (YYYY-MM-DD)">Logged Date</MarqueeLabel>
-                    <input
-                      type="date"
-                      required
-                      placeholder="YYYY-MM-DD"
-                      value={loggedDate || ''}
-                      onChange={(e) => setLoggedDate(e.target.value)}
-                      className="dark:[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono"
-                    />
-                  </div>
-
-                  {isTargetSnOccupied && (
-                    <div className="col-span-full p-2.5 rounded-lg border border-amber-300 dark:border-amber-700/70 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-200 space-y-1.5 animate-in fade-in duration-150">
-                      <div className="flex items-start gap-1.5 font-semibold text-[11px]">
-                        <Sparkles className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
-                        <span>S/N #{sn} is occupied by {occupiedEnquiry?.company_name || (occupiedEnquiry as any)?.client_company || 'an existing enquiry'}.</span>
-                      </div>
-                      <label className="flex items-center gap-2 cursor-pointer text-[11px] font-medium text-slate-700 dark:text-slate-300 pt-1 border-t border-amber-200 dark:border-amber-800/60">
-                        <input
-                          type="checkbox"
-                          checked={shiftExistingOnCollision}
-                          onChange={(e) => setShiftExistingOnCollision(e.target.checked)}
-                          className="rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
-                        />
-                        <span>Shift existing records down (#{sn} and above by +1)</span>
-                      </label>
-                    </div>
-                  )}
-
-                  <div>
-                    <MarqueeLabel
-                      badge={
-                        user?.role === 'Admin' || allowUserSalespersonSelection
-                          ? renderSortButton(salespersonsSort, setSalespersonsSort, 'Salespersons')
-                          : undefined
-                      }
-                      className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between"
-                    >
-                      Salesperson
-                    </MarqueeLabel>
-                    <select
-                      value={salesPerson}
-                      onChange={(e) => setSalesPerson(e.target.value)}
-                      disabled={user?.role !== 'Admin' && !allowUserSalespersonSelection}
-                      className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans ${
-                        user?.role !== 'Admin' && !allowUserSalespersonSelection ? 'bg-slate-100/90 text-slate-500 cursor-not-allowed' : ''
-                      }`}
-                    >
-                      {sortedSalespersons.map((s) => (
-                        <option key={s.id || s.initials} value={s.id || s.initials}>
-                          {s.full_name}
-                        </option>
-                      ))}
-                    </select>
-                    {user?.role !== 'Admin' && !allowUserSalespersonSelection && (
-                      <p className="text-[10px] text-amber-700 font-sans mt-1">
-                        🔒 Registered automatically under your account. (Reassignment restricted by Admin)
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <MarqueeLabel badge={renderSortButton(sourcesSort, setSourcesSort, 'Enquiry Sources')} className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">Enquiry Source</MarqueeLabel>
-                    <CreatableCombobox
-                      options={sortedSources}
-                      value={enquirySource}
-                      onChange={(val: string) => setEnquirySource(val)}
-                      onCreateOption={async (val: string) => {
-                        setEnquirySource(val);
-                        if (setEnquirySources) {
-                          try {
-                            const docRef = await safeAddDoc('dropdown_enquiry_sources', { name: val });
-                            setEnquirySources((prev) => {
-                              if (prev.some(s => s.name.toLowerCase() === val.toLowerCase())) return prev;
-                              return [...prev, { id: docRef?.id || ('src_' + Date.now()), name: val }];
-                            });
-                          } catch (e) {
-                            console.warn('Failed to save new source', e);
-                          }
-                        }
-                      }}
-                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans"
-                    />
-                  </div>
-
-                  <div>
-                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Enquiry Currency</MarqueeLabel>
-                    <select
-                      value={formCurrency}
-                      onChange={(e) => setFormCurrency(e.target.value as 'AED' | 'USD')}
-                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans"
-                    >
-                      <option value="AED">AED (Dirhams)</option>
-                      <option value="USD">USD (Dollars)</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-          {/* Chapter 2: 2. Commercial Scope & Project Specs */}
-          <div id="field-country" className="scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs">
-            <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0 border border-blue-200/60 dark:border-blue-800/60">
-                  2
-                </span>
-                <div className="min-w-0">
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">
-                    Commercial Scope &amp; Project Specs
-                  </h3>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                    Location, quotation reference, option scope, and custom project attributes
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              <div>
-                <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Country</MarqueeLabel>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. UAE / Oman"
-                  value={country || ''}
-                  onChange={(e) => setCountry(e.target.value)}
-                  className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans ${getHighlightClasses('country')}`}
-                />
-              </div>
-
-              <div id="field-location">
-                <div className="flex justify-between items-center mb-1.5">
-                  <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                    City
-                  </MarqueeLabel>
-                  {renderConfidenceBadge('project_location')}
-                </div>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Dubai / Muscat"
-                  value={projectLocation || ''}
-                  onChange={(e) => setProjectLocation(e.target.value)}
-                  className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans ${getHighlightClasses('location')}`}
-                />
-              </div>
-
-              <div id="field-quote_ref_no">
-                <div className="flex items-center justify-between mb-1.5">
-                  <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">Quote Ref</MarqueeLabel>
-                  {!isReadOnly && activeWorkspace?.id && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setIsQuoteRefCustom(false);
-                        const selectedSp = salespersons.find(
-                          (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
-                        );
-                        const repInitials =
-                          selectedSp?.initials ||
-                          (selectedSp?.full_name
-                            ? selectedSp.full_name.slice(0, 2).toUpperCase()
-                            : salesPerson
-                            ? salesPerson.trim().slice(0, 3).toUpperCase()
-                            : '');
-                        const selectedComp = companies.find((c) => c.id === companyId);
-                        const parts = enquiryDate.split('-');
-                        const dateObj = parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])) : new Date();
-                        const isExisting = Boolean(enquiryToEdit && (enquiryToEdit.id || (enquiryToEdit as any)._id));
-                        if (isExisting && !isClaimingGap && typeof sn === 'number' && sn > 0) {
-                          try {
-                            const counters = await getWorkspaceSequenceCounters(activeWorkspace.id);
-                            setWorkspaceCounters(counters);
-                            const formatted = formatPattern(counters.pattern || '{SEQ}-{DD}{MM}{YY}', {
-                              seq: sn,
-                              prefix: counters.prefix || '',
-                              date: dateObj,
-                              rep: repInitials,
-                              country: country || selectedComp?.country || 'UAE',
-                              countryCode: selectedComp?.country_code || '',
-                              companyCode: selectedComp?.company_code || ''
-                            });
-                            setQuoteRefNo(formatted);
-                          } catch (err) {
-                            console.warn(err);
-                          }
-                        } else {
-                          previewNextEnquirySequence(activeWorkspace.id, repInitials, dateObj, enquiries, {
-                            country: country || selectedComp?.country || 'UAE',
-                            countryCode: selectedComp?.country_code || '',
-                            companyCode: selectedComp?.company_code || ''
-                          }).then(res => {
-                            if (res.quoteRef) setQuoteRefNo(res.quoteRef);
-                          });
-                        }
-                      }}
-                      className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 flex items-center gap-1 transition cursor-pointer"
-                      title="Generate or re-sync based on workspace sequence configuration and selected company/date"
-                    >
-                      <Sparkles className="w-3 h-3" /> {isQuoteRefCustom ? 'Reset to Auto Pattern' : 'Auto Pattern'}
-                    </button>
-                  )}
-                </div>
-                <input
-                  type="text"
-                  required
-                  value={quoteRefNo || ''}
-                  onChange={(e) => {
-                    setQuoteRefNo(e.target.value);
-                    setIsQuoteRefCustom(true);
-                  }}
-                  className={`w-full bg-white dark:bg-slate-900 border ${
-                    quoteRefNo?.includes('[COMPANY_CODE]') || quoteRefNo?.includes('[COUNTRY]')
-                      ? 'border-amber-400 focus:border-amber-500 focus:ring-amber-500/20 bg-amber-50/40 dark:bg-amber-950/20'
-                      : 'border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-blue-500/20'
-                  } focus:ring-2 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono ${getHighlightClasses('quote_ref_no')}`}
-                />
-
-                {/* Structured Token Status & Quick-Resolve Prompt for {COMPANY_CODE} / {COUNTRY} */}
-                {(() => {
-                  const activePat =
-                    workspaceCounters?.pattern ||
-                    (activeWorkspace as any)?.settings?.quote_sequence_pattern ||
-                    '';
-                  const needsCompCode =
-                    patternRequiresCompanyCode(activePat) || Boolean(quoteRefNo?.includes('[COMPANY_CODE]'));
-                  const needsCountry =
-                    patternRequiresCountryCode(activePat) || Boolean(quoteRefNo?.includes('[COUNTRY]'));
-                  if (!needsCompCode && !needsCountry) return null;
-
-                  const selectedComp = companies.find((c) => c.id === companyId);
-                  const hasCompCode = Boolean(selectedComp?.company_code?.trim());
-                  const resolvedCtry = resolveCountryCode(
-                    country || selectedComp?.country || 'UAE',
-                    selectedComp?.country_code
-                  );
-
-                  if (needsCompCode && !companyId) {
-                    return (
-                      <div className="mt-1.5 flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-[11px] text-amber-800 dark:text-amber-300">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                          <span className="truncate">
-                            Select a <strong>Company</strong> above to resolve{' '}
-                            <code className="font-mono font-bold">[COMPANY_CODE]</code>
-                          </span>
-                        </div>
-                        {resolvedCtry && (
-                          <span className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-amber-200 dark:border-slate-700 font-mono font-bold text-[10px] shrink-0">
-                            {resolvedCtry}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  }
-
-                  if (needsCompCode && companyId && selectedComp && !hasCompCode) {
-                    return (
-                      <div className="mt-1.5 p-2.5 rounded-lg bg-amber-50/90 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 space-y-2 animate-in fade-in duration-150">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5 text-[11px] text-amber-900 dark:text-amber-200 font-medium">
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                            <span>
-                              <strong>{selectedComp.display_name}</strong> has no registered Company Code for{' '}
-                              <code className="font-mono font-bold">[COMPANY_CODE]</code>.
-                            </span>
-                          </div>
-                          {!showQuickResolveCode && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setQuickResolveCodeVal(selectedComp.company_code || '');
-                                setQuickResolveCountryCodeVal(
-                                  selectedComp.country_code || resolvedCtry || 'UAE'
-                                );
-                                setShowQuickResolveCode(true);
-                              }}
-                              className="px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] uppercase tracking-wider shrink-0 transition cursor-pointer shadow-2xs"
-                            >
-                              Set Company Code
-                            </button>
-                          )}
-                        </div>
-
-                        {showQuickResolveCode && (
-                          <div className="pt-1.5 border-t border-amber-200/80 dark:border-amber-800/60 flex flex-wrap items-end gap-2">
-                            <div className="flex-1 min-w-[120px]">
-                              <label className="block text-[9px] font-mono uppercase text-amber-800 dark:text-amber-300 font-bold mb-0.5">
-                                Company Code (e.g. CWE, BME) *
-                              </label>
-                              <input
-                                type="text"
-                                value={quickResolveCodeVal}
-                                onChange={(e) => setQuickResolveCodeVal(sanitizeCompanyCode(e.target.value))}
-                                placeholder="e.g. CWE"
-                                maxLength={12}
-                                className="w-full px-2 py-1 text-xs font-mono font-bold uppercase bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500 text-slate-900 dark:text-white"
-                              />
-                            </div>
-                            <div className="w-24">
-                              <label className="block text-[9px] font-mono uppercase text-amber-800 dark:text-amber-300 font-bold mb-0.5">
-                                Country Code
-                              </label>
-                              <input
-                                type="text"
-                                value={quickResolveCountryCodeVal}
-                                onChange={(e) => setQuickResolveCountryCodeVal(sanitizeCompanyCode(e.target.value))}
-                                placeholder={resolvedCtry || 'UAE'}
-                                maxLength={6}
-                                className="w-full px-2 py-1 text-xs font-mono font-bold uppercase bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500 text-slate-900 dark:text-white"
-                              />
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                disabled={!quickResolveCodeVal.trim() || isSavingQuickCode}
-                                onClick={async () => {
-                                  const cleanCode = sanitizeCompanyCode(quickResolveCodeVal);
-                                  const cleanCtry = sanitizeCompanyCode(quickResolveCountryCodeVal) || resolvedCtry;
-                                  if (!cleanCode || !selectedComp.id) return;
-                                  setIsSavingQuickCode(true);
-                                  try {
-                                    const patch: Partial<Company> = {
-                                      company_code: cleanCode,
-                                      ...(cleanCtry ? { country_code: cleanCtry } : {}),
-                                      updatedAt: new Date().toISOString()
-                                    };
-                                    await safeUpdateDoc('companies', selectedComp.id, patch);
-                                    await CompanyRepository.updateCompany(
-                                      selectedComp.id,
-                                      patch
-                                    ).catch(() => {});
-                                    if (setCompanies) {
-                                      setCompanies((prev) =>
-                                        prev.map((c) => (c.id === selectedComp.id ? { ...c, ...patch } : c))
-                                      );
-                                    }
-                                    setQuoteRefNo((prev) => {
-                                      let updated = (prev || '').replace(/\[COMPANY_CODE\]/g, cleanCode);
-                                      if (cleanCtry) {
-                                        updated = updated.replace(/\[COUNTRY\]/g, cleanCtry);
-                                      }
-                                      return updated;
-                                    });
-                                    setShowQuickResolveCode(false);
-                                    triggerToast?.(
-                                      `Saved Company Code "${cleanCode}" to ${selectedComp.display_name} and updated Quote Ref!`,
-                                      'success'
-                                    );
-                                  } catch (err: any) {
-                                    console.error('Failed saving quick company code:', err);
-                                    triggerToast?.('Failed to save company code: ' + err.message, 'error');
-                                  } finally {
-                                    setIsSavingQuickCode(false);
-                                  }
-                                }}
-                                className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-[10px] uppercase tracking-wider transition cursor-pointer flex items-center gap-1"
-                              >
-                                {isSavingQuickCode ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
-                                <span>Save &amp; Apply</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setShowQuickResolveCode(false)}
-                                className="px-2 py-1 rounded-md border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 hover:bg-amber-100/60 text-[10px] font-semibold transition cursor-pointer"
-                              >
-                                Skip
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  }
-
-                  if (selectedComp && hasCompCode) {
-                    return (
-                      <div className="mt-1 space-y-1.5">
-                        <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 px-1">
-                          <span className="flex items-center gap-1.5">
-                            <span>Resolved Tokens:</span>
-                            <span className="px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-mono font-bold">
-                              {sanitizeCompanyCode(selectedComp.company_code)}
-                            </span>
-                            {resolvedCtry && (
-                              <span className="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-mono font-bold">
-                                {resolvedCtry}
-                              </span>
-                            )}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setQuickResolveCodeVal(selectedComp.company_code || '');
-                              setQuickResolveCountryCodeVal(selectedComp.country_code || resolvedCtry || 'UAE');
-                              setShowQuickResolveCode((v) => !v);
-                            }}
-                            className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline font-medium cursor-pointer"
-                          >
-                            {showQuickResolveCode ? 'Close' : 'Edit Code'}
-                          </button>
-                        </div>
-                        {showQuickResolveCode && (
-                          <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 flex flex-wrap items-end gap-2">
-                            <div className="flex-1 min-w-[110px]">
-                              <label className="block text-[9px] font-mono uppercase text-slate-500 font-bold mb-0.5">
-                                Company Code
-                              </label>
-                              <input
-                                type="text"
-                                value={quickResolveCodeVal}
-                                onChange={(e) => setQuickResolveCodeVal(sanitizeCompanyCode(e.target.value))}
-                                maxLength={12}
-                                className="w-full px-2 py-1 text-xs font-mono font-bold uppercase bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none text-slate-900 dark:text-white"
-                              />
-                            </div>
-                            <div className="w-20">
-                              <label className="block text-[9px] font-mono uppercase text-slate-500 font-bold mb-0.5">
-                                Country
-                              </label>
-                              <input
-                                type="text"
-                                value={quickResolveCountryCodeVal}
-                                onChange={(e) => setQuickResolveCountryCodeVal(sanitizeCompanyCode(e.target.value))}
-                                maxLength={6}
-                                className="w-full px-2 py-1 text-xs font-mono font-bold uppercase bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none text-slate-900 dark:text-white"
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              disabled={!quickResolveCodeVal.trim() || isSavingQuickCode}
-                              onClick={async () => {
-                                const oldCode = sanitizeCompanyCode(selectedComp.company_code);
-                                const cleanCode = sanitizeCompanyCode(quickResolveCodeVal);
-                                const cleanCtry = sanitizeCompanyCode(quickResolveCountryCodeVal) || resolvedCtry;
-                                if (!cleanCode || !selectedComp.id) return;
-                                setIsSavingQuickCode(true);
-                                try {
-                                  const patch: Partial<Company> = {
-                                    company_code: cleanCode,
-                                    ...(cleanCtry ? { country_code: cleanCtry } : {}),
-                                    updatedAt: new Date().toISOString()
-                                  };
-                                  await safeUpdateDoc('companies', selectedComp.id, patch);
-                                  await CompanyRepository.updateCompany(
-                                    selectedComp.id,
-                                    patch
-                                  ).catch(() => {});
-                                  if (setCompanies) {
-                                    setCompanies((prev) =>
-                                      prev.map((c) => (c.id === selectedComp.id ? { ...c, ...patch } : c))
-                                    );
-                                  }
-                                  if (oldCode && quoteRefNo.includes(`/${oldCode}/`)) {
-                                    setQuoteRefNo((prev) => prev.replace(`/${oldCode}/`, `/${cleanCode}/`));
-                                  }
-                                  setShowQuickResolveCode(false);
-                                  triggerToast?.(`Updated Company Code to "${cleanCode}"`, 'success');
-                                } catch (err: any) {
-                                  triggerToast?.('Failed to update company code: ' + err.message, 'error');
-                                } finally {
-                                  setIsSavingQuickCode(false);
-                                }
-                              }}
-                              className="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-[10px] uppercase tracking-wider transition cursor-pointer"
-                            >
-                              Save
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  }
-
-                  return null;
-                })()}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-2 border-t border-slate-200/80 dark:border-slate-700/80">
-              <div id="field-subject" className="col-span-1 sm:col-span-12 lg:col-span-6">
+              {/* Primary 80/20 Field: Subject / Project Title */}
+              <div id="field-subject" className="pt-1">
                 <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
                   Subject / Project Title (Optional)
                 </label>
@@ -5984,128 +5508,709 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 />
               </div>
 
-              <div className="col-span-1 sm:col-span-6 lg:col-span-3">
-                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
-                  Client Ref
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. PO-8902-X / RFQ-2026"
-                  value={customerReferenceCode || ''}
-                  onChange={(e) => setCustomerReferenceCode(e.target.value)}
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono"
-                />
-              </div>
+              {/* Inline + Progressive Disclosure Triggers for Scope, Specs & Metadata */}
+              {(() => {
+                const customSpecsCount = customProjectDetails.filter((d) => d.key.trim() || d.value.trim()).length;
+                const isSpecsOpen = disclosure.expandedSections.customSpecs || customSpecsCount > 0;
+                const isLocationOpen =
+                  disclosure.expandedSections.locationScope ||
+                  Boolean(customerReferenceCode?.trim()) ||
+                  Boolean(proposalOption?.trim());
+                const needsMetaOpen =
+                  disclosure.isMetadataExpanded ||
+                  isTargetSnOccupied ||
+                  isClaimingGap ||
+                  Boolean(quoteRefNo?.includes('[COMPANY_CODE]') || quoteRefNo?.includes('[COUNTRY]'));
+                const locSummary = [projectLocation, country].filter(Boolean).join(', ');
 
-              <div className="col-span-1 sm:col-span-6 lg:col-span-3 min-w-0">
-                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
-                  Option Scope
-                </label>
-                <select
-                  value={proposalOption}
-                  onChange={(e) => setProposalOption(e.target.value)}
-                  className="w-full min-w-0 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans"
-                >
-                  <option value="">None / Single Option</option>
-                  <option value="Option A">Option A</option>
-                  <option value="Option B">Option B</option>
-                  <option value="Option C">Option C</option>
-                  <option value="Option D">Option D</option>
-                  <option value="Multi-Option (A/B/C)">Multi-Option (A/B/C)</option>
-                  {proposalOption && !['', 'Option A', 'Option B', 'Option C', 'Option D', 'Multi-Option (A/B/C)'].includes(proposalOption) && (
-                    <option value={proposalOption}>{proposalOption}</option>
-                  )}
-                </select>
-              </div>
-            </div>
-
-            {/* Custom Project Specifications & Information */}
-            <div
-              id="field-custom_project_details"
-              className={`border-t border-slate-100 dark:border-slate-800/80 pt-4 mt-4 space-y-2.5 transition-all duration-300 ${getHighlightClasses('custom_project_details')}`}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Sliders className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 font-sans uppercase tracking-wider truncate">
-                    Custom Project Specifications
-                  </span>
-                  {customProjectDetails.filter(d => d.key.trim() || d.value.trim()).length > 0 && (
-                    <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap shrink-0">
-                      ({customProjectDetails.filter(d => d.key.trim() || d.value.trim()).length})
-                    </span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setCustomProjectDetails(prev => [...prev, { key: '', value: '' }])}
-                  className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 px-2.5 py-1 rounded-lg border border-blue-200/80 dark:border-blue-800/80 transition flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
-                >
-                  <Plus className="w-3 h-3" />
-                  <span>Add Custom Spec</span>
-                </button>
-              </div>
-
-              {/* Quick Spec Presets */}
-              <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-sans">
-                {['Consultant', 'Main Contractor', 'Site Location', 'Tender Ref', 'Scope of Work', 'Delivery Terms', 'Payment Terms'].map((quickKey) => (
-                  <button
-                    key={quickKey}
-                    type="button"
-                    onClick={() => {
-                      if (!customProjectDetails.some(d => d.key.toLowerCase() === quickKey.toLowerCase())) {
-                        setCustomProjectDetails(prev => [...prev, { key: quickKey, value: '' }]);
-                      }
-                    }}
-                    className="px-2.5 py-1 bg-slate-50 dark:bg-slate-800/80 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 rounded-lg border border-slate-200/80 dark:border-slate-700 hover:border-blue-200 dark:hover:border-blue-800 transition font-medium cursor-pointer"
-                  >
-                    + {quickKey}
-                  </button>
-                ))}
-              </div>
-
-              {/* Active Key-Value Specs List */}
-              {customProjectDetails.length > 0 && (
-                <div className="space-y-2 pt-1">
-                  {customProjectDetails.map((detail, idx) => (
-                    <div key={idx} className="flex items-center space-x-2 bg-slate-50/80 dark:bg-slate-800/40 p-2 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
-                      <input
-                        type="text"
-                        placeholder="Attribute (e.g. Consultant)"
-                        value={detail.key ?? ''}
-                        onChange={(e) => {
-                          const next = [...customProjectDetails];
-                          next[idx].key = e.target.value;
-                          setCustomProjectDetails(next);
-                        }}
-                        className="w-1/3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-sans"
-                      />
-                      <span className="text-slate-400 font-bold">:</span>
-                      <input
-                        type="text"
-                        placeholder="Value (e.g. Khatib & Alami / Site Ref)"
-                        value={detail.value ?? ''}
-                        onChange={(e) => {
-                          const next = [...customProjectDetails];
-                          next[idx].value = e.target.value;
-                          setCustomProjectDetails(next);
-                        }}
-                        className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-sans"
-                      />
+                return (
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => setCustomProjectDetails(customProjectDetails.filter((_, i) => i !== idx))}
-                        className="p-1 text-slate-400 hover:text-rose-600 rounded-lg transition shrink-0 cursor-pointer"
-                        title="Remove Spec"
+                        onClick={() => disclosure.toggleSection('locationScope')}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition inline-flex items-center gap-1.5 cursor-pointer ${
+                          isLocationOpen
+                            ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                            : 'bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
+                        }`}
                       >
-                        <X className="w-4 h-4" />
+                        <Plus className={`w-3 h-3 transition-transform ${isLocationOpen ? 'rotate-45 text-blue-600' : 'text-slate-400'}`} />
+                        <span>Location, Client Ref &amp; Option Scope</span>
+                        {locSummary && (
+                          <span className="px-1.5 py-0.2 rounded bg-white dark:bg-slate-900 text-[10px] font-mono text-slate-500 dark:text-slate-400 border border-slate-200/70 dark:border-slate-700">
+                            {locSummary}
+                          </span>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => disclosure.toggleSection('customSpecs')}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition inline-flex items-center gap-1.5 cursor-pointer ${
+                          isSpecsOpen
+                            ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                            : 'bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
+                        }`}
+                      >
+                        <Plus className={`w-3 h-3 transition-transform ${isSpecsOpen ? 'rotate-45 text-blue-600' : 'text-slate-400'}`} />
+                        <span>Custom Project Specs</span>
+                        {customSpecsCount > 0 && (
+                          <span className="px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 text-[10px] font-mono font-bold">
+                            {customSpecsCount}
+                          </span>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => disclosure.setIsMetadataExpanded((v) => !v)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition inline-flex items-center gap-1.5 cursor-pointer ${
+                          needsMetaOpen
+                            ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                            : 'bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
+                        }`}
+                      >
+                        <Sliders className="w-3 h-3 text-slate-400" />
+                        <span>Sequence, Quote Ref &amp; Log Dates</span>
                       </button>
                     </div>
-                  ))}
-                </div>
-              )}
+
+                    {/* Expandable Panel A: Sequence, Quote Ref & Ownership Metadata */}
+                    {needsMetaOpen && (
+                      <div className="p-3.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 space-y-3.5 animate-in fade-in duration-150">
+                        <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                          <div>
+                            <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                              <span>S/N</span>
+                              {isClaimingGap && (
+                                <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold lowercase tracking-normal">
+                                  (locked to gap #{sn})
+                                </span>
+                              )}
+                            </MarqueeLabel>
+                            <input
+                              type="number"
+                              required
+                              value={sn ?? ''}
+                              disabled={isClaimingGap}
+                              onChange={(e) => setSn(Number(e.target.value))}
+                              className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono ${
+                                isClaimingGap ? 'opacity-70 bg-slate-100 dark:bg-slate-800 cursor-not-allowed select-none' : ''
+                              }`}
+                              title={isClaimingGap ? `Sequence S/N #${sn} is locked to this reserved gap` : 'Serial Number'}
+                            />
+                          </div>
+
+                          <div id="field-quote_ref_no" className="sm:col-span-2">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                                Quote Ref
+                              </MarqueeLabel>
+                              {!isReadOnly && activeWorkspace?.id && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setIsQuoteRefCustom(false);
+                                    const selectedSp = salespersons.find(
+                                      (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
+                                    );
+                                    const repInitials =
+                                      selectedSp?.initials ||
+                                      (selectedSp?.full_name
+                                        ? selectedSp.full_name.slice(0, 2).toUpperCase()
+                                        : salesPerson
+                                        ? salesPerson.trim().slice(0, 3).toUpperCase()
+                                        : '');
+                                    const selectedComp = companies.find((c) => c.id === companyId);
+                                    const parts = enquiryDate.split('-');
+                                    const dateObj = parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])) : new Date();
+                                    const isExisting = Boolean(enquiryToEdit && (enquiryToEdit.id || (enquiryToEdit as any)._id));
+                                    if (isExisting && !isClaimingGap && typeof sn === 'number' && sn > 0) {
+                                      try {
+                                        const counters = await getWorkspaceSequenceCounters(activeWorkspace.id);
+                                        setWorkspaceCounters(counters);
+                                        const formatted = formatPattern(counters.pattern || '{SEQ}-{DD}{MM}{YY}', {
+                                          seq: sn,
+                                          prefix: counters.prefix || '',
+                                          date: dateObj,
+                                          rep: repInitials,
+                                          country: country || selectedComp?.country || 'UAE',
+                                          countryCode: selectedComp?.country_code || '',
+                                          companyCode: selectedComp?.company_code || ''
+                                        });
+                                        setQuoteRefNo(formatted);
+                                      } catch (err) {
+                                        console.warn(err);
+                                      }
+                                    } else {
+                                      previewNextEnquirySequence(activeWorkspace.id, repInitials, dateObj, enquiries, {
+                                        country: country || selectedComp?.country || 'UAE',
+                                        countryCode: selectedComp?.country_code || '',
+                                        companyCode: selectedComp?.company_code || ''
+                                      }).then((res) => {
+                                        if (res.quoteRef) setQuoteRefNo(res.quoteRef);
+                                      });
+                                    }
+                                  }}
+                                  className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 flex items-center gap-1 transition cursor-pointer"
+                                  title="Generate or re-sync based on workspace sequence configuration and selected company/date"
+                                >
+                                  <Sparkles className="w-3 h-3" /> {isQuoteRefCustom ? 'Reset to Auto Pattern' : 'Auto Pattern'}
+                                </button>
+                              )}
+                            </div>
+                            <input
+                              type="text"
+                              required
+                              value={quoteRefNo || ''}
+                              onChange={(e) => {
+                                setQuoteRefNo(e.target.value);
+                                setIsQuoteRefCustom(true);
+                              }}
+                              className={`w-full bg-white dark:bg-slate-900 border ${
+                                quoteRefNo?.includes('[COMPANY_CODE]') || quoteRefNo?.includes('[COUNTRY]')
+                                  ? 'border-amber-400 focus:border-amber-500 focus:ring-amber-500/20 bg-amber-50/40 dark:bg-amber-950/20'
+                                  : 'border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-blue-500/20'
+                              } focus:ring-2 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono ${getHighlightClasses('quote_ref_no')}`}
+                            />
+
+                            {/* Structured Token Status & Quick-Resolve Prompt for {COMPANY_CODE} / {COUNTRY} */}
+                            {(() => {
+                              const activePat =
+                                workspaceCounters?.pattern ||
+                                (activeWorkspace as any)?.settings?.quote_sequence_pattern ||
+                                '';
+                              const needsCompCode =
+                                patternRequiresCompanyCode(activePat) || Boolean(quoteRefNo?.includes('[COMPANY_CODE]'));
+                              const needsCountry =
+                                patternRequiresCountryCode(activePat) || Boolean(quoteRefNo?.includes('[COUNTRY]'));
+                              if (!needsCompCode && !needsCountry) return null;
+
+                              const selectedComp = companies.find((c) => c.id === companyId);
+                              const hasCompCode = Boolean(selectedComp?.company_code?.trim());
+                              const resolvedCtry = resolveCountryCode(
+                                country || selectedComp?.country || 'UAE',
+                                selectedComp?.country_code
+                              );
+
+                              if (needsCompCode && !companyId) {
+                                return (
+                                  <div className="mt-1.5 flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-[11px] text-amber-800 dark:text-amber-300">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                      <span className="truncate">
+                                        Select a <strong>Company</strong> above to resolve{' '}
+                                        <code className="font-mono font-bold">[COMPANY_CODE]</code>
+                                      </span>
+                                    </div>
+                                    {resolvedCtry && (
+                                      <span className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-amber-200 dark:border-slate-700 font-mono font-bold text-[10px] shrink-0">
+                                        {resolvedCtry}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              }
+
+                              if (needsCompCode && companyId && selectedComp && !hasCompCode) {
+                                return (
+                                  <div className="mt-1.5 p-2.5 rounded-lg bg-amber-50/90 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 space-y-2 animate-in fade-in duration-150">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="flex items-center gap-1.5 text-[11px] text-amber-900 dark:text-amber-200 font-medium">
+                                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                        <span>
+                                          <strong>{selectedComp.display_name}</strong> has no registered Company Code for{' '}
+                                          <code className="font-mono font-bold">[COMPANY_CODE]</code>.
+                                        </span>
+                                      </div>
+                                      {!showQuickResolveCode && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setQuickResolveCodeVal(selectedComp.company_code || '');
+                                            setQuickResolveCountryCodeVal(
+                                              selectedComp.country_code || resolvedCtry || 'UAE'
+                                            );
+                                            setShowQuickResolveCode(true);
+                                          }}
+                                          className="px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] uppercase tracking-wider shrink-0 transition cursor-pointer shadow-2xs"
+                                        >
+                                          Set Company Code
+                                        </button>
+                                      )}
+                                    </div>
+
+                                    {showQuickResolveCode && (
+                                      <div className="pt-1.5 border-t border-amber-200/80 dark:border-amber-800/60 flex flex-wrap items-end gap-2">
+                                        <div className="flex-1 min-w-[120px]">
+                                          <label className="block text-[9px] font-mono uppercase text-amber-800 dark:text-amber-300 font-bold mb-0.5">
+                                            Company Code (e.g. CWE, BME) *
+                                          </label>
+                                          <input
+                                            type="text"
+                                            value={quickResolveCodeVal}
+                                            onChange={(e) => setQuickResolveCodeVal(sanitizeCompanyCode(e.target.value))}
+                                            placeholder="e.g. CWE"
+                                            maxLength={12}
+                                            className="w-full px-2 py-1 text-xs font-mono font-bold uppercase bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500 text-slate-900 dark:text-white"
+                                          />
+                                        </div>
+                                        <div className="w-24">
+                                          <label className="block text-[9px] font-mono uppercase text-amber-800 dark:text-amber-300 font-bold mb-0.5">
+                                            Country Code
+                                          </label>
+                                          <input
+                                            type="text"
+                                            value={quickResolveCountryCodeVal}
+                                            onChange={(e) => setQuickResolveCountryCodeVal(sanitizeCompanyCode(e.target.value))}
+                                            placeholder={resolvedCtry || 'UAE'}
+                                            maxLength={6}
+                                            className="w-full px-2 py-1 text-xs font-mono font-bold uppercase bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500 text-slate-900 dark:text-white"
+                                          />
+                                        </div>
+                                        <div className="flex items-center gap-1.5">
+                                          <button
+                                            type="button"
+                                            disabled={!quickResolveCodeVal.trim() || isSavingQuickCode}
+                                            onClick={async () => {
+                                              const cleanCode = sanitizeCompanyCode(quickResolveCodeVal);
+                                              const cleanCtry = sanitizeCompanyCode(quickResolveCountryCodeVal) || resolvedCtry;
+                                              if (!cleanCode || !selectedComp.id) return;
+                                              setIsSavingQuickCode(true);
+                                              try {
+                                                const patch: Partial<Company> = {
+                                                  company_code: cleanCode,
+                                                  ...(cleanCtry ? { country_code: cleanCtry } : {}),
+                                                  updatedAt: new Date().toISOString()
+                                                };
+                                                await safeUpdateDoc('companies', selectedComp.id, patch);
+                                                await CompanyRepository.updateCompany(
+                                                  selectedComp.id,
+                                                  patch
+                                                ).catch(() => {});
+                                                if (setCompanies) {
+                                                  setCompanies((prev) =>
+                                                    prev.map((c) => (c.id === selectedComp.id ? { ...c, ...patch } : c))
+                                                  );
+                                                }
+                                                setQuoteRefNo((prev) => {
+                                                  let updated = (prev || '').replace(/\[COMPANY_CODE\]/g, cleanCode);
+                                                  if (cleanCtry) {
+                                                    updated = updated.replace(/\[COUNTRY\]/g, cleanCtry);
+                                                  }
+                                                  return updated;
+                                                });
+                                                setShowQuickResolveCode(false);
+                                                triggerToast?.(
+                                                  `Saved Company Code "${cleanCode}" to ${selectedComp.display_name} and updated Quote Ref!`,
+                                                  'success'
+                                                );
+                                              } catch (err: any) {
+                                                console.error('Failed saving quick company code:', err);
+                                                triggerToast?.('Failed to save company code: ' + err.message, 'error');
+                                              } finally {
+                                                setIsSavingQuickCode(false);
+                                              }
+                                            }}
+                                            className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-[10px] uppercase tracking-wider transition cursor-pointer flex items-center gap-1"
+                                          >
+                                            {isSavingQuickCode ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                                            <span>Save &amp; Apply</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setShowQuickResolveCode(false)}
+                                            className="px-2 py-1 rounded-md border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 hover:bg-amber-100/60 text-[10px] font-semibold transition cursor-pointer"
+                                          >
+                                            Skip
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              }
+
+                              if (selectedComp && hasCompCode) {
+                                return (
+                                  <div className="mt-1 space-y-1.5">
+                                    <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 px-1">
+                                      <span className="flex items-center gap-1.5">
+                                        <span>Resolved Tokens:</span>
+                                        <span className="px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-mono font-bold">
+                                          {sanitizeCompanyCode(selectedComp.company_code)}
+                                        </span>
+                                        {resolvedCtry && (
+                                          <span className="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-mono font-bold">
+                                            {resolvedCtry}
+                                          </span>
+                                        )}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setQuickResolveCodeVal(selectedComp.company_code || '');
+                                          setQuickResolveCountryCodeVal(selectedComp.country_code || resolvedCtry || 'UAE');
+                                          setShowQuickResolveCode((v) => !v);
+                                        }}
+                                        className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline font-medium cursor-pointer"
+                                      >
+                                        {showQuickResolveCode ? 'Close' : 'Edit Code'}
+                                      </button>
+                                    </div>
+                                    {showQuickResolveCode && (
+                                      <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 flex flex-wrap items-end gap-2">
+                                        <div className="flex-1 min-w-[110px]">
+                                          <label className="block text-[9px] font-mono uppercase text-slate-500 font-bold mb-0.5">
+                                            Company Code
+                                          </label>
+                                          <input
+                                            type="text"
+                                            value={quickResolveCodeVal}
+                                            onChange={(e) => setQuickResolveCodeVal(sanitizeCompanyCode(e.target.value))}
+                                            maxLength={12}
+                                            className="w-full px-2 py-1 text-xs font-mono font-bold uppercase bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none text-slate-900 dark:text-white"
+                                          />
+                                        </div>
+                                        <div className="w-20">
+                                          <label className="block text-[9px] font-mono uppercase text-slate-500 font-bold mb-0.5">
+                                            Country
+                                          </label>
+                                          <input
+                                            type="text"
+                                            value={quickResolveCountryCodeVal}
+                                            onChange={(e) => setQuickResolveCountryCodeVal(sanitizeCompanyCode(e.target.value))}
+                                            maxLength={6}
+                                            className="w-full px-2 py-1 text-xs font-mono font-bold uppercase bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none text-slate-900 dark:text-white"
+                                          />
+                                        </div>
+                                        <button
+                                          type="button"
+                                          disabled={!quickResolveCodeVal.trim() || isSavingQuickCode}
+                                          onClick={async () => {
+                                            const oldCode = sanitizeCompanyCode(selectedComp.company_code);
+                                            const cleanCode = sanitizeCompanyCode(quickResolveCodeVal);
+                                            const cleanCtry = sanitizeCompanyCode(quickResolveCountryCodeVal) || resolvedCtry;
+                                            if (!cleanCode || !selectedComp.id) return;
+                                            setIsSavingQuickCode(true);
+                                            try {
+                                              const patch: Partial<Company> = {
+                                                company_code: cleanCode,
+                                                ...(cleanCtry ? { country_code: cleanCtry } : {}),
+                                                updatedAt: new Date().toISOString()
+                                              };
+                                              await safeUpdateDoc('companies', selectedComp.id, patch);
+                                              await CompanyRepository.updateCompany(
+                                                selectedComp.id,
+                                                patch
+                                              ).catch(() => {});
+                                              if (setCompanies) {
+                                                setCompanies((prev) =>
+                                                  prev.map((c) => (c.id === selectedComp.id ? { ...c, ...patch } : c))
+                                                );
+                                              }
+                                              if (oldCode && quoteRefNo.includes(`/${oldCode}/`)) {
+                                                setQuoteRefNo((prev) => prev.replace(`/${oldCode}/`, `/${cleanCode}/`));
+                                              }
+                                              setShowQuickResolveCode(false);
+                                              triggerToast?.(`Updated Company Code to "${cleanCode}"`, 'success');
+                                            } catch (err: any) {
+                                              triggerToast?.('Failed to update company code: ' + err.message, 'error');
+                                            } finally {
+                                              setIsSavingQuickCode(false);
+                                            }
+                                          }}
+                                          className="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-[10px] uppercase tracking-wider transition cursor-pointer"
+                                        >
+                                          Save
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              }
+
+                              return null;
+                            })()}
+                          </div>
+
+                          <div id="field-received_date">
+                            <MarqueeLabel required className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1" title="Received Date (YYYY-MM-DD)">Received Date</MarqueeLabel>
+                            <input
+                              type="date"
+                              required
+                              placeholder="YYYY-MM-DD"
+                              value={enquiryDate || ''}
+                              onChange={(e) => setEnquiryDate(e.target.value)}
+                              className={`dark:[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono ${getHighlightClasses('received_date')}`}
+                            />
+                          </div>
+
+                          <div>
+                            <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1" title="Logged Date (YYYY-MM-DD)">Logged Date</MarqueeLabel>
+                            <input
+                              type="date"
+                              required
+                              placeholder="YYYY-MM-DD"
+                              value={loggedDate || ''}
+                              onChange={(e) => setLoggedDate(e.target.value)}
+                              className="dark:[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono"
+                            />
+                          </div>
+
+                          {isTargetSnOccupied && (
+                            <div className="col-span-full p-2.5 rounded-lg border border-amber-300 dark:border-amber-700/70 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-200 space-y-1.5 animate-in fade-in duration-150">
+                              <div className="flex items-start gap-1.5 font-semibold text-[11px]">
+                                <Sparkles className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                                <span>S/N #{sn} is occupied by {occupiedEnquiry?.company_name || (occupiedEnquiry as any)?.client_company || 'an existing enquiry'}.</span>
+                              </div>
+                              <label className="flex items-center gap-2 cursor-pointer text-[11px] font-medium text-slate-700 dark:text-slate-300 pt-1 border-t border-amber-200 dark:border-amber-800/60">
+                                <input
+                                  type="checkbox"
+                                  checked={shiftExistingOnCollision}
+                                  onChange={(e) => setShiftExistingOnCollision(e.target.checked)}
+                                  className="rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                                />
+                                <span>Shift existing records down (#{sn} and above by +1)</span>
+                              </label>
+                            </div>
+                          )}
+
+                          <div>
+                            <MarqueeLabel
+                              badge={
+                                user?.role === 'Admin' || allowUserSalespersonSelection
+                                  ? renderSortButton(salespersonsSort, setSalespersonsSort, 'Salespersons')
+                                  : undefined
+                              }
+                              className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between"
+                            >
+                              Salesperson
+                            </MarqueeLabel>
+                            <select
+                              value={salesPerson}
+                              onChange={(e) => setSalesPerson(e.target.value)}
+                              disabled={user?.role !== 'Admin' && !allowUserSalespersonSelection}
+                              className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans ${
+                                user?.role !== 'Admin' && !allowUserSalespersonSelection ? 'bg-slate-100/90 text-slate-500 cursor-not-allowed' : ''
+                              }`}
+                            >
+                              {sortedSalespersons.map((s) => (
+                                <option key={s.id || s.initials} value={s.id || s.initials}>
+                                  {s.full_name}
+                                </option>
+                              ))}
+                            </select>
+                            {user?.role !== 'Admin' && !allowUserSalespersonSelection && (
+                              <p className="text-[10px] text-amber-700 font-sans mt-1">
+                                🔒 Registered automatically under your account.
+                              </p>
+                            )}
+                          </div>
+
+                          <div>
+                            <MarqueeLabel badge={renderSortButton(sourcesSort, setSourcesSort, 'Enquiry Sources')} className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">Enquiry Source</MarqueeLabel>
+                            <CreatableCombobox
+                              options={sortedSources}
+                              value={enquirySource}
+                              onChange={(val: string) => setEnquirySource(val)}
+                              onCreateOption={async (val: string) => {
+                                setEnquirySource(val);
+                                if (setEnquirySources) {
+                                  try {
+                                    const docRef = await safeAddDoc('dropdown_enquiry_sources', { name: val });
+                                    setEnquirySources((prev) => {
+                                      if (prev.some((s) => s.name.toLowerCase() === val.toLowerCase())) return prev;
+                                      return [...prev, { id: docRef?.id || ('src_' + Date.now()), name: val }];
+                                    });
+                                  } catch (e) {
+                                    console.warn('Failed to save new source', e);
+                                  }
+                                }
+                              }}
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans"
+                            />
+                          </div>
+
+                          <div>
+                            <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Enquiry Currency</MarqueeLabel>
+                            <select
+                              value={formCurrency}
+                              onChange={(e) => setFormCurrency(e.target.value as 'AED' | 'USD')}
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans"
+                            >
+                              <option value="AED">AED (Dirhams)</option>
+                              <option value="USD">USD (Dollars)</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Expandable Panel B: Location, Client Ref & Option Scope */}
+                    {isLocationOpen && (
+                      <div
+                        id="field-country"
+                        className="p-3.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 animate-in fade-in duration-150"
+                      >
+                        <div>
+                          <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Country</MarqueeLabel>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. UAE / Oman"
+                            value={country || ''}
+                            onChange={(e) => setCountry(e.target.value)}
+                            className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans ${getHighlightClasses('country')}`}
+                          />
+                        </div>
+
+                        <div id="field-location">
+                          <div className="flex justify-between items-center mb-1.5">
+                            <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                              City
+                            </MarqueeLabel>
+                            {renderConfidenceBadge('project_location')}
+                          </div>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. Dubai / Muscat"
+                            value={projectLocation || ''}
+                            onChange={(e) => setProjectLocation(e.target.value)}
+                            className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans ${getHighlightClasses('location')}`}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
+                            Client Ref
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. PO-8902-X / RFQ-2026"
+                            value={customerReferenceCode || ''}
+                            onChange={(e) => setCustomerReferenceCode(e.target.value)}
+                            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-mono"
+                          />
+                        </div>
+
+                        <div className="min-w-0">
+                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
+                            Option Scope
+                          </label>
+                          <select
+                            value={proposalOption}
+                            onChange={(e) => setProposalOption(e.target.value)}
+                            className="w-full min-w-0 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans"
+                          >
+                            <option value="">None / Single Option</option>
+                            <option value="Option A">Option A</option>
+                            <option value="Option B">Option B</option>
+                            <option value="Option C">Option C</option>
+                            <option value="Option D">Option D</option>
+                            <option value="Multi-Option (A/B/C)">Multi-Option (A/B/C)</option>
+                            {proposalOption && !['', 'Option A', 'Option B', 'Option C', 'Option D', 'Multi-Option (A/B/C)'].includes(proposalOption) && (
+                              <option value={proposalOption}>{proposalOption}</option>
+                            )}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Expandable Panel C: Custom Project Specifications */}
+                    {isSpecsOpen && (
+                      <div
+                        id="field-custom_project_details"
+                        className={`p-3.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 space-y-2.5 transition-all duration-300 ${getHighlightClasses('custom_project_details')}`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Sliders className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 font-sans uppercase tracking-wider truncate">
+                              Custom Project Specifications
+                            </span>
+                            {customSpecsCount > 0 && (
+                              <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap shrink-0">
+                                ({customSpecsCount})
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setCustomProjectDetails((prev) => [...prev, { key: '', value: '' }])}
+                            className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 px-2.5 py-1 rounded-lg border border-blue-200/80 dark:border-blue-800/80 transition flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>Add Custom Spec</span>
+                          </button>
+                        </div>
+
+                        {/* Quick Spec Presets */}
+                        <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-sans">
+                          {['Consultant', 'Main Contractor', 'Site Location', 'Tender Ref', 'Scope of Work', 'Delivery Terms', 'Payment Terms'].map((quickKey) => (
+                            <button
+                              key={quickKey}
+                              type="button"
+                              onClick={() => {
+                                if (!customProjectDetails.some((d) => d.key.toLowerCase() === quickKey.toLowerCase())) {
+                                  setCustomProjectDetails((prev) => [...prev, { key: quickKey, value: '' }]);
+                                }
+                              }}
+                              className="px-2.5 py-1 bg-white dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 rounded-lg border border-slate-200/80 dark:border-slate-700 hover:border-blue-200 dark:hover:border-blue-800 transition font-medium cursor-pointer"
+                            >
+                              + {quickKey}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Active Key-Value Specs List */}
+                        {customProjectDetails.length > 0 && (
+                          <div className="space-y-2 pt-1">
+                            {customProjectDetails.map((detail, idx) => (
+                              <div key={idx} className="flex items-center space-x-2 bg-white dark:bg-slate-900 p-2 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
+                                <input
+                                  type="text"
+                                  placeholder="Attribute (e.g. Consultant)"
+                                  value={detail.key ?? ''}
+                                  onChange={(e) => {
+                                    const next = [...customProjectDetails];
+                                    next[idx].key = e.target.value;
+                                    setCustomProjectDetails(next);
+                                  }}
+                                  className="w-1/3 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-sans"
+                                />
+                                <span className="text-slate-400 font-bold">:</span>
+                                <input
+                                  type="text"
+                                  placeholder="Value (e.g. Khatib & Alami / Site Ref)"
+                                  value={detail.value ?? ''}
+                                  onChange={(e) => {
+                                    const next = [...customProjectDetails];
+                                    next[idx].value = e.target.value;
+                                    setCustomProjectDetails(next);
+                                  }}
+                                  className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-sans"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setCustomProjectDetails(customProjectDetails.filter((_, i) => i !== idx))}
+                                  className="p-1 text-slate-400 hover:text-rose-600 rounded-lg transition shrink-0 cursor-pointer"
+                                  title="Remove Spec"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
-          </div>
 
           {/* Chapter 3: 3. Proposal Line Items */}
           <div id="field-line_items" className={`scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs ${getHighlightClasses('line_items')}`}>
@@ -6472,648 +6577,751 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         </div>
                       </div>
 
-                      {/* Row 1A (Identity): Item Name / Heading (8 cols) + Product Category / Charge Type (4 cols) */}
-                      <div className="grid grid-cols-12 gap-3">
-                        <div className="col-span-12 sm:col-span-8 min-w-0">
-                          <div className="flex items-center justify-between gap-2 h-5 mb-1 min-w-0">
-                            <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
-                              Item Name / Heading
-                            </label>
-                            {!item.item_name?.trim() && item.description?.trim() && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const parsed = parseLineItemTitleAndSpec(item.description, item.item_name);
-                                  const updated = [...lineItems];
-                                  updated[index] = {
-                                    ...updated[index],
-                                    item_name: parsed.title,
-                                    description: parsed.spec
-                                  };
-                                  setLineItems(updated);
-                                }}
-                                className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-md transition cursor-pointer whitespace-nowrap shrink-0"
-                                title="Split leading title from description"
-                              >
-                                <Scissors className="w-2.5 h-2.5 shrink-0" />
-                                <span>Split Title &amp; Spec</span>
-                              </button>
-                            )}
-                          </div>
-                          <input
-                            type="text"
-                            placeholder="e.g. Industrial Control Unit / Equipment Package"
-                            value={item.item_name ?? ''}
-                            onChange={(e) => handleLineItemChange(index, 'item_name', e.target.value)}
-                            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none"
-                          />
-                        </div>
+                      {/* Primary 80/20 Commercial Row: Item Name, Qty, Unit, Selling Price & Live Line Total */}
+                      {(() => {
+                        const panelState = disclosure.expandedLinePanels[index] || {};
+                        const matchedProd = item.product_id
+                          ? (products || []).find((p) => p.id === item.product_id)
+                          : null;
+                        const effectiveImageUrl = item.image_url || matchedProd?.image_url || '';
+                        const effectiveDatasheet =
+                          item.datasheet_attachment || matchedProd?.datasheet_attachment;
 
-                        <div className="col-span-12 sm:col-span-4 min-w-0">
-                          {item.item_type === 'charge' || item.item_type === 'discount' ? (
-                            <>
-                              <div className="flex items-center justify-between h-5 mb-1">
-                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
-                                  Charge Type
-                                </label>
+                        const qtyVal = Number(item.quantity) || 0;
+                        const unitVal = Number(item.unit_price) || 0;
+                        const calcTotal = Number((qtyVal * unitVal).toFixed(2));
+                        const currentTotal = Number(item.total_price) || 0;
+                        const isOverridden =
+                          !item.is_composite_set &&
+                          !(item.sub_components && item.sub_components.length > 0) &&
+                          Math.abs(currentTotal - calcTotal) > 0.01;
+                        const isEditingOverride = editingLineTotalIdx === index || isOverridden;
+                        const cleanUom =
+                          !item.unit || String(item.unit).toLowerCase() === 'custom unit'
+                            ? isCompositeItem
+                              ? 'Sets'
+                              : 'Nos'
+                            : item.unit;
+
+                        const sell = Number(item.unit_price) || 0;
+                        const cost = Number(item.cost_price) || 0;
+                        const marginPct = sell > 0 && cost > 0 ? ((sell - cost) / sell) * 100 : null;
+
+                        const specCount =
+                          (item.description?.trim() ? 1 : 0) +
+                          (item.attributes || []).filter((a) => a.key?.trim() || a.value?.trim()).length;
+
+                        const hasMediaOrBrand = Boolean(
+                          (item.brand_make ?? matchedProd?.brand_make) ||
+                            (item.model_part_no ?? matchedProd?.model_part_no) ||
+                            effectiveImageUrl ||
+                            effectiveDatasheet
+                        );
+
+                        const optLabel =
+                          (item as any).option_designation || item.option || 'Default / Included';
+                        const shortOpt =
+                          optLabel === 'Default / Included' ? 'Baseline' : optLabel;
+
+                        const isScopeOpen = Boolean(panelState.scope);
+                        const isSpecsOpen = Boolean(panelState.specs);
+                        const isMediaOpen = Boolean(panelState.media);
+                        const isCostOpen = Boolean(panelState.cost || isEditingOverride);
+
+                        return (
+                          <div className="space-y-3">
+                            {/* Compact Primary Row */}
+                            {!isServiceOrFee && isCompositeItem ? (
+                              <div className="space-y-3">
+                                <div className="min-w-0">
+                                  <div className="flex items-center justify-between gap-2 h-5 mb-1 min-w-0">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                                      Package / BOM Kit Heading
+                                    </label>
+                                  </div>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. Modular Control & Instrumentation Skid Package"
+                                    value={item.item_name ?? ''}
+                                    onChange={(e) => handleLineItemChange(index, 'item_name', e.target.value)}
+                                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none"
+                                  />
+                                </div>
+
+                                <CompositePackageEditor
+                                  item={item}
+                                  isCompositeSet={true}
+                                  subComponents={item.sub_components || []}
+                                  packagePricingMode={item.package_pricing_mode || 'itemized'}
+                                  optionScopeNotes={item.option_scope_notes || ''}
+                                  parentQuantity={item.quantity || 1}
+                                  currency={formCurrency || 'USD'}
+                                  products={products || []}
+                                  activeWorkspace={activeWorkspace}
+                                  onChange={(patch) => {
+                                    setLineItems((prev) => {
+                                      const next = [...prev];
+                                      next[index] = {
+                                        ...next[index],
+                                        ...patch
+                                      };
+                                      return next;
+                                    });
+                                  }}
+                                />
+
+                                <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
+                                  <div className="flex items-center gap-3 flex-wrap">
+                                    <div className="flex items-center gap-2">
+                                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                        Package Qty:
+                                      </label>
+                                      <input
+                                        type="number"
+                                        required
+                                        value={item.quantity ?? ''}
+                                        onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
+                                        className="w-20 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1 px-2 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
+                                      />
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                        Unit:
+                                      </label>
+                                      <div className="w-28">
+                                        <CreatableCombobox
+                                          options={sortedUnits}
+                                          value={item.unit}
+                                          onChange={(val: string) => handleLineItemChange(index, 'unit', val)}
+                                          onCreateOption={(val: string) => {
+                                            handleLineItemChange(index, 'unit', val);
+                                          }}
+                                          className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1 px-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans"
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2.5 flex-wrap font-mono tabular-nums">
+                                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                                      Package Line Total:{' '}
+                                      <span className="text-slate-700 dark:text-slate-300 font-medium">
+                                        {qtyVal} {cleanUom} × {formCurrency}{' '}
+                                        {unitVal.toLocaleString(undefined, {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2
+                                        })}
+                                      </span>{' '}
+                                      =
+                                    </span>
+                                    <span className="text-sm font-bold text-slate-900 dark:text-white">
+                                      {formCurrency}{' '}
+                                      {currentTotal.toLocaleString(undefined, {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
+                                      })}
+                                    </span>
+                                  </div>
+                                </div>
                               </div>
-                              <select
-                                value={item.charge_type || 'Transportation'}
-                                onChange={(e) => handleLineItemChange(index, 'charge_type', e.target.value)}
-                                className="w-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-lg py-1.5 px-2.5 text-xs text-amber-900 dark:text-amber-300 focus:outline-none font-sans font-semibold"
-                              >
-                                <option value="Transportation">Transportation / Freight</option>
-                                <option value="Installation">Installation &amp; Commissioning</option>
-                                <option value="Customs">Customs &amp; Clearance</option>
-                                <option value="Testing">Testing &amp; Inspection</option>
-                                <option value="Discount">Discount / Rebate</option>
-                                <option value="Other Charge">Other Non-Product Fee</option>
-                              </select>
-                            </>
-                          ) : (
-                            <>
-                              <div className="flex items-center justify-between h-5 mb-1">
-                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
-                                  Product Category
-                                </label>
-                                {renderSortButton(categoriesSort, setCategoriesSort, 'Product Categories')}
-                              </div>
-                              <CreatableCombobox
-                                options={sortedCategories}
-                                value={item.product_type}
-                                onChange={(val: string) => handleLineItemChange(index, 'product_type', val)}
-                                onCreateOption={(val: string) => {
-                                  handleLineItemChange(index, 'product_type', val);
-                                }}
-                                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
-                              />
-                            </>
-                          )}
-                        </div>
-                      </div>
+                            ) : (
+                              <div className="grid grid-cols-12 gap-2.5 items-end">
+                                {/* Item Name / Heading */}
+                                <div className="col-span-12 sm:col-span-5 min-w-0">
+                                  <div className="flex items-center justify-between gap-2 h-5 mb-1 min-w-0">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                                      Item Name / Heading
+                                    </label>
+                                    {!item.item_name?.trim() && item.description?.trim() && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const parsed = parseLineItemTitleAndSpec(item.description, item.item_name);
+                                          const updated = [...lineItems];
+                                          updated[index] = {
+                                            ...updated[index],
+                                            item_name: parsed.title,
+                                            description: parsed.spec
+                                          };
+                                          setLineItems(updated);
+                                        }}
+                                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-md transition cursor-pointer whitespace-nowrap shrink-0"
+                                        title="Split leading title from description"
+                                      >
+                                        <Scissors className="w-2.5 h-2.5 shrink-0" />
+                                        <span>Split Title</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. Industrial Control Unit / Equipment Package"
+                                    value={item.item_name ?? ''}
+                                    onChange={(e) => handleLineItemChange(index, 'item_name', e.target.value)}
+                                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none"
+                                  />
+                                </div>
 
-                      {/* Row 1B (Scope & Delivery): Classification (4 cols), Option Scope (4 cols), Lead Time / Duration (4 cols) */}
-                      <div className="grid grid-cols-12 gap-3">
-                        <div className="col-span-12 sm:col-span-4 min-w-0">
-                          <div className="flex items-center justify-between h-5 mb-1">
-                            <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
-                              Classification
-                            </label>
-                          </div>
-                          <select
-                            value={
-                              (item as any).classification === 'Charge / Fee (Service)' || item.item_type === 'charge'
-                                ? 'charge'
-                                : (item as any).classification === 'Discount / Rebate' || item.item_type === 'discount'
-                                ? 'discount'
-                                : 'product'
-                            }
-                            onChange={(e) => handleLineItemChange(index, 'item_type', e.target.value)}
-                            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
-                          >
-                            <option value="product">Product (Hardware)</option>
-                            <option value="charge">Charge / Fee</option>
-                            <option value="discount">Discount / Rebate</option>
-                          </select>
-                        </div>
+                                {/* Qty */}
+                                <div className="col-span-4 sm:col-span-2 min-w-0">
+                                  <div className="flex items-center justify-between h-5 mb-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                      Qty
+                                    </label>
+                                  </div>
+                                  <input
+                                    type="number"
+                                    required
+                                    value={item.quantity ?? ''}
+                                    onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
+                                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
+                                  />
+                                </div>
 
-                        <div className="col-span-12 sm:col-span-4 min-w-0">
-                          <div className="flex items-center justify-between h-5 mb-1">
-                            <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
-                              Option Scope
-                            </label>
-                          </div>
-                          <select
-                            value={(item as any).option_designation || item.option || 'Default / Included'}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              handleLineItemChange(index, 'option', val);
-                              handleLineItemChange(index, 'option_designation' as any, val);
-                            }}
-                            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
-                          >
-                            <option value="Default / Included">Baseline / Included</option>
-                            <option value="Option A">Option A (Baseline)</option>
-                            <option value="Option B">Option B (Alternative)</option>
-                            <option value="Option C">Option C (Alternative)</option>
-                            <option value="Option D">Option D (Alternative)</option>
-                            <option value="Optional / Add-On">Optional / Add-On</option>
-                            {((item as any).option_designation || item.option) &&
-                              ![
-                                'Default / Included',
-                                'Option A',
-                                'Option B',
-                                'Option C',
-                                'Option D',
-                                'Optional / Add-On',
-                                ''
-                              ].includes((item as any).option_designation || item.option) && (
-                                <option value={(item as any).option_designation || item.option}>
-                                  {(item as any).option_designation || item.option}
-                                </option>
-                              )}
-                          </select>
-                        </div>
-
-                        {(() => {
-                          const isDiscount =
-                            (item as any).classification === 'Discount / Rebate' || item.item_type === 'discount';
-                          const isService =
-                            (item as any).classification === 'Charge / Fee (Service)' ||
-                            item.item_type === 'charge' ||
-                            (item.item_type as string) === 'service';
-
-                          if (isDiscount) {
-                            return <div className="col-span-12 sm:col-span-4 opacity-0 pointer-events-none" />;
-                          }
-
-                          return (
-                            <div className="col-span-12 sm:col-span-4 min-w-0">
-                              <div className="flex items-center justify-between h-5 mb-1">
-                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
-                                  {isService ? 'Duration' : 'Lead Time'}
-                                </label>
-                              </div>
-                              <input
-                                type="text"
-                                placeholder={isService ? 'e.g. 1–2 Days' : 'Ex-Stock / 2-3 Wks'}
-                                value={item.lead_time_note ?? ''}
-                                onChange={(e) => handleLineItemChange(index, 'lead_time_note', e.target.value)}
-                                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-                              />
-                            </div>
-                          );
-                        })()}
-                      </div>
-
-                      {/* Row 2 (Technical Description & Brand): Full-width Description + 4-col Brand/Model/Origin/Media */}
-                      <div className="min-w-0">
-                        <div className="flex items-center justify-between h-5 mb-1">
-                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
-                            Item Description &amp; Technical Specifications
-                          </label>
-                        </div>
-                        <input
-                          type="text"
-                          placeholder="e.g. Heavy-Duty Industrial Equipment Package, 10 Bar, SS316"
-                          value={item.description ?? ''}
-                          onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-                        />
-                      </div>
-
-                      {/* Tier 3B: Brand/Make, Model/Part No, Country of Origin, Product Image & Datasheet */}
-                      {!isServiceOrFee &&
-                        (() => {
-                          const matchedProd = item.product_id
-                            ? (products || []).find((p) => p.id === item.product_id)
-                            : null;
-                          const effectiveImageUrl = item.image_url || matchedProd?.image_url || '';
-                          const effectiveDatasheet =
-                            item.datasheet_attachment || matchedProd?.datasheet_attachment;
-                          return (
-                            <LineItemTier3BMediaGrid
-                              index={index}
-                              item={item}
-                              matchedProd={matchedProd}
-                              effectiveImageUrl={effectiveImageUrl}
-                              effectiveDatasheet={effectiveDatasheet}
-                              activeWorkspace={activeWorkspace}
-                              triggerToast={triggerToast}
-                              handleLineItemChange={handleLineItemChange}
-                              onSyncToCatalog={
-                                matchedProd
-                                  ? async () => {
-                                      await syncLineItemToCatalogProduct(
-                                        item,
-                                        matchedProd,
-                                        setProducts,
-                                        triggerToast,
-                                        formCurrency
-                                      );
-                                    }
-                                  : undefined
-                              }
-                              onPatchMedia={(patch) => {
-                                setLineItems((prev) => {
-                                  const next = [...prev];
-                                  next[index] = {
-                                    ...next[index],
-                                    ...patch
-                                  };
-                                  return next;
-                                });
-                              }}
-                            />
-                          );
-                        })()}
-
-                      {/* Specification Attributes (Progressive Disclosure via Quick-Add Chips) */}
-                      {!isServiceOrFee && (
-                        <div className="pt-2 border-t border-slate-200/70 dark:border-slate-700/70 space-y-2">
-                          <div className="flex items-center justify-between gap-2 flex-wrap">
-                            <div className="flex items-center flex-wrap gap-1.5">
-                              <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider font-bold mr-1">
-                                Spec Attributes:
-                              </span>
-                              {(() => {
-                                const categoryPresets = CATEGORY_SUGGESTED_ATTRIBUTES[item.product_type];
-                                const currentPresets =
-                                  categoryPresets && categoryPresets.length > 0
-                                    ? categoryPresets
-                                    : DEFAULT_QUICK_ATTRIBUTES;
-                                const existingKeys = new Set(
-                                  (item.attributes || []).map((a) => a.key.trim().toLowerCase())
-                                );
-                                const availablePresets = currentPresets.filter(
-                                  (p) => !existingKeys.has(p.toLowerCase())
-                                );
-
-                                return availablePresets.map((preset) => (
-                                  <button
-                                    key={preset}
-                                    type="button"
-                                    onClick={() => {
-                                      const updated = [...lineItems];
-                                      const attrList = [...(updated[index].attributes || [])];
-                                      attrList.push({ key: preset, value: '' });
-                                      updated[index] = { ...updated[index], attributes: attrList };
-                                      setLineItems(updated);
+                                {/* Unit */}
+                                <div className="col-span-4 sm:col-span-2 min-w-0">
+                                  <div className="flex items-center justify-between h-5 mb-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                      Unit
+                                    </label>
+                                    {renderSortButton(unitsSort, setUnitsSort, 'Unit Suffixes')}
+                                  </div>
+                                  <CreatableCombobox
+                                    options={sortedUnits}
+                                    value={item.unit}
+                                    onChange={(val: string) => handleLineItemChange(index, 'unit', val)}
+                                    onCreateOption={(val: string) => {
+                                      handleLineItemChange(index, 'unit', val);
                                     }}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-white hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/40 text-slate-600 hover:text-blue-700 dark:text-slate-300 dark:hover:text-blue-300 border border-slate-200/80 hover:border-blue-300 dark:border-slate-700 dark:hover:border-blue-700 transition cursor-pointer"
-                                  >
-                                    <Plus className="w-2.5 h-2.5 shrink-0 opacity-70" />
-                                    <span>{preset}</span>
-                                  </button>
-                                ));
-                              })()}
+                                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans"
+                                  />
+                                </div>
+
+                                {/* Selling Unit Price + Live Line Total Pill */}
+                                <div className="col-span-4 sm:col-span-3 min-w-0">
+                                  <div className="flex items-center justify-between gap-1 h-5 mb-1 min-w-0">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap truncate">
+                                      Selling ({formCurrency})
+                                    </label>
+                                    <span
+                                      onClick={() => disclosure.toggleLinePanel(index, 'cost')}
+                                      className="text-[10px] font-mono font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1.5 py-0.2 rounded border border-blue-200/70 dark:border-blue-800/70 whitespace-nowrap shrink-0 cursor-pointer"
+                                      title="Line Total = Qty × Selling Price (click to inspect Cost, Margin or Override)"
+                                    >
+                                      = {formCurrency}{' '}
+                                      {currentTotal.toLocaleString(undefined, {
+                                        minimumFractionDigits: 0,
+                                        maximumFractionDigits: 2
+                                      })}
+                                    </span>
+                                  </div>
+                                  <FormattedNumberInput
+                                    required
+                                    value={item.unit_price}
+                                    onChange={(val: number) => handleLineItemChange(index, 'unit_price', val)}
+                                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Inline + Progressive Disclosure Trigger Strip for Line Item */}
+                            <div className="flex flex-wrap items-center gap-1.5 pt-1">
                               <button
                                 type="button"
-                                onClick={() => {
-                                  const updated = [...lineItems];
-                                  const attrList = [...(updated[index].attributes || [])];
-                                  attrList.push({ key: '__custom_editing__', value: '' });
-                                  updated[index] = { ...updated[index], attributes: attrList };
-                                  setLineItems(updated);
-                                }}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-dashed border-blue-300 dark:border-blue-800 transition cursor-pointer"
+                                onClick={() => disclosure.toggleLinePanel(index, 'scope')}
+                                className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition inline-flex items-center gap-1 cursor-pointer ${
+                                  isScopeOpen
+                                    ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                                    : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
+                                }`}
                               >
-                                <Plus className="w-2.5 h-2.5 shrink-0" />
-                                <span>Custom Attribute</span>
+                                <Plus className={`w-2.5 h-2.5 transition-transform ${isScopeOpen ? 'rotate-45 text-blue-600' : 'text-slate-400'}`} />
+                                <span>Category &amp; Scope</span>
+                                <span className="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono text-slate-600 dark:text-slate-300">
+                                  {item.product_type || 'General'} · {shortOpt}
+                                  {item.lead_time_note ? ` · ${item.lead_time_note}` : ''}
+                                </span>
                               </button>
+
+                              <button
+                                type="button"
+                                onClick={() => disclosure.toggleLinePanel(index, 'specs')}
+                                className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition inline-flex items-center gap-1 cursor-pointer ${
+                                  isSpecsOpen
+                                    ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                                    : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
+                                }`}
+                              >
+                                <Plus className={`w-2.5 h-2.5 transition-transform ${isSpecsOpen ? 'rotate-45 text-blue-600' : 'text-slate-400'}`} />
+                                <span>Tech Specs &amp; Attributes</span>
+                                {specCount > 0 && (
+                                  <span className="px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 text-[10px] font-mono font-bold">
+                                    {specCount}
+                                  </span>
+                                )}
+                              </button>
+
+                              {!isServiceOrFee && (
+                                <button
+                                  type="button"
+                                  onClick={() => disclosure.toggleLinePanel(index, 'media')}
+                                  className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition inline-flex items-center gap-1 cursor-pointer ${
+                                    isMediaOpen
+                                      ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                                      : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
+                                  }`}
+                                >
+                                  <Plus className={`w-2.5 h-2.5 transition-transform ${isMediaOpen ? 'rotate-45 text-blue-600' : 'text-slate-400'}`} />
+                                  <span>Brand, Model &amp; Media</span>
+                                  {hasMediaOrBrand && (
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                                  )}
+                                </button>
+                              )}
+
+                              {!isCompositeItem && (
+                                <button
+                                  type="button"
+                                  onClick={() => disclosure.toggleLinePanel(index, 'cost')}
+                                  className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition inline-flex items-center gap-1 cursor-pointer ${
+                                    isCostOpen
+                                      ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                                      : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
+                                  }`}
+                                >
+                                  <Plus className={`w-2.5 h-2.5 transition-transform ${isCostOpen ? 'rotate-45 text-blue-600' : 'text-slate-400'}`} />
+                                  <span>Cost &amp; Margin</span>
+                                  {marginPct !== null && (
+                                    <span
+                                      className={`px-1.5 py-0.2 rounded font-mono text-[10px] font-bold ${
+                                        marginPct >= 20
+                                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                          : marginPct >= 0
+                                          ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
+                                          : 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300'
+                                      }`}
+                                    >
+                                      {marginPct.toFixed(1)}%
+                                    </span>
+                                  )}
+                                  {isOverridden && (
+                                    <span className="px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 text-[10px] font-mono font-bold">
+                                      Overridden
+                                    </span>
+                                  )}
+                                </button>
+                              )}
                             </div>
-                          </div>
 
-                          {item.attributes && item.attributes.length > 0 && (
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
-                              {item.attributes.map((attr, attrIdx) => {
-                                const suggestedKeys = CATEGORY_SUGGESTED_ATTRIBUTES[item.product_type] || [];
-                                const isCustom = attr.key && !suggestedKeys.includes(attr.key);
-                                const showCustomInput =
-                                  isCustom || attr.key === '__custom_editing__' || suggestedKeys.length === 0;
-
-                                return (
-                                  <div
-                                    key={attrIdx}
-                                    className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-1.5 rounded-lg shadow-2xs"
+                            {/* Expandable Panel 1: Category, Classification, Option Scope & Lead Time */}
+                            {isScopeOpen && (
+                              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 grid grid-cols-12 gap-3 animate-in fade-in duration-150">
+                                <div className="col-span-12 sm:col-span-3 min-w-0">
+                                  <div className="flex items-center justify-between h-5 mb-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                                      Classification
+                                    </label>
+                                  </div>
+                                  <select
+                                    value={
+                                      (item as any).classification === 'Charge / Fee (Service)' || item.item_type === 'charge'
+                                        ? 'charge'
+                                        : (item as any).classification === 'Discount / Rebate' || item.item_type === 'discount'
+                                        ? 'discount'
+                                        : 'product'
+                                    }
+                                    onChange={(e) => handleLineItemChange(index, 'item_type', e.target.value)}
+                                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
                                   >
-                                    {showCustomInput ? (
-                                      <div className="min-w-[130px] max-w-[175px] flex-shrink-0 flex items-center gap-1 bg-slate-100/80 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-medium text-xs px-2.5 py-1.5 rounded-md border border-slate-200/80 dark:border-slate-700 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition-colors">
-                                        <input
-                                          type="text"
-                                          value={attr.key === '__custom_editing__' ? '' : attr.key ?? ''}
-                                          placeholder="Attribute Key"
-                                          onChange={(e) => {
+                                    <option value="product">Product (Hardware)</option>
+                                    <option value="charge">Charge / Fee</option>
+                                    <option value="discount">Discount / Rebate</option>
+                                  </select>
+                                </div>
+
+                                <div className="col-span-12 sm:col-span-3 min-w-0">
+                                  {item.item_type === 'charge' || item.item_type === 'discount' ? (
+                                    <>
+                                      <div className="flex items-center justify-between h-5 mb-1">
+                                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                                          Charge Type
+                                        </label>
+                                      </div>
+                                      <select
+                                        value={item.charge_type || 'Transportation'}
+                                        onChange={(e) => handleLineItemChange(index, 'charge_type', e.target.value)}
+                                        className="w-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-lg py-1.5 px-2.5 text-xs text-amber-900 dark:text-amber-300 focus:outline-none font-sans font-semibold"
+                                      >
+                                        <option value="Transportation">Transportation / Freight</option>
+                                        <option value="Installation">Installation &amp; Commissioning</option>
+                                        <option value="Customs">Customs &amp; Clearance</option>
+                                        <option value="Testing">Testing &amp; Inspection</option>
+                                        <option value="Discount">Discount / Rebate</option>
+                                        <option value="Other Charge">Other Non-Product Fee</option>
+                                      </select>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div className="flex items-center justify-between h-5 mb-1">
+                                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                                          Product Category
+                                        </label>
+                                        {renderSortButton(categoriesSort, setCategoriesSort, 'Product Categories')}
+                                      </div>
+                                      <CreatableCombobox
+                                        options={sortedCategories}
+                                        value={item.product_type}
+                                        onChange={(val: string) => handleLineItemChange(index, 'product_type', val)}
+                                        onCreateOption={(val: string) => {
+                                          handleLineItemChange(index, 'product_type', val);
+                                        }}
+                                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
+                                      />
+                                    </>
+                                  )}
+                                </div>
+
+                                <div className="col-span-12 sm:col-span-3 min-w-0">
+                                  <div className="flex items-center justify-between h-5 mb-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                                      Option Scope
+                                    </label>
+                                  </div>
+                                  <select
+                                    value={(item as any).option_designation || item.option || 'Default / Included'}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      handleLineItemChange(index, 'option', val);
+                                      handleLineItemChange(index, 'option_designation' as any, val);
+                                    }}
+                                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
+                                  >
+                                    <option value="Default / Included">Baseline / Included</option>
+                                    <option value="Option A">Option A (Baseline)</option>
+                                    <option value="Option B">Option B (Alternative)</option>
+                                    <option value="Option C">Option C (Alternative)</option>
+                                    <option value="Option D">Option D (Alternative)</option>
+                                    <option value="Optional / Add-On">Optional / Add-On</option>
+                                    {((item as any).option_designation || item.option) &&
+                                      ![
+                                        'Default / Included',
+                                        'Option A',
+                                        'Option B',
+                                        'Option C',
+                                        'Option D',
+                                        'Optional / Add-On',
+                                        ''
+                                      ].includes((item as any).option_designation || item.option) && (
+                                        <option value={(item as any).option_designation || item.option}>
+                                          {(item as any).option_designation || item.option}
+                                        </option>
+                                      )}
+                                  </select>
+                                </div>
+
+                                {(() => {
+                                  const isDiscount =
+                                    (item as any).classification === 'Discount / Rebate' || item.item_type === 'discount';
+                                  const isService =
+                                    (item as any).classification === 'Charge / Fee (Service)' ||
+                                    item.item_type === 'charge' ||
+                                    (item.item_type as string) === 'service';
+
+                                  if (isDiscount) {
+                                    return <div className="col-span-12 sm:col-span-3 opacity-0 pointer-events-none" />;
+                                  }
+
+                                  return (
+                                    <div className="col-span-12 sm:col-span-3 min-w-0">
+                                      <div className="flex items-center justify-between h-5 mb-1">
+                                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                                          {isService ? 'Duration' : 'Lead Time'}
+                                        </label>
+                                      </div>
+                                      <input
+                                        type="text"
+                                        placeholder={isService ? 'e.g. 1–2 Days' : 'Ex-Stock / 2-3 Wks'}
+                                        value={item.lead_time_note ?? ''}
+                                        onChange={(e) => handleLineItemChange(index, 'lead_time_note', e.target.value)}
+                                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                                      />
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            )}
+
+                            {/* Expandable Panel 2: Item Description & Technical Specification Attributes */}
+                            {isSpecsOpen && (
+                              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 space-y-3 animate-in fade-in duration-150">
+                                <div className="min-w-0">
+                                  <div className="flex items-center justify-between h-5 mb-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                                      Item Description &amp; Technical Specifications
+                                    </label>
+                                  </div>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. Heavy-Duty Industrial Equipment Package, 10 Bar, SS316"
+                                    value={item.description ?? ''}
+                                    onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
+                                    className="w-full bg-slate-50/70 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                                  />
+                                </div>
+
+                                {!isServiceOrFee && (
+                                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                                      <div className="flex items-center flex-wrap gap-1.5">
+                                        <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider font-bold mr-1">
+                                          Spec Attributes:
+                                        </span>
+                                        {(() => {
+                                          const categoryPresets = CATEGORY_SUGGESTED_ATTRIBUTES[item.product_type];
+                                          const currentPresets =
+                                            categoryPresets && categoryPresets.length > 0
+                                              ? categoryPresets
+                                              : DEFAULT_QUICK_ATTRIBUTES;
+                                          const existingKeys = new Set(
+                                            (item.attributes || []).map((a) => a.key.trim().toLowerCase())
+                                          );
+                                          const availablePresets = currentPresets.filter(
+                                            (p) => !existingKeys.has(p.toLowerCase())
+                                          );
+
+                                          return availablePresets.map((preset) => (
+                                            <button
+                                              key={preset}
+                                              type="button"
+                                              onClick={() => {
+                                                const updated = [...lineItems];
+                                                const attrList = [...(updated[index].attributes || [])];
+                                                attrList.push({ key: preset, value: '' });
+                                                updated[index] = { ...updated[index], attributes: attrList };
+                                                setLineItems(updated);
+                                              }}
+                                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-50 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/40 text-slate-600 hover:text-blue-700 dark:text-slate-300 dark:hover:text-blue-300 border border-slate-200/80 hover:border-blue-300 dark:border-slate-700 dark:hover:border-blue-700 transition cursor-pointer"
+                                            >
+                                              <Plus className="w-2.5 h-2.5 shrink-0 opacity-70" />
+                                              <span>{preset}</span>
+                                            </button>
+                                          ));
+                                        })()}
+                                        <button
+                                          type="button"
+                                          onClick={() => {
                                             const updated = [...lineItems];
                                             const attrList = [...(updated[index].attributes || [])];
-                                            attrList[attrIdx] = {
-                                              ...attrList[attrIdx],
-                                              key: e.target.value
-                                            };
+                                            attrList.push({ key: '__custom_editing__', value: '' });
                                             updated[index] = { ...updated[index], attributes: attrList };
                                             setLineItems(updated);
                                           }}
-                                          className="w-full bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-800 dark:text-slate-200 font-semibold focus:outline-none truncate"
-                                        />
-                                        {suggestedKeys.length > 0 && (
-                                          <button
-                                            type="button"
-                                            title="Back to suggestions"
-                                            onClick={() => {
-                                              const updated = [...lineItems];
-                                              const attrList = [...(updated[index].attributes || [])];
-                                              attrList[attrIdx] = { ...attrList[attrIdx], key: '' };
-                                              updated[index] = { ...updated[index], attributes: attrList };
-                                              setLineItems(updated);
-                                            }}
-                                            className="text-[9px] text-blue-600 dark:text-blue-400 hover:underline font-bold px-0.5 shrink-0 cursor-pointer"
-                                          >
-                                            List
-                                          </button>
-                                        )}
-                                      </div>
-                                    ) : (
-                                      <select
-                                        value={attr.key ?? ''}
-                                        title={attr.key || 'Select Attribute Key'}
-                                        onChange={(e) => {
-                                          const val = e.target.value;
-                                          const updated = [...lineItems];
-                                          const attrList = [...(updated[index].attributes || [])];
-                                          if (val === '__custom__') {
-                                            attrList[attrIdx] = {
-                                              ...attrList[attrIdx],
-                                              key: '__custom_editing__'
-                                            };
-                                          } else {
-                                            attrList[attrIdx] = { ...attrList[attrIdx], key: val };
-                                          }
-                                          updated[index] = { ...updated[index], attributes: attrList };
-                                          setLineItems(updated);
-                                        }}
-                                        className="min-w-[130px] max-w-[175px] flex-shrink-0 bg-slate-100/80 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-medium text-xs px-2.5 py-1.5 rounded-md border border-slate-200/80 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors cursor-pointer truncate"
-                                      >
-                                        <option value="">Select Key...</option>
-                                        {suggestedKeys.map((k) => (
-                                          <option key={k} value={k}>
-                                            {k}
-                                          </option>
-                                        ))}
-                                        <option value="__custom__">+ Custom Key...</option>
-                                      </select>
-                                    )}
-                                    <input
-                                      type="text"
-                                      value={attr.value ?? ''}
-                                      placeholder="Value (e.g. 10m3 / SS316)"
-                                      onChange={(e) => {
-                                        const updated = [...lineItems];
-                                        const attrList = [...(updated[index].attributes || [])];
-                                        attrList[attrIdx] = {
-                                          ...attrList[attrIdx],
-                                          value: e.target.value
-                                        };
-                                        updated[index] = { ...updated[index], attributes: attrList };
-                                        setLineItems(updated);
-                                      }}
-                                      className="flex-1 min-w-0 bg-transparent border-0 focus:ring-0 px-1.5 py-1 text-xs text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none"
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const updated = [...lineItems];
-                                        const attrList = (updated[index].attributes || []).filter(
-                                          (_, i) => i !== attrIdx
-                                        );
-                                        updated[index] = { ...updated[index], attributes: attrList };
-                                        setLineItems(updated);
-                                      }}
-                                      className="p-1 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-md transition shrink-0 cursor-pointer"
-                                    >
-                                      <X className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Multi-Component Set / Package (BOM) Builder — Rendered only when active */}
-                      {!isServiceOrFee && isCompositeItem && (
-                        <div className="pt-1">
-                          <CompositePackageEditor
-                            item={item}
-                            isCompositeSet={true}
-                            subComponents={item.sub_components || []}
-                            packagePricingMode={item.package_pricing_mode || 'itemized'}
-                            optionScopeNotes={item.option_scope_notes || ''}
-                            parentQuantity={item.quantity || 1}
-                            currency={formCurrency || 'USD'}
-                            products={products || []}
-                            activeWorkspace={activeWorkspace}
-                            onChange={(patch) => {
-                              setLineItems((prev) => {
-                                const next = [...prev];
-                                next[index] = {
-                                  ...next[index],
-                                  ...patch
-                                };
-                                return next;
-                              });
-                            }}
-                          />
-                        </div>
-                      )}
-
-                      {/* Row 3 (Commercial & Pricing) or Streamlined BOM Kit Package Summary */}
-                      <div className="pt-3 border-t border-slate-200/80 dark:border-slate-700/80 space-y-2.5">
-                        {!isServiceOrFee && isCompositeItem ? (
-                          (() => {
-                            const qtyVal = Number(item.quantity) || 0;
-                            const unitVal = Number(item.unit_price) || 0;
-                            const currentTotal = Number(item.total_price) || 0;
-                            const cleanUom =
-                              !item.unit || String(item.unit).toLowerCase() === 'custom unit' ? 'Sets' : item.unit;
-
-                            return (
-                              <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
-                                <div className="flex items-center gap-3 flex-wrap">
-                                  <div className="flex items-center gap-2">
-                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                                      Package Qty:
-                                    </label>
-                                    <input
-                                      type="number"
-                                      required
-                                      value={item.quantity ?? ''}
-                                      onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
-                                      className="w-20 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1 px-2 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
-                                    />
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                                      Unit:
-                                    </label>
-                                    <div className="w-28">
-                                      <CreatableCombobox
-                                        options={sortedUnits}
-                                        value={item.unit}
-                                        onChange={(val: string) => handleLineItemChange(index, 'unit', val)}
-                                        onCreateOption={(val: string) => {
-                                          handleLineItemChange(index, 'unit', val);
-                                        }}
-                                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1 px-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans"
-                                      />
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-2.5 flex-wrap font-mono tabular-nums">
-                                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                                    Package Line Total:{' '}
-                                    <span className="text-slate-700 dark:text-slate-300 font-medium">
-                                      {qtyVal} {cleanUom} × {formCurrency}{' '}
-                                      {unitVal.toLocaleString(undefined, {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2
-                                      })}
-                                    </span>{' '}
-                                    =
-                                  </span>
-                                  <span className="text-sm font-bold text-slate-900 dark:text-white">
-                                    {formCurrency}{' '}
-                                    {currentTotal.toLocaleString(undefined, {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2
-                                    })}
-                                  </span>
-                                  {formCurrency === 'USD' ? (
-                                    <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap shrink-0">
-                                      ≈ AED{' '}
-                                      {Number(currentTotal * 3.6725).toLocaleString(undefined, {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2
-                                      })}
-                                    </span>
-                                  ) : (
-                                    <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap shrink-0">
-                                      ≈ $
-                                      {Number(currentTotal / 3.6725).toLocaleString(undefined, {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2
-                                      })}{' '}
-                                      USD
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })()
-                        ) : (
-                          <>
-                            <div className="grid grid-cols-12 gap-3">
-                              <div className="col-span-6 sm:col-span-2 min-w-0">
-                                <div className="flex items-center justify-between h-5 mb-1">
-                                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                                    Qty
-                                  </label>
-                                </div>
-                                <input
-                                  type="number"
-                                  required
-                                  value={item.quantity ?? ''}
-                                  onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
-                                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
-                                />
-                              </div>
-
-                              <div className="col-span-6 sm:col-span-3 min-w-0">
-                                <div className="flex items-center justify-between h-5 mb-1">
-                                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                                    Unit
-                                  </label>
-                                  {renderSortButton(unitsSort, setUnitsSort, 'Unit Suffixes')}
-                                </div>
-                                <CreatableCombobox
-                                  options={sortedUnits}
-                                  value={item.unit}
-                                  onChange={(val: string) => handleLineItemChange(index, 'unit', val)}
-                                  onCreateOption={(val: string) => {
-                                    handleLineItemChange(index, 'unit', val);
-                                  }}
-                                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans"
-                                />
-                              </div>
-
-                              <div className="col-span-6 sm:col-span-3 min-w-0">
-                                <div className="flex items-center justify-between gap-1 h-5 mb-1 min-w-0">
-                                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                                    Cost ({formCurrency})
-                                  </label>
-                                  {(() => {
-                                    const sell = Number(item.unit_price) || 0;
-                                    const cost = Number(item.cost_price) || 0;
-                                    if (sell > 0 && cost > 0) {
-                                      const marginPct = ((sell - cost) / sell) * 100;
-                                      const isHealthy = marginPct >= 20;
-                                      const isThin = marginPct >= 0 && marginPct < 20;
-                                      return (
-                                        <span
-                                          className={`font-mono tabular-nums text-[10px] font-bold px-1.5 py-0.2 rounded whitespace-nowrap shrink-0 ${
-                                            isHealthy
-                                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
-                                              : isThin
-                                              ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
-                                              : 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300'
-                                          }`}
-                                          title="Gross Margin: (Selling - Cost) / Selling"
+                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-dashed border-blue-300 dark:border-blue-800 transition cursor-pointer"
                                         >
-                                          {marginPct.toFixed(1)}%
-                                        </span>
-                                      );
-                                    }
-                                    return (
+                                          <Plus className="w-2.5 h-2.5 shrink-0" />
+                                          <span>Custom Attribute</span>
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {item.attributes && item.attributes.length > 0 && (
+                                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                                        {item.attributes.map((attr, attrIdx) => {
+                                          const suggestedKeys = CATEGORY_SUGGESTED_ATTRIBUTES[item.product_type] || [];
+                                          const isCustom = attr.key && !suggestedKeys.includes(attr.key);
+                                          const showCustomInput =
+                                            isCustom || attr.key === '__custom_editing__' || suggestedKeys.length === 0;
+
+                                          return (
+                                            <div
+                                              key={attrIdx}
+                                              className="flex items-center gap-2 bg-slate-50/70 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 p-1.5 rounded-lg shadow-2xs"
+                                            >
+                                              {showCustomInput ? (
+                                                <div className="min-w-[130px] max-w-[175px] flex-shrink-0 flex items-center gap-1 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 font-medium text-xs px-2.5 py-1.5 rounded-md border border-slate-200/80 dark:border-slate-700 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition-colors">
+                                                  <input
+                                                    type="text"
+                                                    value={attr.key === '__custom_editing__' ? '' : attr.key ?? ''}
+                                                    placeholder="Attribute Key"
+                                                    onChange={(e) => {
+                                                      const updated = [...lineItems];
+                                                      const attrList = [...(updated[index].attributes || [])];
+                                                      attrList[attrIdx] = {
+                                                        ...attrList[attrIdx],
+                                                        key: e.target.value
+                                                      };
+                                                      updated[index] = { ...updated[index], attributes: attrList };
+                                                      setLineItems(updated);
+                                                    }}
+                                                    className="w-full bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-800 dark:text-slate-200 font-semibold focus:outline-none truncate"
+                                                  />
+                                                  {suggestedKeys.length > 0 && (
+                                                    <button
+                                                      type="button"
+                                                      title="Back to suggestions"
+                                                      onClick={() => {
+                                                        const updated = [...lineItems];
+                                                        const attrList = [...(updated[index].attributes || [])];
+                                                        attrList[attrIdx] = { ...attrList[attrIdx], key: '' };
+                                                        updated[index] = { ...updated[index], attributes: attrList };
+                                                        setLineItems(updated);
+                                                      }}
+                                                      className="text-[9px] text-blue-600 dark:text-blue-400 hover:underline font-bold px-0.5 shrink-0 cursor-pointer"
+                                                    >
+                                                      List
+                                                    </button>
+                                                  )}
+                                                </div>
+                                              ) : (
+                                                <select
+                                                  value={attr.key ?? ''}
+                                                  title={attr.key || 'Select Attribute Key'}
+                                                  onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    const updated = [...lineItems];
+                                                    const attrList = [...(updated[index].attributes || [])];
+                                                    if (val === '__custom__') {
+                                                      attrList[attrIdx] = {
+                                                        ...attrList[attrIdx],
+                                                        key: '__custom_editing__'
+                                                      };
+                                                    } else {
+                                                      attrList[attrIdx] = { ...attrList[attrIdx], key: val };
+                                                    }
+                                                    updated[index] = { ...updated[index], attributes: attrList };
+                                                    setLineItems(updated);
+                                                  }}
+                                                  className="min-w-[130px] max-w-[175px] flex-shrink-0 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 font-medium text-xs px-2.5 py-1.5 rounded-md border border-slate-200/80 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors cursor-pointer truncate"
+                                                >
+                                                  <option value="">Select Key...</option>
+                                                  {suggestedKeys.map((k) => (
+                                                    <option key={k} value={k}>
+                                                      {k}
+                                                    </option>
+                                                  ))}
+                                                  <option value="__custom__">+ Custom Key...</option>
+                                                </select>
+                                              )}
+                                              <input
+                                                type="text"
+                                                value={attr.value ?? ''}
+                                                placeholder="Value (e.g. 10m3 / SS316)"
+                                                onChange={(e) => {
+                                                  const updated = [...lineItems];
+                                                  const attrList = [...(updated[index].attributes || [])];
+                                                  attrList[attrIdx] = {
+                                                    ...attrList[attrIdx],
+                                                    value: e.target.value
+                                                  };
+                                                  updated[index] = { ...updated[index], attributes: attrList };
+                                                  setLineItems(updated);
+                                                }}
+                                                className="flex-1 min-w-0 bg-transparent border-0 focus:ring-0 px-1.5 py-1 text-xs text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none"
+                                              />
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const updated = [...lineItems];
+                                                  const attrList = (updated[index].attributes || []).filter(
+                                                    (_, i) => i !== attrIdx
+                                                  );
+                                                  updated[index] = { ...updated[index], attributes: attrList };
+                                                  setLineItems(updated);
+                                                }}
+                                                className="p-1 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-md transition shrink-0 cursor-pointer"
+                                              >
+                                                <X className="w-3.5 h-3.5" />
+                                              </button>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Expandable Panel 3: Brand, Model, Origin, Product Image & Datasheet */}
+                            {!isServiceOrFee && isMediaOpen && (
+                              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 animate-in fade-in duration-150">
+                                <LineItemTier3BMediaGrid
+                                  index={index}
+                                  item={item}
+                                  matchedProd={matchedProd}
+                                  effectiveImageUrl={effectiveImageUrl}
+                                  effectiveDatasheet={effectiveDatasheet}
+                                  activeWorkspace={activeWorkspace}
+                                  triggerToast={triggerToast}
+                                  handleLineItemChange={handleLineItemChange}
+                                  onSyncToCatalog={
+                                    matchedProd
+                                      ? async () => {
+                                          await syncLineItemToCatalogProduct(
+                                            item,
+                                            matchedProd,
+                                            setProducts,
+                                            triggerToast,
+                                            formCurrency
+                                          );
+                                        }
+                                      : undefined
+                                  }
+                                  onPatchMedia={(patch) => {
+                                    setLineItems((prev) => {
+                                      const next = [...prev];
+                                      next[index] = {
+                                        ...next[index],
+                                        ...patch
+                                      };
+                                      return next;
+                                    });
+                                  }}
+                                />
+                              </div>
+                            )}
+
+                            {/* Expandable Panel 4: Supplier Cost, Gross Margin & Line Total Override */}
+                            {!isCompositeItem && isCostOpen && (
+                              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 grid grid-cols-1 sm:grid-cols-12 gap-3 items-center animate-in fade-in duration-150">
+                                <div className="sm:col-span-4 min-w-0">
+                                  <div className="flex items-center justify-between gap-1 h-5 mb-1 min-w-0">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                      Unit Cost ({formCurrency})
+                                    </label>
+                                    {marginPct !== null ? (
+                                      <span
+                                        className={`font-mono tabular-nums text-[10px] font-bold px-1.5 py-0.2 rounded whitespace-nowrap shrink-0 ${
+                                          marginPct >= 20
+                                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
+                                            : marginPct >= 0
+                                            ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
+                                            : 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300'
+                                        }`}
+                                      >
+                                        {marginPct.toFixed(1)}% Margin
+                                      </span>
+                                    ) : (
                                       <span className="text-[10px] font-mono text-slate-400 whitespace-nowrap shrink-0">
                                         Base Cost
                                       </span>
-                                    );
-                                  })()}
+                                    )}
+                                  </div>
+                                  <FormattedNumberInput
+                                    value={item.cost_price ?? ''}
+                                    placeholder="0.00"
+                                    onChange={(val: number) => handleLineItemChange(index, 'cost_price', val)}
+                                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
+                                  />
                                 </div>
-                                <FormattedNumberInput
-                                  value={item.cost_price ?? ''}
-                                  placeholder="0.00"
-                                  onChange={(val: number) => handleLineItemChange(index, 'cost_price', val)}
-                                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
-                                />
-                              </div>
 
-                              <div className="col-span-6 sm:col-span-4 min-w-0">
-                                <div className="flex items-center justify-between gap-1.5 h-5 mb-1 min-w-0">
-                                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                                    Selling ({formCurrency})
-                                  </label>
-                                  {formCurrency === 'USD' ? (
-                                    <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono tabular-nums whitespace-nowrap">
-                                      ≈ {(item.unit_price * 3.6725).toFixed(0)} AED
-                                    </span>
-                                  ) : (
-                                    <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] shrink-0 font-mono tabular-nums whitespace-nowrap">
-                                      ≈ ${(item.unit_price / 3.6725).toFixed(1)} USD
-                                    </span>
-                                  )}
-                                </div>
-                                <FormattedNumberInput
-                                  required
-                                  value={item.unit_price}
-                                  onChange={(val: number) => handleLineItemChange(index, 'unit_price', val)}
-                                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white font-mono tabular-nums focus:outline-none"
-                                />
-                              </div>
-                            </div>
-
-                            {/* Structured Line Item Total Footer Bar (Read-Only Figure by Default + Progressive Override Toggle) */}
-                            {(() => {
-                              const qtyVal = Number(item.quantity) || 0;
-                              const unitVal = Number(item.unit_price) || 0;
-                              const calcTotal = Number((qtyVal * unitVal).toFixed(2));
-                              const currentTotal = Number(item.total_price) || 0;
-                              const isOverridden =
-                                !item.is_composite_set &&
-                                !(item.sub_components && item.sub_components.length > 0) &&
-                                Math.abs(currentTotal - calcTotal) > 0.01;
-                              const isEditingOverride = editingLineTotalIdx === index || isOverridden;
-                              const cleanUom =
-                                !item.unit || String(item.unit).toLowerCase() === 'custom unit' ? 'Nos' : item.unit;
-
-                              return (
-                                <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
+                                <div className="sm:col-span-8 flex flex-wrap items-center justify-between gap-2 bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3.5 py-2">
                                   <div className="flex items-center gap-2 flex-wrap text-xs font-mono tabular-nums">
                                     <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
                                       Line Total ({formCurrency})
                                     </span>
-                                    <span className="px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                                    <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 text-[11px] font-medium text-slate-600 dark:text-slate-300">
                                       {qtyVal} {cleanUom} × {formCurrency}{' '}
                                       {unitVal.toLocaleString(undefined, {
                                         minimumFractionDigits: 2,
@@ -7128,7 +7336,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                         <FormattedNumberInput
                                           value={item.total_price}
                                           onChange={(val: number) => handleLineItemChange(index, 'total_price', val)}
-                                          className="w-32 bg-slate-50 dark:bg-slate-800 border border-blue-400 dark:border-blue-600 rounded-lg py-1 px-2.5 text-xs font-bold text-slate-900 dark:text-white text-right focus:outline-none focus:ring-2 focus:ring-blue-500/20 shrink-0"
+                                          className="w-32 bg-white dark:bg-slate-900 border border-blue-400 dark:border-blue-600 rounded-lg py-1 px-2.5 text-xs font-bold text-slate-900 dark:text-white text-right focus:outline-none focus:ring-2 focus:ring-blue-500/20 shrink-0"
                                         />
                                         {isOverridden ? (
                                           <button
@@ -7138,7 +7346,6 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                               setEditingLineTotalIdx(null);
                                             }}
                                             className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-[10px] font-sans font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-100 transition cursor-pointer whitespace-nowrap"
-                                            title="Reset line total to Qty × Unit Price"
                                           >
                                             Reset
                                           </button>
@@ -7162,42 +7369,22 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                       </span>
                                     )}
 
-                                    {formCurrency === 'USD' ? (
-                                      <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap shrink-0">
-                                        ≈ AED{' '}
-                                        {Number(currentTotal * 3.6725).toLocaleString(undefined, {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2
-                                        })}
-                                      </span>
-                                    ) : (
-                                      <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold whitespace-nowrap shrink-0">
-                                        ≈ $
-                                        {Number(currentTotal / 3.6725).toLocaleString(undefined, {
-                                          minimumFractionDigits: 2,
-                                          maximumFractionDigits: 2
-                                        })}{' '}
-                                        USD
-                                      </span>
-                                    )}
-
                                     {!isEditingOverride && !isReadOnly && (
                                       <button
                                         type="button"
                                         onClick={() => setEditingLineTotalIdx(index)}
-                                        className="px-2 py-0.5 rounded-md text-[10px] font-sans font-semibold text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 bg-slate-50 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/40 border border-slate-200/80 dark:border-slate-700 transition cursor-pointer whitespace-nowrap"
-                                        title="Manually override calculated line total"
+                                        className="px-2 py-0.5 rounded-md text-[10px] font-sans font-semibold text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 bg-white hover:bg-blue-50 dark:bg-slate-900 dark:hover:bg-blue-950/40 border border-slate-200/80 dark:border-slate-700 transition cursor-pointer whitespace-nowrap"
                                       >
-                                        Override
+                                        Override Total
                                       </button>
                                     )}
                                   </div>
                                 </div>
-                              );
-                            })()}
-                          </>
-                        )}
-                      </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
@@ -7240,19 +7427,19 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             )}
           </div>
 
-          {/* Chapter 4: 4. Evaluation, Terms & Source Files */}
-          <div id="field-value" className="scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-5 shadow-2xs">
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-3.5 border-b border-slate-100 dark:border-slate-800">
+          {/* Chapter 4: 4. Financial Summary, Terms & Source Files */}
+          <div id="field-value" className="scroll-mt-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 shadow-2xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-3 min-w-0">
                 <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-bold text-xs flex items-center justify-center shrink-0 border border-blue-200/60 dark:border-blue-800/60">
                   4
                 </span>
                 <div className="min-w-0">
                   <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">
-                    Evaluation, Terms &amp; Source Files
+                    Financial Summary, Terms &amp; Source Files
                   </h3>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                    Pipeline status, profitability &amp; VAT summary, commercial terms, and AI source documents
+                    Live profitability &amp; VAT summary — expand pipeline dates, commercial terms, or AI files on demand
                   </p>
                 </div>
               </div>
@@ -7263,71 +7450,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="min-w-0">
-                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
-                  Enquiry Status
-                </label>
-                <select
-                  value={normalizeEnquiryStatus(status)}
-                  onChange={(e) => setStatus(e.target.value as EnquiryStatus)}
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-sans"
-                >
-                  {PIPELINE_STATUS_GROUPS.map((group) => (
-                    <optgroup
-                      key={group.label}
-                      label={group.label}
-                      className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider text-[10px]"
-                    >
-                      {group.options.map((st) => (
-                        <option
-                          key={st}
-                          value={st}
-                          className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs font-normal"
-                        >
-                          {st}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                  {status && !PIPELINE_STATUS_GROUPS.some((g) => (g.options as readonly string[]).includes(normalizeEnquiryStatus(status))) && (
-                    <optgroup label="Other / Legacy" className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold">
-                      <option value={status} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs">
-                        {status}
-                      </option>
-                    </optgroup>
-                  )}
-                </select>
-              </div>
-
-              <div className="min-w-0">
-                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
-                  Estimated Order Date
-                </label>
-                <input
-                  type="date"
-                  placeholder="YYYY-MM-DD"
-                  value={projectedOrderDate}
-                  onChange={(e) => setProjectedOrderDate(e.target.value)}
-                  className="dark:[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
-                />
-              </div>
-
-              <div className="min-w-0">
-                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
-                  Next Follow-up Date
-                </label>
-                <input
-                  type="date"
-                  placeholder="YYYY-MM-DD"
-                  value={nextFollowupDate}
-                  onChange={(e) => setNextFollowupDate(e.target.value)}
-                  className="dark:[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
-                />
-              </div>
-            </div>
-
-            {/* Unified Financial & VAT Summary Strip (Single Source of Truth for Net Proposal Total & Lump-Sum Override) */}
+            {/* Unified Financial & VAT Summary Strip (Always Visible in Default 80/20 Flow) */}
             {(() => {
               const baselineList = lineItems.filter((li) => {
                 const opt = String((li as any).option_designation || li.option || 'Default / Included').trim();
@@ -7352,7 +7475,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               const marginPct = effectiveSubtotal > 0 && hasAnyCost ? (grossProfit / effectiveSubtotal) * 100 : null;
 
               return (
-                <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4 space-y-3">
+                <div className="space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-3 flex-wrap">
                       <div className="flex items-center gap-1.5">
@@ -7486,395 +7609,534 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               );
             })()}
 
-            {/* Subsection 4C: Commercial Terms & Remarks */}
-            <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
-                  Commercial Terms &amp; Remarks
-                </span>
-              </div>
+            {/* Chapter 4 Progressive Disclosure Trigger Bar */}
+            {(() => {
+              const hasPipelineDatesData = Boolean(projectedOrderDate || nextFollowupDate);
+              const showPipelineDates = disclosure.expandedSections.pipelineDates || hasPipelineDatesData;
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="md:col-span-2">
-                  <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Remarks / Status Updates</MarqueeLabel>
-                  <textarea
-                    rows={3}
-                    placeholder="e.g. Quotation sent. Customer requested 5% discount."
-                    value={remarks}
-                    onChange={(e) => setRemarks(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-sans"
-                  />
-                </div>
+              const hasRemarksTermsData = Boolean((remarks && remarks.trim()) || (invoicePoNo && invoicePoNo.trim()) || (paymentStatus && paymentStatus.trim()));
+              const showRemarksTerms = disclosure.expandedSections.remarksTerms || hasRemarksTermsData;
 
-                <div className="space-y-3">
-                  <div>
-                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Invoice PO #</MarqueeLabel>
-                    <input
-                      type="text"
-                      placeholder="e.g. PO-4500989583"
-                      value={invoicePoNo}
-                      onChange={(e) => setInvoicePoNo(e.target.value)}
-                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
-                    />
-                  </div>
-                  <div>
-                    <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Payment Status</MarqueeLabel>
-                    <input
-                      type="text"
-                      placeholder="e.g. 50% Advance, 50% PDC"
-                      value={paymentStatus}
-                      onChange={(e) => setPaymentStatus(e.target.value)}
-                      className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-3 text-sm text-slate-900 dark:text-white focus:outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
+              const hasSourceFilesData = attachments.length > 0 || isExtracting || uploading || Boolean(extractionError);
+              const showSourceFiles = disclosure.expandedSections.sourceFiles || hasSourceFilesData;
 
-            {/* Subsection 4D: Source PDF Proposal & Excel AI Data */}
-            <div id="field-source_files" className="scroll-mt-4 border-t border-slate-100 dark:border-slate-800/80 pt-4 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                  <Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                  <span>Source PDF Proposal &amp; Excel AI Data</span>
-                </span>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={selectedAiModel}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setSelectedAiModel(val);
-                      localStorage.setItem('omni_gemini_model_preference', val);
-                    }}
-                    title="Select Gemini Engine"
-                    aria-label="Select Gemini Engine"
-                    className="text-xs bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1.5 font-medium text-slate-700 dark:text-slate-200 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
-                  >
-                    {AVAILABLE_GEMINI_MODELS.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => setRawTextModalOpen(true)}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 font-semibold text-xs rounded-xl border border-emerald-200 dark:border-emerald-800 shadow-2xs transition cursor-pointer"
-                  >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span>Paste Excel Row / Raw Text</span>
-                  </button>
-                </div>
-              </div>
-
-            {/* Quiet Storage Mode Indicator / Destination Target Selection */}
-            {!Boolean(activeWorkspace?.settings?.storage?.supabaseUrl && activeWorkspace?.settings?.storage?.bucket && activeWorkspace?.settings?.storage?.supabaseAnonKey) ? (
-              <div className="bg-slate-100/80 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 text-xs px-3 py-2 rounded-lg flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <HardDrive className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  <span className="truncate">
-                    <strong className="font-semibold text-slate-700 dark:text-slate-300">Local Storage Mode:</strong> Attached files save to this browser until Cloud Storage is configured in Workspace Settings.
-                  </span>
-                </div>
-                <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 text-slate-500 shrink-0">
-                  Browser Local
-                </span>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-blue-900 dark:text-blue-200 text-xs">
-                  <div className="flex items-center gap-2">
-                    <Cloud className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                    <div>
-                      <span className="font-semibold block">Cloud Storage Target: <span className="font-mono text-blue-700 dark:text-blue-300">{activeWorkspace?.settings?.storage?.bucket}</span></span>
-                      <span className="text-[10px] text-blue-600 dark:text-blue-400">Choose storage destination for newly attached documents</span>
-                    </div>
-                  </div>
-
-                  {/* Segmented control for user choice */}
-                  <div className="inline-flex rounded-lg bg-white/90 dark:bg-slate-900/90 p-0.5 border border-blue-200 dark:border-blue-800 shadow-2xs shrink-0 self-start sm:self-auto">
+              return (
+                <>
+                  <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100 dark:border-slate-800/80">
                     <button
                       type="button"
-                      onClick={() => setUploadTarget('cloud')}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition cursor-pointer ${
-                        uploadTarget === 'cloud'
-                          ? 'bg-blue-600 text-white shadow-xs'
-                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      onClick={() => disclosure.toggleSection('pipelineDates')}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer border ${
+                        showPipelineDates
+                          ? 'bg-blue-50/80 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                          : 'bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-700'
                       }`}
                     >
-                      <Cloud className="w-3.5 h-3.5" />
-                      <span>Cloud Sync (Shared)</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setUploadTarget('local')}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition cursor-pointer ${
-                        uploadTarget === 'local'
-                          ? 'bg-amber-600 text-white shadow-xs'
-                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                      }`}
-                    >
-                      <HardDrive className="w-3.5 h-3.5" />
-                      <span>Local Device Only</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-blue-500 dark:hover:border-blue-500 rounded-xl p-6 text-center transition duration-150 cursor-pointer relative bg-white/50 dark:bg-slate-900/50">
-              <input
-                type="file"
-                multiple
-                accept="application/pdf,image/png,image/jpeg,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,message/rfc822,.eml"
-                onChange={handleFileUpload}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              />
-              <Paperclip className="w-8 h-8 text-slate-400 dark:text-slate-500 mx-auto mb-2" />
-              <div className="text-sm font-semibold text-slate-700 dark:text-slate-300 block font-sans">
-                {uploading ? (
-                  <div className="flex flex-col items-center justify-center space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-                      <span>Stage 1/2: Syncing "{currentUploadingFile || 'file...'}"</span>
-                    </div>
-                    {uploadProgress !== null && (
-                      <span className="text-xs font-mono text-blue-500 font-semibold">
-                        {uploadProgress}% Uploaded
+                      {showPipelineDates ? <ChevronUp className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5 text-blue-500" />}
+                      <span>Pipeline Status &amp; Follow-up Dates</span>
+                      <span className="px-1.5 py-0.2 rounded bg-white/80 dark:bg-slate-900/80 text-[10px] font-mono text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700">
+                        {normalizeEnquiryStatus(status)}
                       </span>
-                    )}
-                  </div>
-                ) : (
-                  <span>
-                    Drag and Drop or Click to Attach Quote Files
-                    {Boolean(activeWorkspace?.settings?.storage?.supabaseUrl && activeWorkspace?.settings?.storage?.bucket && activeWorkspace?.settings?.storage?.supabaseAnonKey)
-                      ? uploadTarget === 'cloud'
-                        ? ' (Uploading to Cloud Bucket)'
-                        : ' (Saving to Local Storage Only)'
-                      : ''}
-                  </span>
-                )}
-              </div>
-              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-1 block">
-                Supports PDF, Word (.docx), Email (.eml), images, and text files (Real Storage Sync) • Click "Autofill Form" below to extract details with AI
-              </span>
+                    </button>
 
-              {uploading && uploadProgress !== null && (
-                <div className="w-full max-w-xs bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full mx-auto mt-3 overflow-hidden">
-                  <div
-                    className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
-                    style={{ width: `${uploadProgress}%` }}
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Persistent AI Extraction / API Key Notice Banner */}
-            {extractionError && (
-              <div className="bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200/90 dark:border-amber-800/60 rounded-xl p-4 space-y-3 font-sans shadow-2xs animate-in fade-in duration-200">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start space-x-2.5">
-                    <KeyRound className="w-4.5 h-4.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                    <div className="space-y-1">
-                      <h5 className="text-xs font-bold text-amber-900 dark:text-amber-300 font-sans uppercase tracking-wider">
-                        {extractionError.includes('401') || extractionError.includes('API Key') || extractionError.includes('invalid') || extractionError.includes('unconfigured')
-                          ? 'Gemini API Key Required'
-                          : 'AI Extraction Notice'}
-                      </h5>
-                      <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed font-sans">
-                        {extractionError}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setExtractionError(null)}
-                    className="text-amber-500 hover:text-amber-700 dark:hover:text-amber-300 p-1 rounded-lg hover:bg-amber-100/50 dark:hover:bg-amber-900/40 transition cursor-pointer"
-                    title="Dismiss notice"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {(extractionError.includes('401') || extractionError.includes('API Key') || extractionError.includes('Settings')) && (
-                  <div className="bg-white/90 dark:bg-slate-900/90 border border-amber-200/80 dark:border-amber-800/50 rounded-xl p-3 space-y-2 text-[11px] text-slate-700 dark:text-slate-300 font-sans shadow-2xs">
-                    <p className="font-bold text-slate-800 dark:text-white flex items-center space-x-1.5">
-                      <Info className="w-3.5 h-3.5 text-blue-600" />
-                      <span>How to configure or update your Gemini API Key in AI Studio:</span>
-                    </p>
-                    <ol className="list-decimal list-inside space-y-1 text-slate-600 dark:text-slate-400 pl-1 leading-relaxed">
-                      <li>Click <strong className="text-slate-800 dark:text-slate-200">Settings</strong> (gear icon) in the AI Studio header.</li>
-                      <li>Select <strong className="text-slate-800 dark:text-slate-200">Secrets / API Keys</strong>.</li>
-                      <li>Set <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono text-amber-800 dark:text-amber-400 border border-slate-200 dark:border-slate-700">GEMINI_API_KEY</code> with your active Gemini key.</li>
-                    </ol>
-                  </div>
-                )}
-
-                <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                  <button
-                    type="button"
-                    onClick={() => setShowGeminiKeyModal(true)}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded-xl shadow-xs transition cursor-pointer"
-                  >
-                    <KeyRound className="w-3.5 h-3.5" />
-                    <span>Enter Personal Gemini API Key</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRawTextModalOpen(true)}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-xl shadow-xs transition cursor-pointer"
-                  >
-                    <FileSpreadsheet className="w-3.5 h-3.5" />
-                    <span>Use Smart Paste Instead (No API Key Required)</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Dynamic AI Extraction heartbeat / status ticker */}
-            {isExtracting && (
-              <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl p-4 space-y-2.5 animate-pulse">
-                <div className="flex items-center space-x-2.5">
-                  <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider font-sans">Stage 2/2: AI Extraction Running</span>
-                </div>
-                <div className="pl-6.5 space-y-1">
-                  <p className="text-xs text-blue-700 dark:text-blue-300 font-medium font-sans">
-                    Status: <span className="text-blue-800 dark:text-blue-200 font-bold">{extractionStatusText}</span>
-                  </p>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
-                    {extractionStatusText || "Calibrating context-aware payload with automated model failover..."}
-                  </p>
-                </div>
-                <div className="w-full bg-blue-100 dark:bg-blue-900 h-1 rounded-full overflow-hidden">
-                  <div className="bg-blue-600 h-1 rounded-full animate-pulse w-full" />
-                </div>
-              </div>
-            )}
-
-            {attachments.length > 0 && (
-              <div className="space-y-2">
-                <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider block">Attached files:</span>
-                {attachments.map((file, idx) => (
-                  <div key={idx} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 flex items-center justify-between text-xs font-mono text-slate-700 dark:text-slate-300 shadow-2xs">
-                    <div 
-                      onClick={() => {
-                        if (file.url) {
-                          setActivePreviewUrl(file.url);
-                          setPreviewFileName(file.name);
-                          setPreviewFileType(file.type || 'application/pdf');
-                        }
-                      }}
-                      className={`flex items-center space-x-2 truncate mr-2 transition ${file.url ? 'cursor-pointer hover:text-blue-600 dark:hover:text-blue-400' : 'text-slate-500'}`}
-                      title={file.url ? "Click to preview side-by-side" : "Attachment stored offline"}
+                    <button
+                      type="button"
+                      onClick={() => disclosure.toggleSection('remarksTerms')}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer border ${
+                        showRemarksTerms
+                          ? 'bg-blue-50/80 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                          : 'bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-700'
+                      }`}
                     >
-                      <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                      <div className="flex items-center gap-1.5 truncate">
-                        <span className="truncate font-sans font-medium text-slate-800 dark:text-slate-200 hover:underline">{file.name}</span>
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0">({(file.size / 1024).toFixed(1)} KB)</span>
-                        {!file.isLocal && file.url && (file.url.startsWith('http://') || file.url.startsWith('https://')) ? (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold font-sans bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shrink-0">
-                            <Cloud className="w-2.5 h-2.5" />
-                            <span>Cloud</span>
+                      {showRemarksTerms ? <ChevronUp className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5 text-blue-500" />}
+                      <span>Commercial Terms, PO &amp; Remarks</span>
+                      {hasRemarksTermsData && (
+                        <span className="px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-900/60 text-[10px] font-mono text-blue-700 dark:text-blue-300">
+                          Active
+                        </span>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => disclosure.toggleSection('sourceFiles')}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer border ${
+                        showSourceFiles
+                          ? 'bg-indigo-50/80 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
+                          : 'bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700'
+                      }`}
+                    >
+                      {showSourceFiles ? <ChevronUp className="w-3.5 h-3.5" /> : <Sparkles className="w-3.5 h-3.5 text-indigo-500" />}
+                      <span>Source PDF / Excel AI Autofill &amp; Files</span>
+                      {attachments.length > 0 && (
+                        <span className="px-1.5 py-0.2 rounded bg-indigo-100 dark:bg-indigo-900/60 text-[10px] font-mono text-indigo-700 dark:text-indigo-300">
+                          {attachments.length}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Collapsible Subsection 4A: Pipeline Status & Follow-up Dates */}
+                  {showPipelineDates && (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 animate-in fade-in duration-150">
+                      <div className="min-w-0">
+                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
+                          Enquiry Status
+                        </label>
+                        <select
+                          value={normalizeEnquiryStatus(status)}
+                          onChange={(e) => setStatus(e.target.value as EnquiryStatus)}
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-sans"
+                        >
+                          {PIPELINE_STATUS_GROUPS.map((group) => (
+                            <optgroup
+                              key={group.label}
+                              label={group.label}
+                              className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider text-[10px]"
+                            >
+                              {group.options.map((st) => (
+                                <option
+                                  key={st}
+                                  value={st}
+                                  className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs font-normal"
+                                >
+                                  {st}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ))}
+                          {status && !PIPELINE_STATUS_GROUPS.some((g) => (g.options as readonly string[]).includes(normalizeEnquiryStatus(status))) && (
+                            <optgroup label="Other / Legacy" className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold">
+                              <option value={status} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs">
+                                {status}
+                              </option>
+                            </optgroup>
+                          )}
+                        </select>
+                      </div>
+
+                      <div className="min-w-0">
+                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
+                          Estimated Order Date
+                        </label>
+                        <input
+                          type="date"
+                          placeholder="YYYY-MM-DD"
+                          value={projectedOrderDate}
+                          onChange={(e) => setProjectedOrderDate(e.target.value)}
+                          className="dark:[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
+                        />
+                      </div>
+
+                      <div className="min-w-0">
+                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 block truncate">
+                          Next Follow-up Date
+                        </label>
+                        <input
+                          type="date"
+                          placeholder="YYYY-MM-DD"
+                          value={nextFollowupDate}
+                          onChange={(e) => setNextFollowupDate(e.target.value)}
+                          className="dark:[color-scheme:dark] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Collapsible Subsection 4C: Commercial Terms & Remarks */}
+                  {showRemarksTerms && (
+                    <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4 space-y-3 animate-in fade-in duration-150">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+                          Commercial Terms &amp; Remarks
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="md:col-span-2">
+                          <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Remarks / Status Updates</MarqueeLabel>
+                          <textarea
+                            rows={3}
+                            placeholder="e.g. Quotation sent. Customer requested 5% discount."
+                            value={remarks}
+                            onChange={(e) => setRemarks(e.target.value)}
+                            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-sans"
+                          />
+                        </div>
+
+                        <div className="space-y-3">
+                          <div>
+                            <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Invoice PO #</MarqueeLabel>
+                            <input
+                              type="text"
+                              placeholder="e.g. PO-4500989583"
+                              value={invoicePoNo}
+                              onChange={(e) => setInvoicePoNo(e.target.value)}
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
+                            />
+                          </div>
+                          <div>
+                            <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Payment Status</MarqueeLabel>
+                            <input
+                              type="text"
+                              placeholder="e.g. 50% Advance, 50% PDC"
+                              value={paymentStatus}
+                              onChange={(e) => setPaymentStatus(e.target.value)}
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-3 text-sm text-slate-900 dark:text-white focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Collapsible Subsection 4D: Source PDF Proposal & Excel AI Data */}
+                  <div id="field-source_files" className={`scroll-mt-4 ${showSourceFiles ? 'border-t border-slate-100 dark:border-slate-800/80 pt-4 space-y-4 animate-in fade-in duration-150' : 'hidden'}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                        <Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                        <span>Source PDF Proposal &amp; Excel AI Data</span>
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={selectedAiModel}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setSelectedAiModel(val);
+                            localStorage.setItem('omni_gemini_model_preference', val);
+                          }}
+                          title="Select Gemini Engine"
+                          aria-label="Select Gemini Engine"
+                          className="text-xs bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1.5 font-medium text-slate-700 dark:text-slate-200 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                        >
+                          {AVAILABLE_GEMINI_MODELS.map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => setRawTextModalOpen(true)}
+                          className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 font-semibold text-xs rounded-xl border border-emerald-200 dark:border-emerald-800 shadow-2xs transition cursor-pointer"
+                        >
+                          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span>Paste Excel Row / Raw Text</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Quiet Storage Mode Indicator / Destination Target Selection */}
+                    {!Boolean(activeWorkspace?.settings?.storage?.supabaseUrl && activeWorkspace?.settings?.storage?.bucket && activeWorkspace?.settings?.storage?.supabaseAnonKey) ? (
+                      <div className="bg-slate-100/80 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 text-xs px-3 py-2 rounded-lg flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <HardDrive className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span className="truncate">
+                            <strong className="font-semibold text-slate-700 dark:text-slate-300">Local Storage Mode:</strong> Attached files save to this browser until Cloud Storage is configured in Workspace Settings.
                           </span>
+                        </div>
+                        <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 text-slate-500 shrink-0">
+                          Browser Local
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-blue-900 dark:text-blue-200 text-xs">
+                          <div className="flex items-center gap-2">
+                            <Cloud className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                            <div>
+                              <span className="font-semibold block">Cloud Storage Target: <span className="font-mono text-blue-700 dark:text-blue-300">{activeWorkspace?.settings?.storage?.bucket}</span></span>
+                              <span className="text-[10px] text-blue-600 dark:text-blue-400">Choose storage destination for newly attached documents</span>
+                            </div>
+                          </div>
+
+                          {/* Segmented control for user choice */}
+                          <div className="inline-flex rounded-lg bg-white/90 dark:bg-slate-900/90 p-0.5 border border-blue-200 dark:border-blue-800 shadow-2xs shrink-0 self-start sm:self-auto">
+                            <button
+                              type="button"
+                              onClick={() => setUploadTarget('cloud')}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition cursor-pointer ${
+                                uploadTarget === 'cloud'
+                                  ? 'bg-blue-600 text-white shadow-xs'
+                                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                              }`}
+                            >
+                              <Cloud className="w-3.5 h-3.5" />
+                              <span>Cloud Sync (Shared)</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setUploadTarget('local')}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition cursor-pointer ${
+                                uploadTarget === 'local'
+                                  ? 'bg-amber-600 text-white shadow-xs'
+                                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                              }`}
+                            >
+                              <HardDrive className="w-3.5 h-3.5" />
+                              <span>Local Device Only</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-blue-500 dark:hover:border-blue-500 rounded-xl p-6 text-center transition duration-150 cursor-pointer relative bg-white/50 dark:bg-slate-900/50">
+                      <input
+                        type="file"
+                        multiple
+                        accept="application/pdf,image/png,image/jpeg,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,message/rfc822,.eml"
+                        onChange={handleFileUpload}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                      <Paperclip className="w-8 h-8 text-slate-400 dark:text-slate-500 mx-auto mb-2" />
+                      <div className="text-sm font-semibold text-slate-700 dark:text-slate-300 block font-sans">
+                        {uploading ? (
+                          <div className="flex flex-col items-center justify-center space-y-2">
+                            <div className="flex items-center space-x-2">
+                              <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                              <span>Stage 1/2: Syncing "{currentUploadingFile || 'file...'}"</span>
+                            </div>
+                            {uploadProgress !== null && (
+                              <span className="text-xs font-mono text-blue-500 font-semibold">
+                                {uploadProgress}% Uploaded
+                              </span>
+                            )}
+                          </div>
                         ) : (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold font-sans bg-amber-50 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shrink-0" title={file.uploadedByUserName ? `Stored on ${file.uploadedByUserName}'s browser` : 'Stored locally on this browser'}>
-                            <AlertTriangle className="w-2.5 h-2.5" />
-                            <span>Local</span>
+                          <span>
+                            Drag and Drop or Click to Attach Quote Files
+                            {Boolean(activeWorkspace?.settings?.storage?.supabaseUrl && activeWorkspace?.settings?.storage?.bucket && activeWorkspace?.settings?.storage?.supabaseAnonKey)
+                              ? uploadTarget === 'cloud'
+                                ? ' (Uploading to Cloud Bucket)'
+                                : ' (Saving to Local Storage Only)'
+                              : ''}
                           </span>
                         )}
                       </div>
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-1 block">
+                        Supports PDF, Word (.docx), Email (.eml), images, and text files (Real Storage Sync) • Click "Autofill Form" below to extract details with AI
+                      </span>
+
+                      {uploading && uploadProgress !== null && (
+                        <div className="w-full max-w-xs bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full mx-auto mt-3 overflow-hidden">
+                          <div
+                            className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                            style={{ width: `${uploadProgress}%` }}
+                          />
+                        </div>
+                      )}
                     </div>
-                    <div className="flex items-center space-x-2 shrink-0">
-                      {file.url && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActivePreviewUrl(file.url);
-                            setPreviewFileName(file.name);
-                            setPreviewFileType(file.type || 'application/pdf');
-                          }}
-                          className={`flex items-center space-x-1 px-2 py-1 rounded-lg transition text-[10px] font-sans font-medium border cursor-pointer ${
-                            activePreviewUrl === file.url 
-                              ? 'bg-blue-600 text-white border-blue-600' 
-                              : 'bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                          }`}
-                          title="Open side-by-side preview panel"
-                        >
-                          <Eye className="w-3 h-3" />
-                          <span>{activePreviewUrl === file.url ? 'Previewing' : 'View'}</span>
-                        </button>
-                      )}
 
-                      {Boolean(activeWorkspace?.settings?.storage?.supabaseUrl && activeWorkspace?.settings?.storage?.bucket && activeWorkspace?.settings?.storage?.supabaseAnonKey) && (file.isLocal || !file.url || !file.url.startsWith('http')) && (
-                        <button
-                          type="button"
-                          onClick={() => handlePromoteAttachmentToCloud(idx)}
-                          disabled={promotingAttachmentKey === (file.storageKey || file.id || `att_${idx}`) || uploading}
-                          className="inline-flex items-center space-x-1 px-2.5 py-1 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded-lg transition text-[10px] font-sans font-medium border border-blue-200 dark:border-blue-800 disabled:opacity-50 cursor-pointer shadow-2xs"
-                          title="Promote this local attachment to Supabase Cloud Storage to share with entire team"
-                        >
-                          {promotingAttachmentKey === (file.storageKey || file.id || `att_${idx}`) ? (
-                            <Loader2 className="w-3 h-3 animate-spin text-blue-600" />
-                          ) : (
-                            <UploadCloud className="w-3 h-3 text-blue-600 dark:text-blue-400" />
-                          )}
-                          <span>Upload to Cloud</span>
-                        </button>
-                      )}
+                    {/* Persistent AI Extraction / API Key Notice Banner */}
+                    {extractionError && (
+                      <div className="bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200/90 dark:border-amber-800/60 rounded-xl p-4 space-y-3 font-sans shadow-2xs animate-in fade-in duration-200">
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-start space-x-2.5">
+                            <KeyRound className="w-4.5 h-4.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                            <div className="space-y-1">
+                              <h5 className="text-xs font-bold text-amber-900 dark:text-amber-300 font-sans uppercase tracking-wider">
+                                {extractionError.includes('401') || extractionError.includes('API Key') || extractionError.includes('invalid') || extractionError.includes('unconfigured')
+                                  ? 'Gemini API Key Required'
+                                  : 'AI Extraction Notice'}
+                              </h5>
+                              <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed font-sans">
+                                {extractionError}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setExtractionError(null)}
+                            className="text-amber-500 hover:text-amber-700 dark:hover:text-amber-300 p-1 rounded-lg hover:bg-amber-100/50 dark:hover:bg-amber-900/40 transition cursor-pointer"
+                            title="Dismiss notice"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAttachments((prev) =>
-                            prev.map((att, i) =>
-                              i === idx
-                                ? { ...att, include_in_quote_annex: !att.include_in_quote_annex }
-                                : att
-                            )
-                          );
-                        }}
-                        className={`flex items-center space-x-1 px-2 py-1 rounded-lg transition text-[10px] font-sans font-semibold border cursor-pointer whitespace-nowrap ${
-                          file.include_in_quote_annex
-                            ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
-                            : 'bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
-                        }`}
-                        title="Toggle to automatically include this file in Quotation Studio Technical Annexes"
-                      >
-                        <FileCheck className="w-3 h-3" />
-                        <span>{file.include_in_quote_annex ? 'In Quote Annex' : '+ Quote Annex'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleExtractFromAttachment(file)}
-                        disabled={isExtracting || uploading}
-                        className="flex items-center space-x-1.5 px-2.5 py-1 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-300 rounded-lg transition text-[10px] font-sans font-medium border border-blue-200 dark:border-blue-800 disabled:opacity-50 cursor-pointer"
-                        title="AI Document Autofill: Extracts client company, line items, and attributes using Gemini AI"
-                      >
-                        {isExtracting ? (
-                          <Loader2 className="w-3 h-3 animate-spin text-blue-600" />
-                        ) : (
-                          <Sparkles className="w-3 h-3 text-blue-500 fill-blue-500" />
+                        {(extractionError.includes('401') || extractionError.includes('API Key') || extractionError.includes('Settings')) && (
+                          <div className="bg-white/90 dark:bg-slate-900/90 border border-amber-200/80 dark:border-amber-800/50 rounded-xl p-3 space-y-2 text-[11px] text-slate-700 dark:text-slate-300 font-sans shadow-2xs">
+                            <p className="font-bold text-slate-800 dark:text-white flex items-center space-x-1.5">
+                              <Info className="w-3.5 h-3.5 text-blue-600" />
+                              <span>How to configure or update your Gemini API Key in AI Studio:</span>
+                            </p>
+                            <ol className="list-decimal list-inside space-y-1 text-slate-600 dark:text-slate-400 pl-1 leading-relaxed">
+                              <li>Click <strong className="text-slate-800 dark:text-slate-200">Settings</strong> (gear icon) in the AI Studio header.</li>
+                              <li>Select <strong className="text-slate-800 dark:text-slate-200">Secrets / API Keys</strong>.</li>
+                              <li>Set <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono text-amber-800 dark:text-amber-400 border border-slate-200 dark:border-slate-700">GEMINI_API_KEY</code> with your active Gemini key.</li>
+                            </ol>
+                          </div>
                         )}
-                        <span>{isExtracting ? 'Extracting...' : 'Autofill Form'}</span>
-                      </button>
 
-                      <button
-                        type="button"
-                        onClick={() => removeAttachment(idx)}
-                        disabled={isExtracting || uploading}
-                        className="text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition p-1 disabled:opacity-50 cursor-pointer"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
+                        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => setShowGeminiKeyModal(true)}
+                            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded-xl shadow-xs transition cursor-pointer"
+                          >
+                            <KeyRound className="w-3.5 h-3.5" />
+                            <span>Enter Personal Gemini API Key</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRawTextModalOpen(true)}
+                            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-xl shadow-xs transition cursor-pointer"
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5" />
+                            <span>Use Smart Paste Instead (No API Key Required)</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Dynamic AI Extraction heartbeat / status ticker */}
+                    {isExtracting && (
+                      <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl p-4 space-y-2.5 animate-pulse">
+                        <div className="flex items-center space-x-2.5">
+                          <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider font-sans">Stage 2/2: AI Extraction Running</span>
+                        </div>
+                        <div className="pl-6.5 space-y-1">
+                          <p className="text-xs text-blue-700 dark:text-blue-300 font-medium font-sans">
+                            Status: <span className="text-blue-800 dark:text-blue-200 font-bold">{extractionStatusText}</span>
+                          </p>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                            {extractionStatusText || "Calibrating context-aware payload with automated model failover..."}
+                          </p>
+                        </div>
+                        <div className="w-full bg-blue-100 dark:bg-blue-900 h-1 rounded-full overflow-hidden">
+                          <div className="bg-blue-600 h-1 rounded-full animate-pulse w-full" />
+                        </div>
+                      </div>
+                    )}
+
+                    {attachments.length > 0 && (
+                      <div className="space-y-2">
+                        <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider block">Attached files:</span>
+                        {attachments.map((file, idx) => (
+                          <div key={idx} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 flex items-center justify-between text-xs font-mono text-slate-700 dark:text-slate-300 shadow-2xs">
+                            <div 
+                              onClick={() => {
+                                if (file.url) {
+                                  setActivePreviewUrl(file.url);
+                                  setPreviewFileName(file.name);
+                                  setPreviewFileType(file.type || 'application/pdf');
+                                }
+                              }}
+                              className={`flex items-center space-x-2 truncate mr-2 transition ${file.url ? 'cursor-pointer hover:text-blue-600 dark:hover:text-blue-400' : 'text-slate-500'}`}
+                              title={file.url ? "Click to preview side-by-side" : "Attachment stored offline"}
+                            >
+                              <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                              <div className="flex items-center gap-1.5 truncate">
+                                <span className="truncate font-sans font-medium text-slate-800 dark:text-slate-200 hover:underline">{file.name}</span>
+                                <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0">({(file.size / 1024).toFixed(1)} KB)</span>
+                                {!file.isLocal && file.url && (file.url.startsWith('http://') || file.url.startsWith('https://')) ? (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold font-sans bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shrink-0">
+                                    <Cloud className="w-2.5 h-2.5" />
+                                    <span>Cloud</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold font-sans bg-amber-50 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shrink-0" title={file.uploadedByUserName ? `Stored on ${file.uploadedByUserName}'s browser` : 'Stored locally on this browser'}>
+                                    <AlertTriangle className="w-2.5 h-2.5" />
+                                    <span>Local</span>
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center space-x-2 shrink-0">
+                              {file.url && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActivePreviewUrl(file.url);
+                                    setPreviewFileName(file.name);
+                                    setPreviewFileType(file.type || 'application/pdf');
+                                  }}
+                                  className={`flex items-center space-x-1 px-2 py-1 rounded-lg transition text-[10px] font-sans font-medium border cursor-pointer ${
+                                    activePreviewUrl === file.url 
+                                      ? 'bg-blue-600 text-white border-blue-600' 
+                                      : 'bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                                  }`}
+                                  title="Open side-by-side preview panel"
+                                >
+                                  <Eye className="w-3 h-3" />
+                                  <span>{activePreviewUrl === file.url ? 'Previewing' : 'View'}</span>
+                                </button>
+                              )}
+
+                              {Boolean(activeWorkspace?.settings?.storage?.supabaseUrl && activeWorkspace?.settings?.storage?.bucket && activeWorkspace?.settings?.storage?.supabaseAnonKey) && (file.isLocal || !file.url || !file.url.startsWith('http')) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handlePromoteAttachmentToCloud(idx)}
+                                  disabled={promotingAttachmentKey === (file.storageKey || file.id || `att_${idx}`) || uploading}
+                                  className="inline-flex items-center space-x-1 px-2.5 py-1 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded-lg transition text-[10px] font-sans font-medium border border-blue-200 dark:border-blue-800 disabled:opacity-50 cursor-pointer shadow-2xs"
+                                  title="Promote this local attachment to Supabase Cloud Storage to share with entire team"
+                                >
+                                  {promotingAttachmentKey === (file.storageKey || file.id || `att_${idx}`) ? (
+                                    <Loader2 className="w-3 h-3 animate-spin text-blue-600" />
+                                  ) : (
+                                    <UploadCloud className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                                  )}
+                                  <span>Upload to Cloud</span>
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAttachments((prev) =>
+                                    prev.map((att, i) =>
+                                      i === idx
+                                        ? { ...att, include_in_quote_annex: !att.include_in_quote_annex }
+                                        : att
+                                    )
+                                  );
+                                }}
+                                className={`flex items-center space-x-1 px-2 py-1 rounded-lg transition text-[10px] font-sans font-semibold border cursor-pointer whitespace-nowrap ${
+                                  file.include_in_quote_annex
+                                    ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
+                                    : 'bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                                }`}
+                                title="Toggle to automatically include this file in Quotation Studio Technical Annexes"
+                              >
+                                <FileCheck className="w-3 h-3" />
+                                <span>{file.include_in_quote_annex ? 'In Quote Annex' : '+ Quote Annex'}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleExtractFromAttachment(file)}
+                                disabled={isExtracting || uploading}
+                                className="flex items-center space-x-1.5 px-2.5 py-1 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-300 rounded-lg transition text-[10px] font-sans font-medium border border-blue-200 dark:border-blue-800 disabled:opacity-50 cursor-pointer"
+                                title="AI Document Autofill: Extracts client company, line items, and attributes using Gemini AI"
+                              >
+                                {isExtracting ? (
+                                  <Loader2 className="w-3 h-3 animate-spin text-blue-600" />
+                                ) : (
+                                  <Sparkles className="w-3 h-3 text-blue-500 fill-blue-500" />
+                                )}
+                                <span>{isExtracting ? 'Extracting...' : 'Autofill Form'}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => removeAttachment(idx)}
+                                disabled={isExtracting || uploading}
+                                className="text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition p-1 disabled:opacity-50 cursor-pointer"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
-            )}
-            </div>
+                </>
+              );
+            })()}
           </div>
 
           {/* Section 7.5: Original Pasted Source / Raw Context */}

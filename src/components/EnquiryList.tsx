@@ -27,7 +27,9 @@ import {
   Hash,
   TrendingUp,
   CheckCircle2,
-  Activity
+  Activity,
+  Phone,
+  MessageCircle
 } from 'lucide-react';
 import { db, safeSetDoc, safeDeleteDoc, safeUpdateDoc } from '../firebase';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
@@ -2464,7 +2466,158 @@ export default function EnquiryList({
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-sm overflow-hidden">
         {filteredEnquiries.length > 0 ? (
           <>
-            <div className="w-full overflow-x-auto scrollbar-thin relative border-b border-slate-200 dark:border-slate-800">
+            {/* Mobile Adaptive Quick-Action Card Stack (< 640px) */}
+            <div className="block sm:hidden divide-y divide-slate-200 dark:divide-slate-800">
+              {paginatedEnquiries.map((e, index) => {
+                if (!e) return null;
+                const companyName = (e.company_id ? companyMap.get(e.company_id) : '') || (e as any)?.company_name || (e as any)?.client_company || 'Unknown Client';
+                const resolvedComp = resolveCompanyForEnquiry(e);
+                const salesperson = resolveSalespersonForEnquiry(e);
+                const canEdit = canEditEnquiry(user, activeWorkspace, e);
+                const isCreatorOnly = isCreatorOnlyViewer(user, e, activeWorkspace, salespersons);
+                const activeQuotation = e.id ? activeQuotationByEnquiryId.get(e.id) : null;
+                const { prefix: curPrefix, formattedAmount: curAmount } = getEnquiryCurrencyParts(e);
+                const normalizedSt = normalizeEnquiryStatus(e.status);
+                const quoteRefDisplay = activeQuotation?.formatted_quote_ref || e.quote_ref_no || `S/N #${e.sn ?? '—'}`;
+                const primaryContact = (contacts || []).find(
+                  (c) => c && (c.id === e.contact_id || (e.company_id && c.company_id === e.company_id && c.is_primary))
+                );
+                const contactPhoneRaw = primaryContact?.mobile || (primaryContact as any)?.phone || resolvedComp?.general_phone || '';
+                const cleanDigits = contactPhoneRaw.replace(/[^0-9]/g, '');
+
+                return (
+                  <div
+                    key={e.id || index}
+                    onClick={() => e.id && handleSelectEnquiry(e.id)}
+                    className="p-3.5 hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition cursor-pointer space-y-2.5"
+                  >
+                    {/* Top Row: S/N + Status Pill + Value */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 font-mono font-bold text-xs text-slate-800 dark:text-slate-200">
+                          #{e.sn ?? '—'}
+                        </span>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium truncate max-w-[150px] ${getStatusBadgeClass(normalizedSt)}`}>
+                          {normalizedSt}
+                        </span>
+                      </div>
+
+                      <div className="text-right font-mono font-bold text-xs text-slate-900 dark:text-white shrink-0">
+                        {isCreatorOnly && !canViewConfidentialMargins ? (
+                          <span className="text-slate-400 dark:text-slate-500">🔒 {curPrefix} ••••••</span>
+                        ) : (
+                          <span>
+                            <span className="text-[10px] font-normal text-slate-400 mr-1">{curPrefix}</span>
+                            {curAmount}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Middle Row: Company Name + Subject / Quote Ref */}
+                    <div className="space-y-0.5">
+                      <div className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+                        {companyName}
+                      </div>
+                      <div className="text-xs text-slate-600 dark:text-slate-300 truncate">
+                        {e.subject || e.enquiry_details || quoteRefDisplay}
+                      </div>
+                      <div className="flex items-center justify-between gap-2 pt-0.5 text-[11px] font-mono text-slate-400 dark:text-slate-500">
+                        <span className="truncate">{quoteRefDisplay}</span>
+                        <span className="shrink-0">
+                          {salesperson?.initials || getInitials(salesperson?.name || '') || '—'} • {formatEnquiryDate(e.enquiry_date)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Bottom Quick-Action Bar: 4 Direct Mobile Actions */}
+                    <div
+                      className="grid grid-cols-4 gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-800/80"
+                      onClick={(evt) => evt.stopPropagation()}
+                    >
+                      {/* 1. View / Edit Details */}
+                      <button
+                        type="button"
+                        onClick={() => (canEdit ? handleEditEnquiryRow(e) : e.id && handleSelectEnquiry(e.id))}
+                        className="inline-flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-semibold transition cursor-pointer"
+                        title={canEdit ? 'Edit Enquiry Details' : 'View Enquiry Details'}
+                      >
+                        <Pencil className="w-3 h-3 text-slate-500 shrink-0" />
+                        <span className="truncate">{canEdit ? 'Edit' : 'View'}</span>
+                      </button>
+
+                      {/* 2. Quick Button to Log or Schedule Call */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleInitiate({
+                            companyId: resolvedComp?.id || e.company_id || '',
+                            companyName,
+                            contactId: primaryContact?.id || e.contact_id,
+                            contactName: primaryContact?.full_name,
+                            contactPhone: contactPhoneRaw,
+                            enquiryId: e.id,
+                            channel: 'Call'
+                          })
+                        }
+                        className="inline-flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200/70 dark:border-blue-800/60 text-[11px] font-semibold transition cursor-pointer"
+                        title="Log or Schedule Call"
+                      >
+                        <Phone className="w-3 h-3 shrink-0" />
+                        <span className="truncate">Log Call</span>
+                      </button>
+
+                      {/* 3. Quick Button to Open Quotation Studio */}
+                      <button
+                        type="button"
+                        onClick={() => e.id && handleSelectEnquiry(e.id)}
+                        className="inline-flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/60 text-[11px] font-semibold transition cursor-pointer"
+                        title="Open Quotation Studio & Proposal View"
+                      >
+                        <FileText className="w-3 h-3 shrink-0" />
+                        <span className="truncate">Quote</span>
+                      </button>
+
+                      {/* 4. One-Tap WhatsApp or Phone Dialer Action */}
+                      {cleanDigits.length >= 7 ? (
+                        <a
+                          href={`https://wa.me/${cleanDigits}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/70 dark:border-emerald-800/60 text-[11px] font-semibold transition cursor-pointer"
+                          title={`WhatsApp ${primaryContact?.full_name || companyName} (${contactPhoneRaw})`}
+                        >
+                          <MessageCircle className="w-3 h-3 shrink-0" />
+                          <span className="truncate">WhatsApp</span>
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleInitiate({
+                              companyId: resolvedComp?.id || e.company_id || '',
+                              companyName,
+                              contactId: primaryContact?.id || e.contact_id,
+                              contactName: primaryContact?.full_name,
+                              contactPhone: contactPhoneRaw,
+                              enquiryId: e.id,
+                              channel: 'WhatsApp'
+                            })
+                          }
+                          className="inline-flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/70 dark:border-emerald-800/60 text-[11px] font-semibold transition cursor-pointer"
+                          title="Log WhatsApp / Outreach"
+                        >
+                          <MessageCircle className="w-3 h-3 shrink-0" />
+                          <span className="truncate">WhatsApp</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="hidden sm:block w-full overflow-x-auto scrollbar-thin relative border-b border-slate-200 dark:border-slate-800">
             <table className="w-full min-w-[840px] text-left border-collapse">
               <thead className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 sticky top-[76px] z-20 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
                 <tr>

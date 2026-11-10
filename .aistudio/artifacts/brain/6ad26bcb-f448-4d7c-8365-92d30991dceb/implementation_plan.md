@@ -1,96 +1,132 @@
-# Quotation Studio Architecture Fix — Selection, Right Drawer, Independent Cards & Text Style Bar
+# Enquiry Module 80/20 Progressive Disclosure & Headless Architecture
 
-Resolve four foundational interaction defects in Quotation Studio so every document mode (`QT`, `PI`, `INV`, `DO`, `REC`, `PO`, `PV`, `MRN`, `DN`) supports reliable single-card selection, guaranteed Right Inspector drawer opening, modular Receipt/Voucher/Totals Lego blocks, direct whole-card Text & Style Bar formatting, and clean reference prefixes across mode switches.
+This upgrade transforms the Enquiry workflow from a high-density 45-field form into a calm, high-velocity **30-Second Core Flow** powered by Contextual Progressive Disclosure and a modular Headless Controller architecture, eliminating visual fatigue and permanently insulating Firebase/state logic from UI edits.
 
-### User Review & Critical Decisions
+## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> All four architectural fixes below are strictly scoped to the Quotation Studio workspace and A4 document engine without altering unrelated application modules.
+> The following architectural and UX decisions have been confirmed from your answers and will govern Phase 1 implementation:
 
-- **Guaranteed Right Inspector Drawer Opening**: Automatically synchronize missing specialized modular blocks into the Studio layout state whenever the document mode changes or a canvas block is clicked, and synthesize a fallback block configuration so clicking any card or the top-right `[Right Inspector]` toggle always opens a populated inspector drawer.
-- **Strict Single-Card Selection & Modular Receipt / Voucher / Totals Cards**: Decouple the Payment Receipt (`REC`), Payment Voucher (`PV`), and Financial Summary (`totals`) body cards from `quote_meta` so only one card on the A4 canvas highlights at a time, and split `REC` and `PV` body sections into independent, resizable, reorderable Lego cards with dedicated Right Inspector controls.
-- **Direct Whole-Card Text & Style Bar Formatting**: Remove the multi-target dropdown in the Text & Style Bar so formatting controls apply directly to the selected card by default (with a 1-click `[Style Whole Card]` reset pill whenever a specific text element inside the card is clicked), and ensure child elements inherit custom colors, font sizes, weights, alignments, and accent bars cleanly.
-- **Canonical Reference Sanitization on Mode Switch**: Strip stale auxiliary prefixes (`DO-`, `REC-`, `PO-`, `PV-`, `MRN-`, `DN-`) and intermediate `-01` sequence tokens before `-R1` whenever switching document modes so `PO` and `PV` always generate `PO-...` and `PV-...` references cleanly.
-
----
-
-### 1. Overview & Core Concept
-
-- **What It Does**: Upgrades the Quotation Studio interactive canvas and Right Inspector architecture so every visual card on the A4 sheet—across Sales Quotations, Delivery Notes, Payment Receipts, Purchase Orders, Payment Vouchers, Material Returns, and Debit Notes—behaves as a true self-contained modular block with single-selection isolation, a dedicated Right Inspector drawer, and live whole-card typography styling.
-- **Target Audience / Persona**: Commercial operations, finance, and logistics teams designing, customizing, and issuing commercial documents in Quotation Studio.
-- **Key Value**: Eliminates silent inspector drawer failures, prevents confusing multi-card selection rings, gives users full layout control (`Left 50%` | `Full 100%` | `Right 50%`) over Receipt and Payment Voucher cards, makes the Text & Style Bar work predictably on first click, and prevents `DO-` reference prefixes from bleeding into Purchase Orders or Payment Vouchers.
+- **Confirmed Phase 1 Scope**: Execute the **Enquiry Form 80/20 Progressive Disclosure Redesign and Headless Controller Split** first, establishing the clean architectural template before propagating mobile card views across registries.
+- **Confirmed Default 80/20 Surface ("30-Second Core Flow")**: Only **Company, Contact, Subject / Scope Summary, and compact Line Items** remain visible on initial load. Auto-generated metadata (`S/N`, `Quote Ref`, `Logged Date`, `Assigned Rep`, `Currency`, `Status`) collapses into a single-line interactive summary bar at the top, and secondary sections expand on demand via inline `+ Add` triggers.
+- **Confirmed Mobile Card Quick-Actions Contract**: Mobile summary cards will support four direct thumb-friendly interactions: **Tap card to view/edit details**, **Quick button to log/schedule a call**, **Quick button to open Quotation Studio**, and **One-tap WhatsApp or phone dialer action**.
+- **Strict Zero-Quota & Zero-Regression Guarantee**: All Firestore queries, sequence reservation rules, BOM cost/margin math, AI RFQ extraction pipelines, and RBAC confidentiality masks remain 100% preserved inside the headless controller hook without adding any new Firestore read effects.
 
 ---
 
-### 2. User Experience & Visual Design
+## 1. Overview & Core Concept
 
-- **Key User Flows**:
-  1. **Clicking Any Specialized Card (`DO`, `MRN`, `DN`, `PV`, `REC`, `Totals`)**:
-     - Clicking *Dispatched & Released By*, *Goods Received in Good Order By*, *Authorized Return / Claim By*, *Vendor Return Acknowledgment*, *Treasury & Disbursement Details*, *Beneficiary & Payee Details*, *Treasury Approval & Sign-off Matrix*, *Amount Received Banner*, *Payment Instrument & Reference Details*, *Account Settlement & Balance Statement*, *Amount Disbursed Banner*, *Outbound Bill Settlement & Allocation Schedule*, or the *Financial Summary / Totals* card immediately places a crisp blue selection ring around **only** that card and opens its dedicated Right Inspector panel.
-     - Clicking the top-right `[Right Inspector]` toolbar button when the drawer is closed always opens the drawer (defaulting to the active section or Document Meta if none is selected).
-  2. **Customizing Payment Receipt (`REC`) & Payment Voucher (`PV`) Cards**:
-     - In `REC` mode, the body renders three independent modular cards:
-       - **Amount Received Banner** (`rec_amount_banner`, default `Full 100%`)
-       - **Payment Instrument & Reference Details** (`rec_payment_instrument`, default `Left 50%`)
-       - **Account Settlement & Balance Statement** (`rec_balance_statement`, default `Right 50%`)
-     - In `PV` mode, the top **Amount Disbursed Banner** (`pv_disbursed_banner`, default `Full 100%`) and **Outbound Bill Settlement & Allocation Schedule** (`pv_bill_allocation`, default `Full 100%`) are independently selectable modular blocks separate from the top-right Document Meta header card.
-     - Each block supports `Left 50%` | `Full 100%` | `Right 50%` width toggles, Up/Down reordering, Show/Hide toggles, and field-level editing in the Right Inspector.
-  3. **Formatting via the Text & Style Bar**:
-     - Selecting any card on the canvas targets that entire card by default (`Styling: Whole Card`).
-     - Changing Font Size (`XS`–`XL`), Bold (`B`), Italic (`I`), Underline (`U`), Case (`AA` / `Aa`), Alignment, Text Color, Highlight Background, or Left Accent Bar immediately updates the visual styling of the card and its text contents.
-     - Clicking a specific text element inside a card scopes formatting to that element and displays a `Styling: Selected Text / Field` indicator with a 1-click `[Style Whole Card]` reset button.
-  4. **Switching Between Document Modes (`DO` -> `PO` / `PV`)**:
-     - Switching from a Delivery Note (`DO-TEST/10/2026/5-01-R1`) to a Purchase Order (`PO`) or Payment Voucher (`PV`) automatically strips the `DO-` prefix and intermediate `-01` sequence token before `-R1`, producing `PO-TEST/10/2026/5-01-R1` or `PV-TEST/10/2026/5-01-R1`.
-
-- **Visual Identity & Theme**:
-  - Preserves the executive light-mode Studio workspace (`--background: #f8fafc`, crisp white A4 canvas sheet, `--primary: #2563eb` active selection ring with subtle badge label, and high-contrast slate typography).
+- **What It Does**: Replaces the monolithic 9,200-line `EnquiryForm` view with a separated Headless Controller hook (`useEnquiryFormController`) and focused, lightweight visual sub-components that surface only the essential 20% of controls needed for 80% of daily enquiry logging—while keeping 100% of advanced capabilities (multi-option scopes, BOM kits, custom engineering specs, AI extraction, currency overrides, and attachments) one click away.
+- **Target Audience / Persona**: Sales engineers, commercial estimators, and executives logging and pricing RFQs who need rapid, distraction-free data entry on both desktop monitors and mobile phones.
+- **Key Value**: Cuts initial visual clutter by ~70% so a standard enquiry can be logged in under 30 seconds, while modularizing the codebase so future UI refinements never risk breaking Firestore quota circuit breakers or state synchronization.
 
 ---
 
-### 3. Key Product Decisions & Trade-Offs
+## 2. User Experience & Visual Design
 
-- **Decision 1: Auto-Synchronized Layout Blocks + Synthesized Fallback Block in Right Inspector**
-  - *Chosen Approach*: Whenever a quotation is loaded or `documentType` changes, run `ensureSpecializedDocumentBlocks` on `layoutBlocks` in Studio state, AND in `selectedBlock` resolution, synthesize a fallback `QuotationBlockConfig` if a known block ID is clicked before state hydration completes.
-  - *Why*: Guarantees `selectedBlock` is never `null` when a user clicks a specialized block on the canvas, eliminating the bug where `selectedSection` became non-null while the Right Inspector drawer remained hidden.
-- **Decision 2: First-Class Block IDs for `REC`, `PV`, and `Totals` Instead of Shared `'quote_meta'`**
-  - *Chosen Approach*: Assign distinct block IDs (`rec_amount_banner`, `rec_payment_instrument`, `rec_balance_statement`, `pv_disbursed_banner`, `pv_bill_allocation`, and `totals`) instead of routing their click handlers to `'quote_meta'`.
-  - *Why*: Routing body cards to `'quote_meta'` caused both the top-right header metadata card and multiple body cards to show active blue selection rings simultaneously, and prevented independent sizing/reordering.
-- **Decision 3: Unified Style Property Alignment & Scoped CSS Inheritance**
-  - *Chosen Approach*: Align `colorTone` / `textColor`, `accentBar` / `showAccentBar`, and `highlightBg` between the Studio Style Bar and A4 Document renderer, and apply a scoped inheritance wrapper when custom card formatting is active so child labels and values inherit custom color, size, weight, style, transform, decoration, and alignment.
-  - *Why*: Previously, the Style Bar wrote `colorTone` and `accentBar` while the document renderer only read `textColor` and `showAccentBar`, and child Tailwind classes (`text-slate-900`, `text-[10px]`, `font-semibold`) blocked parent inline styles from cascading.
+### Key User Flows
+
+1. **Zero-Clutter Arrival & Auto-Metadata Summary Bar**:
+   - Opening **Register New Enquiry** displays a single quiet summary bar at the top of the drawer:
+     `S/N #2752 · Ref: Auto (2752-091126AA) · Today · Rep: Syed Ameer · Currency: AED · Status: Active` with an inline `[Customize Metadata]` toggle.
+   - If the user never needs to override the sequence number, backdate the enquiry, or change the currency, they never see those six input boxes. Clicking any segment or `[Customize Metadata]` smoothly reveals the metadata override drawer.
+2. **Step 1 — Core Client & Subject Entry**:
+   - Immediately below the summary bar sits a clean, single-elevation card containing **Company Search & Pairing**, **Contact Person Selection**, and **Enquiry Subject / Description**.
+   - Optional context fields are presented as quiet inline micro-triggers right below the Subject input: `+ Project & Location`, `+ Source & Assigned Team`, `+ Custom Engineering Specs`, and `+ AI / Clipboard Autofill`. When an enquiry already has values in any of those fields (when editing an existing record or after AI extraction), that specific sub-panel auto-expands automatically.
+3. **Step 2 — Compact Line Items with Inline Progressive Disclosure**:
+   - Each Line Item starts as a single, scannable horizontal row: **Catalog/Item Name**, **Qty**, **Unit**, **Unit Price**, and **Line Total**.
+   - Directly beneath the row sit quiet text triggers for optional power features: `+ Classification & Option Scope`, `+ Technical Specs (0)`, `+ Product Photo / Media`, `+ Vendor Cost & Margin`, and `+ Convert to Composite BOM`.
+   - Clicking any trigger reveals only that specific sub-drawer on that line item. Existing line items that already contain specs, photos, or BOM sub-components automatically show an active indicator pill and expand when inspected.
+4. **Step 3 — Terms, Valuation & Attachments Drawer**:
+   - A streamlined footer section shows calculated **Net Subtotal**, **VAT (5%)**, and **Grand Total**, with one-click toggles for `+ Lump-Sum Package Override`, `+ Remarks & Follow-up Notes`, and `+ Source Attachments`.
+
+### Visual Identity & Theme
+
+- **Aesthetic Direction**: Utilitarian precision inspired by Linear and Stripe Billing—calm neutral canvases, crisp hairline borders, unboxed typographic metadata, and high-contrast tabular numerals.
+- **Color Palette & Mood**:
+  - **60% Dominant Neutral Canvas**: Slate-50 (`bg-slate-50/80 dark:bg-slate-950/70`) drawer background with crisp white (`bg-white dark:bg-slate-900`) primary work surfaces.
+  - **30% Structural Surfaces**: Subtle hairline dividers (`border-slate-200/80 dark:border-slate-800`) and muted secondary labels (`text-slate-500 dark:text-slate-400`).
+  - **10% Accent Budget**: High-intent Royal Blue (`bg-blue-600 text-white`) reserved strictly for primary save actions and active focus rings; Emerald (`text-emerald-600`) for AI autofill confidence and positive margin states; Amber/Crimson for price discrepancies and RBAC locks.
+- **Typography & Hierarchy**:
+  - Clean sans-serif UI labels (`font-sans`) paired with strict tabular monospace (`font-mono tabular-nums`) for all prices, quantities, margins, serial numbers, and quotation references.
+  - Zero all-caps shouting on long headers; clear contrast between section titles (`text-sm font-semibold text-slate-900 dark:text-slate-100`) and inline disclosure triggers (`text-xs font-medium text-slate-500 hover:text-blue-600`).
+- **Interactive Feedback & Motion**:
+  - Instant (<150ms) expand/collapse transitions on progressive disclosure drawers.
+  - Auto-expansion of any collapsed section when AI Smart Paste or PDF extraction populates fields inside it, paired with a subtle emerald highlight pulse so the user sees every extracted value immediately.
 
 ---
 
-### 4. Technical Architecture & Data Strategy *(Technical Reference)*
+## 3. Key Product Decisions & Trade-Offs
+
+- **Decision 1: Contextual Progressive Disclosure (`+ Add` Triggers) vs. Global Simple/Advanced Toggle**
+  - *Chosen Approach*: Inline contextual disclosure bars and per-feature `+` triggers that auto-expand when populated.
+  - *Why*: Sales engineers frequently need just *one* advanced capability (e.g., setting a USD exchange rate or adding 2 technical specs to item #1) without wanting 40 other irrelevant fields cluttering the screen. Auto-expanding populated fields also guarantees zero hidden data when editing existing enquiries.
+  - *Alternatives Considered*: A global "Simple / Advanced" switch was rejected because flipping to Advanced Mode re-exposes all 45 inputs at once, recreating the exact cognitive overload we are solving.
+- **Decision 2: Headless Controller Extraction vs. In-Place Monolith Editing**
+  - *Chosen Approach*: Extract state, validation, AI extraction, and Firestore persistence into a dedicated controller module and break the UI into focused visual sub-components (`EnquiryMetadataBar`, `EnquiryClientScopeCard`, `EnquiryLineItemRow`, `EnquiryTermsAttachmentsCard`).
+  - *Why*: Separating business/database logic from JSX presentation ensures future visual tweaks are fast, predictable, and mathematically incapable of introducing Firestore read loops or breaking sequence counters.
+  - *Alternatives Considered*: Keeping everything in a single 9,200-line file was rejected because it causes context truncation and makes holistic layout review brittle.
+
+---
+
+## 4. Technical Architecture & Data Strategy *(Technical Reference)*
+
+### Architecture & Component Diagram
 
 ```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                         QuotationStudioModal State                         │
-│  ┌──────────────────────────────┐      ┌────────────────────────────────┐  │
-│  │ layoutBlocks Auto-Sync       │      │ Selection & Style State        │  │
-│  │ • ensureSpecializedBlocks()  │      │ • selectedSection (1 ID only)  │  │
-│  │ • Fallback Block Synthesizer │      │ • activeStyleKey (Card default │  │
-│  │ • Mode-Switch Ref Sanitizer  │      │   or focused child element)    │  │
-│  └──────────────┬───────────────┘      └───────────────┬────────────────┘  │
-└─────────────────┼──────────────────────────────────────┼───────────────────┘
-                  │                                      │
-                  ▼                                      ▼
-┌─────────────────────────────────────┐  ┌───────────────────────────────────┐
-│       QuotationDocument Canvas      │  │      Right Inspector Drawer       │
-│  • Single Active Ring per Block ID  │  │  • Guaranteed Open on Click/Toggle│
-│  • Modular Grid (50% L/R or 100%):  │  │  • Dedicated Panels for:          │
-│    - DO: Dispatch / Receiving       │  │    - DO / MRN / DN / PV Blocks    │
-│    - MRN/DN: Claim / Acknowledgment │  │    - REC: Banner, Instrument,     │
-│    - REC: Banner, Instrument,       │  │      Balance Statement            │
-│      Balance Statement              │  │    - PV: Disbursed Banner &       │
-│    - PV: Disbursed Banner, Bill     │  │      Allocation Schedule          │
-│      Allocation, Treasury, Payee,   │  │    - Totals / Financial Summary   │
-│      Approval Matrix                │  │  • Direct Text & Style Bar with   │
-│    - Totals: Financial Summary Card │  │    [Style Whole Card] Reset Pill  │
-└─────────────────────────────────────┘  └───────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                   useEnquiryFormController (Headless Hook)                  │
+│  • Form State, Dirty Tracking & Validation                                  │
+│  • Safe Firestore Reads/Writes (safeGetDoc,Sequence Cache, RBAC Guards)     │
+│  • AI PDF / Excel Smart Paste Extraction & Entity Matching                  │
+│  • Live Financial Totals, Multi-Currency Conversion & BOM Rollup Math       │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │ Props & Action Handlers (Zero DB Code)
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        EnquiryForm Drawer Shell                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  1. EnquiryMetadataSummaryBar                                               │
+│     ├─ Quiet Inline Summary: S/N · Ref · Date · Rep · Currency · Status     │
+│     └─ [Customize] Expandable Drawer (Manual SN, Gap Pool, FX Rate, Status) │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  2. EnquiryClientAndScopeSection                                            │
+│     ├─ Always Visible: Company Combobox + Contact Picker + Subject Input    │
+│     └─ Inline Triggers (+):                                                 │
+│        ├─ [Project & Location]     ├─ [Source & Team Roster]                │
+│        ├─ [Custom Project Specs]   └─ [AI / RFQ Document & Clipboard Paste] │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  3. EnquiryLineItemsWorkspace                                               │
+│     ├─ Compact Core Row: Item / Catalog Picker · Qty · Unit · Price · Total │
+│     └─ Per-Item Inline Triggers (+):                                        │
+│        ├─ [Classification & Option] ├─ [Technical Specs Grid]               │
+│        ├─ [Product Media & Image]   ├─ [Supplier Cost & Margin]             │
+│        └─ [Composite Package / BOM Editor]                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  4. EnquiryValuationAndAttachmentsSection                                   │
+│     ├─ Inline Triggers (+): [Lump-Sum Override] · [Remarks] · [Attachments] │
+│     └─ Sticky Executive Footer: Live Totals + Cancel / Save & Add / Save    │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Interactive Component & State Mapping**:
-  - **Canvas Click Handler (`handleCanvasSelectSection`)**: Sets `selectedSection` to the exact clicked section/block ID, ensures the block exists in `layoutBlocks` if it is a modular block, defaults `activeStyleKey` to the whole-card key (`block:<id>`, `header_card`, `recipient_card`, `offer_card`, `subject_banner`, `items_table_card`, `footer_card`), and opens the Right Inspector drawer.
-  - **Right Inspector Toggle Button**: Evaluates `isRightDrawerOpen` based on whether a visible inspector panel is active; clicking when closed restores the last inspected section or defaults to `'quote_meta'` and scrolls the inspector into view.
-  - **Canonical Reference Sanitizer (`sanitizeCanonicalQuoteRef` & `handleSwitchDocumentType`)**: Strips any leading `(QT|DO|REC|PO|PV|MRN|DN|PI|INV)-` prefix and any intermediate `-\d{2}` sequence token before `-R\d+` so switching between `DO`, `PO`, `PV`, `REC`, `MRN`, and `DN` always constructs a clean target reference (`PO-TEST/10/2026/5-01-R1`).
+### Data Model & State
+
+- **Zero Schema Changes**: The `Enquiry`, `LineItem`, `Company`, `Contact`, and `Product` interfaces remain 100% backward-compatible with all existing Firestore documents and `QuotationStudioModal` integrations.
+- **Disclosure UI State**:
+  - `isMetadataExpanded`: boolean (defaults to `false` on new enquiries; auto-expands if user clicks `[Customize]` or claims a reserved sequence gap).
+  - `expandedScopePanels`: set of active optional panels (`'location' | 'routing' | 'custom_specs' | 'ai_intake'`), automatically hydrated with any panel that has non-default data when editing an existing enquiry or after AI extraction.
+  - `expandedLineItemPanels`: map of `lineItemIndex -> Set<'classification' | 'specs' | 'media' | 'costing' | 'bom'>`, keeping new line items ultra-compact while automatically badging and expanding populated sub-sections.
+
+### Interactive Component & State Mapping
+
+- **Metadata Summary Bar (`EnquiryMetadataSummaryBar`)**:
+  - Displays live computed values (`sn`, `quoteRefNo`, `receivedDate`, `assignedTo`, `formCurrency`, `status`).
+  - Clicking any token opens the override grid and focuses that specific control (e.g., clicking `Currency: AED` opens the currency & exchange rate selector).
+- **Core Client & Scope Card (`EnquiryClientAndScopeSection`)**:
+  - Preserves instant fuzzy search for companies, inline `+ New Company` / `Edit Company` modals, filtered contact dropdowns, and `+ New Contact` creation.
+  - Clicking `+ AI / RFQ Autofill` or `Auto-Detect Clipboard` runs the existing Gemini extraction pipeline and automatically expands any section that receives extracted tokens.
+- **Compact Line Item Row (`EnquiryLineItemRow`)**:
+  - Renders the 5 primary commercial fields on a single clean row with catalog autocomplete and variant selection.
+  - Toggling `+ Technical Specs` opens the attribute key/value editor; toggling `+ Supplier Cost & Margin` opens the RBAC-protected cost/markup calculator; toggling `+ Composite BOM` mounts `CompositePackageEditor`.
+- **Mobile Enquiry Card Quick-Action Readiness (`EnquiryList` Mobile View)**:
+  - Aligns mobile card actions so smartphone users (< 640px) have direct 44px touch targets for: Tap card to view/edit, Log/Schedule Call, Open Quotation Studio, and One-Tap WhatsApp/Phone dialer.
