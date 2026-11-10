@@ -278,6 +278,9 @@ export default function ProcurementPayablesHub({
     };
   }, [activeWorkspace?.id]);
 
+  const [showPoMetaCustomize, setShowPoMetaCustomize] = useState(false);
+  const [showBillMetaCustomize, setShowBillMetaCustomize] = useState(false);
+
   const supplierPOs = useMemo(
     () =>
       quotations.filter(
@@ -1945,7 +1948,90 @@ export default function ProcurementPayablesHub({
               }}
             />
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs overflow-clip">
-              <div className="w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin">
+              {/* MOBILE SUMMARY CARDS (< 640px) */}
+              {filteredPos.length > 0 && (
+                <div className="block sm:hidden divide-y divide-slate-200/80 dark:divide-slate-800">
+                  {paginatedPos.map((po) => {
+                    const meta = po.purchase_order_metadata;
+                    const recStatus = meta?.receiving_status || 'Pending Receipt';
+                    const poRefText = meta?.po_ref || po.formatted_quote_ref || 'PO-DRAFT';
+                    const poDateStr = formatProcurementDate(meta?.po_date || po.quotation_date);
+                    const vName = meta?.supplier_name || po.client_snapshot?.entity_name || 'Vendor';
+                    const totalAmount = Number(po.financial_totals?.grand_total ?? po.grand_total ?? 0);
+
+                    return (
+                      <div
+                        key={`mob-po-${po.id}`}
+                        onClick={() => setViewingPoSummary(po)}
+                        className="p-3.5 space-y-2.5 active:bg-slate-50 dark:active:bg-slate-800/60 transition cursor-pointer"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono text-xs font-bold text-indigo-700 dark:text-indigo-400 truncate">
+                            {poRefText}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border shrink-0 ${
+                              recStatus === 'Fully Received'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
+                                : recStatus === 'Partially Received'
+                                ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800'
+                                : 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                            }`}
+                          >
+                            {recStatus}
+                          </span>
+                        </div>
+
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+                            {vName}
+                          </span>
+                          <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100 shrink-0 tabular-nums">
+                            {canViewConfidentialMargins
+                              ? `${po.currency} ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : 'Restricted'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                          <span>{poDateStr}</span>
+                          <span>{(po.line_items || []).length} Line(s)</span>
+                        </div>
+
+                        <div
+                          className="grid grid-cols-3 gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-800"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleOpenInStudio(po)}
+                            className="h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-bold flex items-center justify-center cursor-pointer"
+                          >
+                            Studio / PDF
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenBillModal(po)}
+                            className="h-8 rounded-lg bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[11px] font-bold flex items-center justify-center cursor-pointer"
+                          >
+                            Record Bill
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => (recStatus !== 'Fully Received' ? handleOpenGrnModal(po) : setViewingPoSummary(po))}
+                            className="h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold flex items-center justify-center cursor-pointer"
+                          >
+                            {recStatus !== 'Fully Received' ? 'Receive GRN' : 'Open'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* DESKTOP TABLE (>= 640px, or Empty State) */}
+              <div className={`${filteredPos.length > 0 ? 'hidden sm:block' : 'block'} w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin`}>
                 <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse text-xs font-sans">
                   {filteredPos.length > 0 && (
                     <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
@@ -2338,7 +2424,77 @@ export default function ProcurementPayablesHub({
               }}
             />
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs overflow-clip">
-              <div className="w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin">
+              {/* MOBILE SUMMARY CARDS (< 640px) */}
+              {filteredGrnRows.length > 0 && (
+                <div className="block sm:hidden divide-y divide-slate-200/80 dark:divide-slate-800">
+                  {paginatedGrnRows.map(({ po, li }) => {
+                    const ordered = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0;
+                    const received = Number(li.qty_received) || 0;
+                    const pending = Math.max(0, ordered - received);
+                    const poRefText = po.purchase_order_metadata?.po_ref || po.formatted_quote_ref || 'PO';
+                    const poDateStr = formatProcurementDate(po.purchase_order_metadata?.po_date || po.quotation_date);
+                    const vName = po.purchase_order_metadata?.supplier_name || po.client_snapshot?.entity_name || 'Vendor';
+                    const unitCost = Number(li.landed_unit_cost ?? li.unit_price ?? 0);
+
+                    return (
+                      <div
+                        key={`mob-grn-${po.id}_${li.id}`}
+                        onClick={() => handleOpenGrnModal(po)}
+                        className="p-3.5 space-y-2.5 active:bg-slate-50 dark:active:bg-slate-800/60 transition cursor-pointer"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono text-xs font-bold text-indigo-700 dark:text-indigo-400 truncate">
+                            {poRefText}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 font-mono shrink-0">
+                            Pend: {pending}/{ordered} {li.unit || 'Nos'}
+                          </span>
+                        </div>
+
+                        <div>
+                          <div className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+                            {li.item_name || li.description}
+                          </div>
+                          <div className="flex items-center justify-between gap-2 mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                            <span className="truncate font-medium">{vName}</span>
+                            <span className="font-mono font-semibold text-slate-700 dark:text-slate-300 shrink-0">
+                              {canViewConfidentialMargins ? `${po.currency} ${unitCost.toFixed(2)}` : 'Restricted'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                          <span>{poDateStr}</span>
+                          {li.part_no && <span>PN: {li.part_no}</span>}
+                        </div>
+
+                        <div
+                          className="grid grid-cols-2 gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-800"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleOpenGrnModal(po)}
+                            className="h-8 rounded-lg bg-emerald-600 text-white text-[11px] font-bold flex items-center justify-center cursor-pointer"
+                          >
+                            Receive GRN
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenBillModal(po)}
+                            className="h-8 rounded-lg bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[11px] font-bold flex items-center justify-center cursor-pointer"
+                          >
+                            Record Bill
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* DESKTOP TABLE (>= 640px, or Empty State) */}
+              <div className={`${filteredGrnRows.length > 0 ? 'hidden sm:block' : 'block'} w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin`}>
                 <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse text-xs font-sans">
                   {filteredGrnRows.length > 0 && (
                     <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
@@ -2623,7 +2779,93 @@ export default function ProcurementPayablesHub({
               }}
             />
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs overflow-clip">
-              <div className="w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin">
+              {/* MOBILE SUMMARY CARDS (< 640px) */}
+              {filteredBills.length > 0 && (
+                <div className="block sm:hidden divide-y divide-slate-200/80 dark:divide-slate-800">
+                  {paginatedBills.map((bill) => {
+                    const billDateStr = formatProcurementDate(bill.bill_date);
+                    const pillLabel = bill.is_on_hold
+                      ? 'ON HOLD'
+                      : Number(bill.balance_due || 0) <= 0
+                      ? 'Paid'
+                      : Number(bill.amount_paid || 0) > 0
+                      ? 'Partially Paid'
+                      : bill.approval_status === 'approved'
+                      ? 'Approved'
+                      : 'Pending Approval';
+                    const pillTone = bill.is_on_hold
+                      ? 'bg-rose-100 text-rose-800 border-rose-300'
+                      : Number(bill.balance_due || 0) <= 0
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : bill.approval_status === 'approved'
+                      ? 'bg-blue-50 text-blue-700 border-blue-200'
+                      : 'bg-amber-50 text-amber-800 border-amber-200';
+
+                    return (
+                      <div
+                        key={`mob-bill-${bill.id}`}
+                        onClick={() => setViewingBillSummary(bill)}
+                        className="p-3.5 space-y-2.5 active:bg-slate-50 dark:active:bg-slate-800/60 transition cursor-pointer"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                            {bill.bill_number} · Inv #{bill.vendor_invoice_no || '—'}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border shrink-0 ${pillTone}`}>
+                            {pillLabel}
+                          </span>
+                        </div>
+
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+                            {bill.vendor_name}
+                          </span>
+                          <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100 shrink-0 tabular-nums">
+                            {bill.currency} {Number(bill.grand_total || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                          <span>{billDateStr}</span>
+                          <span className={Number(bill.balance_due || 0) > 0 ? 'text-rose-600 dark:text-rose-400 font-bold' : 'text-emerald-600 dark:text-emerald-400'}>
+                            Bal: {bill.currency} {Number(bill.balance_due || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+
+                        <div
+                          className="grid grid-cols-3 gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-800"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setViewingBillSummary(bill)}
+                            className="h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-bold flex items-center justify-center cursor-pointer"
+                          >
+                            Studio / PDF
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => (Number(bill.balance_due || 0) > 0 && !bill.is_on_hold ? openCreatePvModal(bill) : setViewingBillSummary(bill))}
+                            className="h-8 rounded-lg bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[11px] font-bold flex items-center justify-center cursor-pointer"
+                          >
+                            {Number(bill.balance_due || 0) > 0 && !bill.is_on_hold ? 'Pay Bill' : 'Summary'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenBillModal(undefined, bill)}
+                            className="h-8 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-[11px] font-bold flex items-center justify-center cursor-pointer"
+                          >
+                            Open / Edit
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* DESKTOP TABLE (>= 640px, or Empty State) */}
+              <div className={`${filteredBills.length > 0 ? 'hidden sm:block' : 'block'} w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin`}>
                 <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse text-xs font-sans">
                   {filteredBills.length > 0 && (
                     <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
@@ -3090,7 +3332,98 @@ export default function ProcurementPayablesHub({
                   </button>
                 </div>
               </div>
-              <div className="w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin">
+              {/* MOBILE SUMMARY CARDS (< 640px) */}
+              {filteredVouchers.length > 0 && (
+                <div className="block sm:hidden divide-y divide-slate-200/80 dark:divide-slate-800">
+                  {paginatedVouchers.map((doc) => {
+                    const isPv = doc.document_type === 'payment_voucher';
+                    const isMrn =
+                      doc.document_type === 'material_return_note' ||
+                      (doc.document_type as string) === 'material_return';
+                    const amt = isPv
+                      ? Number(doc.payment_voucher_metadata?.amount_paid ?? doc.financial_totals?.grand_total ?? doc.grand_total ?? 0)
+                      : Number(doc.financial_totals?.grand_total ?? doc.grand_total ?? 0);
+                    const vName =
+                      doc.payment_voucher_metadata?.payee_name ||
+                      doc.payment_voucher_metadata?.paid_to_vendor_name ||
+                      doc.vendor_return_metadata?.supplier_name ||
+                      doc.vendor_return_metadata?.vendor_name ||
+                      doc.client_snapshot?.entity_name ||
+                      'Vendor';
+                    const docDateStr = formatProcurementDate(doc.quotation_date);
+
+                    return (
+                      <div
+                        key={`mob-vch-${doc.id}`}
+                        onClick={() => handleOpenInStudio(doc)}
+                        className="p-3.5 space-y-2.5 active:bg-slate-50 dark:active:bg-slate-800/60 transition cursor-pointer"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                            {doc.formatted_quote_ref}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border shrink-0 ${
+                              isPv
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : isMrn
+                                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                : 'bg-rose-50 text-rose-700 border-rose-200'
+                            }`}
+                          >
+                            {isPv ? 'Settled (PV)' : isMrn ? 'Returned (MRN)' : 'Debit Note (DN)'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">
+                            {vName}
+                          </span>
+                          <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100 shrink-0 tabular-nums">
+                            {isMrn ? 'Unpriced' : `${doc.currency} ${amt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                          <span>{docDateStr}</span>
+                          <span className="truncate max-w-[180px] font-sans">{doc.quotation_subject || '—'}</span>
+                        </div>
+
+                        <div
+                          className="grid grid-cols-2 gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-800"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleOpenInStudio(doc)}
+                            className="h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-bold flex items-center justify-center cursor-pointer"
+                          >
+                            Studio / PDF
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDeleteConfirmTarget({
+                                type: 'voucher',
+                                id: doc.id,
+                                refLabel: doc.formatted_quote_ref || 'Voucher / Return',
+                                vendorName: vName,
+                                amountLabel: isMrn ? 'Unpriced' : `${doc.currency} ${amt.toFixed(2)}`
+                              });
+                            }}
+                            className="h-8 rounded-lg bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-[11px] font-bold flex items-center justify-center cursor-pointer"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* DESKTOP TABLE (>= 640px, or Empty State) */}
+              <div className={`${filteredVouchers.length > 0 ? 'hidden sm:block' : 'block'} w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin`}>
                 <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse text-xs font-sans">
                   {filteredVouchers.length > 0 && (
                     <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
@@ -3404,7 +3737,7 @@ export default function ProcurementPayablesHub({
         const poGrandTotal = QuotationRepository.roundCurrency(poNetSubtotal + poEstVat);
 
         return (
-          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-3xl w-full overflow-hidden flex flex-col max-h-[92vh]">
               <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900">
                 <div>
@@ -3425,6 +3758,28 @@ export default function ProcurementPayablesHub({
               </div>
 
               <div className="p-5 overflow-y-auto space-y-4 text-xs bg-slate-50/80 dark:bg-slate-950/70 flex-1">
+                {/* Quiet Auto-Generated Metadata Summary Strip */}
+                <div className="px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+                    <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-mono font-bold">
+                      PO Ref: Auto-Sequence
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono">
+                      Date: Today ({new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })})
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono">
+                      Currency: {defaultCurrency}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowPoMetaCustomize((prev) => !prev)}
+                    className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                  >
+                    {showPoMetaCustomize ? 'Hide Options' : '[+ Link Enquiry / Delivery Date]'}
+                  </button>
+                </div>
+
                 {/* Chapter 1: Vendor & Document Metadata */}
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs space-y-3.5">
                   <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
@@ -3433,10 +3788,10 @@ export default function ProcurementPayablesHub({
                     </span>
                     <div>
                       <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                        Vendor &amp; Document Metadata
+                        Vendor / Supplier Selection
                       </h4>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Select registered supplier, link client enquiry, and set expected delivery schedule
+                        Select registered supplier from directory or type supplier legal name
                       </p>
                     </div>
                   </div>
@@ -3475,53 +3830,58 @@ export default function ProcurementPayablesHub({
                         className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-xs text-slate-800 dark:text-slate-100 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                       />
                     </div>
-                    <div>
-                      <FieldLabel
-                        label="Link to Enquiry"
-                        hint="Optional — Leave blank to issue a standalone Warehouse Stock Replenishment PO, or select an active Client Enquiry to automatically import its line items."
-                      />
-                      <select
-                        value={newPoEnquiryId}
-                        onChange={(e) => {
-                          const enqId = e.target.value;
-                          setNewPoEnquiryId(enqId);
-                          const enq = enquiries.find((x) => x.id === enqId);
-                          if (enq && enq.line_items && enq.line_items.length > 0) {
-                            setNewPoLines(
-                              enq.line_items.map((li) => {
-                                const prod = products.find((p) => p.id === li.product_id);
-                                return {
-                                  product_id: li.product_id || '',
-                                  item_name: li.item_name || li.description || '',
-                                  part_no: li.part_no || prod?.part_no || '',
-                                  qty: Number(li.quantity ?? li.qty) || 1,
-                                  unit: li.unit || prod?.unit || 'Nos',
-                                  unit_cost: Number(li.cost_price ?? prod?.cost_price ?? 0) || 0
-                                };
-                              })
-                            );
-                          }
-                        }}
-                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-xs text-slate-800 dark:text-slate-100 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                      >
-                        <option value="">Warehouse Stock Replenishment (Standalone PO)</option>
-                        {enquiries.map((enq) => (
-                          <option key={enq.id} value={enq.id}>
-                            ENQ #{enq.sn} — {enq.company_name} ({enq.description?.slice(0, 40)})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <FieldLabel label="Expected Delivery Date" />
-                      <input
-                        type="date"
-                        value={newPoExpectedDate}
-                        onChange={(e) => setNewPoExpectedDate(e.target.value)}
-                        className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 font-mono text-xs text-slate-800 dark:text-slate-100 dark:[color-scheme:dark] leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                      />
-                    </div>
                   </div>
+
+                  {(showPoMetaCustomize || Boolean(newPoEnquiryId) || Boolean(newPoExpectedDate)) && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end pt-3 border-t border-slate-100 dark:border-slate-800">
+                      <div>
+                        <FieldLabel
+                          label="Link to Enquiry"
+                          hint="Optional — Leave blank to issue a standalone Warehouse Stock Replenishment PO, or select an active Client Enquiry to automatically import its line items."
+                        />
+                        <select
+                          value={newPoEnquiryId}
+                          onChange={(e) => {
+                            const enqId = e.target.value;
+                            setNewPoEnquiryId(enqId);
+                            const enq = enquiries.find((x) => x.id === enqId);
+                            if (enq && enq.line_items && enq.line_items.length > 0) {
+                              setNewPoLines(
+                                enq.line_items.map((li) => {
+                                  const prod = products.find((p) => p.id === li.product_id);
+                                  return {
+                                    product_id: li.product_id || '',
+                                    item_name: li.item_name || li.description || '',
+                                    part_no: li.part_no || prod?.part_no || '',
+                                    qty: Number(li.quantity ?? li.qty) || 1,
+                                    unit: li.unit || prod?.unit || 'Nos',
+                                    unit_cost: Number(li.cost_price ?? prod?.cost_price ?? 0) || 0
+                                  };
+                                })
+                              );
+                            }
+                          }}
+                          className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 text-xs text-slate-800 dark:text-slate-100 leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                        >
+                          <option value="">Warehouse Stock Replenishment (Standalone PO)</option>
+                          {enquiries.map((enq) => (
+                            <option key={enq.id} value={enq.id}>
+                              ENQ #{enq.sn} — {enq.company_name} ({enq.description?.slice(0, 40)})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <FieldLabel label="Expected Delivery Date" />
+                        <input
+                          type="date"
+                          value={newPoExpectedDate}
+                          onChange={(e) => setNewPoExpectedDate(e.target.value)}
+                          className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 bg-white dark:bg-slate-800/90 font-mono text-xs text-slate-800 dark:text-slate-100 dark:[color-scheme:dark] leading-normal focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Chapter 2: Line Items & Cost Allocation */}
@@ -3732,7 +4092,7 @@ export default function ProcurementPayablesHub({
           grnLandedPreview.reduce((s, l) => s + (Number(l.qty_receiving_now) || 0) * (Number(l.landedUnitCost) || 0), 0)
         );
         return (
-          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-4xl w-full overflow-hidden flex flex-col max-h-[92vh]">
               <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900">
                 <div>
@@ -3970,7 +4330,7 @@ export default function ProcurementPayablesHub({
         const grandVal = QuotationRepository.roundCurrency(itemsSub + taxVal + freightVal);
 
         return (
-          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-4xl w-full overflow-hidden flex flex-col max-h-[92vh]">
               <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900">
                 <div>
@@ -4027,6 +4387,28 @@ export default function ProcurementPayablesHub({
                   </label>
                 </div>
 
+                {/* Quiet Auto-Generated Bill Metadata Bar */}
+                <div className="px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+                    <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-mono font-bold">
+                      {editingBill ? editingBill.bill_number : 'Bill #: Auto-Sequence'}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono">
+                      Inv Date: {billInvoiceDate || 'Today'}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono">
+                      {billCurrency} (Rate: {billExchangeRate})
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowBillMetaCustomize((prev) => !prev)}
+                    className="text-[11px] font-bold text-amber-700 dark:text-amber-400 hover:underline cursor-pointer"
+                  >
+                    {showBillMetaCustomize ? 'Hide Options' : '[Customize Dates & Currency]'}
+                  </button>
+                </div>
+
                 {/* Chapter 1: Vendor & Document Metadata */}
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-2xs space-y-3.5">
                   <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-100 dark:border-slate-800/80">
@@ -4035,15 +4417,15 @@ export default function ProcurementPayablesHub({
                     </span>
                     <div>
                       <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                        Vendor &amp; Document Metadata
+                        Vendor &amp; Invoice Reference
                       </h4>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Link an issued Supplier PO, choose vendor, and enter invoice reference and dates
+                        Link an issued Supplier PO, choose vendor, and enter supplier invoice number
                       </p>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 items-end">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 items-end">
                     <div>
                       <FieldLabel
                         label="Link to Supplier PO"
@@ -4109,47 +4491,52 @@ export default function ProcurementPayablesHub({
                         className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
                       />
                     </div>
-                    <div>
-                      <FieldLabel label="Invoice & Due Dates" />
-                      <div className="grid grid-cols-2 gap-2">
-                        <input
-                          type="date"
-                          value={billInvoiceDate}
-                          onChange={(e) => setBillInvoiceDate(e.target.value)}
-                          title="Invoice Date"
-                          className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 dark:[color-scheme:dark] text-[11px] leading-normal"
-                        />
-                        <input
-                          type="date"
-                          value={billDueDate}
-                          onChange={(e) => setBillDueDate(e.target.value)}
-                          title="Payment Due Date"
-                          className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 dark:[color-scheme:dark] text-[11px] leading-normal"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 items-end">
-                      <div>
-                        <FieldLabel label="Currency" />
-                        <input
-                          type="text"
-                          value={billCurrency}
-                          onChange={(e) => setBillCurrency(e.target.value.toUpperCase())}
-                          className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
-                        />
-                      </div>
-                      <div>
-                        <FieldLabel label="Exch. Rate" />
-                        <input
-                          type="number"
-                          step="0.0001"
-                          value={billExchangeRate}
-                          onChange={(e) => setBillExchangeRate(Number(e.target.value) || 1)}
-                          className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
-                        />
-                      </div>
-                    </div>
                   </div>
+
+                  {showBillMetaCustomize && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-end pt-3 border-t border-slate-100 dark:border-slate-800">
+                      <div>
+                        <FieldLabel label="Invoice & Due Dates" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="date"
+                            value={billInvoiceDate}
+                            onChange={(e) => setBillInvoiceDate(e.target.value)}
+                            title="Invoice Date"
+                            className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 dark:[color-scheme:dark] text-[11px] leading-normal"
+                          />
+                          <input
+                            type="date"
+                            value={billDueDate}
+                            onChange={(e) => setBillDueDate(e.target.value)}
+                            title="Payment Due Date"
+                            className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 dark:[color-scheme:dark] text-[11px] leading-normal"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 items-end">
+                        <div>
+                          <FieldLabel label="Currency" />
+                          <input
+                            type="text"
+                            value={billCurrency}
+                            onChange={(e) => setBillCurrency(e.target.value.toUpperCase())}
+                            className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                          />
+                        </div>
+                        <div>
+                          <FieldLabel label="Exch. Rate" />
+                          <input
+                            type="number"
+                            step="0.0001"
+                            value={billExchangeRate}
+                            onChange={(e) => setBillExchangeRate(Number(e.target.value) || 1)}
+                            className="w-full h-9 rounded-xl border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 text-xs leading-normal"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Chapter 2: Line Items & Bill Allocation */}
@@ -4440,7 +4827,7 @@ export default function ProcurementPayablesHub({
       {showCreatePvModal && (() => {
         const allocatedBillsCount = Object.values(pvSelectedBills).filter((v) => Number(v) > 0).length;
         return (
-          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-3xl w-full overflow-hidden flex flex-col max-h-[92vh]">
               <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900">
                 <div>

@@ -3289,12 +3289,18 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
     logToEdit
   );
 
+  // 80/20 Progressive Disclosure Toggles
+  const [showMetaCustomize, setShowMetaCustomize] = useState(false);
+  const [showLinkedEnquiryToggle, setShowLinkedEnquiryToggle] = useState(false);
+  const [showDraftAndPurposeToggle, setShowDraftAndPurposeToggle] = useState(false);
+  const [showGovernanceToggle, setShowGovernanceToggle] = useState(false);
+
   if (!isOpen) return null;
 
   return (
     <AnimatePresence>
       <div
-        className={`fixed inset-0 w-screen h-screen min-h-[100dvh] z-[80] overflow-hidden ${
+        className={`fixed inset-0 w-screen h-screen min-h-[100dvh] z-[110] overflow-hidden ${
           isLayeredAboveModal
             ? 'bg-slate-950/30 backdrop-blur-[1px]'
             : 'bg-slate-950/40 backdrop-blur-xs'
@@ -3310,7 +3316,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
           transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
           className={`relative w-full ${
             isHistoryDrawerOpen ? 'max-w-5xl' : 'max-w-xl'
-          } bg-white border-l border-slate-200 text-slate-900 shadow-2xl flex flex-col h-[90vh] sm:h-full max-h-[90vh] sm:max-h-full rounded-t-2xl sm:rounded-none z-[80] transform-gpu will-change-transform`}
+          } bg-white border-l border-slate-200 text-slate-900 shadow-2xl flex flex-col h-[90vh] sm:h-full max-h-[90vh] sm:max-h-full rounded-t-2xl sm:rounded-none z-[110] transform-gpu will-change-transform`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -3384,41 +3390,87 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               </div>
             )}
 
-            {/* Primary Mode Toggle: Sales & CRM Activity vs Internal Ops Task */}
-            <div className="bg-slate-100 p-1 rounded-xl border border-slate-200/80">
-              <div className="grid grid-cols-2 gap-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsInternalOps(false);
-                    setValidationError(null);
-                  }}
-                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                    !isInternalOps
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-                  }`}
-                >
-                  <PhoneCall className="w-3.5 h-3.5" />
-                  <span>Sales & CRM Activity</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsInternalOps(true);
-                    setValidationError(null);
-                  }}
-                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                    isInternalOps
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-                  }`}
-                >
-                  <Briefcase className="w-3.5 h-3.5" />
-                  <span>Internal Ops Task</span>
-                </button>
+            {/* Quiet Context & Timestamp Bar (80/20 Progressive Disclosure) */}
+            <div className="px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-600">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-slate-200 font-semibold text-slate-700">
+                  <User className="w-3 h-3 text-blue-600" />
+                  <span>{user?.full_name || user?.name || user?.email?.split('@')[0] || 'Operator'}</span>
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-slate-200 font-mono text-slate-600">
+                  <Clock className="w-3 h-3 text-slate-400" />
+                  <span>
+                    {activityDate
+                      ? new Date(activityDate).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                      : 'Now'}
+                  </span>
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-blue-700 font-semibold">
+                  <span>{isInternalOps ? 'Internal Ops' : (channel === 'Message (WhatsApp/SMS)' ? 'WhatsApp / SMS' : channel)}</span>
+                </span>
               </div>
+              <button
+                type="button"
+                onClick={() => setShowMetaCustomize((prev) => !prev)}
+                className="text-[11px] font-bold text-blue-600 hover:text-blue-800 px-2 py-0.5 rounded-md hover:bg-blue-50 transition cursor-pointer"
+              >
+                {showMetaCustomize ? 'Hide Options' : '[Customize]'}
+              </button>
             </div>
+
+            {showMetaCustomize && (
+              <div className="p-3.5 rounded-xl bg-slate-50/80 border border-slate-200/80 space-y-3 animate-in fade-in duration-150">
+                {/* Primary Mode Toggle: Sales & CRM Activity vs Internal Ops Task */}
+                <div className="bg-slate-200/70 p-1 rounded-xl border border-slate-200">
+                  <div className="grid grid-cols-2 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsInternalOps(false);
+                        setValidationError(null);
+                      }}
+                      className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                        !isInternalOps
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                      }`}
+                    >
+                      <PhoneCall className="w-3.5 h-3.5" />
+                      <span>Sales & CRM Activity</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsInternalOps(true);
+                        setValidationError(null);
+                      }}
+                      className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                        isInternalOps
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                      }`}
+                    >
+                      <Briefcase className="w-3.5 h-3.5" />
+                      <span>Internal Ops Task</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Activity Date & Time Override */}
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                    Activity Timestamp Override
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={activityDate}
+                    onChange={(e) => setActivityDate(e.target.value)}
+                    max={getLocalDateTimeString()}
+                    className="w-full bg-white border border-slate-300 text-slate-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-1.5 text-xs focus:outline-hidden font-mono"
+                  />
+                </div>
+              </div>
+            )}
 
             {isInternalOps ? (
               <div className="space-y-4 pt-1">
@@ -4420,9 +4472,9 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 </div>
                 )}
 
-                {/* Linked Enquiry / Quote Reference Selector */}
-                {selectedCompanyId && (
-                  <div>
+                {/* Linked Enquiry / Quote Reference Selector (Collapsed behind + toggle unless populated) */}
+                {selectedCompanyId && (showLinkedEnquiryToggle || Boolean(selectedEnquiryId)) && (
+                  <div className="p-3 rounded-xl bg-slate-50/70 border border-slate-200/80">
                     <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5 flex items-center justify-between">
                       <span>Linked Proposal / Enquiry</span>
                       {selectedEnquiryQuoteRef && (
@@ -5231,7 +5283,7 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  {isInternalTask ? 'Task Details & Requirement Notes' : 'Activity & Requirement Notes'}
+                  {isInternalTask ? 'Task Details & Requirement Notes' : 'Interaction Notes / Summary'}
                 </label>
                 <div className="flex items-center gap-2">
                   {recognitionRef.current && (
@@ -5273,20 +5325,6 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
                 className={`w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl p-3 text-xs focus:outline-hidden transition-all ${
                   isInternalTask ? 'min-h-[120px]' : 'min-h-[80px]'
                 }`}
-              />
-            </div>
-
-            {/* Activity Date & Time */}
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
-                Activity Date & Time
-              </label>
-              <input
-                type="datetime-local"
-                value={activityDate}
-                onChange={(e) => setActivityDate(e.target.value)}
-                max={getLocalDateTimeString()}
-                className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl px-3 py-2 text-xs focus:outline-hidden font-mono dark:[color-scheme:dark]"
               />
             </div>
 
@@ -5538,78 +5576,123 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
               );
             })()}
 
-            {/* DNC Opt-Out Checkbox */}
-            <div className="pt-1">
-              <label className="flex items-center gap-2.5 p-3 rounded-2xl bg-slate-50/70 border border-slate-200/80 cursor-pointer hover:bg-slate-100/70 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={isDnc}
-                  onChange={(e) => setIsDnc(e.target.checked)}
-                  className="rounded-md border-slate-300 bg-white text-rose-600 focus:ring-rose-500 h-4 w-4"
-                />
-                <div className="flex items-center gap-2">
-                  <ShieldAlert className="h-4 w-4 text-rose-600 shrink-0" />
-                  <div>
-                    <span className="text-xs font-bold text-rose-700 block">
-                      Mark as Do-Not-Contact (DNC) / Opt-Out
-                    </span>
-                    <span className="text-[10px] text-slate-500 block">
-                      Suppresses contact from future dialer queues and outreach lists
-                    </span>
-                  </div>
-                </div>
-              </label>
-            </div>
-
-            {/* AI WhatsApp Draft Generator Section */}
-            <div className="p-3.5 rounded-2xl bg-slate-50/70 border border-slate-200/80 space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4 text-emerald-600" />
-                  <span className="text-xs font-bold text-slate-800">
-                    WhatsApp Follow-Up Draft
-                  </span>
-                </div>
+            {/* On-Demand + Toggles for Secondary Activity Context */}
+            <div className="pt-2 border-t border-slate-100">
+              <div className="flex flex-wrap gap-2">
+                {selectedCompanyId && (
+                  <button
+                    type="button"
+                    onClick={() => setShowLinkedEnquiryToggle((prev) => !prev)}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition flex items-center gap-1 cursor-pointer ${
+                      showLinkedEnquiryToggle || selectedEnquiryId
+                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>{showLinkedEnquiryToggle || selectedEnquiryId ? '−' : '+'} Link to Specific Enquiry / Quote</span>
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => handleAiAssist('draft_whatsapp')}
-                  disabled={isDraftingWhatsapp || !notes.trim()}
-                  className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+                  onClick={() => setShowDraftAndPurposeToggle((prev) => !prev)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition flex items-center gap-1 cursor-pointer ${
+                    showDraftAndPurposeToggle || whatsappDraft
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
                 >
-                  {isDraftingWhatsapp ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-600" />
-                  ) : (
-                    <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
-                  )}
-                  <span>Generate Draft</span>
+                  <span>{showDraftAndPurposeToggle || whatsappDraft ? '−' : '+'} WhatsApp Draft</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowGovernanceToggle((prev) => !prev)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition flex items-center gap-1 cursor-pointer ${
+                    showGovernanceToggle || isDnc
+                      ? 'bg-rose-50 text-rose-700 border-rose-200'
+                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <span>{showGovernanceToggle || isDnc ? '−' : '+'} Governance / DNC</span>
                 </button>
               </div>
-
-              {whatsappDraft ? (
-                <div className="space-y-2 pt-1">
-                  <textarea
-                    value={whatsappDraft}
-                    onChange={(e) => setWhatsappDraft(e.target.value)}
-                    rows={3}
-                    className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl p-2.5 text-xs focus:outline-hidden font-sans"
-                  />
-                  <div className="flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={handleCopyAndSendWhatsapp}
-                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
-                    >
-                      {copiedWhatsapp ? <Check className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
-                      <span>{copiedWhatsapp ? 'Copied & Opening...' : 'Send via WhatsApp'}</span>
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-[11px] text-slate-500 italic">
-                  Click 'Generate Draft' to create a personalized WhatsApp follow-up based on your notes.
-                </p>
-              )}
             </div>
+
+            {/* DNC Opt-Out Checkbox (Collapsed behind + Governance / DNC toggle unless checked) */}
+            {(showGovernanceToggle || isDnc) && (
+              <div className="pt-1">
+                <label className="flex items-center gap-2.5 p-3 rounded-2xl bg-slate-50/70 border border-slate-200/80 cursor-pointer hover:bg-slate-100/70 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={isDnc}
+                    onChange={(e) => setIsDnc(e.target.checked)}
+                    className="rounded-md border-slate-300 bg-white text-rose-600 focus:ring-rose-500 h-4 w-4"
+                  />
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert className="h-4 w-4 text-rose-600 shrink-0" />
+                    <div>
+                      <span className="text-xs font-bold text-rose-700 block">
+                        Mark as Do-Not-Contact (DNC) / Opt-Out
+                      </span>
+                      <span className="text-[10px] text-slate-500 block">
+                        Suppresses contact from future dialer queues and outreach lists
+                      </span>
+                    </div>
+                  </div>
+                </label>
+              </div>
+            )}
+
+            {/* AI WhatsApp Draft Generator Section (Collapsed behind + WhatsApp Draft toggle unless populated) */}
+            {(showDraftAndPurposeToggle || Boolean(whatsappDraft)) && (
+              <div className="p-3.5 rounded-2xl bg-slate-50/70 border border-slate-200/80 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4 text-emerald-600" />
+                    <span className="text-xs font-bold text-slate-800">
+                      WhatsApp Follow-Up Draft
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleAiAssist('draft_whatsapp')}
+                    disabled={isDraftingWhatsapp || !notes.trim()}
+                    className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    {isDraftingWhatsapp ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-600" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
+                    )}
+                    <span>Generate Draft</span>
+                  </button>
+                </div>
+
+                {whatsappDraft ? (
+                  <div className="space-y-2 pt-1">
+                    <textarea
+                      value={whatsappDraft}
+                      onChange={(e) => setWhatsappDraft(e.target.value)}
+                      rows={3}
+                      className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-xl p-2.5 text-xs focus:outline-hidden font-sans"
+                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCopyAndSendWhatsapp}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+                      >
+                        {copiedWhatsapp ? <Check className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
+                        <span>{copiedWhatsapp ? 'Copied & Opening...' : 'Send via WhatsApp'}</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-500 italic">
+                    Click 'Generate Draft' to create a personalized WhatsApp follow-up based on your notes.
+                  </p>
+                )}
+              </div>
+            )}
 
             {aiError && (
               <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-between text-xs text-rose-700">

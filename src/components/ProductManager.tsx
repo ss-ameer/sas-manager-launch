@@ -1483,7 +1483,7 @@ export default function ProductManager({
                         ? [...vInfo.differentiatingAttributes, ...vInfo.sharedAttributes]
                         : (p.attributes || []);
                       const hasStructuredAttrs = orderedAttrs.length > 0;
-                      const visibleAttrs = orderedAttrs.slice(0, 3);
+                      const visibleAttrs = orderedAttrs.slice(0, 2);
                       const remainingAttrCount = Math.max(0, orderedAttrs.length - visibleAttrs.length);
                       const allSpecsTooltip = orderedAttrs.map((a) => `${a.key}: ${a.value || '—'}`).join(' • ');
 
@@ -1633,10 +1633,10 @@ export default function ProductManager({
                                     )}
                                   </div>
 
-                                  {/* Line 2: Either up to 3 compact spec pills (+N more) OR a single non-repeating subtitle line */}
+                                  {/* Line 2: Up to 2 compact spec pills (+N more) constrained within column width OR a single non-repeating subtitle line */}
                                   {hasStructuredAttrs ? (
                                     <div
-                                      className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap mt-1"
+                                      className="flex flex-wrap items-center gap-1 max-w-full overflow-hidden mt-1"
                                       title={allSpecsTooltip}
                                     >
                                       {visibleAttrs.map((attr, idx) => {
@@ -1646,7 +1646,7 @@ export default function ProductManager({
                                         return (
                                           <span
                                             key={idx}
-                                            className={`text-[10.5px] font-mono px-1.5 py-0.5 rounded border max-w-[160px] truncate shrink-0 ${
+                                            className={`text-[10.5px] font-mono px-1.5 py-0.5 rounded border max-w-[180px] truncate shrink-0 ${
                                               isDiff
                                                 ? 'font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60'
                                                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
@@ -1657,7 +1657,7 @@ export default function ProductManager({
                                         );
                                       })}
                                       {remainingAttrCount > 0 && (
-                                        <span className="text-[10.5px] font-mono text-slate-400 dark:text-slate-500 shrink-0">
+                                        <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/70 dark:border-slate-700 shrink-0">
                                           +{remainingAttrCount} more
                                         </span>
                                       )}
@@ -1989,7 +1989,7 @@ export default function ProductManager({
         {showFormModal && (
           <div
             id="product-form-modal"
-            className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4"
+            className="fixed inset-0 z-[100] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4"
           >
             <form
               onSubmit={handleSaveProduct}

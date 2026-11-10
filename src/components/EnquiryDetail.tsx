@@ -3259,7 +3259,7 @@ export default function EnquiryDetail({
   };
 
   return (
-    <div id="enquiry-detail-drawer" className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs z-50 flex justify-end">
+    <div id="enquiry-detail-drawer" className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs z-[90] flex justify-end">
       <div className={`w-full ${isExpandedWidth ? 'max-w-6xl xl:max-w-7xl' : 'max-w-4xl lg:max-w-5xl'} bg-white border-l border-slate-200 h-[100dvh] flex flex-col shadow-2xl relative transition-all duration-300 animate-in slide-in-from-right`}>
         
         {/* Two-Tier Sticky Header Block */}
@@ -3562,7 +3562,7 @@ export default function EnquiryDetail({
         </div>
 
         {/* Tab Selection with Live Counts */}
-        <div className="px-6 border-b border-slate-100 flex space-x-6 text-sm overflow-x-auto scrollbar-none shrink-0 bg-white">
+        <div className="px-6 border-b border-slate-200 dark:border-slate-800 flex space-x-6 text-sm overflow-x-auto scrollbar-none shrink-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs z-20 relative">
           {([
             { id: 'details', label: 'Details', count: null },
             { id: 'items', label: 'Line Items', count: (currentEnquiry.line_items || []).length },

@@ -19,7 +19,7 @@ export const PageBody: React.FC<PageBodyProps> = ({
   maxWidth = 'max-w-[1600px]',
 }) => {
   return (
-    <div className={`shrink-0 relative z-0 p-4 sm:p-6 lg:p-8 space-y-6 ${maxWidth} mx-auto w-full ${className}`}>
+    <div className={`shrink-0 p-4 sm:p-6 lg:p-8 space-y-6 ${maxWidth} mx-auto w-full ${className}`}>
       {children}
     </div>
   );

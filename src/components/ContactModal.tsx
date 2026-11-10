@@ -90,6 +90,8 @@ export default function ContactModal({
   const [handles, setHandles] = useState<LabeledHandle[]>([]);
   const [editingRestrictedLines, setEditingRestrictedLines] = useState<Record<string, 'DNC' | 'Invalid'>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [showHandlesSection, setShowHandlesSection] = useState(false);
+  const [showGovernanceSection, setShowGovernanceSection] = useState(false);
 
   const toggleRestriction = (val: string) => {
     const normKey = normalizePhoneKey(val);
@@ -228,6 +230,8 @@ export default function ContactModal({
         // Populate handles
         const existingHandles = getContactHandles(contact);
         setHandles(existingHandles.length > 0 ? existingHandles : []);
+        setShowHandlesSection(existingHandles.length > 0);
+        setShowGovernanceSection(Boolean(contact.is_dnc || (contact.dnc_reason && contact.dnc_reason.trim())));
 
         // Populate restricted lines
         if (contact.restricted_lines) {
@@ -255,6 +259,8 @@ export default function ContactModal({
         setCustomPhoneKeys({});
         setCustomEmailKeys({});
         setHandles([]);
+        setShowHandlesSection(false);
+        setShowGovernanceSection(false);
         setEditingRestrictedLines({});
       }
     }
@@ -550,7 +556,7 @@ export default function ContactModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-150"
+      className="fixed inset-0 z-[110] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-150"
       onClick={(e) => {
         e.stopPropagation();
         onClose();
@@ -589,13 +595,13 @@ export default function ContactModal({
         {/* Form Container */}
         <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden font-sans">
           {/* Scroll Body */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-slate-50/80 dark:bg-slate-950/70">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-slate-50/80 dark:bg-slate-950/70">
             {/* CHAPTER 1: PERSONNEL IDENTITY & COMPANY ASSOCIATION */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-5 shadow-2xs space-y-4">
-              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-4">
+              <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-100 dark:border-slate-800">
                 <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-mono font-bold text-xs shrink-0">1</span>
                 <div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Personnel Identity &amp; Company Association</h3>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Personnel Identity &amp; Company</h3>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">Full name, corporate designation, and associated account profile.</p>
                 </div>
               </div>
@@ -617,7 +623,7 @@ export default function ContactModal({
                     value={companyId}
                     disabled={isCompanyLocked}
                     onChange={(e) => setCompanyId(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans cursor-pointer disabled:bg-slate-100 dark:disabled:bg-slate-800/60 disabled:cursor-not-allowed disabled:text-slate-600 dark:disabled:text-slate-400"
+                    className="w-full px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans cursor-pointer disabled:bg-slate-100 dark:disabled:bg-slate-800/60 disabled:cursor-not-allowed disabled:text-slate-600 dark:disabled:text-slate-400"
                   >
                     {!companyId && !initialCompanyId && (
                       <option value="">(Unassigned / Independent Contact)</option>
@@ -641,7 +647,7 @@ export default function ContactModal({
               </div>
 
               {/* Full Name & Designation in 2-col Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
                   <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block mb-1.5">
                     Full Name <span className="text-rose-500 font-bold ml-0.5">*</span>
@@ -652,7 +658,7 @@ export default function ContactModal({
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="e.g. John Doe"
-                    className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
+                    className="w-full px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
                   />
                 </div>
 
@@ -665,12 +671,12 @@ export default function ContactModal({
                     value={designation}
                     onChange={(e) => setDesignation(e.target.value)}
                     placeholder="e.g. Procurement Manager"
-                    className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
+                    className="w-full px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm placeholder:text-slate-400 dark:placeholder:text-slate-500 not-italic focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans"
                   />
                 </div>
               </div>
 
-              <div className="pt-2">
+              <div className="pt-1">
                 <label className="flex items-center space-x-2.5 cursor-pointer">
                   <input
                     type="checkbox"
@@ -685,18 +691,18 @@ export default function ContactModal({
               </div>
             </div>
 
-            {/* CHAPTER 2: COMMUNICATION CHANNELS & MESSAGING */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-5 shadow-2xs space-y-4">
-              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
+            {/* CHAPTER 2: DIRECT PHONE & EMAIL CHANNELS */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-4">
+              <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-100 dark:border-slate-800">
                 <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-mono font-bold text-xs shrink-0">2</span>
                 <div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Communication Channels &amp; Messaging</h3>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Direct mobile lines, work email addresses, and instant messaging handles.</p>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Phone &amp; Email Channels</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Direct mobile lines and work email addresses.</p>
                 </div>
               </div>
 
               {/* Phones Section */}
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
                   <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
                     Phone Numbers
@@ -757,7 +763,7 @@ export default function ContactModal({
                             handlePhoneChange(idx, 'label', val);
                           }
                         }}
-                        className="w-28 sm:w-32 px-2.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0 cursor-pointer"
+                        className="w-24 sm:w-32 px-2.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0 cursor-pointer"
                       >
                         {PHONE_PRESETS.map((opt) => (
                           <option key={opt} value={opt}>
@@ -773,7 +779,7 @@ export default function ContactModal({
                           value={p.label === 'Custom...' ? '' : p.label}
                           onChange={(e) => handlePhoneChange(idx, 'label', e.target.value)}
                           placeholder="Tag (e.g. Operations Desk)"
-                          className="w-28 sm:w-36 px-2.5 py-2 text-xs border border-blue-400 dark:border-blue-500 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0"
+                          className="w-24 sm:w-36 px-2.5 py-2 text-xs border border-blue-400 dark:border-blue-500 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0"
                           autoFocus
                         />
                       )}
@@ -831,7 +837,7 @@ export default function ContactModal({
               </div>
 
               {/* Emails Section */}
-              <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <div className="space-y-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
                 <div className="flex items-center justify-between">
                   <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
                     Email Addresses
@@ -892,7 +898,7 @@ export default function ContactModal({
                             handleEmailChange(idx, 'label', val);
                           }
                         }}
-                        className="w-28 sm:w-32 px-2.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0 cursor-pointer"
+                        className="w-24 sm:w-32 px-2.5 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0 cursor-pointer"
                       >
                         {EMAIL_PRESETS.map((opt) => (
                           <option key={opt} value={opt}>
@@ -908,7 +914,7 @@ export default function ContactModal({
                           value={e.label === 'Custom...' ? '' : e.label}
                           onChange={(eVal) => handleEmailChange(idx, 'label', eVal.target.value)}
                           placeholder="Tag (e.g. Inquiries)"
-                          className="w-28 sm:w-36 px-2.5 py-2 text-xs border border-blue-400 dark:border-blue-500 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0"
+                          className="w-24 sm:w-36 px-2.5 py-2 text-xs border border-blue-400 dark:border-blue-500 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold shrink-0"
                           autoFocus
                         />
                       )}
@@ -964,9 +970,46 @@ export default function ContactModal({
                   );
                 })}
               </div>
+            </div>
 
-              {/* Messaging & Social Handles Section */}
-              <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+            {/* PROGRESSIVE DISCLOSURE BAR: ON-DEMAND SECTIONS */}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowHandlesSection((prev) => {
+                    const next = !prev;
+                    if (next && handles.length === 0) {
+                      setHandles([{ platform: 'WhatsApp', handle: '' }]);
+                    }
+                    return next;
+                  });
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer flex items-center gap-1.5 ${
+                  showHandlesSection
+                    ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200/90 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <span>{showHandlesSection ? '−' : '+'} Messaging &amp; Social Handles</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowGovernanceSection((prev) => !prev)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer flex items-center gap-1.5 ${
+                  showGovernanceSection
+                    ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200/90 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <span>{showGovernanceSection ? '−' : '+'} Outreach Governance &amp; DNC</span>
+              </button>
+            </div>
+
+            {/* ON-DEMAND SECTION: MESSAGING & SOCIAL HANDLES */}
+            {showHandlesSection && (
+              <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-3 animate-in fade-in duration-150">
                 <div className="flex items-center justify-between">
                   <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 block">
                     Messaging &amp; Social Handles
@@ -990,7 +1033,7 @@ export default function ContactModal({
                     <select
                       value={h.platform}
                       onChange={(e) => handleHandleChange(idx, 'platform', e.target.value)}
-                      className="w-32 px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium cursor-pointer"
+                      className="w-28 sm:w-32 px-3 py-2 text-xs border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium cursor-pointer"
                     >
                       <option value="WhatsApp">WhatsApp</option>
                       <option value="Telegram">Telegram</option>
@@ -1017,70 +1060,69 @@ export default function ContactModal({
                   </div>
                 ))}
               </div>
-            </div>
+            )}
 
-            {/* CHAPTER 3: OUTREACH GOVERNANCE & RESTRICTIONS */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-5 shadow-2xs space-y-4">
-              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
-                <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-mono font-bold text-xs shrink-0">3</span>
+            {/* ON-DEMAND SECTION: OUTREACH GOVERNANCE & RESTRICTIONS */}
+            {showGovernanceSection && (
+              <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-3 animate-in fade-in duration-150">
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Outreach Governance &amp; Restrictions</h3>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">Manage communication opt-outs, DNC restrictions, and audit notes.</p>
                 </div>
-              </div>
 
-              {/* Modern DNC Toggle & Alert Box */}
-              <div className={`p-4 rounded-xl border transition-all ${
-                isDnc
-                  ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/80 shadow-xs'
-                  : 'bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700'
-              }`}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center space-x-2.5">
-                    <div className={`p-1.5 rounded-lg shrink-0 ${isDnc ? 'bg-rose-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
-                      <ShieldAlert className="w-4 h-4" />
+                {/* Modern DNC Toggle & Alert Box */}
+                <div className={`p-4 rounded-xl border transition-all ${
+                  isDnc
+                    ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/80 shadow-xs'
+                    : 'bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700'
+                }`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center space-x-2.5">
+                      <div className={`p-1.5 rounded-lg shrink-0 ${isDnc ? 'bg-rose-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
+                        <ShieldAlert className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className={`text-xs font-bold block ${isDnc ? 'text-rose-900 dark:text-rose-200' : 'text-slate-800 dark:text-slate-200'}`}>
+                          Do Not Call (DNC) Restriction
+                        </span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 block leading-tight">
+                          {isDnc ? 'Contact is flagged for no direct outreach' : 'Allow direct communications and outreach'}
+                        </span>
+                      </div>
                     </div>
-                    <div>
-                      <span className={`text-xs font-bold block ${isDnc ? 'text-rose-900 dark:text-rose-200' : 'text-slate-800 dark:text-slate-200'}`}>
-                        Do Not Call (DNC) Restriction
-                      </span>
-                      <span className="text-[11px] text-slate-500 dark:text-slate-400 block leading-tight">
-                        {isDnc ? 'Contact is flagged for no direct outreach' : 'Allow direct communications and outreach'}
-                      </span>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsDnc(!isDnc)}
-                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      isDnc ? 'bg-rose-600' : 'bg-slate-300 dark:bg-slate-700'
-                    }`}
-                    title={isDnc ? 'Disable DNC restriction' : 'Enable DNC restriction'}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                        isDnc ? 'translate-x-5' : 'translate-x-0'
+                    <button
+                      type="button"
+                      onClick={() => setIsDnc(!isDnc)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        isDnc ? 'bg-rose-600' : 'bg-slate-300 dark:bg-slate-700'
                       }`}
-                    />
-                  </button>
-                </div>
-
-                {isDnc && (
-                  <div className="mt-3 pt-3 border-t border-rose-200 dark:border-rose-900/40">
-                    <label className="text-[11px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-300 block mb-1.5">
-                      DNC Reason / Notes
-                    </label>
-                    <input
-                      type="text"
-                      value={dncReason}
-                      onChange={(e) => setDncReason(e.target.value)}
-                      placeholder="e.g. Requested opt-out via email, Unsubscribed..."
-                      className="w-full px-3.5 py-2 text-xs border border-rose-300 dark:border-rose-800/80 bg-white dark:bg-slate-900 rounded-lg text-rose-900 dark:text-rose-100 placeholder:text-rose-400 dark:placeholder:text-rose-600 not-italic focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 outline-none font-medium transition-all"
-                    />
+                      title={isDnc ? 'Disable DNC restriction' : 'Enable DNC restriction'}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          isDnc ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
                   </div>
-                )}
+
+                  {isDnc && (
+                    <div className="mt-3 pt-3 border-t border-rose-200 dark:border-rose-900/40">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-300 block mb-1.5">
+                        DNC Reason / Notes
+                      </label>
+                      <input
+                        type="text"
+                        value={dncReason}
+                        onChange={(e) => setDncReason(e.target.value)}
+                        placeholder="e.g. Requested opt-out via email, Unsubscribed..."
+                        className="w-full px-3.5 py-2 text-xs border border-rose-300 dark:border-rose-800/80 bg-white dark:bg-slate-900 rounded-lg text-rose-900 dark:text-rose-100 placeholder:text-rose-400 dark:placeholder:text-rose-600 not-italic focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 outline-none font-medium transition-all"
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Harmonized Executive Sticky Footer */}

@@ -90,7 +90,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   };
 
   return (
-    <div className={`relative z-10 shrink-0 w-full px-4 py-3 sm:px-6 sm:py-4 lg:px-8 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs ${className}`}>
+    <div className={`relative shrink-0 w-full px-4 py-3 sm:px-6 sm:py-4 lg:px-8 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs ${className}`}>
       <div className={`${maxWidth} mx-auto w-full flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4`}>
         {/* Left Info Column with Mobile Hamburger & Secret 5-click trigger */}
         <div className="flex items-center space-x-3 sm:space-x-3.5 w-full sm:w-auto min-w-0">

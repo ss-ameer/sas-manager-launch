@@ -4273,9 +4273,165 @@ export default function CallLogManager({
               );
               })
             ) : (
-              <div className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xs overflow-x-auto lg:overflow-x-visible scrollbar-thin">
-                <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse text-xs font-sans text-slate-600 dark:text-slate-400">
-                  <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+              <div className="w-full space-y-2.5">
+                {/* MOBILE ACTIVITY CARDS (< 640px) */}
+                <div className="block sm:hidden space-y-2.5">
+                  {paginatedLogs.map((log, index) => {
+                    const { datePart, timePart } = formatActivityDateParts(log.date || log.createdAt);
+                    const companyNameStr = log.isInternalOps
+                      ? (log.title || 'Internal Task')
+                      : (getResolvedCompanyName(log) || 'Unlinked Account');
+                    const rawContact = (log.contact_name || (log as any).contactPerson || '').trim();
+                    const contactLabel = log.isInternalOps
+                      ? (log.requester || 'Internal Ops')
+                      : (rawContact && rawContact.toLowerCase() !== 'no contact person' ? rawContact : 'Company Mainline');
+                    const rawPhone = log.contact_phone && !log.contact_phone.includes('@') ? log.contact_phone : '';
+                    const cleanDigits = rawPhone.replace(/[^\d+]/g, '');
+                    const waDigits = rawPhone.replace(/[^\d]/g, '');
+                    const normStatus = normalizeStatusBadgeLabel(log.status, log.channel || log.interaction_type || 'Phone Call');
+                    const isConnected = normStatus === 'Connected' || normStatus === 'Sent' || isSuccessStatus(log.status) || isSuccessStatus(normStatus);
+                    const isFailed = normStatus === 'Invalid Number' || normStatus === 'Failed';
+                    const noteText = (log.requirement_notes || (log as any).notes || '').trim();
+
+                    return (
+                      <div
+                        key={log.id || `mob-log-${index}`}
+                        onClick={() => setSelectedDetailEntry(log)}
+                        className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 shadow-2xs space-y-2.5 active:bg-slate-50 dark:active:bg-slate-800/60 transition cursor-pointer"
+                      >
+                        {/* Top Row: Channel Badge, Status Badge & Timestamp */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 truncate">
+                              {log.isInternalOps ? (log.internalCategory || 'Internal Ops') : (log.channel === 'Message (WhatsApp/SMS)' ? 'WhatsApp' : (log.channel || 'Call'))}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border truncate ${
+                                isConnected
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                                  : isFailed
+                                  ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                                  : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                              }`}
+                            >
+                              {normStatus}
+                            </span>
+                          </div>
+                          <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400 shrink-0">
+                            {datePart}{timePart ? ` · ${timePart}` : ''}
+                          </span>
+                        </div>
+
+                        {/* Company & Contact Person */}
+                        <div>
+                          <div className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-snug line-clamp-1">
+                            {companyNameStr}
+                          </div>
+                          <div className="flex items-center justify-between gap-2 mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                            <span className="truncate font-medium">{contactLabel}</span>
+                            {log.outcome && (
+                              <span className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 truncate max-w-[160px]">
+                                {log.outcome}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* 2-Line Note Preview */}
+                        {noteText && (
+                          <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2 bg-slate-50 dark:bg-slate-800/60 px-2.5 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800">
+                            {noteText}
+                          </p>
+                        )}
+
+                        {/* Next Follow-up Pill if present */}
+                        {log.next_followup_date && (
+                          <div className="flex items-center gap-1.5 text-[11px] font-mono font-semibold text-amber-700 dark:text-amber-300 bg-amber-50/80 dark:bg-amber-950/40 px-2.5 py-1 rounded-lg border border-amber-200/80 dark:border-amber-800/60">
+                            <Clock className="w-3 h-3 shrink-0" />
+                            <span>Follow-up: {formatOverdueDisplayDate(log.next_followup_date)}</span>
+                          </div>
+                        )}
+
+                        {/* 3 Direct Actions: Call, WhatsApp, Log Follow-up */}
+                        <div
+                          className="grid grid-cols-3 gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-800"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {cleanDigits ? (
+                            <a
+                              href={`tel:${cleanDigits}`}
+                              className="h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 text-[11px] font-bold flex items-center justify-center gap-1"
+                            >
+                              <PhoneCall className="w-3 h-3 shrink-0" />
+                              <span>Call</span>
+                            </a>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled
+                              className="h-8 rounded-lg bg-slate-50 dark:bg-slate-800/40 text-slate-300 dark:text-slate-600 border border-slate-200/60 dark:border-slate-800 text-[11px] font-bold flex items-center justify-center gap-1 cursor-not-allowed"
+                            >
+                              <PhoneCall className="w-3 h-3 shrink-0" />
+                              <span>Call</span>
+                            </button>
+                          )}
+
+                          {waDigits ? (
+                            <a
+                              href={`https://wa.me/${waDigits}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="h-8 rounded-lg bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800/60 text-[11px] font-bold flex items-center justify-center gap-1"
+                            >
+                              <MessageSquare className="w-3 h-3 shrink-0" />
+                              <span>WhatsApp</span>
+                            </a>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled
+                              className="h-8 rounded-lg bg-slate-50 dark:bg-slate-800/40 text-slate-300 dark:text-slate-600 border border-slate-200/60 dark:border-slate-800 text-[11px] font-bold flex items-center justify-center gap-1 cursor-not-allowed"
+                            >
+                              <MessageSquare className="w-3 h-3 shrink-0" />
+                              <span>WhatsApp</span>
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingLog(null);
+                              setDrawerMode('log');
+                              if (onOpenActivityDrawer) {
+                                onOpenActivityDrawer({
+                                  channel: log.channel || 'Phone Call',
+                                  drawerMode: 'create',
+                                  companyId: log.company_id,
+                                  companyName: log.company_name,
+                                  contactId: log.contact_id,
+                                  contactName: log.contact_name,
+                                  contactPhone: log.contact_phone
+                                });
+                              } else {
+                                setIsActivityDrawerOpen(true);
+                              }
+                            }}
+                            className="h-8 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer"
+                          >
+                            <Plus className="w-3 h-3 shrink-0" />
+                            <span>Follow-up</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* DESKTOP ACTIVITY TABLE (>= 640px) */}
+                <div className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xs overflow-x-auto lg:overflow-x-visible scrollbar-thin">
+                  <div className="hidden sm:block">
+                    <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse text-xs font-sans text-slate-600 dark:text-slate-400">
+                      <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
                     {historyActivityType === 'internal' ? (
                       <tr>
                         {isMarkingMode && <th className="py-3 px-2 w-9 text-center bg-slate-50 dark:bg-slate-900"></th>}
@@ -4703,8 +4859,9 @@ export default function CallLogManager({
                         </React.Fragment>
                       );
                     })}
-                  </tbody>
-                </table>
+                    </tbody>
+                  </table>
+                </div>
                 {paginatedLogs.length > 0 && (() => {
                   const totalPages = itemsPerPage === 'All' ? 1 : Math.max(1, Math.ceil(totalItems / itemsPerPage));
                   const startIdx = totalItems === 0 ? 0 : Math.min((currentPage - 1) * (itemsPerPage === 'All' ? totalItems : itemsPerPage) + 1, totalItems);
@@ -4764,6 +4921,7 @@ export default function CallLogManager({
                     </div>
                   );
                 })()}
+                </div>
               </div>
             )}
             

@@ -19,7 +19,8 @@ import {
 } from '../types';
 import { getReferenceId } from '../utils/refId';
 import GoogleSearchButton from './common/GoogleSearchButton';
-import { PhoneCall, Building2, Edit, Trash2, Search, RotateCcw, Users2, Plus, Phone } from 'lucide-react';
+import { PhoneCall, Building2, Edit, Trash2, Search, RotateCcw, Users2, Plus, Phone, MessageSquare, Eye, FilePlus2 } from 'lucide-react';
+import { sanitizeWhatsAppNumber, getWhatsAppUrl } from '../utils/defaults';
 import {
   formatRelativeOutreachDate,
   CompanyOutreachSummary,
@@ -302,10 +303,13 @@ export interface CompaniesDirectoryTableProps {
   searchEvaluationMap: Map<string, CompanySearchMatchResult>;
   companyOutreachMap: Map<string, CompanyOutreachSummary>;
   paginationFooter?: React.ReactNode;
+  handleInitiate?: (payload: any) => void;
+  onCreateEnquiryForCompany?: (company: Company) => void;
 }
 
 /**
- * Standardized 2-line B2B SaaS Companies Directory Table with sticky opaque header and table-fixed layout.
+ * Standardized 2-line B2B SaaS Companies Directory Table with sticky opaque header, table-fixed layout,
+ * and adaptive mobile summary cards (< 640px).
  */
 export const CompaniesDirectoryTable: React.FC<CompaniesDirectoryTableProps> = ({
   paginatedCompanies,
@@ -318,273 +322,463 @@ export const CompaniesDirectoryTable: React.FC<CompaniesDirectoryTableProps> = (
   searchQuery,
   searchEvaluationMap,
   companyOutreachMap,
-  paginationFooter
+  paginationFooter,
+  handleInitiate,
+  onCreateEnquiryForCompany
 }) => {
   return (
-    <div className="w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
-      <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left text-xs border-collapse font-sans">
-        <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
-          <tr>
-            <th className="py-3 px-3.5 w-[9%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Ref ID</th>
-            <th className="py-3 px-3.5 w-[26%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Company & Location</th>
-            <th className="py-3 px-3.5 w-[18%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Industry / Type</th>
-            <th className="py-3 px-3.5 w-[13%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Relationship</th>
-            <th className="py-3 px-3.5 w-[16%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Contact Details</th>
-            <th className="py-3 px-3.5 w-[10%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Activity</th>
-            <th className="py-3 px-3.5 w-[105px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Action</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
-          {paginatedCompanies.map((c) => {
-            const isSelected = selectedCompanyId === c.id;
-            const linkCount = enquiries.filter((e) => e.company_id === c.id).length;
-            const relVal = c.relationship || 'Prospect';
-            const phones = getCompanyPhones(c);
-            const emails = getCompanyEmails(c);
-            const matchResult =
-              (c.id ? searchEvaluationMap.get(c.id) : null) ||
-              evaluateCompanySearch(c, searchQuery, companies, contacts);
-            const matchHint = matchResult.matchHint;
-            const outreach = (c.id ? companyOutreachMap.get(c.id) : null) || {
-              lastContactedAt: null,
-              lastContactedDateStr: null,
-              lastContactedChannel: null,
-              totalCompletedTouches: 0,
-              totalCalls: 0,
-              outreachCadence: 'never' as OutreachCadence
-            };
+    <div className="w-full space-y-3">
+      {/* MOBILE CARD LIST (< 640px) */}
+      <div className="block sm:hidden space-y-2.5">
+        {paginatedCompanies.map((c) => {
+          const isSelected = selectedCompanyId === c.id;
+          const refId = getReferenceId('CMP', c, companies);
+          const relVal = c.relationship || 'Prospect';
+          const phones = getCompanyPhones(c);
+          const linkedContacts = (contacts || []).filter((ct) => ct && ct.company_id === c.id && !ct.is_deleted);
+          const primaryContact = linkedContacts.find((ct) => ct.is_primary) || linkedContacts[0] || null;
+          const primaryPhone =
+            primaryContact?.mobile ||
+            primaryContact?.phone ||
+            phones[0]?.number ||
+            phones[0]?.value ||
+            c.general_phone ||
+            c.phone ||
+            '';
+          const cleanWa = sanitizeWhatsAppNumber(primaryPhone);
 
-            const rawSubType = formatSubTypeName(
-              (c as any).subType || c.business_type_raw || c.industry || c.industry_type
-            );
-            const isValidSubType = Boolean(
-              rawSubType &&
-                !/^none$/i.test(rawSubType) &&
-                !/to be added later/i.test(rawSubType) &&
-                !/^unspecified$/i.test(rawSubType)
-            );
-            const parentIndustryObj = c.industry_parent
-              ? getParentIndustry(c.industry_parent)
-              : undefined;
-            const hasIndustry = Boolean(isValidSubType || parentIndustryObj);
+          const effectiveDnc = Boolean(c.is_dnc || (c as any).dnc || c.temperature === 'DNC');
+          const rawTemp = effectiveDnc ? 'DNC' : c.temperature || 'Cold';
+          const tempNorm =
+            rawTemp.toLowerCase() === 'dnc'
+              ? 'DNC'
+              : rawTemp.toLowerCase() === 'hot'
+              ? 'Hot'
+              : rawTemp.toLowerCase() === 'warm'
+              ? 'Warm'
+              : 'Cold';
 
-            const relToneClass =
-              relVal === 'Client'
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
-                : relVal === 'Vendor' || relVal === 'Supplier'
-                ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800'
-                : relVal === 'Our Company'
-                ? 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-800'
-                : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800';
+          const relToneClass =
+            relVal === 'Client'
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
+              : relVal === 'Vendor' || relVal === 'Supplier'
+              ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800'
+              : relVal === 'Our Company'
+              ? 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-800'
+              : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800';
 
-            const effectiveDnc = Boolean(
-              c.is_dnc || (c as any).dnc || c.temperature === 'DNC'
-            );
-            const rawTemp = effectiveDnc ? 'DNC' : c.temperature || 'Cold';
-            const tempNorm =
-              rawTemp.toLowerCase() === 'dnc'
-                ? 'DNC'
-                : rawTemp.toLowerCase() === 'hot'
-                ? 'Hot'
-                : rawTemp.toLowerCase() === 'warm'
-                ? 'Warm'
-                : 'Cold';
-            const tempDotClass =
-              tempNorm === 'DNC'
-                ? 'bg-rose-600'
-                : tempNorm === 'Hot'
-                ? 'bg-rose-500'
-                : tempNorm === 'Warm'
-                ? 'bg-amber-500'
-                : 'bg-sky-400';
+          const tempToneClass =
+            tempNorm === 'DNC'
+              ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800'
+              : tempNorm === 'Hot'
+              ? 'bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800'
+              : tempNorm === 'Warm'
+              ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+              : 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800';
 
-            return (
-              <tr
-                key={c.id}
-                onClick={() => setSelectedCompanyId(c.id!)}
-                className={`cursor-pointer border-l-2 transition-colors group ${
-                  isSelected
-                    ? 'border-l-blue-600 bg-blue-50/50 dark:bg-blue-950/30'
-                    : 'border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 dark:hover:bg-slate-800/50'
-                }`}
+          return (
+            <div
+              key={c.id}
+              onClick={() => setSelectedCompanyId(c.id!)}
+              className={`rounded-2xl border p-3.5 bg-white dark:bg-slate-900 shadow-2xs transition cursor-pointer ${
+                isSelected
+                  ? 'border-blue-500 ring-2 ring-blue-500/15'
+                  : 'border-slate-200/90 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+              }`}
+            >
+              {/* Top Row: Code + Badges */}
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="font-mono text-[11px] font-bold text-blue-600 dark:text-blue-400">
+                    {refId}
+                  </span>
+                  {c.company_code && (
+                    <span className="px-1.5 py-0.5 rounded font-mono text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 uppercase">
+                      {c.company_code}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${relToneClass}`}>
+                    {relVal}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${tempToneClass}`}>
+                    {tempNorm}
+                  </span>
+                </div>
+              </div>
+
+              {/* Company Name & Location */}
+              <div className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-snug">
+                {c.display_name}
+              </div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-slate-500 dark:text-slate-400">
+                <span>📍 {c.city || 'Unknown City'}, {c.country || 'UAE'}</span>
+                {primaryContact && (
+                  <span className="text-slate-700 dark:text-slate-300 font-medium truncate">
+                    👤 {primaryContact.full_name}
+                  </span>
+                )}
+              </div>
+
+              {/* Quick Actions Bar */}
+              <div
+                className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 grid grid-cols-4 gap-1.5"
+                onClick={(e) => e.stopPropagation()}
               >
-                {/* 1. REF ID */}
-                <td className="py-2.5 px-3.5 font-mono text-xs font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap truncate align-middle">
-                  {getReferenceId('CMP', c, companies)}
-                </td>
+                <button
+                  type="button"
+                  onClick={() => setSelectedCompanyId(c.id!)}
+                  className="px-2 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center gap-1 transition cursor-pointer"
+                >
+                  <Eye className="w-3.5 h-3.5 shrink-0" />
+                  <span>Inspect</span>
+                </button>
 
-                {/* 2. COMPANY & LOCATION (Max 2 Lines) */}
-                <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span
-                      className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate"
-                      title={c.display_name}
-                    >
-                      {c.display_name}
-                    </span>
-                    {c.company_code && (
-                      <span className="px-1.5 py-0.5 rounded font-mono text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 uppercase shrink-0 leading-none">
-                        {c.company_code}
-                      </span>
-                    )}
-                    {c.isInternalCompany && (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0 leading-none">
-                        <span>Our Company</span>
-                      </span>
-                    )}
-                    <GoogleSearchButton
-                      companyName={c.display_name}
-                      location={c.city}
-                      size="xs"
-                      className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                    />
-                  </div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5 flex items-center gap-1.5 min-w-0">
-                    <span className="truncate">
-                      📍 {c.city || 'Unknown City'}, {c.country || 'UAE'}
-                    </span>
-                    {matchHint && (
-                      <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1.5 py-0.2 rounded truncate shrink-0">
-                        {matchHint.type === 'contact'
-                          ? `👤 ${matchHint.label}`
-                          : '📝 Notes'}
-                      </span>
-                    )}
-                  </div>
-                </td>
+                <button
+                  type="button"
+                  disabled={!primaryPhone || effectiveDnc}
+                  onClick={(e) => {
+                    if (!primaryPhone) return;
+                    if (handleInitiate) {
+                      handleInitiate({
+                        companyId: c.id,
+                        companyName: c.display_name,
+                        contactId: primaryContact?.id,
+                        contactName: primaryContact?.full_name,
+                        contactPhone: primaryPhone,
+                        channel: 'Call',
+                        externalUrl: `tel:${primaryPhone}`,
+                        e
+                      });
+                    } else {
+                      window.location.href = `tel:${primaryPhone}`;
+                    }
+                  }}
+                  className="px-2 py-1.5 rounded-lg text-[11px] font-semibold bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 flex items-center justify-center gap-1 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <PhoneCall className="w-3.5 h-3.5 shrink-0" />
+                  <span>Call</span>
+                </button>
 
-                {/* 3. INDUSTRY / TYPE */}
-                <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                  {hasIndustry ? (
-                    <div className="truncate max-w-full">
-                      <IndustryBadge
-                        company={{
-                          ...c,
-                          business_type_raw: isValidSubType
-                            ? rawSubType
-                            : parentIndustryObj?.label || ''
-                        }}
-                        className="max-w-full truncate"
+                <button
+                  type="button"
+                  disabled={!cleanWa || effectiveDnc}
+                  onClick={(e) => {
+                    if (!cleanWa) return;
+                    const waUrl = getWhatsAppUrl(cleanWa);
+                    if (handleInitiate) {
+                      handleInitiate({
+                        companyId: c.id,
+                        companyName: c.display_name,
+                        contactId: primaryContact?.id,
+                        contactName: primaryContact?.full_name,
+                        contactPhone: primaryPhone,
+                        channel: 'WhatsApp',
+                        externalUrl: waUrl,
+                        e
+                      });
+                    } else if (waUrl) {
+                      window.open(waUrl, '_blank', 'noopener,noreferrer');
+                    }
+                  }}
+                  className="px-2 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60 flex items-center justify-center gap-1 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+                  <span>WhatsApp</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onCreateEnquiryForCompany) {
+                      onCreateEnquiryForCompany(c);
+                    } else {
+                      setSelectedCompanyId(c.id!);
+                    }
+                  }}
+                  className="px-2 py-1.5 rounded-lg text-[11px] font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 flex items-center justify-center gap-1 transition cursor-pointer"
+                >
+                  <FilePlus2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>+ Enquiry</span>
+                </button>
+              </div>
+            </div>
+          );
+        })}
+        {paginationFooter && (
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
+            {paginationFooter}
+          </div>
+        )}
+      </div>
+
+      {/* DESKTOP TABLE (>= 640px) */}
+      <div className="hidden sm:block w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin relative bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs">
+        <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left text-xs border-collapse font-sans">
+          <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+            <tr>
+              <th className="py-3 px-3.5 w-[8%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Ref ID</th>
+              <th className="py-3 px-3.5 w-[31%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Company & Location</th>
+              <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Industry / Type</th>
+              <th className="py-3 px-3.5 w-[12%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Relationship</th>
+              <th className="py-3 px-3.5 w-[15%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Contact Details</th>
+              <th className="py-3 px-3.5 w-[10%] whitespace-nowrap truncate bg-slate-50 dark:bg-slate-900">Activity</th>
+              <th className="py-3 px-3.5 w-[95px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+            {paginatedCompanies.map((c) => {
+              const isSelected = selectedCompanyId === c.id;
+              const linkCount = enquiries.filter((e) => e.company_id === c.id).length;
+              const relVal = c.relationship || 'Prospect';
+              const phones = getCompanyPhones(c);
+              const emails = getCompanyEmails(c);
+              const matchResult =
+                (c.id ? searchEvaluationMap.get(c.id) : null) ||
+                evaluateCompanySearch(c, searchQuery, companies, contacts);
+              const matchHint = matchResult.matchHint;
+              const outreach = (c.id ? companyOutreachMap.get(c.id) : null) || {
+                lastContactedAt: null,
+                lastContactedDateStr: null,
+                lastContactedChannel: null,
+                totalCompletedTouches: 0,
+                totalCalls: 0,
+                outreachCadence: 'never' as OutreachCadence
+              };
+
+              const rawSubType = formatSubTypeName(
+                (c as any).subType || c.business_type_raw || c.industry || c.industry_type
+              );
+              const isValidSubType = Boolean(
+                rawSubType &&
+                  !/^none$/i.test(rawSubType) &&
+                  !/to be added later/i.test(rawSubType) &&
+                  !/^unspecified$/i.test(rawSubType)
+              );
+              const parentIndustryObj = c.industry_parent
+                ? getParentIndustry(c.industry_parent)
+                : undefined;
+              const hasIndustry = Boolean(isValidSubType || parentIndustryObj);
+
+              const relToneClass =
+                relVal === 'Client'
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
+                  : relVal === 'Vendor' || relVal === 'Supplier'
+                  ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800'
+                  : relVal === 'Our Company'
+                  ? 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-800'
+                  : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800';
+
+              const effectiveDnc = Boolean(
+                c.is_dnc || (c as any).dnc || c.temperature === 'DNC'
+              );
+              const rawTemp = effectiveDnc ? 'DNC' : c.temperature || 'Cold';
+              const tempNorm =
+                rawTemp.toLowerCase() === 'dnc'
+                  ? 'DNC'
+                  : rawTemp.toLowerCase() === 'hot'
+                  ? 'Hot'
+                  : rawTemp.toLowerCase() === 'warm'
+                  ? 'Warm'
+                  : 'Cold';
+              const tempDotClass =
+                tempNorm === 'DNC'
+                  ? 'bg-rose-600'
+                  : tempNorm === 'Hot'
+                  ? 'bg-rose-500'
+                  : tempNorm === 'Warm'
+                  ? 'bg-amber-500'
+                  : 'bg-sky-400';
+
+              return (
+                <tr
+                  key={c.id}
+                  onClick={() => setSelectedCompanyId(c.id!)}
+                  className={`cursor-pointer border-l-2 transition-colors group ${
+                    isSelected
+                      ? 'border-l-blue-600 bg-blue-50/50 dark:bg-blue-950/30'
+                      : 'border-l-transparent hover:border-l-blue-500 hover:bg-slate-50/80 dark:hover:bg-slate-800/50'
+                  }`}
+                >
+                  {/* 1. REF ID */}
+                  <td className="py-2.5 px-3.5 font-mono text-xs font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap truncate align-middle">
+                    {getReferenceId('CMP', c, companies)}
+                  </td>
+
+                  {/* 2. COMPANY & LOCATION (Max 2 Lines) */}
+                  <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span
+                        className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate"
+                        title={c.display_name}
+                      >
+                        {c.display_name}
+                      </span>
+                      {c.company_code && (
+                        <span className="px-1.5 py-0.5 rounded font-mono text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 uppercase shrink-0 leading-none">
+                          {c.company_code}
+                        </span>
+                      )}
+                      {c.isInternalCompany && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0 leading-none">
+                          <span>Our Company</span>
+                        </span>
+                      )}
+                      <GoogleSearchButton
+                        companyName={c.display_name}
+                        location={c.city}
+                        size="xs"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                       />
                     </div>
-                  ) : (
-                    <UnassignedIndustryPill />
-                  )}
-                </td>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5 flex items-center gap-1.5 min-w-0">
+                      <span className="truncate">
+                        📍 {c.city || 'Unknown City'}, {c.country || 'UAE'}
+                      </span>
+                      {matchHint && (
+                        <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1.5 py-0.2 rounded truncate shrink-0">
+                          {matchHint.type === 'contact'
+                            ? `👤 ${matchHint.label}`
+                            : '📝 Notes'}
+                        </span>
+                      )}
+                    </div>
+                  </td>
 
-                {/* 4. RELATIONSHIP (Max 2 Lines: Pill + Quiet 6px Dot Temp) */}
-                <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                  <div className="flex flex-col items-start gap-1 min-w-0">
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[11px] font-medium border truncate max-w-full leading-tight ${relToneClass}`}
-                    >
-                      {relVal}
-                    </span>
+                  {/* 3. INDUSTRY / TYPE */}
+                  <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                    {hasIndustry ? (
+                      <div className="truncate max-w-full">
+                        <IndustryBadge
+                          company={{
+                            ...c,
+                            business_type_raw: isValidSubType
+                              ? rawSubType
+                              : parentIndustryObj?.label || ''
+                          }}
+                          className="max-w-full truncate"
+                        />
+                      </div>
+                    ) : (
+                      <UnassignedIndustryPill />
+                    )}
+                  </td>
+
+                  {/* 4. RELATIONSHIP (Max 2 Lines: Pill + Quiet 6px Dot Temp) */}
+                  <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                    <div className="flex flex-col items-start gap-1 min-w-0">
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[11px] font-medium border truncate max-w-full leading-tight ${relToneClass}`}
+                      >
+                        {relVal}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (c.id) {
+                            cycleCompanyTemperature(
+                              c.id,
+                              c.temperature || 'Cold',
+                              effectiveDnc,
+                              {
+                                companies,
+                                setCompanies
+                              }
+                            );
+                          }
+                        }}
+                        title={`Account temperature: ${tempNorm} (Click to cycle)`}
+                        className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition truncate max-w-full cursor-pointer"
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full shrink-0 ${tempDotClass}`}
+                        />
+                        <span className="truncate">{tempNorm}</span>
+                      </button>
+                    </div>
+                  </td>
+
+                  {/* 5. CONTACT DETAILS (Max 2 Lines or Single Quiet Fallback) */}
+                  <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                    {phones.length === 0 && emails.length === 0 ? (
+                      <div className="text-xs text-slate-400 dark:text-slate-500 italic truncate">
+                        No contact info
+                      </div>
+                    ) : (
+                      <div className="flex flex-col min-w-0">
+                        {phones.length > 0 && (
+                          <div
+                            className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate font-mono"
+                            title={phones[0].number}
+                          >
+                            {phones[0].number}
+                          </div>
+                        )}
+                        {emails.length > 0 && (
+                          <div
+                            className={`text-[11px] text-slate-500 dark:text-slate-400 truncate font-mono ${
+                              phones.length > 0 ? 'mt-0.5' : ''
+                            }`}
+                            title={emails[0].email}
+                          >
+                            {emails[0].email}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </td>
+
+                  {/* 6. ACTIVITY (Max 2 Lines) */}
+                  <td className="py-2.5 px-3.5 align-middle overflow-hidden">
+                    <div className="flex flex-col min-w-0">
+                      <div
+                        className="text-xs font-medium text-slate-600 dark:text-slate-300 truncate"
+                        title={
+                          outreach.outreachCadence === 'never' ||
+                          !outreach.lastContactedAt
+                            ? 'No completed outreach or activity logs found for this account'
+                            : `Last contacted on ${new Date(
+                                outreach.lastContactedAt
+                              ).toLocaleString()}${
+                                outreach.lastContactedChannel
+                                  ? ` via ${outreach.lastContactedChannel}`
+                                  : ''
+                              }`
+                        }
+                      >
+                        {outreach.outreachCadence === 'never' ||
+                        !outreach.lastContactedAt
+                          ? 'Never Contacted'
+                          : formatRelativeOutreachDate(outreach.lastContactedAt)}
+                      </div>
+                      <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
+                        {outreach.totalCalls} Calls · {linkCount} Enquiries
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* 7. ACTION */}
+                  <td className="py-2.5 px-3.5 w-[95px] text-right whitespace-nowrap align-middle">
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (c.id) {
-                          cycleCompanyTemperature(
-                            c.id,
-                            c.temperature || 'Cold',
-                            effectiveDnc,
-                            {
-                              companies,
-                              setCompanies
-                            }
-                          );
-                        }
+                        setSelectedCompanyId(c.id!);
                       }}
-                      title={`Account temperature: ${tempNorm} (Click to cycle)`}
-                      className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition truncate max-w-full cursor-pointer"
+                      className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center justify-center cursor-pointer"
                     >
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${tempDotClass}`}
-                      />
-                      <span className="truncate">{tempNorm}</span>
+                      {isSelected ? 'Inspecting' : 'Inspect'}
                     </button>
-                  </div>
-                </td>
-
-                {/* 5. CONTACT DETAILS (Max 2 Lines or Single Quiet Fallback) */}
-                <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                  {phones.length === 0 && emails.length === 0 ? (
-                    <div className="text-xs text-slate-400 dark:text-slate-500 italic truncate">
-                      No contact info
-                    </div>
-                  ) : (
-                    <div className="flex flex-col min-w-0">
-                      {phones.length > 0 && (
-                        <div
-                          className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate font-mono"
-                          title={phones[0].number}
-                        >
-                          {phones[0].number}
-                        </div>
-                      )}
-                      {emails.length > 0 && (
-                        <div
-                          className={`text-[11px] text-slate-500 dark:text-slate-400 truncate font-mono ${
-                            phones.length > 0 ? 'mt-0.5' : ''
-                          }`}
-                          title={emails[0].email}
-                        >
-                          {emails[0].email}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </td>
-
-                {/* 6. ACTIVITY (Max 2 Lines) */}
-                <td className="py-2.5 px-3.5 align-middle overflow-hidden">
-                  <div className="flex flex-col min-w-0">
-                    <div
-                      className="text-xs font-medium text-slate-600 dark:text-slate-300 truncate"
-                      title={
-                        outreach.outreachCadence === 'never' ||
-                        !outreach.lastContactedAt
-                          ? 'No completed outreach or activity logs found for this account'
-                          : `Last contacted on ${new Date(
-                              outreach.lastContactedAt
-                            ).toLocaleString()}${
-                              outreach.lastContactedChannel
-                                ? ` via ${outreach.lastContactedChannel}`
-                                : ''
-                            }`
-                      }
-                    >
-                      {outreach.outreachCadence === 'never' ||
-                      !outreach.lastContactedAt
-                        ? 'Never Contacted'
-                        : formatRelativeOutreachDate(outreach.lastContactedAt)}
-                    </div>
-                    <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
-                      {outreach.totalCalls} Calls · {linkCount} Enquiries
-                    </div>
-                  </div>
-                </td>
-
-                {/* 7. ACTION */}
-                <td className="py-2.5 px-3.5 w-[105px] text-right whitespace-nowrap align-middle">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedCompanyId(c.id!);
-                    }}
-                    className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center justify-center cursor-pointer"
-                  >
-                    {isSelected ? 'Inspecting' : 'Inspect'}
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      {paginationFooter}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {paginationFooter}
+      </div>
     </div>
   );
 };

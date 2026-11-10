@@ -1047,7 +1047,7 @@ export default function SalespersonProfiles({
             </div>
           </div>
 
-          <div className="flex items-center gap-3 overflow-x-auto pb-2 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
             {deduplicatedSalespersons.map((s, idx) => {
               const m = getSalespersonMetrics(s);
               const isSelected = Boolean(
@@ -1062,7 +1062,7 @@ export default function SalespersonProfiles({
                   key={s.id || `${s.initials}-${s.full_name}-${idx}`}
                   type="button"
                   onClick={() => setSelectedSalespersonId(s.id || s.initials || null)}
-                  className={`min-w-[235px] sm:min-w-[255px] shrink-0 flex items-center justify-between gap-3.5 px-3.5 py-2.5 rounded-xl border text-left transition duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 ${
+                  className={`w-full flex items-center justify-between gap-3.5 px-3.5 py-2.5 rounded-xl border text-left transition duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 ${
                     isSelected
                       ? 'bg-blue-50/90 dark:bg-blue-950/50 border-blue-300 dark:border-blue-700 text-slate-950 dark:text-white shadow-xs ring-1 ring-blue-500/20'
                       : 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/70 hover:border-slate-300 dark:hover:border-slate-700 text-slate-700 dark:text-slate-300'
@@ -1122,7 +1122,7 @@ export default function SalespersonProfiles({
               <button
                 type="button"
                 onClick={openAddModal}
-                className="shrink-0 h-[58px] px-4 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/50 hover:bg-blue-50/50 dark:hover:bg-blue-950/30 hover:border-blue-300 dark:hover:border-blue-700 text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 text-xs font-semibold transition inline-flex items-center gap-2 cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50"
+                className="w-full min-h-[58px] px-4 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/50 hover:bg-blue-50/50 dark:hover:bg-blue-950/30 hover:border-blue-300 dark:hover:border-blue-700 text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 text-xs font-semibold transition flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50"
               >
                 <Plus className="w-4 h-4 shrink-0" />
                 <span>Add Member</span>
