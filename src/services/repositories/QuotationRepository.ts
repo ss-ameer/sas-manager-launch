@@ -12,6 +12,12 @@ import {
 import { safeGetDocs, safeGetDoc, safeSetDoc, safeAddDoc, safeUpdateDoc, safeDeleteDoc, db } from '../../firebase';
 import { getFromLocalStore, saveToLocalStore } from '../db';
 import { where, orderBy, doc, collection, query, onSnapshot } from 'firebase/firestore';
+import {
+  offloadDataUriToLocalStore,
+  rehydrateDocumentBlobsSync,
+  rehydrateDocumentBlobsFromLocal,
+  INLINE_DATA_URI_MAX_BYTES
+} from '../attachmentStorage';
 
 export const DEFAULT_QUOTATION_BLOCKS: QuotationBlockConfig[] = [
   { id: 'terms', type: 'terms', title: 'Commercial Terms & Conditions', is_visible: true, enabled: true, placement: 'left', width: '50', style: 'framed', fontScale: 'standard', padding: 'standard', order: 1 },
@@ -328,7 +334,14 @@ export class QuotationRepository {
         }
       : undefined;
 
-    return {
+    const resolvedLogoUrl = data.company_logo_url || data.header_config?.logoUrl;
+    const resolvedSealUrl = data.company_seal_url || data.footer_config?.companySealUrl;
+    const resolvedSignatureUrl =
+      data.signature_image_url ||
+      (Array.isArray(data.signatories) && data.signatories[0]?.signature_url) ||
+      data.footer_config?.signatureImageUrl;
+
+    return rehydrateDocumentBlobsSync({
       ...data,
       id: id || data.id,
       workspace_id: wsId,
@@ -338,6 +351,19 @@ export class QuotationRepository {
       quote_number: resolvedQuoteNumber,
       subject: resolvedSubject,
       quotation_subject: data.quotation_subject || resolvedSubject,
+      company_logo_url: resolvedLogoUrl,
+      company_seal_url: resolvedSealUrl,
+      signature_image_url: resolvedSignatureUrl,
+      header_config: data.header_config
+        ? { ...data.header_config, logoUrl: data.header_config.logoUrl || resolvedLogoUrl }
+        : resolvedLogoUrl
+        ? { logoUrl: resolvedLogoUrl }
+        : undefined,
+      footer_config: data.footer_config
+        ? { ...data.footer_config, companySealUrl: data.footer_config.companySealUrl || resolvedSealUrl }
+        : resolvedSealUrl
+        ? { companySealUrl: resolvedSealUrl }
+        : undefined,
       delivery_metadata: data.delivery_metadata ? { ...data.delivery_metadata } : undefined,
       purchase_order_metadata: normalizedPoMeta,
       receipt_metadata: data.receipt_metadata ? { ...data.receipt_metadata } : undefined,
@@ -372,7 +398,7 @@ export class QuotationRepository {
       deleted_by_id: data.deleted_by_id || null,
       deleted_by_name: data.deleted_by_name || null,
       created_at: data.created_at || new Date().toISOString()
-    } as Quotation;
+    } as Quotation);
   }
 
   /**
@@ -625,57 +651,125 @@ export class QuotationRepository {
 
   /**
    * Pre-save payload safeguard that guarantees any Quotation, QuotationPreset, or WorkspaceDocumentProfile
-   * stays strictly below Firestore's 1,048,576 byte limit (targeting <= 900,000 bytes).
+   * stays strictly compact for Firestore Enterprise 4 KiB read billing (targeting <= 48,000 bytes / <= 12 Read Units).
    * CRITICAL (DEF-10): Never slice a Base64 `data:image/...;base64,...` string mid-stream, as truncating
-   * Base64 data produces invalid/corrupted binary image streams. Instead, keep brand assets intact and
-   * omit oversized inline flyer data URIs only when the total payload exceeds `maxBytes`.
+   * Base64 data produces invalid/corrupted binary image streams. Instead, deduplicate redundant brand assets
+   * and offload inline flyer/line-item data URIs into IndexedDB via `offloadDataUriToLocalStore`.
    */
-  public static sanitizePayloadForFirestoreLimit<T>(payload: T, maxBytes: number = 900000): T {
+  public static sanitizePayloadForFirestoreLimit<T>(payload: T, maxBytes: number = 48000): T {
     if (!payload || typeof payload !== 'object') return payload;
-    let currentBytes = this.estimatePayloadBytes(payload);
-    if (currentBytes <= maxBytes) return payload;
 
     const clone: any = JSON.parse(JSON.stringify(payload));
+    const docHint = clone.id || clone.quote_number || 'quote';
 
-    // Pass 1: If flyer_attachments contain oversized inline data: URIs pushing payload over maxBytes,
-    // clear the largest inline data: URIs one by one (without slicing mid-stream) until under budget.
-    if (Array.isArray(clone.flyer_attachments) && clone.flyer_attachments.length > 0) {
-      const indexedFlyers = clone.flyer_attachments
-        .map((att: any, idx: number) => ({
-          idx,
-          len: att && typeof att.url === 'string' && att.url.startsWith('data:') ? att.url.length : 0
-        }))
-        .filter((item: { idx: number; len: number }) => item.len > 0)
-        .sort((a: { idx: number; len: number }, b: { idx: number; len: number }) => b.len - a.len);
-
-      for (const item of indexedFlyers) {
-        if (this.estimatePayloadBytes(clone) <= maxBytes) break;
-        clone.flyer_attachments[item.idx] = {
-          ...clone.flyer_attachments[item.idx],
-          url: ''
-        };
-      }
+    // Always deduplicate redundant top-level vs nested brand asset data URIs
+    if (
+      clone.header_config?.logoUrl &&
+      clone.company_logo_url &&
+      String(clone.company_logo_url).startsWith('data:')
+    ) {
+      delete clone.company_logo_url;
+    }
+    if (
+      clone.footer_config?.companySealUrl &&
+      clone.company_seal_url &&
+      String(clone.company_seal_url).startsWith('data:')
+    ) {
+      delete clone.company_seal_url;
+    }
+    if (
+      clone.signature_image_url &&
+      String(clone.signature_image_url).startsWith('data:') &&
+      ((Array.isArray(clone.signatories) && clone.signatories[0]?.signature_url) ||
+        clone.footer_config?.signatureImageUrl)
+    ) {
+      delete clone.signature_image_url;
     }
 
-    // Pass 2: Deduplicate redundant duplicate top-level vs nested brand asset data URIs if still over maxBytes
-    currentBytes = this.estimatePayloadBytes(clone);
-    if (currentBytes > maxBytes) {
-      if (
-        clone.header_config?.logoUrl &&
-        clone.company_logo_url &&
-        clone.header_config.logoUrl === clone.company_logo_url &&
-        String(clone.company_logo_url).startsWith('data:')
-      ) {
-        delete clone.company_logo_url;
-      }
-      if (
-        clone.footer_config?.companySealUrl &&
-        clone.company_seal_url &&
-        clone.footer_config.companySealUrl === clone.company_seal_url &&
-        String(clone.company_seal_url).startsWith('data:')
-      ) {
-        delete clone.company_seal_url;
-      }
+    // Always offload flyer_attachments inline data: URIs to local IndexedDB store so Firestore documents never carry PDF/image blobs
+    if (Array.isArray(clone.flyer_attachments) && clone.flyer_attachments.length > 0) {
+      clone.flyer_attachments = clone.flyer_attachments.map((att: any, idx: number) => {
+        if (!att || typeof att !== 'object') return att;
+        const copy = { ...att };
+        if (typeof copy.url === 'string' && copy.url.startsWith('data:')) {
+          const storageKey = offloadDataUriToLocalStore(copy.url, copy.id || `${docHint}_flyer_${idx}`);
+          copy.storage_key = copy.storage_key || storageKey;
+          copy.is_local_only = true;
+          copy.url = '';
+        }
+        if (typeof copy.dataUrl === 'string' && copy.dataUrl.startsWith('data:')) {
+          const storageKey = offloadDataUriToLocalStore(copy.dataUrl, copy.id || `${docHint}_flyer_data_${idx}`);
+          copy.storage_key = copy.storage_key || storageKey;
+          copy.is_local_only = true;
+          copy.dataUrl = '';
+        }
+        if (Array.isArray(copy.renderedPages)) {
+          copy.renderedPages = copy.renderedPages.map((pg: any, pIdx: number) => {
+            if (typeof pg === 'string' && pg.startsWith('data:')) {
+              offloadDataUriToLocalStore(pg, `${copy.id || docHint}_page_${pIdx}`);
+              return '';
+            }
+            if (pg && typeof pg === 'object' && typeof pg.dataUrl === 'string' && pg.dataUrl.startsWith('data:')) {
+              const pageKey = offloadDataUriToLocalStore(pg.dataUrl, `${copy.id || docHint}_page_${pIdx}`);
+              return { ...pg, storage_key: pageKey, dataUrl: '' };
+            }
+            return pg;
+          });
+        }
+        if (Array.isArray(copy.rendered_pages)) {
+          copy.rendered_pages = copy.rendered_pages.map((pg: any, pIdx: number) => {
+            if (typeof pg === 'string' && pg.startsWith('data:')) {
+              offloadDataUriToLocalStore(pg, `${copy.id || docHint}_rpage_${pIdx}`);
+              return '';
+            }
+            if (pg && typeof pg === 'object' && typeof pg.dataUrl === 'string' && pg.dataUrl.startsWith('data:')) {
+              const pageKey = offloadDataUriToLocalStore(pg.dataUrl, `${copy.id || docHint}_rpage_${pIdx}`);
+              return { ...pg, storage_key: pageKey, dataUrl: '' };
+            }
+            return pg;
+          });
+        }
+        return copy;
+      });
+    }
+
+    // Offload oversized line_items data: URIs (> 16 KB) or any catalog-linked product media
+    if (Array.isArray(clone.line_items) && clone.line_items.length > 0) {
+      clone.line_items = clone.line_items.map((item: any, idx: number) => {
+        if (!item || typeof item !== 'object') return item;
+        const itemCopy = { ...item };
+        const hasCatalogProduct = Boolean(itemCopy.product_id && String(itemCopy.product_id).trim());
+        for (const field of ['image_url', 'secondary_image_url', 'datasheet_url'] as const) {
+          const val = itemCopy[field];
+          if (typeof val === 'string' && val.startsWith('data:')) {
+            if (hasCatalogProduct) {
+              delete itemCopy[field];
+            } else if (val.length > INLINE_DATA_URI_MAX_BYTES) {
+              const key = offloadDataUriToLocalStore(val, `${itemCopy.id || docHint}_${field}_${idx}`);
+              itemCopy[`${field}_storage_key`] = key;
+              itemCopy[field] = '';
+            }
+          }
+        }
+        return itemCopy;
+      });
+    }
+
+    // If still above maxBytes (48 KB), offload remaining non-critical inline data URIs in line_items
+    if (this.estimatePayloadBytes(clone) > maxBytes && Array.isArray(clone.line_items)) {
+      clone.line_items = clone.line_items.map((item: any, idx: number) => {
+        if (!item || typeof item !== 'object') return item;
+        const itemCopy = { ...item };
+        for (const field of ['image_url', 'secondary_image_url', 'datasheet_url'] as const) {
+          const val = itemCopy[field];
+          if (typeof val === 'string' && val.startsWith('data:')) {
+            const key = offloadDataUriToLocalStore(val, `${itemCopy.id || docHint}_${field}_${idx}`);
+            itemCopy[`${field}_storage_key`] = key;
+            itemCopy[field] = '';
+          }
+        }
+        return itemCopy;
+      });
     }
 
     return clone as T;
@@ -1108,16 +1202,21 @@ export class QuotationRepository {
           (r) => !r.document_type || r.document_type === 'quotation'
         );
         if (existingRevisions.length > 1) {
+          const originalMap = new Map(existingRevisions.map((r) => [r.id, r]));
           const updatedChain = this.markPreviousRevisionsSuperseded(
             existingRevisions,
             quotation.id
           );
           for (const rev of updatedChain) {
+            const orig = rev.id ? originalMap.get(rev.id) : undefined;
+            const alreadySuperseded =
+              orig?.status === 'Superseded' && orig?.superseded_by_id === quotation.id;
             if (
               rev.id &&
               rev.id !== quotation.id &&
               rev.status === 'Superseded' &&
-              rev.superseded_by_id === quotation.id
+              rev.superseded_by_id === quotation.id &&
+              !alreadySuperseded
             ) {
               await this.updateQuotation(rev.id, {
                 status: 'Superseded',
@@ -1130,16 +1229,29 @@ export class QuotationRepository {
       } catch (_) {}
 
       try {
-        await safeUpdateDoc('enquiries', quotation.enquiry_id, {
-          active_quotation_id: syncPayload.active_quotation_id,
-          latest_quote_ref: syncPayload.latest_quote_ref,
-          quote_ref_no: syncPayload.latest_quote_ref,
-          quoted_amount: syncPayload.quoted_amount,
-          value_aed: syncPayload.quoted_amount,
-          quotation_status: syncPayload.quotation_status,
-          latest_revision_number: syncPayload.latest_revision_number,
-          updated_at: now
-        });
+        const localEnquiries = (await getFromLocalStore<any>('enquiries')) || [];
+        const existingEnquiry = localEnquiries.find((e: any) => e.id === quotation.enquiry_id);
+        const isUnchanged =
+          existingEnquiry &&
+          existingEnquiry.active_quotation_id === syncPayload.active_quotation_id &&
+          existingEnquiry.latest_quote_ref === syncPayload.latest_quote_ref &&
+          Number(existingEnquiry.quoted_amount ?? 0) === Number(syncPayload.quoted_amount ?? 0) &&
+          existingEnquiry.quotation_status === syncPayload.quotation_status &&
+          Number(existingEnquiry.latest_revision_number ?? 0) ===
+            Number(syncPayload.latest_revision_number ?? 0);
+
+        if (!isUnchanged) {
+          await safeUpdateDoc('enquiries', quotation.enquiry_id, {
+            active_quotation_id: syncPayload.active_quotation_id,
+            latest_quote_ref: syncPayload.latest_quote_ref,
+            quote_ref_no: syncPayload.latest_quote_ref,
+            quoted_amount: syncPayload.quoted_amount,
+            value_aed: syncPayload.quoted_amount,
+            quotation_status: syncPayload.quotation_status,
+            latest_revision_number: syncPayload.latest_revision_number,
+            updated_at: now
+          });
+        }
       } catch (_) {}
     }
 
@@ -1164,18 +1276,22 @@ export class QuotationRepository {
   public static docToPreset(id: string, data: any): QuotationPreset {
     if (!data) return { id, document_type: 'quotation' } as QuotationPreset;
     const wsId = data.workspace_id || data.workspaceId || 'ws_default';
-    return {
+    const resolvedLogoUrl = data.company_logo_url || data.header_config?.logoUrl;
+    const resolvedSealUrl = data.company_seal_url || data.footer_config?.companySealUrl;
+    return rehydrateDocumentBlobsSync({
       ...data,
       id: id || data.id,
       workspace_id: wsId,
       workspaceId: wsId,
       document_type: this.inferPresetDocumentType(data),
+      company_logo_url: resolvedLogoUrl,
+      company_seal_url: resolvedSealUrl,
       is_default: Boolean(data.is_default),
       visible_columns: data.visible_columns || {},
       default_tax_mode: data.default_tax_mode || 'taxes_extra',
       default_validity_days: typeof data.default_validity_days === 'number' ? data.default_validity_days : 30,
       signatory_mode: data.signatory_mode || 'single'
-    } as QuotationPreset;
+    } as QuotationPreset);
   }
 
   /**
@@ -2060,13 +2176,17 @@ export class QuotationRepository {
     try {
       const localItems = await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE);
       const match = (localItems || []).find((q) => q.id === id);
-      if (match) return this.docToQuotation(match.id!, match);
+      if (match) {
+        const normalized = this.docToQuotation(match.id!, match);
+        return await rehydrateDocumentBlobsFromLocal(normalized);
+      }
     } catch (_) {}
 
     try {
       const snap = await safeGetDoc('quotations', id);
       if (snap && snap.exists()) {
-        return this.docToQuotation(snap.id, snap.data());
+        const normalized = this.docToQuotation(snap.id, snap.data());
+        return await rehydrateDocumentBlobsFromLocal(normalized);
       }
     } catch (_) {}
 
@@ -2228,6 +2348,16 @@ export class QuotationRepository {
         .catch(() => {});
     }
 
+    // Tear down any listener belonging to a previous/different workspaceId when switching workspaces
+    for (const [otherWsId, otherUnsub] of this.activeSnapshotUnsubs.entries()) {
+      if (otherWsId !== wsId) {
+        this.activeSnapshotUnsubs.delete(otherWsId);
+        try {
+          otherUnsub();
+        } catch (_) {}
+      }
+    }
+
     if (!isQuotaSaver && db && !this.activeSnapshotUnsubs.has(wsId)) {
       try {
         const q = query(collection(db, 'quotations'), where('workspace_id', '==', wsId));
@@ -2237,9 +2367,23 @@ export class QuotationRepository {
             const remoteQuotes: Quotation[] = [];
             const remoteIds = new Set<string>();
             const deletedIds = new Set<string>();
+            const oversizedDocsToCompact: Array<{ id: string; rawData: any }> = [];
+            const compactionFlagKey = `sas_enterprise_4kib_compacted_quotes_v1_${wsId}`;
+            const hasCompacted =
+              typeof window !== 'undefined' &&
+              window.localStorage?.getItem(compactionFlagKey) === 'true';
 
             snap.docs.forEach((d) => {
-              const item = this.docToQuotation(d.id, d.data());
+              const rawData = d.data();
+              if (!hasCompacted && rawData && !rawData.is_deleted) {
+                try {
+                  const byteLen = JSON.stringify(rawData).length;
+                  if (byteLen > 60000) {
+                    oversizedDocsToCompact.push({ id: d.id, rawData });
+                  }
+                } catch (_) {}
+              }
+              const item = this.docToQuotation(d.id, rawData);
               const itemWsId = item.workspace_id || item.workspaceId;
               if (!itemWsId || itemWsId === wsId) {
                 if (item.is_deleted) {
@@ -2250,6 +2394,26 @@ export class QuotationRepository {
                 }
               }
             });
+
+            // One-time background compaction of bloated (> 60KB) quotation docs using already-downloaded snapshot data (0 extra reads)
+            if (!hasCompacted && typeof window !== 'undefined') {
+              try {
+                window.localStorage?.setItem(compactionFlagKey, 'true');
+              } catch (_) {}
+              if (oversizedDocsToCompact.length > 0) {
+                Promise.resolve().then(async () => {
+                  for (const { id: docId, rawData } of oversizedDocsToCompact) {
+                    try {
+                      const compacted = this.sanitizePayloadForFirestoreLimit(
+                        { ...rawData, id: docId },
+                        48000
+                      );
+                      await safeSetDoc('quotations', docId, compacted);
+                    } catch (_) {}
+                  }
+                });
+              }
+            }
 
             try {
               const local = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
@@ -2300,16 +2464,8 @@ export class QuotationRepository {
       const currentSubs = this.workspaceSubscribers.get(wsId);
       if (currentSubs) {
         currentSubs.delete(callback);
-        if (currentSubs.size === 0) {
-          this.workspaceSubscribers.delete(wsId);
-          const unsub = this.activeSnapshotUnsubs.get(wsId);
-          if (unsub) {
-            this.activeSnapshotUnsubs.delete(wsId);
-            try {
-              unsub();
-            } catch (_) {}
-          }
-        }
+        // Keep the workspace singleton onSnapshot alive across tab switches & modal unmounts
+        // so switching views never re-downloads the entire quotations collection from Firestore.
       }
     };
   }
@@ -3079,7 +3235,7 @@ export class QuotationRepository {
     if (!workspaceId) return [];
 
     const cached = this.presetsCache.get(workspaceId);
-    if (cached && Date.now() - cached.fetchedAt < 30_000) {
+    if (cached && Date.now() - cached.fetchedAt < 30 * 60 * 1000) {
       return [...cached.data];
     }
 
@@ -3143,7 +3299,7 @@ export class QuotationRepository {
 
   /**
    * Retrieves the active document profile for a workspace, strictly isolated.
-   * Uses a 30-second in-memory cache to prevent redundant reads on modal opens.
+   * Uses a 30-minute in-memory cache to prevent redundant reads on modal opens.
    */
   public static async getWorkspaceDocumentProfile(
     workspaceId: string
@@ -3151,7 +3307,7 @@ export class QuotationRepository {
     if (!workspaceId) return null;
 
     const cached = this.profileCache.get(workspaceId);
-    if (cached && Date.now() - cached.fetchedAt < 30_000) {
+    if (cached && Date.now() - cached.fetchedAt < 30 * 60 * 1000) {
       return cached.data ? { ...cached.data } : null;
     }
 

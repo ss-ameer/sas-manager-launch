@@ -9,7 +9,12 @@ import {
 import { db, safeGetDocs, safeGetDoc, safeSetDoc, safeUpdateDoc, safeDeleteDoc } from '../../firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { QuotationRepository } from './QuotationRepository';
-import { deleteFromStorageBucket, WorkspaceStorageSettings } from '../attachmentStorage';
+import {
+  deleteFromStorageBucket,
+  WorkspaceStorageSettings,
+  rehydrateDocumentBlobsSync,
+  sanitizeFirestorePayload
+} from '../attachmentStorage';
 
 const SUPPLIER_BILLS_COLLECTION = 'supplier_bills';
 const LOCAL_BILLS_KEY = 'sas_local_supplier_bills_v1';
@@ -49,13 +54,13 @@ export class ProcurementRepository {
   private static workspaceCache = new Map<string, { data: SupplierBill[]; fetchedAt: number }>();
 
   private static normalizeBill(b: SupplierBill): SupplierBill {
-    return {
+    return rehydrateDocumentBlobsSync({
       ...b,
       vendor_company_id: b.vendor_company_id || b.supplier_id,
       vendor_name: b.vendor_name || b.supplier_name || 'Vendor',
       vendor_trn: b.vendor_trn || b.supplier_trn,
       three_way_match_status: b.three_way_match_status || b.match_status || 'no_po'
-    };
+    });
   }
 
   private static readNormalizedLocalWorkspaceBills(wsId: string): SupplierBill[] {
@@ -956,6 +961,16 @@ export class ProcurementRepository {
         .catch(() => {});
     }
 
+    // Tear down any listener belonging to a previous/different workspaceId when switching workspaces
+    for (const [otherWsId, otherUnsub] of this.activeSnapshotUnsubs.entries()) {
+      if (otherWsId !== wsId) {
+        this.activeSnapshotUnsubs.delete(otherWsId);
+        try {
+          otherUnsub();
+        } catch (_) {}
+      }
+    }
+
     if (!isQuotaSaver && db && !this.activeSnapshotUnsubs.has(wsId)) {
       try {
         const q = query(
@@ -968,15 +983,44 @@ export class ProcurementRepository {
             const mergedMap = new Map<string, SupplierBill>();
             const allLocal = readLocalBills();
             const deletedIds = new Set<string>();
+            const oversizedBillsToCompact: Array<{ id: string; rawData: any }> = [];
+            const compactionFlagKey = `sas_enterprise_4kib_compacted_bills_v1_${wsId}`;
+            const hasCompacted =
+              typeof window !== 'undefined' &&
+              window.localStorage?.getItem(compactionFlagKey) === 'true';
 
             snap.docs.forEach((d) => {
-              const data = { id: d.id, ...d.data() } as SupplierBill;
+              const rawData = d.data();
+              if (!hasCompacted && rawData && !rawData.is_deleted) {
+                try {
+                  if (JSON.stringify(rawData).length > 60000) {
+                    oversizedBillsToCompact.push({ id: d.id, rawData });
+                  }
+                } catch (_) {}
+              }
+              const data = { id: d.id, ...rawData } as SupplierBill;
               if (!data.is_deleted) {
                 mergedMap.set(d.id, this.normalizeBill(data));
               } else {
                 deletedIds.add(d.id);
               }
             });
+
+            if (!hasCompacted && typeof window !== 'undefined') {
+              try {
+                window.localStorage?.setItem(compactionFlagKey, 'true');
+              } catch (_) {}
+              if (oversizedBillsToCompact.length > 0) {
+                Promise.resolve().then(async () => {
+                  for (const { id: docId, rawData } of oversizedBillsToCompact) {
+                    try {
+                      const compacted = sanitizeFirestorePayload({ ...rawData, id: docId });
+                      await safeSetDoc(SUPPLIER_BILLS_COLLECTION, docId, compacted);
+                    } catch (_) {}
+                  }
+                });
+              }
+            }
 
             for (const lb of allLocal) {
               if (
@@ -1020,16 +1064,7 @@ export class ProcurementRepository {
       const currentSubs = this.workspaceSubscribers.get(wsId);
       if (currentSubs) {
         currentSubs.delete(callback);
-        if (currentSubs.size === 0) {
-          this.workspaceSubscribers.delete(wsId);
-          const unsub = this.activeSnapshotUnsubs.get(wsId);
-          if (unsub) {
-            this.activeSnapshotUnsubs.delete(wsId);
-            try {
-              unsub();
-            } catch (_) {}
-          }
-        }
+        // Keep the workspace singleton onSnapshot alive across tab switches & modal unmounts
       }
     };
   }

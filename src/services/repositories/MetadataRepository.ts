@@ -7,6 +7,7 @@ import { where } from 'firebase/firestore';
 export class MetadataRepository {
   private static PRODUCT_STORE = 'products';
   private static PRODUCT_LS_KEY = 'omni_products';
+  private static productsCache = new Map<string, { data: Product[]; fetchedAt: number }>();
 
   private static syncProductsToLocalStorage(products: Product[]): void {
     try {
@@ -19,10 +20,42 @@ export class MetadataRepository {
   public static async syncProductListToStores(products: Product[]): Promise<void> {
     await saveToLocalStore(this.PRODUCT_STORE, products);
     this.syncProductsToLocalStorage(products);
+    this.productsCache.set('__all__', { data: products, fetchedAt: Date.now() });
+    const byWs = new Map<string, Product[]>();
+    for (const p of products) {
+      const ws = (p as any).workspace_id || (p as any).workspaceId;
+      if (ws) {
+        if (!byWs.has(ws)) byWs.set(ws, []);
+        byWs.get(ws)!.push(p);
+      }
+    }
+    byWs.forEach((list, ws) => {
+      this.productsCache.set(ws, { data: list, fetchedAt: Date.now() });
+    });
   }
 
-  // Static Metadata - fetched once on boot, cached in IndexedDB + localStorage
+  // Static Metadata - fetched once on boot, cached in memory (30 min TTL) + IndexedDB + localStorage
   public static async fetchProductsOnce(workspaceId?: string): Promise<Product[]> {
+    const cacheKey = workspaceId || '__all__';
+    const cached = this.productsCache.get(cacheKey);
+    if (cached && Date.now() - cached.fetchedAt < 30 * 60 * 1000 && cached.data.length > 0) {
+      return [...cached.data];
+    }
+
+    // Check IndexedDB / localStorage cache before hitting Firestore if App.tsx already hydrated products
+    try {
+      const local = await getFromLocalStore<Product>(this.PRODUCT_STORE);
+      if (local && local.length > 0) {
+        const filtered = workspaceId
+          ? local.filter((p: any) => !p.workspace_id || p.workspace_id === workspaceId || p.workspaceId === workspaceId)
+          : local;
+        if (filtered.length > 0) {
+          this.productsCache.set(cacheKey, { data: filtered, fetchedAt: Date.now() });
+          return filtered;
+        }
+      }
+    } catch (_) {}
+
     try {
       const snap = workspaceId
         ? await safeGetDocs('products', where('workspace_id', '==', workspaceId))
@@ -39,6 +72,7 @@ export class MetadataRepository {
       }
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product));
       await this.syncProductListToStores(docs);
+      this.productsCache.set(cacheKey, { data: docs, fetchedAt: Date.now() });
       return docs;
     } catch (e) {
       const local = await getFromLocalStore<Product>(this.PRODUCT_STORE);

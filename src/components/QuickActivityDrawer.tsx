@@ -843,14 +843,14 @@ export const QuickActivityDrawer: React.FC<QuickActivityDrawerProps> = ({
   const [vendorBills, setVendorBills] = useState<SupplierBill[]>([]);
 
   useEffect(() => {
-    if (!isOpen || !activeWorkspaceId || !selectedCompanyId) return;
+    if (!isOpen || !activeWorkspaceId) return;
     const unsubQ = QuotationRepository.subscribeByWorkspace(activeWorkspaceId, setVendorQuotations);
     const unsubB = ProcurementRepository.subscribeByWorkspace(activeWorkspaceId, setVendorBills);
     return () => {
       unsubQ();
       unsubB();
     };
-  }, [isOpen, activeWorkspaceId, selectedCompanyId]);
+  }, [isOpen, activeWorkspaceId]);
 
   const vendorSnapshot = useMemo(() => {
     if (!selectedCompanyId) return null;

@@ -14,7 +14,20 @@ import { useActivityLauncher, InitiateActivityOptions } from '../context/Activit
 import { useEntityEdit } from '../context/EntityEditContext';
 import { getWhatsAppUrl } from '../utils/defaults';
 import FilePreviewModal from './common/FilePreviewModal';
-import { resolveAttachmentUrl, deleteFromSupabaseStorage, deleteFromStorageBucket, deleteAttachmentBlob, uploadToSupabaseStorage, dataUrlToFile, uploadWorkspaceMediaAsset, prepareAttachmentsForSave, getAttachmentStorageKey } from '../services/attachmentStorage';
+import {
+  resolveAttachmentUrl,
+  deleteFromSupabaseStorage,
+  deleteFromStorageBucket,
+  deleteAttachmentBlob,
+  uploadToSupabaseStorage,
+  dataUrlToFile,
+  uploadWorkspaceMediaAsset,
+  prepareAttachmentsForSave,
+  getAttachmentStorageKey,
+  stripCatalogRedundantLineItemMedia,
+  rehydrateLineItemsFromCatalog,
+  rehydrateDocumentBlobsFromLocal
+} from '../services/attachmentStorage';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { ActivityLogRepository } from '../services/repositories/CallLogRepository';
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
@@ -174,7 +187,9 @@ export default function EnquiryDetail({
 
   // Inline Line Items Editor & Quick Catalog Add states
   const [isInlineEditingItems, setIsInlineEditingItems] = useState(false);
-  const [draftLineItems, setDraftLineItems] = useState<LineItem[]>(enquiry.line_items || []);
+  const [draftLineItems, setDraftLineItems] = useState<LineItem[]>(() =>
+    rehydrateLineItemsFromCatalog(enquiry.line_items || [], products)
+  );
   const [isSavingInlineItems, setIsSavingInlineItems] = useState(false);
   const [showQuickCatalogPicker, setShowQuickCatalogPicker] = useState(false);
   const [quickCatalogSearch, setQuickCatalogSearch] = useState('');
@@ -199,12 +214,23 @@ export default function EnquiryDetail({
 
   // Synchronize local enquiry when prop updates
   useEffect(() => {
-    setCurrentEnquiry(enquiry);
-    setDraftLineItems(enquiry.line_items || []);
+    const hydratedItems = rehydrateLineItemsFromCatalog(enquiry.line_items || [], products);
+    const initialEnq = { ...enquiry, line_items: hydratedItems };
+    setCurrentEnquiry(initialEnq);
+    setDraftLineItems(hydratedItems);
     setIsInlineEditingItems(false);
     setShowQuoteSyncPrompt(false);
     setActiveOptionTab('ALL');
-  }, [enquiry]);
+    rehydrateDocumentBlobsFromLocal(initialEnq)
+      .then((rehydrated) => {
+        if (rehydrated) {
+          const finalItems = rehydrateLineItemsFromCatalog(rehydrated.line_items || [], products);
+          setCurrentEnquiry({ ...rehydrated, line_items: finalItems });
+          setDraftLineItems(finalItems);
+        }
+      })
+      .catch(() => {});
+  }, [enquiry, products]);
 
   // Project linkage & Inventory Reservation States
   const [isUpdatingStatus, setIsUpdatingStatus] = useState<boolean>(false);
@@ -2346,8 +2372,9 @@ export default function EnquiryDetail({
         : Math.max(0, Math.round((isUSD ? baselineSum * 3.6725 : baselineSum) * 100) / 100);
 
       const now = new Date().toISOString();
+      const strippedLineItems = stripCatalogRedundantLineItemMedia(draftLineItems, products);
       const updatedPayload: Partial<Enquiry> = {
-        line_items: draftLineItems,
+        line_items: strippedLineItems,
         value_aed: nextValueAed,
         updatedAt: now
       };
@@ -2355,7 +2382,8 @@ export default function EnquiryDetail({
       await safeUpdateDoc('enquiries', currentEnquiry.id, updatedPayload);
       const updatedEnquiry: Enquiry = {
         ...currentEnquiry,
-        ...updatedPayload
+        ...updatedPayload,
+        line_items: rehydrateLineItemsFromCatalog(strippedLineItems, products)
       };
       await EnquiryRepository.save(updatedEnquiry);
 
@@ -8187,7 +8215,8 @@ export default function EnquiryDetail({
                 if (onUpdateEnquiry) onUpdateEnquiry(updatedEnq);
                 if (setEnquiries) setEnquiries((prev) => prev.map((e) => (e.id === currentEnquiry.id ? updatedEnq : e)));
                 try {
-                  await safeUpdateDoc('enquiries', currentEnquiry.id, { line_items: nextItems, updatedAt: updatedEnq.updatedAt });
+                  const strippedNextItems = stripCatalogRedundantLineItemMedia(nextItems, [newProduct, ...(products || [])]);
+                  await safeUpdateDoc('enquiries', currentEnquiry.id, { line_items: strippedNextItems, updatedAt: updatedEnq.updatedAt });
                   await EnquiryRepository.save(updatedEnq);
                 } catch (err) {
                   console.warn('Failed linking saved product back to enquiry line item:', err);

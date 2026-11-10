@@ -1,6 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
-import { prepareAttachmentsForSave, resolveAttachmentUrl, getAttachmentStorageKey, uploadToSupabaseStorage, deleteFromSupabaseStorage, deleteAttachmentBlob, dataUrlToFile, uploadWorkspaceMediaAsset } from '../services/attachmentStorage';
+import {
+  prepareAttachmentsForSave,
+  resolveAttachmentUrl,
+  getAttachmentStorageKey,
+  uploadToSupabaseStorage,
+  deleteFromSupabaseStorage,
+  deleteAttachmentBlob,
+  dataUrlToFile,
+  uploadWorkspaceMediaAsset,
+  stripCatalogRedundantLineItemMedia,
+  rehydrateLineItemsFromCatalog,
+  rehydrateDocumentBlobsFromLocal
+} from '../services/attachmentStorage';
 import mammoth from 'mammoth';
 import { PdfViewer } from './PdfViewer';
 import { MarqueeLabel } from './MarqueeLabel';
@@ -2045,12 +2057,24 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           if (arr.length > 0) setCustomProjectDetails(arr);
         }
       }
-      const parsedItems = (enquiryToEdit.line_items || []).map(item => ({
-        ...item,
-        option: item.option || (item as any).option_designation || 'Default / Included',
-        attributes: item.attributes || []
-      }));
+      const parsedItems = rehydrateLineItemsFromCatalog(
+        (enquiryToEdit.line_items || []).map(item => ({
+          ...item,
+          option: item.option || (item as any).option_designation || 'Default / Included',
+          attributes: item.attributes || []
+        })),
+        products
+      );
       setLineItems(parsedItems);
+      if (parsedItems.length > 0) {
+        rehydrateDocumentBlobsFromLocal({ line_items: parsedItems })
+          .then((rehydrated) => {
+            if (rehydrated?.line_items) {
+              setLineItems(rehydrateLineItemsFromCatalog(rehydrated.line_items, products));
+            }
+          })
+          .catch(() => {});
+      }
       const initialAttachments = enquiryToEdit.attachments || [];
       setAttachments(initialAttachments);
       if (initialAttachments.length > 0) {
@@ -3961,7 +3985,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       invoice_po_no: (invoicePoNo || '').trim() || undefined,
       payment_status: (paymentStatus || '').trim() || undefined,
       custom_project_details: customProjectDetails.filter(d => d.key.trim() && d.value.trim()),
-      line_items: cleanLineItems,
+      line_items: stripCatalogRedundantLineItemMedia(cleanLineItems, products),
       attachments: firestoreAttachments && firestoreAttachments.length > 0 ? firestoreAttachments : undefined,
       parent_id: parentId ?? enquiryToEdit?.parent_id ?? null,
       revision_number: typeof revisionNumber === 'number' ? revisionNumber : (enquiryToEdit?.revision_number ?? (parentId ? 1 : 0)),

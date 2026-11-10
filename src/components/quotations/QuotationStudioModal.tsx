@@ -56,11 +56,15 @@ import {
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
 import { ProcurementRepository } from '../../services/repositories/ProcurementRepository';
 import { CompanyRepository } from '../../services/repositories/CompanyRepository';
+import { MetadataRepository } from '../../services/repositories/MetadataRepository';
 import { processVendorReturnStockDeduction } from '../../services/inventoryService';
 import {
   uploadWorkspaceMediaAsset,
   deleteFromStorageBucket,
-  rasterizePdfToPageImages
+  rasterizePdfToPageImages,
+  stripCatalogRedundantLineItemMedia,
+  rehydrateLineItemsFromCatalog,
+  rehydrateDocumentBlobsFromLocal
 } from '../../services/attachmentStorage';
 import SaveToCatalogModal, {
   parseLineItemTitleAndSpec,
@@ -2057,18 +2061,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     if (!activeWorkspaceId || fetchedProductsWsRef.current === activeWorkspaceId) return;
     fetchedProductsWsRef.current = activeWorkspaceId;
     let isMounted = true;
-    safeGetDocs('products', where('workspace_id', '==', activeWorkspaceId))
-      .then((snap) => {
-        if (!isMounted || !snap) return;
-        const loaded: Product[] = [];
-        snap.forEach((docSnap: any) => {
-          const data = docSnap.data() as Product;
-          if (!data.is_deleted) {
-            loaded.push({ ...data, id: docSnap.id });
-          }
-        });
-        if (loaded.length > 0) {
-          setWorkspaceProducts(loaded);
+    MetadataRepository.fetchProductsOnce(activeWorkspaceId)
+      .then((loaded) => {
+        if (!isMounted || !Array.isArray(loaded)) return;
+        const activeList = loaded.filter((p) => !p.is_deleted);
+        if (activeList.length > 0) {
+          setWorkspaceProducts(activeList);
         }
       })
       .catch(() => {});
@@ -2436,6 +2434,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setSubjectPlacement(hydrated.subjectPlacement);
       setSelectedBankId(hydrated.selectedBankId);
       setFlyerAttachments(hydrated.flyerAttachments);
+      if (Array.isArray(hydrated.flyerAttachments) && hydrated.flyerAttachments.length > 0) {
+        rehydrateDocumentBlobsFromLocal({ flyer_attachments: hydrated.flyerAttachments })
+          .then((rehydrated) => {
+            if (rehydrated?.flyer_attachments) {
+              setFlyerAttachments(rehydrated.flyer_attachments);
+            }
+          })
+          .catch(() => {});
+      }
       setShowSubmittalsIndex(hydrated.showSubmittalsIndex);
       setCompanyLogoUrl(hydrated.companyLogoUrl || '');
       if (hydrated.headerConfig) {
@@ -2621,11 +2628,24 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         setItemVisibleAttributes(initialMap);
         setItemPageBreaks(initialBreaks);
         setItemCompositeOverrides({});
-        setCustomStudioLineItems(
-          Array.isArray(targetQuote.line_items)
-            ? targetQuote.line_items.map((item) => ({ ...item }))
-            : null
-        );
+        const initialStudioItems = Array.isArray(targetQuote.line_items)
+          ? rehydrateLineItemsFromCatalog(
+              targetQuote.line_items.map((item) => ({ ...item })),
+              workspaceProducts
+            )
+          : null;
+        setCustomStudioLineItems(initialStudioItems);
+        if (initialStudioItems && initialStudioItems.length > 0) {
+          rehydrateDocumentBlobsFromLocal({ line_items: initialStudioItems })
+            .then((rehydrated) => {
+              if (rehydrated?.line_items) {
+                setCustomStudioLineItems(
+                  rehydrateLineItemsFromCatalog(rehydrated.line_items, workspaceProducts)
+                );
+              }
+            })
+            .catch(() => {});
+        }
 
         if (targetQuote.selectedBank || targetQuote.applied_bank_account) {
           const b: any = targetQuote.selectedBank || targetQuote.applied_bank_account;
@@ -6045,7 +6065,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         prepared_by: preparedBy || liveQuotation.prepared_by,
         subject: quotationSubject || liveQuotation.subject,
         sender_snapshot: liveQuotation.sender_snapshot,
-        line_items: liveQuotation.line_items,
+        line_items: stripCatalogRedundantLineItemMedia(liveQuotation.line_items, workspaceProducts),
         option_display_mode: optionDisplayMode,
         option_group_titles: optionGroupTitles,
         show_combined_options_total: showCombinedOptionsTotal,

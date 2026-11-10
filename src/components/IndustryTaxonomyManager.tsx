@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { db, safeUpdateDoc, safeSetDoc } from '../firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { safeUpdateDoc, safeSetDoc } from '../firebase';
 import {
   Company,
   UserProfile,
@@ -12,6 +11,7 @@ import {
 } from '../types';
 import { SYSTEM_INDUSTRY_TAXONOMY, isCompanyUntagged } from '../utils/defaults';
 import { normalizeSubTypeName, formatSubTypeName } from '../utils/taxonomy';
+import { useIndustryTaxonomy, notifyTaxonomySubscribers } from '../hooks/useIndustryTaxonomy';
 import GoogleSearchButton from './common/GoogleSearchButton';
 import Company360Modal from './Company360Modal';
 import {
@@ -569,39 +569,18 @@ export default function IndustryTaxonomyManager({
   });
 
   // ---------------------------------------------------------------------------
-  // Firestore Synchronization for Taxonomy
+  // Shared Singleton Synchronization for Taxonomy (via useIndustryTaxonomy)
   // ---------------------------------------------------------------------------
+  const { sectors: liveTaxonomySectors } = useIndustryTaxonomy();
   useEffect(() => {
-    const unsub = onSnapshot(
-      doc(db, 'settings', 'industry_taxonomy'),
-      (snapshot) => {
-        if (snapshot.exists()) {
-          const data = snapshot.data();
-          if (data && Array.isArray(data.sectors) && data.sectors.length > 0) {
-            setSectors(data.sectors);
-            try {
-              localStorage.setItem('omni_industry_taxonomy', JSON.stringify(data.sectors));
-            } catch (e) {
-              // ignore
-            }
-          }
-        }
-      },
-      (error) => {
-        console.warn('[IndustryTaxonomyManager] Firestore listener error, using fallback:', error);
-      }
-    );
-
-    return () => unsub();
-  }, []);
+    if (Array.isArray(liveTaxonomySectors) && liveTaxonomySectors.length > 0) {
+      setSectors(liveTaxonomySectors);
+    }
+  }, [liveTaxonomySectors]);
 
   const persistTaxonomy = async (updatedSectors: IndustryTaxonomySector[], noticeMsg?: string) => {
     setSectors(updatedSectors);
-    try {
-      localStorage.setItem('omni_industry_taxonomy', JSON.stringify(updatedSectors));
-    } catch (e) {
-      // ignore
-    }
+    notifyTaxonomySubscribers(updatedSectors);
 
     setIsSavingTaxonomy(true);
     try {

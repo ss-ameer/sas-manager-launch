@@ -52,6 +52,7 @@ import { recordAuditLog } from './utils/auditLogger';
 import { isAdmin, getUserWorkspaceRole, getEffectiveWorkspaceRole, isSuperAdmin, isUserInWorkspace, canAccessEnquiry, isActivityAttributedToUser, canUserViewActivity } from './utils/permissions';
 import { SYSTEM_CALL_STATUSES, SYSTEM_CALL_OUTCOMES, SYSTEM_CALL_PURPOSES, SYSTEM_COMPANY_RELATIONSHIPS, SYSTEM_COMPANY_TEMPERATURES, SYSTEM_RELATIONSHIP_COLORS, SYSTEM_TEMPERATURE_COLORS, normalizeOptionName, healDropdownOptions, normalizeCompany, normalizeContact, normalizeEnquiry, normalizeCallLog } from './utils/defaults';
 import { deduplicateList } from './utils/deduplicator';
+import { rehydrateDocumentBlobsSync, sanitizeFirestorePayload } from './services/attachmentStorage';
 
 function getLocalCache<T>(key: string, defaultValue: T): T {
   try {
@@ -1482,6 +1483,8 @@ export default function App() {
         )
       );
 
+      let lastAllowedWsKey = '';
+
       refs.workspaceMembers = onSnapshot(
         wmQuery,
         (snap) => {
@@ -1507,36 +1510,42 @@ export default function App() {
             allowedWsIds.add('ws_default');
           }
 
-          const allowedWsArray = Array.from(allowedWsIds);
+          const allowedWsArray = Array.from(allowedWsIds).slice(0, 30).sort();
+          const nextAllowedWsKey = allowedWsArray.join(',');
 
           if (allowedWsArray.length > 0) {
-            if (refs.workspaces) {
-              refs.workspaces();
-              refs.workspaces = null;
-            }
-
-            const wsQuery = query(
-              collection(db, 'workspaces'),
-              where(documentId(), 'in', allowedWsArray.slice(0, 30))
-            );
-
-            refs.workspaces = onSnapshot(
-              wsQuery,
-              (wsSnap) => {
-                const fetchedList = wsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Workspace));
-                if (allowedWsIds.has('ws_default') && !fetchedList.some((w) => w.id === 'ws_default')) {
-                  fetchedList.unshift(DEFAULT_WORKSPACE);
-                }
-                const finalWorkspaces = fetchedList.length > 0 ? fetchedList : [DEFAULT_WORKSPACE];
-                setWorkspaces(finalWorkspaces);
-                setLocalCache('omni_workspaces', finalWorkspaces);
-              },
-              (error) => {
-                console.warn("Workspaces listener error (Quota/Offline):", error);
-                setWorkspaces(getLocalCache('omni_workspaces', [DEFAULT_WORKSPACE]));
+            // Only recreate the workspaces listener when the sorted list of allowed workspace IDs actually changes
+            if (nextAllowedWsKey !== lastAllowedWsKey || !refs.workspaces) {
+              lastAllowedWsKey = nextAllowedWsKey;
+              if (refs.workspaces) {
+                refs.workspaces();
+                refs.workspaces = null;
               }
-            );
+
+              const wsQuery = query(
+                collection(db, 'workspaces'),
+                where(documentId(), 'in', allowedWsArray)
+              );
+
+              refs.workspaces = onSnapshot(
+                wsQuery,
+                (wsSnap) => {
+                  const fetchedList = wsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Workspace));
+                  if (allowedWsIds.has('ws_default') && !fetchedList.some((w) => w.id === 'ws_default')) {
+                    fetchedList.unshift(DEFAULT_WORKSPACE);
+                  }
+                  const finalWorkspaces = fetchedList.length > 0 ? fetchedList : [DEFAULT_WORKSPACE];
+                  setWorkspaces(finalWorkspaces);
+                  setLocalCache('omni_workspaces', finalWorkspaces);
+                },
+                (error) => {
+                  console.warn("Workspaces listener error (Quota/Offline):", error);
+                  setWorkspaces(getLocalCache('omni_workspaces', [DEFAULT_WORKSPACE]));
+                }
+              );
+            }
           } else {
+            lastAllowedWsKey = '';
             setWorkspaces([DEFAULT_WORKSPACE]);
           }
         },
@@ -1622,7 +1631,40 @@ export default function App() {
     // Enquiries - Partitioned by active workspace (sorted in-memory by sn to avoid composite indexes)
     const enqQuery = query(collection(db, 'enquiries'), where('workspace_id', '==', currentWsId));
     refs.enquiries = onSnapshot(enqQuery, (snap) => {
-      const list = snap.docs.map((d) => normalizeEnquiry({ id: d.id, ...d.data() }, currentWsId));
+      const compactionFlagKey = `sas_enterprise_4kib_compacted_v1_${currentWsId}`;
+      const hasCompacted =
+        typeof window !== 'undefined' &&
+        window.localStorage?.getItem(compactionFlagKey) === 'true';
+      const oversizedEnquiriesToCompact: Array<{ id: string; rawData: any }> = [];
+
+      const list = snap.docs.map((d) => {
+        const rawData = d.data();
+        if (!hasCompacted && rawData && !rawData.is_deleted) {
+          try {
+            if (JSON.stringify(rawData).length > 60000) {
+              oversizedEnquiriesToCompact.push({ id: d.id, rawData });
+            }
+          } catch (_) {}
+        }
+        return rehydrateDocumentBlobsSync(normalizeEnquiry({ id: d.id, ...rawData }, currentWsId));
+      });
+
+      if (!hasCompacted && typeof window !== 'undefined') {
+        try {
+          window.localStorage?.setItem(compactionFlagKey, 'true');
+        } catch (_) {}
+        if (oversizedEnquiriesToCompact.length > 0) {
+          Promise.resolve().then(async () => {
+            for (const { id: docId, rawData } of oversizedEnquiriesToCompact) {
+              try {
+                const compacted = sanitizeFirestorePayload({ ...rawData, id: docId });
+                await safeSetDoc('enquiries', docId, compacted);
+              } catch (_) {}
+            }
+          });
+        }
+      }
+
       list.sort((a, b) => (a.sn || 0) - (b.sn || 0));
       setEnquiries((prev) => {
         const clean = deduplicateList(list, prev);
@@ -1631,7 +1673,7 @@ export default function App() {
       });
     }, (error) => {
       console.warn("Enquiries snapshot listener error (Quota/Offline):", error);
-      setEnquiries(getLocalCache<Enquiry[]>('omni_enquiries', INITIAL_ENQUIRIES).map((e) => normalizeEnquiry(e, currentWsId)));
+      setEnquiries(getLocalCache<Enquiry[]>('omni_enquiries', INITIAL_ENQUIRIES).map((e) => rehydrateDocumentBlobsSync(normalizeEnquiry(e, currentWsId))));
     });
 
     // Invites

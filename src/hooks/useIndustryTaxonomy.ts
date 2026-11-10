@@ -27,6 +27,10 @@ const subscribers = new Set<SubscriberCallback>();
 let unsubscribeFirestore: (() => void) | null = null;
 let activeListenerCount = 0;
 
+export function notifyTaxonomySubscribers(newSectors: IndustryTaxonomySector[]) {
+  notifySubscribers(newSectors);
+}
+
 function notifySubscribers(newSectors: IndustryTaxonomySector[]) {
   cachedSectors = newSectors;
   try {
@@ -179,10 +183,9 @@ export function useIndustryTaxonomy() {
 
     return () => {
       subscribers.delete(subscriber);
-      activeListenerCount--;
-      if (activeListenerCount <= 0) {
-        stopFirestoreListener();
-      }
+      activeListenerCount = Math.max(0, activeListenerCount - 1);
+      // Keep the single document listener alive for the session so navigating between tabs
+      // does not tear down and re-read settings/industry_taxonomy.
     };
   }, []);
 

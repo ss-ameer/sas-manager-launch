@@ -1032,6 +1032,56 @@ export async function purgeOrphanedBucketFiles(
   return { deletedCount, reclaimedBytes, failedCount };
 }
 
+export const INLINE_DATA_URI_MAX_BYTES = 16384; // 16 KB threshold for Firestore 4 KiB Enterprise Read Unit protection
+
+// Fast in-memory mirror of offloaded IndexedDB blobs so synchronous deserializers (docToQuotation, normalizeBill, normalizeEnquiry) can resolve immediately once loaded
+const inMemoryBlobCache = new Map<string, string>();
+const pendingBlobPreloads = new Set<string>();
+
+/**
+ * Generates a deterministic IndexedDB storage key for a Base64 data: URI based on prefix, length, and FNV-1a hash.
+ */
+export function computeDataUriStorageKey(prefix: string, dataUri: string): string {
+  let hash = 2166136261;
+  const len = dataUri.length;
+  const step = Math.max(1, Math.floor(len / 512));
+  for (let i = 0; i < len; i += step) {
+    hash ^= dataUri.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  const cleanPrefix = (prefix || 'asset').replace(/[^a-zA-Z0-9_-]/g, '_');
+  return `blob_${cleanPrefix}_${len}_${(hash >>> 0).toString(36)}`;
+}
+
+export function offloadDataUriToLocalStore(dataUri: string, preferredKey?: string, prefix: string = 'asset'): string {
+  const key = (preferredKey && preferredKey.trim()) || computeDataUriStorageKey(prefix, dataUri);
+  inMemoryBlobCache.set(key, dataUri);
+  saveAttachmentBlob(key, dataUri).catch(() => {});
+  return key;
+}
+
+export function getCachedBlobSync(key?: string | null): string {
+  if (!key || typeof key !== 'string') return '';
+  const trimmed = key.trim();
+  if (!trimmed) return '';
+  const hit = inMemoryBlobCache.get(trimmed);
+  if (hit) return hit;
+  if (!pendingBlobPreloads.has(trimmed)) {
+    pendingBlobPreloads.add(trimmed);
+    getAttachmentBlob(trimmed)
+      .then((blob) => {
+        if (blob) {
+          inMemoryBlobCache.set(trimmed, blob);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        pendingBlobPreloads.delete(trimmed);
+      });
+  }
+  return '';
+}
+
 /**
  * Process attachments before saving an Enquiry to Firestore.
  */
@@ -1102,10 +1152,11 @@ export async function prepareAttachmentsForSave(
     memoryAttachments.push(memoryAtt);
 
     if (rawUrl.startsWith('data:')) {
+      inMemoryBlobCache.set(key, rawUrl);
       await saveAttachmentBlob(key, rawUrl);
     }
 
-    const isLargeDataUrl = rawUrl.startsWith('data:') && rawUrl.length > 25000;
+    const isLargeDataUrl = rawUrl.startsWith('data:') && rawUrl.length > INLINE_DATA_URI_MAX_BYTES;
     const firestoreUrl = isLargeDataUrl ? '' : rawUrl;
 
     firestoreAttachments.push({
@@ -1148,42 +1199,291 @@ export async function resolveAttachmentUrl(att: Attachment | null | undefined): 
 
   const key = att.storageKey || (att.id ? `blob_${att.id}` : '') || getAttachmentStorageKey(att);
   if (key) {
+    const memHit = inMemoryBlobCache.get(key);
+    if (memHit) return memHit;
     const localData = await getAttachmentBlob(key);
-    if (localData) return localData;
+    if (localData) {
+      inMemoryBlobCache.set(key, localData);
+      return localData;
+    }
   }
 
   return '';
 }
 
+function sanitizeAttachmentObject(att: any, index: number, prefix: string): any {
+  if (!att || typeof att !== 'object') return att;
+  const nextAtt = { ...att };
+  const url = nextAtt.url || '';
+
+  if (typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
+    nextAtt.isLocal = false;
+  } else if (typeof url === 'string' && url.startsWith('data:') && (url.length > INLINE_DATA_URI_MAX_BYTES || prefix === 'flyer')) {
+    const key = offloadDataUriToLocalStore(url, nextAtt.storageKey || nextAtt.id, `${prefix}_${index}`);
+    nextAtt.storageKey = key;
+    nextAtt.url = '';
+    nextAtt.isLocal = true;
+  }
+
+  // Also offload rasterized PDF pages array (renderedPages / rendered_pages) if present
+  const rawPages = Array.isArray(nextAtt.renderedPages)
+    ? nextAtt.renderedPages
+    : Array.isArray(nextAtt.rendered_pages)
+    ? nextAtt.rendered_pages
+    : null;
+  if (rawPages && rawPages.length > 0) {
+    const pageKeys: string[] = [];
+    const cleanedPages = rawPages.map((pg: any, pIdx: number) => {
+      if (typeof pg === 'string' && pg.startsWith('data:')) {
+        const pKey = offloadDataUriToLocalStore(pg, undefined, `${prefix}_${index}_pg_${pIdx}`);
+        pageKeys.push(pKey);
+        return '';
+      }
+      if (pg && typeof pg === 'object' && typeof pg.dataUrl === 'string' && pg.dataUrl.startsWith('data:')) {
+        const pKey = offloadDataUriToLocalStore(pg.dataUrl, pg.storageKey, `${prefix}_${index}_pg_${pIdx}`);
+        pageKeys.push(pKey);
+        return { ...pg, storageKey: pKey, dataUrl: '' };
+      }
+      return pg;
+    });
+    if (pageKeys.length > 0) {
+      nextAtt.rendered_page_keys = pageKeys;
+      if (Array.isArray(nextAtt.renderedPages)) nextAtt.renderedPages = cleanedPages.filter(Boolean);
+      if (Array.isArray(nextAtt.rendered_pages)) nextAtt.rendered_pages = cleanedPages.filter(Boolean);
+    }
+  }
+
+  return nextAtt;
+}
+
 /**
- * Sanitizes any Firestore payload to ensure it never exceeds the 1MB document limit
+ * Strips Base64 `data:` strings from catalog-linked line items (`item.product_id`) when saving to Firestore,
+ * since those assets are already stored on the catalog `Product` record and resolved in memory by `product_id`.
+ */
+export function stripCatalogRedundantLineItemMedia(
+  lineItems: any[] | undefined,
+  catalogProducts?: any[]
+): any[] {
+  if (!Array.isArray(lineItems)) return [];
+  const productMap = new Map<string, any>();
+  if (Array.isArray(catalogProducts)) {
+    for (const p of catalogProducts) {
+      if (p?.id) productMap.set(p.id, p);
+    }
+  }
+
+  return lineItems.map((li) => {
+    if (!li || typeof li !== 'object') return li;
+    const itemCopy = { ...li };
+    const prodId = itemCopy.product_id;
+    if (prodId) {
+      const catProd = productMap.get(prodId);
+      if (
+        typeof itemCopy.image_url === 'string' &&
+        itemCopy.image_url.startsWith('data:') &&
+        (!catProd || !catProd.image_url || itemCopy.image_url === catProd.image_url)
+      ) {
+        delete itemCopy.image_url;
+      }
+      if (
+        typeof itemCopy.secondary_image_url === 'string' &&
+        itemCopy.secondary_image_url.startsWith('data:') &&
+        (!catProd || !catProd.secondary_image_url || itemCopy.secondary_image_url === catProd.secondary_image_url)
+      ) {
+        delete itemCopy.secondary_image_url;
+      }
+      if (
+        typeof itemCopy.datasheet_url === 'string' &&
+        itemCopy.datasheet_url.startsWith('data:') &&
+        (!catProd || !catProd.datasheet_url || itemCopy.datasheet_url === catProd.datasheet_url)
+      ) {
+        delete itemCopy.datasheet_url;
+      }
+      if (
+        itemCopy.datasheet_attachment &&
+        typeof itemCopy.datasheet_attachment.url === 'string' &&
+        itemCopy.datasheet_attachment.url.startsWith('data:') &&
+        (!catProd?.datasheet_attachment?.url ||
+          itemCopy.datasheet_attachment.url === catProd.datasheet_attachment.url)
+      ) {
+        itemCopy.datasheet_attachment = {
+          ...itemCopy.datasheet_attachment,
+          url: ''
+        };
+      }
+    }
+    return itemCopy;
+  });
+}
+
+/**
+ * Rehydrates catalog-linked line items (`item.product_id`) in memory using cached `catalogProducts`.
+ */
+export function rehydrateLineItemsFromCatalog(
+  lineItems: any[] | undefined,
+  catalogProducts?: any[]
+): any[] {
+  if (!Array.isArray(lineItems) || !Array.isArray(catalogProducts) || catalogProducts.length === 0) {
+    return lineItems || [];
+  }
+  const productMap = new Map<string, any>();
+  for (const p of catalogProducts) {
+    if (p?.id) productMap.set(p.id, p);
+  }
+  return lineItems.map((li) => {
+    if (!li || typeof li !== 'object' || !li.product_id) return li;
+    const catProd = productMap.get(li.product_id);
+    if (!catProd) return li;
+    return {
+      ...li,
+      image_url: li.image_url || catProd.image_url,
+      secondary_image_url: li.secondary_image_url || catProd.secondary_image_url,
+      datasheet_attachment: li.datasheet_attachment?.url
+        ? li.datasheet_attachment
+        : catProd.datasheet_attachment || li.datasheet_attachment
+    };
+  });
+}
+
+/**
+ * Sanitizes any Firestore payload to ensure it stays compact (< 48 KB / < 12 Enterprise 4KiB Read Units)
+ * and never stores large inline Base64 blobs or duplicate brand assets in Firestore.
  */
 export function sanitizeFirestorePayload(payload: any): any {
   if (!payload || typeof payload !== 'object') return payload;
 
   const copy = { ...payload };
+  const docPrefix = String(copy.id || copy.quote_number || copy.bill_number || 'doc').replace(/[^a-zA-Z0-9_-]/g, '_');
 
+  // 1. Plural attachments[] (Enquiries)
   if (Array.isArray(copy.attachments)) {
-    copy.attachments = copy.attachments.map((att: any, i: number) => {
-      const url = att?.url || '';
-      if (typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
-        return {
-          ...att,
-          isLocal: false
-        };
+    copy.attachments = copy.attachments.map((att: any, i: number) =>
+      sanitizeAttachmentObject(att, i, `${docPrefix}_att`)
+    );
+  }
+
+  // 2. Singular attachment (Supplier Bills in ProcurementRepository)
+  if (copy.attachment && typeof copy.attachment === 'object') {
+    copy.attachment = sanitizeAttachmentObject(copy.attachment, 0, `${docPrefix}_bill_att`);
+  }
+
+  // 3. Flyer attachments (Quotations & Presets)
+  if (Array.isArray(copy.flyer_attachments)) {
+    copy.flyer_attachments = copy.flyer_attachments.map((att: any, i: number) =>
+      sanitizeAttachmentObject(att, i, `${docPrefix}_flyer`)
+    );
+  }
+
+  // 4. Line items[] (Enquiries, Quotations, Supplier Bills)
+  if (Array.isArray(copy.line_items)) {
+    copy.line_items = copy.line_items.map((li: any, idx: number) => {
+      if (!li || typeof li !== 'object') return li;
+      const nextLi = { ...li };
+
+      if (typeof nextLi.image_url === 'string' && nextLi.image_url.startsWith('data:') && nextLi.image_url.length > INLINE_DATA_URI_MAX_BYTES) {
+        if (nextLi.product_id) {
+          // Catalog-linked item: strip redundant data: URI so it resolves from catalog product_id
+          nextLi.image_storage_key = offloadDataUriToLocalStore(nextLi.image_url, nextLi.image_storage_key, `${docPrefix}_li_${idx}_img`);
+          nextLi.image_url = '';
+        } else {
+          nextLi.image_storage_key = offloadDataUriToLocalStore(nextLi.image_url, nextLi.image_storage_key, `${docPrefix}_li_${idx}_img`);
+          nextLi.image_url = '';
+        }
       }
-      if (typeof url === 'string' && url.startsWith('data:') && url.length > 25000) {
-        const key = att.storageKey || att.id || `blob_${att.name || 'file'}_${i}`;
-        saveAttachmentBlob(key, url).catch(() => {});
-        return {
-          ...att,
-          storageKey: key,
-          url: '',
-          isLocal: true
-        };
+
+      if (typeof nextLi.secondary_image_url === 'string' && nextLi.secondary_image_url.startsWith('data:') && nextLi.secondary_image_url.length > INLINE_DATA_URI_MAX_BYTES) {
+        nextLi.secondary_image_storage_key = offloadDataUriToLocalStore(
+          nextLi.secondary_image_url,
+          nextLi.secondary_image_storage_key,
+          `${docPrefix}_li_${idx}_sec_img`
+        );
+        nextLi.secondary_image_url = '';
       }
-      return att;
+
+      if (typeof nextLi.datasheet_url === 'string' && nextLi.datasheet_url.startsWith('data:') && nextLi.datasheet_url.length > INLINE_DATA_URI_MAX_BYTES) {
+        nextLi.datasheet_storage_key = offloadDataUriToLocalStore(
+          nextLi.datasheet_url,
+          nextLi.datasheet_storage_key,
+          `${docPrefix}_li_${idx}_ds`
+        );
+        nextLi.datasheet_url = '';
+      }
+
+      if (nextLi.datasheet_attachment && typeof nextLi.datasheet_attachment === 'object') {
+        nextLi.datasheet_attachment = sanitizeAttachmentObject(
+          nextLi.datasheet_attachment,
+          idx,
+          `${docPrefix}_li_ds`
+        );
+      }
+
+      if (Array.isArray(nextLi.sub_components)) {
+        nextLi.sub_components = nextLi.sub_components.map((sub: any, sIdx: number) => {
+          if (!sub || typeof sub !== 'object') return sub;
+          const nextSub = { ...sub };
+          if (
+            typeof nextSub.image_url === 'string' &&
+            nextSub.image_url.startsWith('data:') &&
+            nextSub.image_url.length > INLINE_DATA_URI_MAX_BYTES
+          ) {
+            nextSub.image_storage_key = offloadDataUriToLocalStore(
+              nextSub.image_url,
+              nextSub.image_storage_key,
+              `${docPrefix}_li_${idx}_sub_${sIdx}`
+            );
+            nextSub.image_url = '';
+          }
+          return nextSub;
+        });
+      }
+
+      return nextLi;
     });
+  }
+
+  // 5. Unconditionally deduplicate brand Base64 assets across root vs header_config / footer_config / signatories
+  if (
+    typeof copy.company_logo_url === 'string' &&
+    copy.company_logo_url.startsWith('data:') &&
+    copy.header_config &&
+    typeof copy.header_config === 'object'
+  ) {
+    copy.header_config = {
+      ...copy.header_config,
+      logoUrl: copy.header_config.logoUrl || copy.company_logo_url
+    };
+    copy.company_logo_url = '';
+  }
+
+  if (
+    typeof copy.company_seal_url === 'string' &&
+    copy.company_seal_url.startsWith('data:') &&
+    copy.footer_config &&
+    typeof copy.footer_config === 'object'
+  ) {
+    copy.footer_config = {
+      ...copy.footer_config,
+      companySealUrl: copy.footer_config.companySealUrl || copy.company_seal_url
+    };
+    copy.company_seal_url = '';
+  }
+
+  if (typeof copy.signature_image_url === 'string' && copy.signature_image_url.startsWith('data:')) {
+    if (Array.isArray(copy.signatories) && copy.signatories[0]?.signature_url === copy.signature_image_url) {
+      copy.signature_image_url = '';
+    }
+    if (
+      copy.footer_config &&
+      typeof copy.footer_config === 'object' &&
+      copy.footer_config.signatureImageUrl === copy.signature_image_url &&
+      Array.isArray(copy.signatories) &&
+      copy.signatories[0]?.signature_url
+    ) {
+      copy.footer_config = {
+        ...copy.footer_config,
+        signatureImageUrl: ''
+      };
+    }
   }
 
   if (typeof copy.raw_source_text === 'string' && copy.raw_source_text.length > 500000) {
@@ -1191,6 +1491,177 @@ export function sanitizeFirestorePayload(payload: any): any {
   }
 
   return copy;
+}
+
+/**
+ * Synchronous rehydration helper using in-memory cache (while warming IndexedDB blobs in the background).
+ */
+export function rehydrateDocumentBlobsSync<T>(docData: T): T {
+  if (!docData || typeof docData !== 'object') return docData;
+  const copy: any = { ...docData };
+
+  // Re-populate deduplicated brand assets in memory
+  if (!copy.company_logo_url && copy.header_config?.logoUrl) {
+    copy.company_logo_url = copy.header_config.logoUrl;
+  }
+  if (!copy.company_seal_url && copy.footer_config?.companySealUrl) {
+    copy.company_seal_url = copy.footer_config.companySealUrl;
+  }
+  if (!copy.signature_image_url) {
+    const sigUrl = copy.signatories?.[0]?.signature_url || copy.footer_config?.signatureImageUrl;
+    if (sigUrl) copy.signature_image_url = sigUrl;
+  }
+
+  const hydrateAttSync = (att: any) => {
+    if (!att || typeof att !== 'object') return att;
+    let next = att;
+    if (!att.url && att.storageKey) {
+      const resolved = getCachedBlobSync(att.storageKey);
+      if (resolved) {
+        next = { ...next, url: resolved };
+      }
+    }
+    if (Array.isArray(att.rendered_page_keys) && att.rendered_page_keys.length > 0) {
+      const hydratedPages = att.rendered_page_keys
+        .map((k: string) => getCachedBlobSync(k))
+        .filter(Boolean);
+      if (hydratedPages.length === att.rendered_page_keys.length) {
+        next = { ...next, renderedPages: hydratedPages, rendered_pages: hydratedPages };
+      }
+    }
+    return next;
+  };
+
+  if (Array.isArray(copy.attachments)) {
+    copy.attachments = copy.attachments.map(hydrateAttSync);
+  }
+  if (copy.attachment && typeof copy.attachment === 'object') {
+    copy.attachment = hydrateAttSync(copy.attachment);
+  }
+  if (Array.isArray(copy.flyer_attachments)) {
+    copy.flyer_attachments = copy.flyer_attachments.map(hydrateAttSync);
+  }
+  if (Array.isArray(copy.line_items)) {
+    copy.line_items = copy.line_items.map((li: any) => {
+      if (!li || typeof li !== 'object') return li;
+      let nextLi = li;
+      if (!li.image_url && li.image_storage_key) {
+        const u = getCachedBlobSync(li.image_storage_key);
+        if (u) nextLi = { ...nextLi, image_url: u };
+      }
+      if (!li.secondary_image_url && li.secondary_image_storage_key) {
+        const u = getCachedBlobSync(li.secondary_image_storage_key);
+        if (u) nextLi = { ...nextLi, secondary_image_url: u };
+      }
+      if (!li.datasheet_url && li.datasheet_storage_key) {
+        const u = getCachedBlobSync(li.datasheet_storage_key);
+        if (u) nextLi = { ...nextLi, datasheet_url: u };
+      }
+      if (li.datasheet_attachment && typeof li.datasheet_attachment === 'object') {
+        const ds = hydrateAttSync(li.datasheet_attachment);
+        if (ds !== li.datasheet_attachment) nextLi = { ...nextLi, datasheet_attachment: ds };
+      }
+      if (Array.isArray(li.sub_components)) {
+        const subs = li.sub_components.map((sub: any) => {
+          if (sub && !sub.image_url && sub.image_storage_key) {
+            const u = getCachedBlobSync(sub.image_storage_key);
+            if (u) return { ...sub, image_url: u };
+          }
+          return sub;
+        });
+        nextLi = { ...nextLi, sub_components: subs };
+      }
+      return nextLi;
+    });
+  }
+
+  return copy as T;
+}
+
+/**
+ * Asynchronous rehydration helper that resolves all offloaded `storageKey` blobs from IndexedDB
+ * for Detail & Studio views.
+ */
+export async function rehydrateDocumentBlobsFromLocal<T>(docData: T): Promise<T> {
+  if (!docData || typeof docData !== 'object') return docData;
+  const copy: any = rehydrateDocumentBlobsSync(docData);
+
+  const resolveKey = async (key?: string): Promise<string> => {
+    if (!key || typeof key !== 'string') return '';
+    const mem = inMemoryBlobCache.get(key);
+    if (mem) return mem;
+    const disk = await getAttachmentBlob(key);
+    if (disk) {
+      inMemoryBlobCache.set(key, disk);
+      return disk;
+    }
+    return '';
+  };
+
+  const hydrateAttAsync = async (att: any) => {
+    if (!att || typeof att !== 'object') return att;
+    let next = { ...att };
+    if (!next.url && next.storageKey) {
+      const u = await resolveKey(next.storageKey);
+      if (u) next.url = u;
+    }
+    if (Array.isArray(next.rendered_page_keys) && next.rendered_page_keys.length > 0) {
+      const pages = await Promise.all(next.rendered_page_keys.map((k: string) => resolveKey(k)));
+      const validPages = pages.filter(Boolean);
+      if (validPages.length > 0) {
+        next.renderedPages = validPages;
+        next.rendered_pages = validPages;
+      }
+    }
+    return next;
+  };
+
+  if (Array.isArray(copy.attachments)) {
+    copy.attachments = await Promise.all(copy.attachments.map(hydrateAttAsync));
+  }
+  if (copy.attachment && typeof copy.attachment === 'object') {
+    copy.attachment = await hydrateAttAsync(copy.attachment);
+  }
+  if (Array.isArray(copy.flyer_attachments)) {
+    copy.flyer_attachments = await Promise.all(copy.flyer_attachments.map(hydrateAttAsync));
+  }
+  if (Array.isArray(copy.line_items)) {
+    copy.line_items = await Promise.all(
+      copy.line_items.map(async (li: any) => {
+        if (!li || typeof li !== 'object') return li;
+        const nextLi = { ...li };
+        if (!nextLi.image_url && nextLi.image_storage_key) {
+          const u = await resolveKey(nextLi.image_storage_key);
+          if (u) nextLi.image_url = u;
+        }
+        if (!nextLi.secondary_image_url && nextLi.secondary_image_storage_key) {
+          const u = await resolveKey(nextLi.secondary_image_storage_key);
+          if (u) nextLi.secondary_image_url = u;
+        }
+        if (!nextLi.datasheet_url && nextLi.datasheet_storage_key) {
+          const u = await resolveKey(nextLi.datasheet_storage_key);
+          if (u) nextLi.datasheet_url = u;
+        }
+        if (nextLi.datasheet_attachment && typeof nextLi.datasheet_attachment === 'object') {
+          nextLi.datasheet_attachment = await hydrateAttAsync(nextLi.datasheet_attachment);
+        }
+        if (Array.isArray(nextLi.sub_components)) {
+          nextLi.sub_components = await Promise.all(
+            nextLi.sub_components.map(async (sub: any) => {
+              if (sub && !sub.image_url && sub.image_storage_key) {
+                const u = await resolveKey(sub.image_storage_key);
+                if (u) return { ...sub, image_url: u };
+              }
+              return sub;
+            })
+          );
+        }
+        return nextLi;
+      })
+    );
+  }
+
+  return copy as T;
 }
 
 /**

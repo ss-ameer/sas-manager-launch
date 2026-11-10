@@ -1,7 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Invite, UserRole, Workspace } from '../types';
-import { db } from '../firebase';
-import { collection, addDoc, doc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { TicketPlus, Key, Trash2, Clipboard, CheckCircle, Clock, Layers } from 'lucide-react';
 import { safeAddDoc, safeDeleteDoc } from '../firebase';
 
@@ -16,26 +14,6 @@ export default function InviteManager({ invites = [], currentUserId, activeWorks
   const [role, setRole] = useState<UserRole>('Member');
   const [generating, setGenerating] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  // Real-Time Read-Only Listener for invites collection
-  useEffect(() => {
-    const unsub = onSnapshot(
-      collection(db, 'invites'),
-      (snap) => {
-        const list: Invite[] = [];
-        snap.forEach((docSnap) => {
-          list.push({ id: docSnap.id, ...docSnap.data() } as Invite);
-        });
-        if (setInvites) {
-          setInvites(list);
-        }
-      },
-      (err) => {
-        console.warn('Error in InviteManager snapshot listener:', err);
-      }
-    );
-    return () => unsub();
-  }, [setInvites]);
 
   // Filter invites matching current active workspace context
   const activeWsId = activeWorkspace?.id || 'ws_default';
