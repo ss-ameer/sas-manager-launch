@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react';
 import { LineItemComponent, Product } from '../../types';
 import {
   recalculateCompositeItemTotals,
-  applyMarkupToSubComponents,
   parseBulkSubComponentsText,
 } from '../../utils/compositeBomUtils';
 import { buildCatalogVariantAnalysisMap } from '../../utils/productVariantFormat';
@@ -10,7 +9,6 @@ import {
   Layers,
   Plus,
   Trash2,
-  Percent,
   PackageCheck,
   ListTree,
   ArrowUp,
@@ -30,6 +28,7 @@ import {
   MessageSquarePlus,
   Image as ImageIcon,
   ZoomIn,
+  DollarSign,
 } from 'lucide-react';
 import { AtMentionInput, AtMentionTextarea } from './AtMentionField';
 import { QuotationTokenContext } from '../../utils/quotationTokenResolver';
@@ -103,26 +102,43 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
 }) => {
   const isCompositeSet = propIsCompositeSet ?? Boolean(item?.is_composite_set);
   const subComponents = propSubComponents ?? item?.sub_components ?? [];
-  const packagePricingMode = propPackagePricingMode ?? item?.package_pricing_mode ?? 'itemized';
+  const packagePricingMode = propPackagePricingMode ?? item?.package_pricing_mode ?? 'lump_sum';
   const optionScopeNotes = propOptionScopeNotes ?? item?.option_scope_notes ?? '';
   const parentQuantity = propParentQuantity ?? item?.quantity ?? 1;
 
-  const [markupInput, setMarkupInput] = useState<string>('25');
   const [showBulkPaste, setShowBulkPaste] = useState<boolean>(false);
   const [bulkPasteText, setBulkPasteText] = useState<string>('');
-  const [bulkPasteAsAccessory, setBulkPasteAsAccessory] = useState<boolean>(false);
+  const [bulkPasteAsAccessory, setBulkPasteAsAccessory] = useState<boolean>(true);
   const [showCatalogPickerForRow, setShowCatalogPickerForRow] = useState<string | 'NEW' | null>(null);
   const [catalogSearchQuery, setCatalogSearchQuery] = useState<string>('');
   const [expandedRowNotes, setExpandedRowNotes] = useState<Record<string, boolean>>({});
   const [expandedFormatRows, setExpandedFormatRows] = useState<Record<string, boolean>>({});
+  const [showScopeNotes, setShowScopeNotes] = useState<boolean>(Boolean(optionScopeNotes && optionScopeNotes.trim()));
+  const [showCostInputs, setShowCostInputs] = useState<boolean>(false);
   const [lightboxSubComp, setLightboxSubComp] = useState<LineItemComponent | null>(null);
+
   const effectiveTokenContext = useMemo<QuotationTokenContext>(
     () => tokenContext || {},
     [tokenContext]
   );
 
+  const isMeaningfulRemark = (rem?: string) => {
+    if (!rem) return false;
+    const trimmed = rem.trim();
+    if (!trimmed) return false;
+    if (/^included(\s+with\s+package|\s+in\s+set|\s+accessory)?$/i.test(trimmed)) return false;
+    return true;
+  };
+
   const toggleFormatRow = (compId: string) => {
     setExpandedFormatRows((prev) => ({
+      ...prev,
+      [compId]: !prev[compId],
+    }));
+  };
+
+  const toggleNoteRow = (compId: string) => {
+    setExpandedRowNotes((prev) => ({
       ...prev,
       [compId]: !prev[compId],
     }));
@@ -158,10 +174,9 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
   };
 
   const renderSubRowCustomizationBar = (comp: LineItemComponent, rowNumLabel: string) => {
-    const isNoteOpen = Boolean(expandedRowNotes[comp.id] || (comp.row_note && comp.row_note.trim()));
     return (
       <div
-        className="mt-1.5 pt-1.5 border-t border-slate-100 flex flex-col gap-1.5"
+        className="mt-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-1.5"
         onPaste={(e) => {
           const items = e.clipboardData?.items;
           if (!items) return;
@@ -178,15 +193,14 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
         }}
       >
         <div className="flex flex-wrap items-center gap-1.5">
-          {/* Compact 28x28px Sub-Component Photo Thumbnail + Upload Trigger */}
-          <div className="inline-flex items-center gap-1 pr-1 border-r border-slate-200">
+          <div className="inline-flex items-center gap-1 pr-1 border-r border-slate-200 dark:border-slate-700">
             {comp.image_url ? (
               <div className="relative group inline-flex items-center">
                 <button
                   type="button"
                   onClick={() => setLightboxSubComp(comp)}
-                  className="w-7 h-7 rounded border border-slate-200 bg-white overflow-hidden flex items-center justify-center cursor-pointer relative"
-                  title="Click to inspect or rotate sub-component photo"
+                  className="w-7 h-7 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden flex items-center justify-center cursor-pointer relative"
+                  title="Click to inspect or rotate sub-item photo"
                 >
                   <img
                     src={comp.image_url}
@@ -212,15 +226,15 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                   type="button"
                   onClick={() => handleUpdateSub(comp.id, 'image_url', '')}
                   className="ml-0.5 p-0.5 text-slate-400 hover:text-rose-600 cursor-pointer"
-                  title="Remove sub-component photo"
+                  title="Remove photo"
                 >
                   <X className="w-2.5 h-2.5" />
                 </button>
               </div>
             ) : (
               <label
-                className="px-1.5 py-0.5 rounded bg-slate-50 hover:bg-blue-50 text-slate-600 hover:text-blue-700 border border-slate-200 text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition"
-                title="Upload sub-component photo (or Ctrl+V paste on this row)"
+                className="px-1.5 py-0.5 rounded bg-slate-50 dark:bg-slate-800 hover:bg-blue-50 text-slate-600 dark:text-slate-300 hover:text-blue-700 border border-slate-200 dark:border-slate-700 text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition"
+                title="Upload photo (or Ctrl+V paste on this row)"
               >
                 <ImageIcon className="w-2.5 h-2.5 text-blue-600" />
                 <span>Photo</span>
@@ -237,15 +251,16 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
               </label>
             )}
           </div>
+
           <button
             type="button"
             onClick={() => handleUpdateSub(comp.id, 'page_break_after', !comp.page_break_after)}
             className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold border flex items-center gap-1 transition cursor-pointer ${
               comp.page_break_after
                 ? 'bg-amber-100 text-amber-900 border-amber-400 shadow-2xs'
-                : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                : 'bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
             }`}
-            title={`Force a new A4 page after sub-component ${rowNumLabel}`}
+            title={`Force a new A4 page after item ${rowNumLabel}`}
           >
             <Scissors className="w-2.5 h-2.5" />
             <span>{comp.page_break_after ? 'Page Break After' : 'Break'}</span>
@@ -257,9 +272,9 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
             className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border flex items-center gap-1 transition cursor-pointer ${
               comp.row_highlight
                 ? 'bg-amber-100 text-amber-900 border-amber-400 shadow-2xs'
-                : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                : 'bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
             }`}
-            title="Highlight this sub-component row in soft amber on the quotation"
+            title="Highlight this row on the quotation"
           >
             <Sparkles className="w-2.5 h-2.5" />
             <span>Highlight</span>
@@ -271,93 +286,30 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
             className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border flex items-center gap-1 transition cursor-pointer ${
               comp.row_bold
                 ? 'bg-indigo-100 text-indigo-900 border-indigo-300 shadow-2xs'
-                : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                : 'bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
             }`}
-            title="Render this sub-component row in bold text"
+            title="Render this row in bold text"
           >
             <Bold className="w-2.5 h-2.5" />
             <span>Bold</span>
           </button>
 
-          {!comp.is_included_accessory && (
+          {!comp.is_included_accessory && (Number(comp.unit_price) || 0) > 0 && (
             <button
               type="button"
               onClick={() => handleUpdateSub(comp.id, 'hide_row_price', !comp.hide_row_price)}
               className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border flex items-center gap-1 transition cursor-pointer ${
                 comp.hide_row_price
                   ? 'bg-emerald-100 text-emerald-900 border-emerald-300 shadow-2xs'
-                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                  : 'bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
               }`}
-              title="Mask individual price on this row (shows 'Included' visually while keeping its value in the Set total)"
+              title="Mask individual price on quotation (shows 'Included' while keeping its value in the Set total)"
             >
               <EyeOff className="w-2.5 h-2.5" />
               <span>{comp.hide_row_price ? 'Price Hidden (Included)' : 'Hide Price'}</span>
             </button>
           )}
-
-          <button
-            type="button"
-            onClick={() =>
-              setExpandedRowNotes((prev) => ({
-                ...prev,
-                [comp.id]: !isNoteOpen,
-              }))
-            }
-            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border flex items-center gap-1 transition cursor-pointer ${
-              isNoteOpen
-                ? 'bg-blue-100 text-blue-900 border-blue-300 shadow-2xs'
-                : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
-            }`}
-            title="Add or edit a custom row note (supports @tags)"
-          >
-            <MessageSquarePlus className="w-2.5 h-2.5" />
-            <span>{comp.row_note ? 'Edit Note' : 'Note'}</span>
-          </button>
-
-          <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-50 border border-slate-200 text-[10px] font-mono text-slate-600">
-            <span>Spacer:</span>
-            <input
-              type="number"
-              min={0}
-              max={120}
-              value={comp.row_spacer_after_mm || ''}
-              placeholder="0"
-              onChange={(e) => {
-                const v = Math.max(0, Math.min(120, Number(e.target.value) || 0));
-                handleUpdateSub(comp.id, 'row_spacer_after_mm', v > 0 ? v : undefined);
-              }}
-              className="w-10 bg-white border border-slate-200 rounded px-1 py-0 text-[10px] font-mono text-center text-slate-800"
-            />
-            <span>mm</span>
-          </div>
         </div>
-
-        {isNoteOpen && (
-          <div className="flex items-center gap-1.5">
-            <div className="flex-1">
-              <AtMentionInput
-                value={comp.row_note || ''}
-                onChange={(val) => handleUpdateSub(comp.id, 'row_note', val)}
-                tokenContext={effectiveTokenContext}
-                placeholder="Custom row note (type @ for live tags, e.g. @delivery_location)..."
-                className="w-full rounded border border-blue-200 bg-blue-50/30 px-2 py-1 text-[11px] text-slate-800 focus:border-blue-500 focus:outline-none"
-              />
-            </div>
-            {comp.row_note && (
-              <button
-                type="button"
-                onClick={() => {
-                  handleUpdateSub(comp.id, 'row_note', '');
-                  setExpandedRowNotes((prev) => ({ ...prev, [comp.id]: false }));
-                }}
-                className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
-                title="Clear row note"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-        )}
       </div>
     );
   };
@@ -375,238 +327,144 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
       : Math.round(val * 100) / 100;
   };
 
+  /**
+   * Commits sub-component changes without wiping the parent line item's selling price
+   * when all sub-items are zero-price / included accessories.
+   */
   const commitComponents = (
     nextComponents: LineItemComponent[],
-    nextMode: 'itemized' | 'lump_sum' = packagePricingMode,
+    nextMode?: 'itemized' | 'lump_sum',
     nextNotes: string = optionScopeNotes,
     nextCompositeFlag: boolean = true,
     overrideParentQty?: number,
-    overrideParentUnit?: string
+    overrideParentUnit?: string,
+    forceSyncParentPrice: boolean = false
   ) => {
     const effectiveParentQty =
-      overrideParentQty !== undefined ? overrideParentQty : parentQuantity;
+      overrideParentQty !== undefined ? overrideParentQty : Math.max(1, Number(parentQuantity) || 1);
     const totals = recalculateCompositeItemTotals(nextComponents, effectiveParentQty);
+
+    const hasPricedSubItems = totals.unitSellingPrice > 0;
+    const resolvedMode: 'itemized' | 'lump_sum' =
+      nextMode || (hasPricedSubItems ? 'itemized' : 'lump_sum');
+
+    const currentParentUnitPrice = Number(item?.unit_price) || 0;
+    const currentParentCostPrice = Number(item?.cost_price) || 0;
+
+    // Preserve parent price if sub-items are all Included (0.00) or unless sub-items have prices and parent was 0 / forced sync
+    const shouldUpdateParentPrice =
+      forceSyncParentPrice ||
+      (hasPricedSubItems && (currentParentUnitPrice <= 0 || packagePricingMode === 'itemized'));
+
+    const nextUnitPrice = shouldUpdateParentPrice ? totals.unitSellingPrice : currentParentUnitPrice;
+    const nextTotalPrice = Math.round(effectiveParentQty * nextUnitPrice * 100) / 100;
+    const nextCostPrice = totals.unitCostPrice > 0 ? totals.unitCostPrice : currentParentCostPrice;
+
     onChange({
       is_composite_set: nextCompositeFlag,
       sub_components: totals.normalizedComponents,
-      package_pricing_mode: nextMode,
+      package_pricing_mode: resolvedMode,
       option_scope_notes: nextNotes,
       ...(overrideParentQty !== undefined ? { quantity: overrideParentQty } : {}),
       ...(overrideParentUnit !== undefined ? { unit: overrideParentUnit } : {}),
-      unit_price: totals.unitSellingPrice,
-      cost_price: totals.unitCostPrice,
-      total_price: totals.totalSellingPrice,
-    });
-  };
-
-  // Build intelligent initial sub-components from the parent line item so converting to a Composite Package never wipes data
-  const buildSeedFromParentItem = (): {
-    seededComponents: LineItemComponent[];
-    nextParentQty?: number;
-    nextParentUnit?: string;
-  } => {
-    const rawTitle = (item?.item_name || item?.name || '').trim();
-    const rawDesc = (item?.description || '').trim();
-    const descLines = rawDesc
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter(Boolean);
-
-    const parentTitle =
-      rawTitle ||
-      descLines[0] ||
-      (item?.product_type && item.product_type !== 'Other' ? item.product_type : '');
-
-    // Separate any "2 x Top and bottom distribution system" style lines into Included Accessories
-    const extractedAccessories: LineItemComponent[] = [];
-    const remainingSpecLines: string[] = [];
-
-    descLines.forEach((line, idx) => {
-      if (idx === 0 && !rawTitle && line === parentTitle) return;
-      if (/^including\s+with\s+followings?\s*:?$/i.test(line) || /^including\s*:?$/i.test(line)) {
-        return;
-      }
-      const qtyAccMatch = line.match(/^(?:[-•*]\s*)?(\d+)\s*[xX×]\s+(.+)$/);
-      if (qtyAccMatch) {
-        const accQty = Math.max(1, Number(qtyAccMatch[1]) || 1);
-        const accName = qtyAccMatch[2].trim().replace(/[,;]+$/, '');
-        if (accName) {
-          extractedAccessories.push({
-            id: `sub_${Date.now()}_acc_${extractedAccessories.length + 1}`,
-            item_name: accName,
-            remark: 'Included with package',
-            quantity: accQty,
-            unit: 'Nos',
-            cost_price: 0,
-            unit_price: 0,
-            total_price: 0,
-            line_total: 0,
-            is_included_accessory: true,
-          });
-          return;
-        }
-      }
-      remainingSpecLines.push(line);
-    });
-
-    const attrParts: string[] = [];
-    if (item?.brand_make) attrParts.push(`Make: ${item.brand_make}`);
-    if (item?.model_part_no) attrParts.push(`Model: ${item.model_part_no}`);
-    if (Array.isArray(item?.attributes)) {
-      item.attributes.forEach((a) => {
-        if (a?.key && a?.value) {
-          const kv = `${a.key}: ${a.value}`;
-          if (!attrParts.some((existing) => existing.toLowerCase() === kv.toLowerCase())) {
-            attrParts.push(kv);
+      ...(shouldUpdateParentPrice
+        ? {
+            unit_price: nextUnitPrice,
+            total_price: nextTotalPrice,
           }
-        }
-      });
-    }
-
-    const combinedRemark =
-      remainingSpecLines.join(' · ') || attrParts.join(' · ');
-
-    const itemQty = Math.max(1, Number(item?.quantity ?? parentQuantity) || 1);
-    const itemUnit = (item?.unit || 'Nos').trim() || 'Nos';
-    const itemSell = Math.max(0, Number(item?.unit_price) || 0);
-    const itemCost = Math.max(0, Number(item?.cost_price) || 0);
-    const itemTotal = Math.round(itemQty * itemSell * 100) / 100;
-
-    const primaryComp: LineItemComponent = {
-      id: `sub_${Date.now()}_1`,
-      sn: '1',
-      product_id: item?.product_id,
-      sku: item?.sku,
-      item_name: parentTitle,
-      remark: combinedRemark,
-      description: rawDesc,
-      image_url: item?.image_url,
-      image_caption: item?.image_caption,
-      image_adjustments: item?.image_adjustments,
-      quantity: itemQty,
-      unit: itemUnit,
-      cost_price: itemCost,
-      unit_price: itemSell,
-      total_price: itemTotal,
-      line_total: itemTotal,
-      is_included_accessory: false,
-    };
-
-    // If the parent line item had quantity > 1 (e.g. 72 Nos @ 436 = 31,392),
-    // Sub-Component #1 now holds 72 Nos @ 436 = 31,392, so the parent package multiplier becomes 1 SET
-    const shouldNormalizeParentToSingleSet = itemQty > 1 && itemSell > 0;
-
-    return {
-      seededComponents: [primaryComp, ...extractedAccessories],
-      nextParentQty: shouldNormalizeParentToSingleSet ? 1 : undefined,
-      nextParentUnit: shouldNormalizeParentToSingleSet ? 'SET' : undefined,
-    };
+        : {}),
+      ...(totals.unitCostPrice > 0 ? { cost_price: nextCostPrice } : {}),
+    });
   };
 
-  const isCurrentSubListBlankPlaceholder = useMemo(() => {
-    if (subComponents.length === 0) return true;
-    if (subComponents.length === 1) {
-      const only = subComponents[0];
-      return (
-        !(only.item_name || '').trim() &&
-        !(only.remark || '').trim() &&
-        (Number(only.unit_price) || 0) === 0 &&
-        (Number(only.cost_price) || 0) === 0
-      );
+  // Detect if sub_components[0] is a legacy duplicate of the parent heading with 0 price
+  const hasRedundantParentCloneRow = useMemo(() => {
+    if (subComponents.length < 2) return false;
+    const first = subComponents[0];
+    const parentName = (item?.item_name || item?.name || '').trim().toLowerCase();
+    const firstName = (first.item_name || '').trim().toLowerCase();
+    const firstPrice = Number(first.unit_price) || 0;
+    if (!first.is_included_accessory && firstPrice === 0 && (!firstName || firstName === parentName)) {
+      return subComponents.slice(1).some((c) => Boolean(c.is_included_accessory) || (Number(c.unit_price) || 0) === 0);
     }
     return false;
-  }, [subComponents]);
+  }, [subComponents, item?.item_name, item?.name]);
 
-  const parentHasMeaningfulData = Boolean(
-    (item?.item_name || item?.name || item?.description || '').trim() ||
-      (Number(item?.unit_price) || 0) > 0 ||
-      (Number(item?.cost_price) || 0) > 0
-  );
-
-  const handleSyncFromParentItem = () => {
-    const { seededComponents, nextParentQty, nextParentUnit } = buildSeedFromParentItem();
-    commitComponents(
-      seededComponents,
-      packagePricingMode,
-      optionScopeNotes,
-      true,
-      nextParentQty,
-      nextParentUnit
-    );
+  const handleCleanRedundantParentRow = () => {
+    if (!hasRedundantParentCloneRow) return;
+    const cleaned = subComponents.slice(1);
+    commitComponents(cleaned, 'lump_sum', optionScopeNotes, cleaned.length > 0);
   };
 
   const handleToggleComposite = (enabled: boolean) => {
     if (!enabled) {
-      // When switching back to a Single Item, if there is 1 priced component with data, restore its qty/unit/price to the parent item
-      const priced = subComponents.filter((c) => !c.is_included_accessory);
-      if (priced.length === 1 && ((Number(priced[0].unit_price) || 0) > 0 || (priced[0].item_name || '').trim())) {
-        const primary = priced[0];
-        const restoredQty = Math.max(1, Number(primary.quantity) || 1);
-        const restoredSell = Math.max(0, Number(primary.unit_price) || 0);
-        const restoredCost = Math.max(0, Number(primary.cost_price) || 0);
-        onChange({
-          is_composite_set: false,
-          sub_components: subComponents,
-          package_pricing_mode: packagePricingMode,
-          option_scope_notes: optionScopeNotes,
-          quantity: restoredQty,
-          unit: primary.unit || item?.unit || 'Nos',
-          unit_price: restoredSell,
-          cost_price: restoredCost,
-          total_price: Math.round(restoredQty * restoredSell * 100) / 100,
-        });
-        return;
-      }
       onChange({
         is_composite_set: false,
-        sub_components: subComponents,
-        package_pricing_mode: packagePricingMode,
+        sub_components: [],
+        package_pricing_mode: 'lump_sum',
         option_scope_notes: optionScopeNotes,
       });
       return;
     }
 
-    if (isCurrentSubListBlankPlaceholder && parentHasMeaningfulData) {
-      const { seededComponents, nextParentQty, nextParentUnit } = buildSeedFromParentItem();
-      commitComponents(
-        seededComponents,
-        packagePricingMode,
-        optionScopeNotes,
-        true,
-        nextParentQty,
-        nextParentUnit
-      );
-      return;
-    }
-
-    const seed: LineItemComponent[] =
-      subComponents.length > 0
-        ? subComponents
-        : [
-            {
-              id: `sub_${Date.now()}_1`,
-              sn: '1',
-              item_name: '',
+    // Extract any "2 x Top and bottom distribution system" lines from parent description if subComponents is empty
+    if (subComponents.length === 0) {
+      const rawDesc = (item?.description || '').trim();
+      const descLines = rawDesc
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+      const extracted: LineItemComponent[] = [];
+      descLines.forEach((line) => {
+        const qtyAccMatch = line.match(/^(?:[-•*]\s*)?(\d+)\s*[xX×]\s+(.+)$/);
+        if (qtyAccMatch) {
+          const accQty = Math.max(1, Number(qtyAccMatch[1]) || 1);
+          const accName = qtyAccMatch[2].trim().replace(/[,;]+$/, '');
+          if (accName) {
+            extracted.push({
+              id: `sub_${Date.now()}_acc_${extracted.length + 1}`,
+              item_name: accName,
               remark: '',
-              quantity: 1,
+              quantity: accQty,
               unit: 'Nos',
               cost_price: 0,
               unit_price: 0,
               total_price: 0,
               line_total: 0,
-              is_included_accessory: false,
-            },
-          ];
-    commitComponents(seed, packagePricingMode, optionScopeNotes, true);
+              is_included_accessory: true,
+            });
+          }
+        }
+      });
+
+      const seed: LineItemComponent[] =
+        extracted.length > 0
+          ? extracted
+          : [
+              {
+                id: `sub_${Date.now()}_1`,
+                item_name: '',
+                remark: '',
+                quantity: 1,
+                unit: 'Nos',
+                cost_price: 0,
+                unit_price: 0,
+                total_price: 0,
+                line_total: 0,
+                is_included_accessory: true,
+              },
+            ];
+      commitComponents(seed, 'lump_sum', optionScopeNotes, true);
+      return;
+    }
+
+    commitComponents(subComponents, packagePricingMode, optionScopeNotes, true);
   };
 
-  const handleAddSubComponent = (isAccessory: boolean) => {
+  const handleAddSubItem = () => {
     const nextIdx = subComponents.length + 1;
     const newComp: LineItemComponent = {
       id: `sub_${Date.now()}_${nextIdx}`,
-      sn: isAccessory
-        ? undefined
-        : String(subComponents.filter((c) => !c.is_included_accessory).length + 1),
       item_name: '',
       remark: '',
       quantity: 1,
@@ -615,7 +473,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
       unit_price: 0,
       total_price: 0,
       line_total: 0,
-      is_included_accessory: isAccessory,
+      is_included_accessory: true,
     };
     commitComponents([...subComponents, newComp]);
   };
@@ -637,12 +495,13 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
 
     if (targetId === 'NEW') {
       const nextIdx = subComponents.length + 1;
+      const isAcc = snapUnitPrice <= 0;
       const newComp: LineItemComponent = {
         id: `sub_${Date.now()}_${nextIdx}`,
-        sn: String(subComponents.filter((c) => !c.is_included_accessory).length + 1),
+        sn: isAcc ? undefined : String(subComponents.filter((c) => !c.is_included_accessory).length + 1),
         product_id: prod.id,
         sku: prod.sku,
-        item_name: prod.name || prod.product_type || 'Catalog Component',
+        item_name: prod.name || prod.product_type || 'Catalog Item',
         remark: specSummary,
         description: prod.description || '',
         image_url: prod.image_url,
@@ -654,16 +513,15 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
         unit_price: snapUnitPrice,
         total_price: snapUnitPrice,
         line_total: snapUnitPrice,
-        is_included_accessory: false,
+        is_included_accessory: isAcc,
       };
       commitComponents([...subComponents, newComp]);
     } else {
       const updated = subComponents.map((c) => {
         if (c.id !== targetId) return c;
-        const qty = Math.max(0, Number(c.quantity) || 1);
-        const isAcc = Boolean(c.is_included_accessory);
-        const uPrice = isAcc ? 0 : snapUnitPrice;
-        const cPrice = isAcc ? 0 : snapCostPrice;
+        const qty = Math.max(1, Number(c.quantity) || 1);
+        const uPrice = snapUnitPrice;
+        const isAcc = uPrice <= 0;
         const tot = isAcc ? 0 : Math.round(qty * uPrice * 100) / 100;
         return {
           ...c,
@@ -675,10 +533,11 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
           image_caption: c.image_caption || prod.image_caption,
           image_adjustments: c.image_adjustments || prod.image_adjustments,
           unit: cleanUnit,
-          cost_price: cPrice,
+          cost_price: snapCostPrice,
           unit_price: uPrice,
           total_price: tot,
           line_total: tot,
+          is_included_accessory: isAcc,
         };
       });
       commitComponents(updated);
@@ -688,59 +547,22 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
     setCatalogSearchQuery('');
   };
 
-  const handleRefreshSubFromCatalog = (compId: string, prod: Product) => {
-    const snapUnitPrice = convertFromCatalogAed(prod.unit_price);
-    const snapCostPrice = convertFromCatalogAed(prod.cost_price ?? prod.cost_price_aed);
-    const updated = subComponents.map((c) => {
-      if (c.id !== compId) return c;
-      const qty = Math.max(0, Number(c.quantity) || 0);
-      const isAcc = Boolean(c.is_included_accessory);
-      const uPrice = isAcc ? 0 : snapUnitPrice;
-      const cPrice = isAcc ? 0 : snapCostPrice;
-      const tot = isAcc ? 0 : Math.round(qty * uPrice * 100) / 100;
-      return {
-        ...c,
-        sku: prod.sku || c.sku,
-        image_url: c.image_url || prod.image_url,
-        cost_price: cPrice,
-        unit_price: uPrice,
-        total_price: tot,
-        line_total: tot,
-      };
-    });
-    commitComponents(updated);
-  };
-
-  const handleRefreshAllLinkedFromCatalog = () => {
-    const updated = subComponents.map((c) => {
-      if (!c.product_id) return c;
-      const prod = activeCatalogProducts.find((p) => p.id === c.product_id);
-      if (!prod) return c;
-      const snapUnitPrice = convertFromCatalogAed(prod.unit_price);
-      const snapCostPrice = convertFromCatalogAed(prod.cost_price ?? prod.cost_price_aed);
-      const qty = Math.max(0, Number(c.quantity) || 0);
-      const isAcc = Boolean(c.is_included_accessory);
-      const uPrice = isAcc ? 0 : snapUnitPrice;
-      const cPrice = isAcc ? 0 : snapCostPrice;
-      const tot = isAcc ? 0 : Math.round(qty * uPrice * 100) / 100;
-      return {
-        ...c,
-        sku: prod.sku || c.sku,
-        image_url: c.image_url || prod.image_url,
-        cost_price: cPrice,
-        unit_price: uPrice,
-        total_price: tot,
-        line_total: tot,
-      };
-    });
-    commitComponents(updated);
-  };
-
   const handleUpdateSub = (id: string, field: keyof LineItemComponent, value: any) => {
     const updated = subComponents.map((c) => {
       if (c.id !== id) return c;
       const next: LineItemComponent = { ...c, [field]: value };
       const qty = Math.max(0, Number(next.quantity) || 0);
+
+      if (field === 'unit_price') {
+        const parsedPrice = Math.max(0, Number(value) || 0);
+        next.unit_price = parsedPrice;
+        next.is_included_accessory = parsedPrice <= 0;
+      } else if (field === 'is_included_accessory') {
+        if (value === true) {
+          next.unit_price = 0;
+        }
+      }
+
       const uPrice = next.is_included_accessory ? 0 : Math.max(0, Number(next.unit_price) || 0);
       next.unit_price = uPrice;
       const tot = Math.round(qty * uPrice * 100) / 100;
@@ -762,14 +584,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
 
   const handleRemoveSub = (id: string) => {
     const filtered = subComponents.filter((c) => c.id !== id);
-    commitComponents(filtered);
-  };
-
-  const handleApplyGlobalMarkup = () => {
-    const pct = parseFloat(markupInput);
-    if (isNaN(pct)) return;
-    const markedUp = applyMarkupToSubComponents(subComponents, pct);
-    commitComponents(markedUp);
+    commitComponents(filtered, undefined, optionScopeNotes, filtered.length > 0);
   };
 
   const parsedBulkPreview = useMemo(
@@ -803,296 +618,195 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
       .slice(0, 20);
   }, [activeCatalogProducts, catalogSearchQuery]);
 
-  const pricedComponents = subComponents.filter((c) => !c.is_included_accessory);
-  const includedAccessories = subComponents.filter((c) => c.is_included_accessory);
   const totals = recalculateCompositeItemTotals(subComponents, parentQuantity);
-  const profit = totals.unit_price - totals.cost_price;
-  const marginPct = totals.unit_price > 0 ? (profit / totals.unit_price) * 100 : 0;
+  const pricedCount = subComponents.filter((c) => !c.is_included_accessory && (Number(c.unit_price) || 0) > 0).length;
+  const includedCount = subComponents.length - pricedCount;
+  const parentUnitPrice = Number(item?.unit_price) || 0;
+  const hasSubPriceMismatch =
+    totals.unitSellingPrice > 0 && Math.abs(totals.unitSellingPrice - parentUnitPrice) > 0.01;
 
-  // Check if any linked sub-components have drifted from current catalog price/cost
-  const hasAnyDriftedSub = useMemo(() => {
-    return subComponents.some((sub) => {
-      if (!sub.product_id || sub.is_included_accessory) return false;
-      const prod = activeCatalogProducts.find((p) => p.id === sub.product_id);
-      if (!prod) return false;
-      const catPrice = convertFromCatalogAed(prod.unit_price);
-      const catCost = convertFromCatalogAed(prod.cost_price ?? prod.cost_price_aed);
-      return (
-        Math.abs((Number(sub.unit_price) || 0) - catPrice) > 0.01 ||
-        (catCost > 0 && Math.abs((Number(sub.cost_price) || 0) - catCost) > 0.01)
-      );
-    });
-  }, [subComponents, activeCatalogProducts, currency]);
-
-  if (!isCompositeSet) {
+  if (!isCompositeSet && subComponents.length === 0) {
     return (
       <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
         <div className="flex items-center gap-2 text-xs text-slate-500">
           <Layers className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
           <span>
-            Need a multi-component system, equipment assembly, or Bill of Materials (BOM)?
+            Does this system or set include sub-items or accessories?
           </span>
         </div>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <button
-            type="button"
-            onClick={() => handleToggleComposite(true)}
-            className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
-          >
-            <ListTree className="w-3.5 h-3.5" />
-            <span>Convert to Composite Package / Kit (BOM)</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => handleToggleComposite(true)}
+          className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+        >
+          <ListTree className="w-3.5 h-3.5" />
+          <span>+ Add Included Items / Package Contents</span>
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="mt-2 rounded-xl border border-indigo-200/80 bg-indigo-50/25 dark:bg-slate-900/70 dark:border-indigo-900/60 overflow-hidden shadow-2xs">
-      {/* Top Bar */}
-      <div className="px-3.5 py-2.5 bg-indigo-50/80 dark:bg-indigo-950/50 border-b border-indigo-200/70 dark:border-indigo-900/80 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
-            <Layers className="w-3.5 h-3.5" />
+    <div className="rounded-xl border border-slate-200/90 dark:border-slate-700/80 bg-white dark:bg-slate-900 overflow-hidden shadow-2xs">
+      {/* Compact Header Bar */}
+      <div className="px-3 py-2 bg-slate-50/90 dark:bg-slate-800/60 border-b border-slate-200/80 dark:border-slate-700/80 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <PackageCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+            Included Items &amp; Package Contents
           </span>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-indigo-950 dark:text-indigo-200">
-                Composite Package / Kit (BOM) Breakdown
-              </span>
-              <span className="px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/70 text-indigo-800 dark:text-indigo-200 border border-indigo-200/80 dark:border-indigo-800 font-mono text-[10px] font-bold">
-                {pricedComponents.length} Priced • {includedAccessories.length} Included
-              </span>
-            </div>
-            {!compact && (
-              <p className="text-[10.5px] text-slate-600 dark:text-indigo-300/70">
-                Manage sub-components, catalog SKU links, supplier costs, markups, and included zero-price accessories.
-              </p>
-            )}
-          </div>
+          <span className="px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-mono text-[10px] font-bold">
+            {subComponents.length} {subComponents.length === 1 ? 'Item' : 'Items'}
+            {pricedCount > 0 ? ` (${pricedCount} Priced · ${includedCount} Included)` : ' (Included in Set Price)'}
+          </span>
         </div>
 
         <div className="flex items-center gap-1.5 flex-wrap">
-          {/* Package Pricing Display Mode Toggle */}
-          <div className="inline-flex rounded-lg bg-white dark:bg-slate-800 p-0.5 border border-indigo-200/80 dark:border-slate-700">
+          {hasSubPriceMismatch && (
             <button
               type="button"
               onClick={() =>
-                commitComponents(subComponents, 'itemized', optionScopeNotes, true)
+                commitComponents(subComponents, 'itemized', optionScopeNotes, true, undefined, undefined, true)
               }
-              className={`px-2 py-1 rounded-md text-[10.5px] font-semibold transition cursor-pointer ${
-                packagePricingMode === 'itemized'
-                  ? 'bg-indigo-600 text-white shadow-2xs'
-                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
-              }`}
-              title="Show each sub-component's unit price and total on the client quotation"
+              className="px-2 py-0.5 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[10.5px] font-mono font-bold flex items-center gap-1 transition cursor-pointer"
+              title="Set the main line item's unit price to the sum of these sub-item prices"
             >
-              Itemized Component Prices
+              <span>
+                Sub-Items Sum: {currency}{' '}
+                {totals.unitSellingPrice.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{' '}
+                — Apply to Item Price
+              </span>
             </button>
-            <button
-              type="button"
-              onClick={() =>
-                commitComponents(subComponents, 'lump_sum', optionScopeNotes, true)
-              }
-              className={`px-2 py-1 rounded-md text-[10.5px] font-semibold transition cursor-pointer ${
-                packagePricingMode === 'lump_sum'
-                  ? 'bg-indigo-600 text-white shadow-2xs'
-                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
-              }`}
-              title="Show sub-components with quantities as 'Included in Set' and display a single package lump-sum price"
-            >
-              Single Package Lump-Sum
-            </button>
-          </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setShowCostInputs((v) => !v)}
+            className={`px-2 py-1 rounded-md border text-[10.5px] font-semibold flex items-center gap-1 transition cursor-pointer ${
+              showCostInputs
+                ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800'
+                : 'bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+            }`}
+            title="Show or hide internal supplier cost per sub-item"
+          >
+            <DollarSign className="w-3 h-3" />
+            <span>{showCostInputs ? 'Hide Cost' : 'Sub-Item Costs'}</span>
+          </button>
 
           <button
             type="button"
             onClick={() => setShowBulkPaste((prev) => !prev)}
-            className={`px-2.5 py-1 rounded-lg border text-[10.5px] font-semibold flex items-center gap-1 transition cursor-pointer ${
+            className={`px-2 py-1 rounded-md border text-[10.5px] font-semibold flex items-center gap-1 transition cursor-pointer ${
               showBulkPaste
                 ? 'bg-indigo-600 text-white border-indigo-600'
-                : 'bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-slate-700 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-slate-700'
+                : 'bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
             }`}
-            title="Bulk paste sub-components or accessories from Excel, TSV, CSV, or pipe-separated rows"
+            title="Paste a list of included items or parts from Excel or text"
           >
             <ClipboardPaste className="w-3 h-3" />
-            <span>Paste Sub-Components</span>
+            <span>Paste List</span>
           </button>
 
-          {isCurrentSubListBlankPlaceholder && parentHasMeaningfulData && (
+          {subComponents.length > 0 && (
             <button
               type="button"
-              onClick={handleSyncFromParentItem}
-              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10.5px] font-bold flex items-center gap-1 shadow-2xs transition cursor-pointer"
-              title="Populate Sub-Component #1 and any accessories directly from this line item's title, quantity, price, and specifications"
+              onClick={() => handleToggleComposite(false)}
+              className="px-2 py-1 rounded-md bg-white dark:bg-slate-800 hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 dark:border-slate-700 text-[10.5px] font-semibold transition cursor-pointer"
+              title="Clear included sub-items and keep as a single line item"
             >
-              <Sparkles className="w-3 h-3" />
-              <span>Populate from Line Item</span>
+              Clear List
             </button>
           )}
-
-          {hasAnyDriftedSub && (
-            <button
-              type="button"
-              onClick={handleRefreshAllLinkedFromCatalog}
-              className="px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 text-[10.5px] font-semibold flex items-center gap-1 transition cursor-pointer"
-              title="Update all linked sub-components with the latest prices and costs from the Products Catalog"
-            >
-              <RefreshCw className="w-3 h-3" />
-              <span>Refresh from Catalog</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => handleToggleComposite(false)}
-            className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-600 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-700 text-[10.5px] font-semibold transition cursor-pointer"
-          >
-            Switch to Single Item
-          </button>
         </div>
       </div>
 
-      {/* Bulk Paste Sub-Components Drawer */}
+      {/* Auto-detect notice if subComponents[0] is a legacy duplicate 0.00 row of the parent item */}
+      {hasRedundantParentCloneRow && (
+        <div className="px-3 py-2 bg-amber-50/90 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800 flex items-center justify-between gap-2 text-xs text-amber-900 dark:text-amber-200">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+            <span className="truncate">
+              Row #1 duplicates the main package heading with <strong>0.00</strong> price.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleCleanRedundantParentRow}
+            className="px-2.5 py-0.5 rounded bg-amber-600 hover:bg-amber-700 text-white text-[10.5px] font-bold shrink-0 cursor-pointer transition"
+          >
+            Remove Duplicate Row #1
+          </button>
+        </div>
+      )}
+
+      {/* Bulk Paste Drawer */}
       {showBulkPaste && (
-        <div className="p-3 bg-indigo-50/90 dark:bg-slate-800/90 border-b border-indigo-200 dark:border-slate-700 space-y-2.5">
+        <div className="p-3 bg-slate-50 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700 space-y-2">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <span className="text-xs font-bold text-indigo-950 dark:text-indigo-200 flex items-center gap-1.5">
-                <ClipboardPaste className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                Bulk Paste Sub-Components &amp; Accessories (Excel / TSV / CSV / Pipe)
+              <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <ClipboardPaste className="w-3.5 h-3.5 text-indigo-600" />
+                Paste Included Items or Sub-Components
               </span>
-              <p className="text-[10.5px] text-slate-600 dark:text-slate-400">
-                Format: <code className="font-mono bg-white dark:bg-slate-900 px-1 py-0.5 rounded border border-slate-200 dark:border-slate-700">Component Name | Application / Scope Note | Qty | UOM | Supplier Cost | Selling Rate</code> (or paste 1-2 columns for zero-price accessories).
+              <p className="text-[10.5px] text-slate-500 dark:text-slate-400">
+                Paste one item per line (e.g. <code className="font-mono bg-white dark:bg-slate-900 px-1 py-0.5 rounded border border-slate-200 dark:border-slate-700">2 x Top and bottom distribution system</code> or Excel rows).
               </p>
             </div>
             <button
               type="button"
               onClick={() => setShowBulkPaste(false)}
-              className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg cursor-pointer"
+              className="p-1 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
           <textarea
-            rows={4}
+            rows={3}
             value={bulkPasteText}
             onChange={(e) => setBulkPasteText(e.target.value)}
-            placeholder={`Example:\nPrimary Vessel Shell SS316\tAeration Tank\t2\tNos\t18500\t24000\n EPDM Membrane Roof Cover\tAeration Tank\t2\tNos\t4200\t5500\nSS316 Anchor Bolts & Fasteners\tIncluded Hardware\t2\tSet\t0\t0`}
-            className="w-full rounded-lg border border-indigo-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500"
+            placeholder={`2 x Top and bottom distribution system\n1 x Vacuum Breaker\n1 x Riser Pipe`}
+            className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500"
           />
 
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <label className="inline-flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={bulkPasteAsAccessory}
-                onChange={(e) => setBulkPasteAsAccessory(e.target.checked)}
-                className="rounded border-slate-300 dark:border-slate-700 text-indigo-600"
-              />
-              <span>Default rows without prices as Included Zero-Price Accessories</span>
-            </label>
-
+            <span className="text-[11px] font-mono text-slate-600 dark:text-slate-300 font-semibold">
+              Detected: {parsedBulkPreview.length} item(s)
+            </span>
             <div className="flex items-center gap-2">
-              <span className="text-[11px] font-mono text-indigo-800 dark:text-indigo-300 font-semibold">
-                Parsed: {parsedBulkPreview.length} row(s)
-              </span>
               <button
                 type="button"
                 disabled={parsedBulkPreview.length === 0}
                 onClick={() => handleCommitBulkPaste('append')}
-                className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-bold transition cursor-pointer"
+                className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-xs font-bold transition cursor-pointer"
               >
-                + Append {parsedBulkPreview.length} Rows
+                + Add {parsedBulkPreview.length} Items
               </button>
               <button
                 type="button"
                 disabled={parsedBulkPreview.length === 0}
                 onClick={() => handleCommitBulkPaste('replace')}
-                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 disabled:opacity-40 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-800 text-xs font-semibold transition cursor-pointer"
+                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-rose-50 disabled:opacity-40 text-rose-700 border border-rose-200 text-xs font-semibold transition cursor-pointer"
               >
-                Replace Existing
+                Replace List
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Supplier Cost & Markup Calculator Bar */}
-      <div className="px-3.5 py-2 bg-white/90 dark:bg-slate-900/90 border-b border-indigo-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700">
-            <Percent className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-            <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-              Supplier Cost Markup:
-            </span>
-            <input
-              type="number"
-              step="0.5"
-              value={markupInput}
-              onChange={(e) => setMarkupInput(e.target.value)}
-              className="w-16 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5 text-xs font-mono font-bold text-slate-900 dark:text-white text-right"
-            />
-            <span className="text-[11px] font-mono text-slate-500">%</span>
-            <button
-              type="button"
-              onClick={handleApplyGlobalMarkup}
-              className="ml-1 px-2.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 hover:text-white border border-indigo-200 dark:border-indigo-800 text-[10.5px] font-bold transition cursor-pointer"
-              title="Calculate component selling prices from their supplier cost price + markup %"
-            >
-              Apply Markup to Costs
-            </button>
-          </div>
-        </div>
-
-        {/* Live Rollup Totals */}
-        <div className="flex items-center gap-3 font-mono text-xs tabular-nums flex-wrap">
-          <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">
-            Set Cost:{' '}
-            <strong className="text-slate-800 dark:text-slate-200">
-              {currency}{' '}
-              {totals.cost_price.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-            </strong>
-          </span>
-          {totals.cost_price > 0 && (
-            <span
-              className={`px-1.5 py-0.5 rounded text-[10.5px] font-bold whitespace-nowrap ${
-                marginPct >= 20
-                  ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-                  : marginPct >= 0
-                  ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
-                  : 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
-              }`}
-            >
-              {marginPct.toFixed(1)}% Margin
-            </span>
-          )}
-          <span className="text-indigo-950 dark:text-indigo-200 font-bold whitespace-nowrap">
-            Package Total:{' '}
-            <span className="text-indigo-600 dark:text-indigo-400">
-              {currency}{' '}
-              {totals.total_price.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-            </span>
-          </span>
-        </div>
-      </div>
-
       {/* Catalog Sub-Component Picker Popover */}
       {showCatalogPickerForRow && activeCatalogProducts.length > 0 && (
-        <div className="p-3 bg-blue-50/80 dark:bg-slate-800 border-b border-blue-200 space-y-2">
+        <div className="p-3 bg-blue-50/80 dark:bg-slate-800 border-b border-blue-200 dark:border-slate-700 space-y-2">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-bold text-blue-950 dark:text-blue-200 flex items-center gap-1.5">
               <Link2 className="w-3.5 h-3.5 text-blue-600" />
               {showCatalogPickerForRow === 'NEW'
-                ? 'Add Sub-Component from Products Catalog'
-                : 'Link Sub-Component Row to Catalog Product'}
+                ? 'Add Included Item from Products Catalog'
+                : 'Link Item to Catalog Product'}
             </span>
             <button
               type="button"
@@ -1112,7 +826,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
               value={catalogSearchQuery}
               onChange={(e) => setCatalogSearchQuery(e.target.value)}
               placeholder="Search catalog by product name, SKU, brand, model..."
-              className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-blue-200 bg-white text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-blue-200 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500"
               autoFocus
             />
           </div>
@@ -1129,7 +843,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                     key={prod.id}
                     type="button"
                     onClick={() => handleSelectCatalogProductForSub(prod, showCatalogPickerForRow)}
-                    className="text-left p-2 rounded-lg bg-white dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-slate-800/80 border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 flex items-center justify-between gap-2 transition cursor-pointer"
+                    className="text-left p-2 rounded-lg bg-white dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-slate-800/80 border border-slate-200 dark:border-slate-700 hover:border-blue-400 flex items-center justify-between gap-2 transition cursor-pointer"
                   >
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
@@ -1137,62 +851,31 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                           {prod.name || prod.product_type}
                         </div>
                         {vInfo?.isVariant && (
-                          <span className="text-[9px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 px-1.5 py-0.2 rounded">
-                            Variant • {vInfo.siblingCount} SKUs
+                          <span className="text-[9px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.2 rounded">
+                            Variant
                           </span>
                         )}
                       </div>
-                      <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate">
+                      <div className="text-[10px] font-mono text-slate-500 truncate">
                         {[prod.sku ? `SKU: ${prod.sku}` : '', prod.brand_make, prod.model_part_no]
                           .filter(Boolean)
                           .join(' · ') || prod.product_type}
                       </div>
-                      <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                        {prod.is_inventoried && (
-                          <span
-                            className={`inline-block text-[9.5px] font-mono font-bold px-1.5 py-0.2 rounded ${
-                              avail > 0
-                                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
-                                : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
-                            }`}
-                          >
-                            Avail: {avail} {cleanUnit}
-                          </span>
-                        )}
-                        {vInfo?.isVariant
-                          ? vInfo.differentiatingAttributes.slice(0, 2).map((attr, aIdx) => (
-                              <span
-                                key={aIdx}
-                                className="text-[9px] font-mono font-bold bg-indigo-100/90 dark:bg-indigo-950/60 border border-indigo-300 dark:border-indigo-800 text-indigo-900 dark:text-indigo-200 px-1.5 py-0.2 rounded truncate max-w-[120px]"
-                              >
-                                {attr.key}: {attr.value}
-                              </span>
-                            ))
-                          : (prod.attributes || []).slice(0, 2).map((attr, aIdx) => (
-                              <span
-                                key={aIdx}
-                                className="text-[9px] font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 px-1 py-0.2 rounded truncate max-w-[110px]"
-                              >
-                                {attr.key}: {attr.value}
-                              </span>
-                            ))}
-                      </div>
+                      {prod.is_inventoried && (
+                        <span className="inline-block text-[9.5px] font-mono font-bold text-emerald-700 mt-0.5">
+                          Avail: {avail} {cleanUnit}
+                        </span>
+                      )}
                     </div>
                     <div className="text-right font-mono tabular-nums shrink-0">
                       {priceConv > 0 ? (
                         <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 block">
-                          {currency}{' '}
-                          {priceConv.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
+                          {currency} {priceConv.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       ) : (
-                        <span className="inline-block px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-[10px] font-sans font-semibold text-amber-700 dark:text-amber-300">
-                          Price on Request
-                        </span>
+                        <span className="text-[10px] font-sans text-slate-400 block">Included</span>
                       )}
-                      <span className="text-[10px] text-blue-600 dark:text-blue-400 font-sans font-semibold block mt-0.5">
+                      <span className="text-[10px] text-blue-600 font-sans font-semibold block">
                         Select
                       </span>
                     </div>
@@ -1200,465 +883,314 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                 );
               });
             })()}
-            {filteredPickerProducts.length === 0 && (
-              <div className="col-span-2 py-4 text-center text-xs text-slate-400 italic">
-                No matching catalog products found.
-              </div>
-            )}
           </div>
         </div>
       )}
 
-      {/* 1. Priced Sub-Components Section — Split-Screen Ergonomic Card Rows */}
-      <div className="p-3 space-y-2.5">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <span className="text-[11px] font-mono uppercase tracking-wider font-bold text-slate-700 dark:text-slate-300">
-            1. Sub-Components &amp; Priced Items ({pricedComponents.length})
-          </span>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {activeCatalogProducts.length > 0 && (
-              <button
-                type="button"
-                onClick={() =>
-                  setShowCatalogPickerForRow((prev) => (prev === 'NEW' ? null : 'NEW'))
-                }
-                className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold flex items-center gap-1 transition cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add from Catalog</span>
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => handleAddSubComponent(false)}
-              className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1 shadow-2xs transition cursor-pointer"
+      {/* Unified Single-Table Compact Checklist */}
+      <div className="divide-y divide-slate-100 dark:divide-slate-800">
+        {subComponents.map((comp, idx) => {
+          const unitPriceVal = Number(comp.unit_price) || 0;
+          const isIncludedZeroPrice = Boolean(comp.is_included_accessory) || unitPriceVal <= 0;
+          const hasNote = isMeaningfulRemark(comp.remark) || Boolean(comp.row_note && comp.row_note.trim());
+          const isNoteOpen = Boolean(expandedRowNotes[comp.id] || hasNote);
+          const activeFmtCount = getActiveFormatCount(comp);
+          const isFmtOpen = Boolean(expandedFormatRows[comp.id]);
+          const linkedProduct = comp.product_id
+            ? activeCatalogProducts.find((p) => p.id === comp.product_id)
+            : undefined;
+
+          return (
+            <div
+              key={comp.id}
+              className="px-3 py-2 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors space-y-1.5"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Priced Sub-Component</span>
-            </button>
-          </div>
-        </div>
+              <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5">
+                {/* # Index */}
+                <span className="w-5 text-[10px] font-mono font-bold text-slate-400 text-center shrink-0">
+                  {idx + 1}.
+                </span>
 
-        <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden divide-y divide-slate-200/80 dark:divide-slate-800">
-          {subComponents.map((comp, idx) => {
-            if (comp.is_included_accessory) return null;
-            const cCost = Number(comp.cost_price) || 0;
-            const cSell = Number(comp.unit_price) || 0;
-            const cMargin = cSell > 0 && cCost > 0 ? ((cSell - cCost) / cSell) * 100 : null;
+                {/* Qty */}
+                <input
+                  type="number"
+                  step="any"
+                  value={comp.quantity ?? ''}
+                  onChange={(e) => handleUpdateSub(comp.id, 'quantity', e.target.value)}
+                  placeholder="Qty"
+                  title="Quantity"
+                  className="w-14 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-1.5 py-1 text-xs font-mono text-center font-bold text-slate-900 dark:text-white focus:border-blue-500 focus:bg-white focus:outline-none shrink-0"
+                />
 
-            const linkedProduct = comp.product_id
-              ? activeCatalogProducts.find((p) => p.id === comp.product_id)
-              : undefined;
-            const catalogSell = linkedProduct
-              ? convertFromCatalogAed(linkedProduct.unit_price)
-              : 0;
-            const catalogCost = linkedProduct
-              ? convertFromCatalogAed(linkedProduct.cost_price ?? linkedProduct.cost_price_aed)
-              : 0;
-            const isPriceDrifted =
-              linkedProduct &&
-              (Math.abs(cSell - catalogSell) > 0.01 ||
-                (catalogCost > 0 && Math.abs(cCost - catalogCost) > 0.01));
+                {/* Unit */}
+                <input
+                  type="text"
+                  value={comp.unit ?? 'Nos'}
+                  onChange={(e) => handleUpdateSub(comp.id, 'unit', e.target.value)}
+                  placeholder="Nos"
+                  title="Unit (e.g. Nos, Set, Lot)"
+                  className="w-14 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-1.5 py-1 text-xs font-mono text-center text-slate-700 dark:text-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none shrink-0"
+                />
 
-            const reqTotalQty =
-              (Math.max(1, Number(parentQuantity) || 1)) * (Number(comp.quantity) || 0);
-            const availStock = linkedProduct
-              ? (linkedProduct.stock_on_hand || 0) - (linkedProduct.stock_reserved || 0)
-              : null;
-            const isShortStock =
-              Boolean(linkedProduct?.is_inventoried) &&
-              availStock !== null &&
-              availStock < reqTotalQty;
+                {/* Item Name */}
+                <input
+                  type="text"
+                  value={comp.item_name ?? ''}
+                  onChange={(e) => handleUpdateSub(comp.id, 'item_name', e.target.value)}
+                  placeholder="Included item or component name (e.g. Top and Bottom Distribution System, Vacuum Breaker)"
+                  className="flex-1 min-w-[160px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1 text-xs font-medium text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                />
 
-            const activeFmtCount = getActiveFormatCount(comp);
-            const isFmtOpen = Boolean(expandedFormatRows[comp.id]);
+                {/* Optional Cost Input (Only when Sub-Item Costs toggle is active) */}
+                {showCostInputs && (
+                  <div className="relative w-24 shrink-0" title={`Internal Supplier Cost (${currency})`}>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={comp.cost_price || ''}
+                      onChange={(e) => handleUpdateSub(comp.id, 'cost_price', e.target.value)}
+                      placeholder="Cost 0.00"
+                      className="w-full bg-amber-50/40 dark:bg-slate-800 border border-amber-200 dark:border-slate-700 rounded-md px-2 py-1 text-xs font-mono text-right text-slate-700 dark:text-slate-300 tabular-nums focus:border-amber-500 focus:outline-none"
+                    />
+                  </div>
+                )}
 
-            return (
-              <div
-                key={comp.id}
-                className="p-3 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 space-y-2"
-              >
-                {/* Row 1: # Badge + Full-Width Component Name + SKU Link + Format Toggle + Move/Delete */}
-                <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded bg-indigo-50 dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-slate-700 font-mono text-[10px] font-bold flex items-center justify-center shrink-0">
-                    {idx + 1}
-                  </span>
+                {/* Optional Unit Price or "Included" */}
+                <div className="relative w-28 shrink-0" title={`Optional sub-item price in ${currency} (leave 0 for Included)`}>
                   <input
-                    type="text"
-                    value={comp.item_name ?? ''}
-                    onChange={(e) => handleUpdateSub(comp.id, 'item_name', e.target.value)}
-                    placeholder="Component Name / Heading (e.g. RO Pressure Vessel 8&quot; x 6E / Control Panel)"
-                    className="flex-1 min-w-[140px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1.5 text-xs font-semibold text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
+                    type="number"
+                    step="0.01"
+                    value={unitPriceVal > 0 ? unitPriceVal : ''}
+                    onChange={(e) => handleUpdateSub(comp.id, 'unit_price', e.target.value)}
+                    placeholder="Included"
+                    className={`w-full rounded-md px-2 py-1 text-xs font-mono text-right tabular-nums focus:outline-none border ${
+                      isIncludedZeroPrice
+                        ? 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 placeholder:text-emerald-600/80 dark:placeholder:text-emerald-400/80 font-semibold'
+                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold focus:border-blue-500'
+                    }`}
                   />
+                </div>
 
-                  {/* Compact SKU Link or Linked Badge */}
+                {/* Compact Action Buttons */}
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => toggleNoteRow(comp.id)}
+                    className={`p-1 rounded-md border text-[10px] transition cursor-pointer ${
+                      isNoteOpen
+                        ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800'
+                        : 'bg-white dark:bg-slate-800 text-slate-400 hover:text-slate-700 border-transparent hover:border-slate-200'
+                    }`}
+                    title="Add or edit specification note for this sub-item"
+                  >
+                    <MessageSquarePlus className="w-3.5 h-3.5" />
+                  </button>
+
                   {linkedProduct ? (
-                    <div className="hidden sm:flex items-center gap-1 shrink-0">
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-mono font-semibold max-w-[130px] truncate">
-                        <Check className="w-2.5 h-2.5 shrink-0" />
-                        <span className="truncate">{linkedProduct.sku || linkedProduct.name}</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const updated = subComponents.map((c) =>
-                            c.id === comp.id
-                              ? { ...c, product_id: undefined, sku: undefined }
-                              : c
-                          );
-                          commitComponents(updated);
-                        }}
-                        className="text-[10px] text-slate-400 hover:text-rose-600 underline cursor-pointer px-0.5"
-                        title="Unlink Catalog SKU"
-                      >
-                        Unlink
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = subComponents.map((c) =>
+                          c.id === comp.id ? { ...c, product_id: undefined, sku: undefined } : c
+                        );
+                        commitComponents(updated);
+                      }}
+                      className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[9.5px] font-mono font-semibold truncate max-w-[80px] cursor-pointer"
+                      title={`Linked to ${linkedProduct.sku || linkedProduct.name} (click to unlink)`}
+                    >
+                      {linkedProduct.sku || 'Linked'}
+                    </button>
                   ) : (
                     activeCatalogProducts.length > 0 && (
                       <button
                         type="button"
                         onClick={() =>
-                          setShowCatalogPickerForRow((prev) =>
-                            prev === comp.id ? null : comp.id
-                          )
+                          setShowCatalogPickerForRow((prev) => (prev === comp.id ? null : comp.id))
                         }
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-50/80 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-semibold cursor-pointer shrink-0 transition whitespace-nowrap"
-                        title="Link this sub-component to a Products Catalog SKU"
+                        className="p-1 rounded-md text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
+                        title="Link to Catalog SKU"
                       >
-                        <Link2 className="w-3 h-3" />
-                        <span>Link SKU</span>
+                        <Link2 className="w-3.5 h-3.5" />
                       </button>
                     )
                   )}
 
-                  {/* Progressive Disclosure Format & Photo Drawer Button */}
                   <button
                     type="button"
                     onClick={() => toggleFormatRow(comp.id)}
-                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-[10px] font-semibold cursor-pointer shrink-0 transition whitespace-nowrap ${
+                    className={`p-1 rounded-md border text-[10px] transition cursor-pointer ${
                       isFmtOpen || activeFmtCount > 0
-                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800'
-                        : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                        : 'text-slate-400 hover:text-slate-700 border-transparent hover:border-slate-200'
                     }`}
-                    title="Toggle photo, highlight, bold, page break, price masking, and row note options"
+                    title="Photo & Print Formatting"
                   >
-                    <Sparkles className="w-3 h-3" />
-                    <span>Format</span>
-                    {activeFmtCount > 0 && (
-                      <span className="px-1 py-0.2 rounded-full bg-indigo-600 text-white font-mono text-[9px] font-bold">
-                        {activeFmtCount}
-                      </span>
-                    )}
+                    <Sparkles className="w-3.5 h-3.5" />
                   </button>
 
-                  {/* Reorder & Remove Actions */}
-                  <div className="inline-flex items-center gap-0.5 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => handleMoveSub(idx, 'up')}
-                      disabled={idx === 0}
-                      className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
-                      title="Move Up"
-                    >
-                      <ArrowUp className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleMoveSub(idx, 'down')}
-                      disabled={idx === subComponents.length - 1}
-                      className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 cursor-pointer"
-                      title="Move Down"
-                    >
-                      <ArrowDown className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveSub(comp.id)}
-                      className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
-                      title="Delete Component"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Row 2: Full-Width Technical Scope / Application Note + Stock / Drift Badges */}
-                <div className="pl-7 space-y-1.5">
-                  <input
-                    type="text"
-                    value={comp.remark ?? ''}
-                    onChange={(e) => handleUpdateSub(comp.id, 'remark', e.target.value)}
-                    placeholder="Technical Specs / Application Scope Note (e.g. Model: 300P-8-1R2R, 300 PSI, FRP, ASME)..."
-                    className="w-full bg-slate-50/70 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1 text-xs text-slate-700 dark:text-slate-300 focus:border-indigo-500 focus:bg-white focus:outline-none"
-                  />
-
-                  {linkedProduct && (
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {linkedProduct.is_inventoried && availStock !== null && (
-                        <span
-                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold border ${
-                            isShortStock
-                              ? 'bg-amber-50 text-amber-800 border-amber-300'
-                              : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          }`}
-                          title={`Required across ${parentQuantity} set(s): ${reqTotalQty} ${comp.unit || 'Nos'}`}
-                        >
-                          {isShortStock && <AlertTriangle className="w-2.5 h-2.5" />}
-                          <span>
-                            Avail: {availStock} / Req: {reqTotalQty}
-                          </span>
-                        </span>
-                      )}
-                      {isPriceDrifted && (
-                        <button
-                          type="button"
-                          onClick={() => handleRefreshSubFromCatalog(comp.id, linkedProduct)}
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[9.5px] font-semibold cursor-pointer transition"
-                          title={`Catalog rate changed to ${currency} ${catalogSell.toLocaleString()}. Click to refresh snapshot.`}
-                        >
-                          <RefreshCw className="w-2.5 h-2.5" />
-                          <span>
-                            Refresh ({currency} {catalogSell})
-                          </span>
-                        </button>
-                      )}
-                    </div>
+                  {subComponents.length > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleMoveSub(idx, 'up')}
+                        disabled={idx === 0}
+                        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-25 cursor-pointer hidden sm:inline-flex"
+                        title="Move Up"
+                      >
+                        <ArrowUp className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleMoveSub(idx, 'down')}
+                        disabled={idx === subComponents.length - 1}
+                        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-25 cursor-pointer hidden sm:inline-flex"
+                        title="Move Down"
+                      >
+                        <ArrowDown className="w-3 h-3" />
+                      </button>
+                    </>
                   )}
 
-                  {/* Row 3: Ergonomic Commercial Strip (Qty, UOM, Supplier Cost, Selling Rate, Non-Truncating Total) */}
-                  <div className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-end pt-0.5 bg-slate-50/80 dark:bg-slate-800/40 p-2 rounded-lg border border-slate-200/70 dark:border-slate-700/70">
-                    <div className="col-span-1 sm:col-span-2">
-                      <label className="block text-[9.5px] font-mono uppercase text-slate-400 mb-0.5">
-                        Qty
-                      </label>
-                      <input
-                        type="number"
-                        step="any"
-                        value={comp.quantity ?? ''}
-                        onChange={(e) => handleUpdateSub(comp.id, 'quantity', e.target.value)}
-                        placeholder="1"
-                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs font-mono text-center font-bold text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="col-span-1 sm:col-span-2">
-                      <label className="block text-[9.5px] font-mono uppercase text-slate-400 mb-0.5">
-                        UOM
-                      </label>
-                      <input
-                        type="text"
-                        value={comp.unit ?? 'Nos'}
-                        onChange={(e) => handleUpdateSub(comp.id, 'unit', e.target.value)}
-                        placeholder="Nos"
-                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs font-mono text-center text-slate-700 dark:text-slate-300 focus:border-indigo-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="col-span-1 sm:col-span-3">
-                      <label className="block text-[9.5px] font-mono uppercase text-slate-400 mb-0.5 truncate">
-                        Supplier Cost ({currency})
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={comp.cost_price ?? ''}
-                        placeholder="0.00"
-                        onChange={(e) => handleUpdateSub(comp.id, 'cost_price', e.target.value)}
-                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs font-mono text-right text-slate-600 dark:text-slate-400 tabular-nums focus:border-indigo-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="col-span-1 sm:col-span-3">
-                      <label className="block text-[9.5px] font-mono uppercase text-slate-500 font-semibold mb-0.5 truncate">
-                        Selling Rate ({currency})
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={comp.unit_price ?? ''}
-                        placeholder="0.00"
-                        onChange={(e) => handleUpdateSub(comp.id, 'unit_price', e.target.value)}
-                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs font-mono font-bold text-right text-slate-900 dark:text-white tabular-nums focus:border-indigo-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="col-span-2 sm:col-span-2 flex sm:flex-col items-center sm:items-end justify-between sm:justify-end pt-1 sm:pt-0">
-                      <span className="text-[9.5px] font-mono uppercase text-slate-400">
-                        Total ({currency})
-                      </span>
-                      <div className="text-right font-mono tabular-nums whitespace-nowrap">
-                        <span className="text-xs font-bold text-indigo-950 dark:text-white block">
-                          {(Number(comp.total_price) || 0).toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
-                        </span>
-                        {cMargin !== null && (
-                          <span
-                            className={`block text-[9.5px] font-mono font-semibold ${
-                              cMargin >= 15 ? 'text-emerald-600' : 'text-amber-600'
-                            }`}
-                          >
-                            {cMargin.toFixed(0)}% mgn
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Collapsible Row Formatting & Photo Drawer */}
-                  {isFmtOpen && renderSubRowCustomizationBar(comp, `#${idx + 1}`)}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveSub(comp.id)}
+                    className="p-1 text-slate-400 hover:text-rose-600 rounded-md cursor-pointer"
+                    title="Remove Item"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
-            );
-          })}
-          {pricedComponents.length === 0 && (
-            <div className="py-4 text-center text-slate-400 italic text-xs">
-              No priced sub-components added yet. Click "Add Priced Sub-Component" or "Add from Catalog".
-            </div>
-          )}
-        </div>
 
-        {/* 2. Included Accessories & Zero-Price Sub-Items — Split-Screen Ergonomic List */}
-        <div className="pt-2 space-y-2">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <span className="text-[11px] font-mono uppercase tracking-wider font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <PackageCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-              <span>
-                2. Included Accessories &amp; Zero-Price Sub-Items ({includedAccessories.length})
-              </span>
-            </span>
+              {/* Optional Collapsible Spec / Application Note Row */}
+              {isNoteOpen && (
+                <div className="pl-6 flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={isMeaningfulRemark(comp.remark) ? comp.remark : comp.row_note || ''}
+                    onChange={(e) => handleUpdateSub(comp.id, 'remark', e.target.value)}
+                    placeholder="Optional spec / note (e.g. Factory pre-fitted, SS316, ASME standard)..."
+                    className="flex-1 bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1 text-[11px] text-slate-700 dark:text-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleUpdateSub(comp.id, 'remark', '');
+                      setExpandedRowNotes((prev) => ({ ...prev, [comp.id]: false }));
+                    }}
+                    className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
+                    title="Clear note"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+
+              {/* Optional Collapsible Photo & Formatting Bar */}
+              {isFmtOpen && (
+                <div className="pl-6">
+                  {renderSubRowCustomizationBar(comp, `#${idx + 1}`)}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {subComponents.length === 0 && (
+          <div className="py-4 text-center text-xs text-slate-400 italic">
+            No included items yet. Click "+ Add Included Item" below.
+          </div>
+        )}
+      </div>
+
+      {/* Footer Actions Bar */}
+      <div className="px-3 py-2 bg-slate-50/70 dark:bg-slate-800/40 border-t border-slate-200/70 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            type="button"
+            onClick={handleAddSubItem}
+            className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1 shadow-2xs transition cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add Included Item</span>
+          </button>
+
+          {activeCatalogProducts.length > 0 && (
             <button
               type="button"
-              onClick={() => handleAddSubComponent(true)}
-              className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+              onClick={() =>
+                setShowCatalogPickerForRow((prev) => (prev === 'NEW' ? null : 'NEW'))
+              }
+              className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-blue-50 text-blue-700 dark:text-blue-300 border border-slate-200 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Add Included Accessory (No Extra Charge)</span>
+              <span>From Catalog</span>
             </button>
-          </div>
-
-          {includedAccessories.length > 0 && (
-            <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 divide-y divide-slate-200/70 dark:divide-slate-800 overflow-hidden">
-              {subComponents.map((comp) => {
-                if (!comp.is_included_accessory) return null;
-                const activeFmtCount = getActiveFormatCount(comp);
-                const isFmtOpen = Boolean(expandedFormatRows[comp.id]);
-
-                return (
-                  <div
-                    key={comp.id}
-                    className="p-2.5 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 space-y-1.5"
-                  >
-                    {/* Line 1: Included Badge + Full-Width Accessory Name + Qty + UOM + Format Toggle + Remove */}
-                    <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
-                      <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono text-[9.5px] font-bold shrink-0">
-                        Included
-                      </span>
-                      <input
-                        type="text"
-                        value={comp.item_name ?? ''}
-                        onChange={(e) => handleUpdateSub(comp.id, 'item_name', e.target.value)}
-                        placeholder="Included Accessory / Sub-Item (e.g. Top & bottom distribution system, Vacuum Breaker, Flange Kits)"
-                        className="flex-1 min-w-[160px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1 text-xs font-medium text-slate-800 dark:text-slate-200 focus:border-emerald-500 focus:outline-none"
-                      />
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <input
-                          type="number"
-                          step="any"
-                          value={comp.quantity ?? ''}
-                          onChange={(e) => handleUpdateSub(comp.id, 'quantity', e.target.value)}
-                          placeholder="Qty"
-                          title="Accessory Quantity"
-                          className="w-14 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-1.5 py-1 text-xs font-mono text-center font-bold text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none"
-                        />
-                        <input
-                          type="text"
-                          value={comp.unit ?? 'Nos'}
-                          onChange={(e) => handleUpdateSub(comp.id, 'unit', e.target.value)}
-                          placeholder="UOM"
-                          title="Unit of Measure"
-                          className="w-16 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-1.5 py-1 text-xs font-mono text-center text-slate-700 dark:text-slate-300 focus:border-emerald-500 focus:outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => toggleFormatRow(comp.id)}
-                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-[10px] font-semibold cursor-pointer shrink-0 transition whitespace-nowrap ${
-                            isFmtOpen || activeFmtCount > 0
-                              ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                              : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
-                          }`}
-                          title="Toggle photo, highlight, bold, page break, or row note"
-                        >
-                          <Sparkles className="w-3 h-3" />
-                          <span>Format</span>
-                          {activeFmtCount > 0 && (
-                            <span className="px-1 py-0.2 rounded-full bg-emerald-600 text-white font-mono text-[9px] font-bold">
-                              {activeFmtCount}
-                            </span>
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveSub(comp.id)}
-                          className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
-                          title="Remove Included Accessory"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Line 2: Optional Scope Note + Collapsible Format Drawer */}
-                    <div className="pl-14">
-                      <input
-                        type="text"
-                        value={comp.remark ?? ''}
-                        onChange={(e) => handleUpdateSub(comp.id, 'remark', e.target.value)}
-                        placeholder="Optional application / scope remark (e.g. Factory pre-fitted / ASME standard)..."
-                        className="w-full bg-slate-50/70 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1 text-xs text-slate-600 dark:text-slate-400 focus:border-emerald-500 focus:bg-white focus:outline-none"
-                      />
-                      {isFmtOpen && renderSubRowCustomizationBar(comp, 'Acc')}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
           )}
+
+          <button
+            type="button"
+            onClick={() => setShowScopeNotes((v) => !v)}
+            className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1 transition cursor-pointer ${
+              showScopeNotes || Boolean(optionScopeNotes && optionScopeNotes.trim())
+                ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/50 dark:text-indigo-300 dark:border-indigo-800'
+                : 'bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+            }`}
+          >
+            <FileText className="w-3 h-3" />
+            <span>Package Scope Note</span>
+          </button>
         </div>
 
-        {/* 3. Option / Package Technical Scope Notes */}
-        <div className="pt-2 space-y-1">
-          <label className="text-[10.5px] font-mono uppercase tracking-wider font-bold text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
-            <FileText className="w-3 h-3 text-indigo-600" />
-            <span>
-              3. Package / Option Scope Notes (Material Standards, Warranties, Exclusions)
-            </span>
-          </label>
+        {totals.unitSellingPrice > 0 && (
+          <span className="text-xs font-mono tabular-nums text-slate-600 dark:text-slate-300">
+            Sub-Items Total:{' '}
+            <strong className="text-slate-900 dark:text-white">
+              {currency}{' '}
+              {totals.totalSellingPrice.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </strong>
+          </span>
+        )}
+      </div>
+
+      {/* Collapsible Package Scope Notes */}
+      {(showScopeNotes || Boolean(optionScopeNotes && optionScopeNotes.trim())) && (
+        <div className="px-3 pb-3 pt-1 bg-slate-50/70 dark:bg-slate-800/40 border-t border-slate-100 dark:border-slate-800 space-y-1">
+          <div className="flex items-center justify-between">
+            <label className="text-[10px] font-mono uppercase tracking-wider font-bold text-slate-500 dark:text-slate-400">
+              Package Scope Notes (Warranties, Exclusions, Standards)
+            </label>
+            {!optionScopeNotes?.trim() && (
+              <button
+                type="button"
+                onClick={() => setShowScopeNotes(false)}
+                className="text-[10px] text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                Hide
+              </button>
+            )}
+          </div>
           <AtMentionTextarea
-            rows={3}
+            rows={2}
             value={optionScopeNotes}
             tokenContext={effectiveTokenContext}
             onChange={(val) =>
-              commitComponents(
-                subComponents,
-                packagePricingMode,
-                val,
-                true
-              )
+              commitComponents(subComponents, packagePricingMode, val, true)
             }
-            placeholder="e.g. Materials of construction, warranty terms, testing standards, or client-scope exclusions (type @ for live tags)..."
-            className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:border-indigo-500"
+            placeholder="e.g. Materials of construction, warranty terms, testing standards, or exclusions (type @ for live tags)..."
+            className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:border-blue-500"
           />
         </div>
-      </div>
+      )}
 
       {lightboxSubComp && (
         <ImageLightboxModal
           isOpen={Boolean(lightboxSubComp)}
           onClose={() => setLightboxSubComp(null)}
-          title={lightboxSubComp.item_name || 'Sub-Component Photo'}
+          title={lightboxSubComp.item_name || 'Sub-Item Photo'}
           imageUrl={lightboxSubComp.image_url}
           imageCaption={lightboxSubComp.image_caption}
           adjustments={lightboxSubComp.image_adjustments}

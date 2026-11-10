@@ -7,9 +7,10 @@ export type EnquiryDisclosureSectionKey =
   | 'remarksTerms'
   | 'sourceFiles';
 
-export type LineItemPanelKey = 'scope' | 'specs' | 'media' | 'cost';
+export type LineItemPanelKey = 'included' | 'scope' | 'specs' | 'media' | 'cost';
 
 export interface LineItemPanelState {
+  included?: boolean;
   scope?: boolean;
   specs?: boolean;
   media?: boolean;
@@ -53,10 +54,25 @@ export function useEnquiryDisclosureState(initialEditing?: boolean) {
     });
   }, []);
 
+  const setLinePanelExpanded = useCallback((index: number, panel: LineItemPanelKey, isOpen: boolean) => {
+    setExpandedLinePanels((prev) => {
+      const current = prev[index] || {};
+      if (current[panel] === isOpen) return prev;
+      return {
+        ...prev,
+        [index]: {
+          ...current,
+          [panel]: isOpen,
+        },
+      };
+    });
+  }, []);
+
   const expandAllLinePanelsForIndex = useCallback((index: number, open: boolean) => {
     setExpandedLinePanels((prev) => ({
       ...prev,
       [index]: {
+        included: open,
         scope: open,
         specs: open,
         media: open,
@@ -70,9 +86,8 @@ export function useEnquiryDisclosureState(initialEditing?: boolean) {
    * jumps to a specific field ID.
    */
   const ensureFieldVisible = useCallback((fieldKey: string) => {
-    if (fieldKey === 'received_date' || fieldKey === 'quote_ref_no') {
+    if (fieldKey === 'received_date' || fieldKey === 'quote_ref_no' || fieldKey === 'country' || fieldKey === 'location') {
       setIsMetadataExpanded(true);
-    } else if (fieldKey === 'country' || fieldKey === 'location') {
       setExpandedSections((prev) => ({ ...prev, locationScope: true }));
     } else if (fieldKey === 'custom_project_details') {
       setExpandedSections((prev) => ({ ...prev, customSpecs: true }));
@@ -87,8 +102,10 @@ export function useEnquiryDisclosureState(initialEditing?: boolean) {
     expandedSections,
     toggleSection,
     setSectionOpen,
+    setSectionExpanded: setSectionOpen,
     expandedLinePanels,
     toggleLinePanel,
+    setLinePanelExpanded,
     expandAllLinePanelsForIndex,
     ensureFieldVisible,
     isEditingExisting: Boolean(initialEditing),

@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for Phase 1 of the Architectural & UX Upgrade: Enquiry Form 80/20 Contextual Progressive Disclosure (\"30-Second Core Flow\"), Headless Controller Pattern separation, and Mobile Quick-Action Cards readiness.",
-  "updatedAt":  "2026-11-09T20:04:27.596403114Z",
+  "summary":  "Implementation plan for simplifying and decluttering the Enquiry Form and Package/Kit (Included Items) editor:\n1. Unified Line Item Pricing Row + Simple Included Items Checklist: Keep one clean main row (Item Name, Qty, Unit, Selling Price, Total) for all items, and replace the complex Composite BOM editor with a straightforward Included Items / Sub-Items checklist (Qty, Unit, Item Name, optional Price, and collapsible note).\n2. Remove Supplier Cost Markup Calculator & Hide Cost Behind Toggle: Remove the confusing Supplier Cost Markup % bar and keep Supplier Cost / Margin tucked inside the optional Cost & Margin toggle.\n3. Fix Package Price Sync Bug: Ensure AI extraction and package conversion keep the package selling price on the main line item instead of zeroing it out or burying it in a Manual Lump-Sum Override.\n4. Merge Duplicate Top Bars & Fix Step Numbering: Consolidate the sticky section jump bar and duplicate metadata pill bar into a single clean header/navigation bar with sequential 1-2-3 chapters (1. Client & Metadata, 2. Line Items, 3. Summary, Terms & Files).",
+  "updatedAt":  "2026-11-10T10:33:44.811724073Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

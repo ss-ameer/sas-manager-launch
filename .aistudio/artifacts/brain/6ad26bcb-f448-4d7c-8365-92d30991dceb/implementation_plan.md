@@ -1,132 +1,67 @@
-# Enquiry Module 80/20 Progressive Disclosure & Headless Architecture
+# Enquiry Form & Package/Kit Simplification Plan
 
-This upgrade transforms the Enquiry workflow from a high-density 45-field form into a calm, high-velocity **30-Second Core Flow** powered by Contextual Progressive Disclosure and a modular Headless Controller architecture, eliminating visual fatigue and permanently insulating Firebase/state logic from UI edits.
+## 1. Executive Summary
+Based on your screenshots and feedback, the Enquiry Form still suffers from visual repetition at the top and unnecessary complexity inside Proposal Line Items—especially when quoting a **Package / Set** (such as the `AUTOMATIC DUPLEX MMF SYSTEM 4.32m3/hr` with included parts).
 
-## User Review & Critical Decisions
-
-> [!IMPORTANT]
-> The following architectural and UX decisions have been confirmed from your answers and will govern Phase 1 implementation:
-
-- **Confirmed Phase 1 Scope**: Execute the **Enquiry Form 80/20 Progressive Disclosure Redesign and Headless Controller Split** first, establishing the clean architectural template before propagating mobile card views across registries.
-- **Confirmed Default 80/20 Surface ("30-Second Core Flow")**: Only **Company, Contact, Subject / Scope Summary, and compact Line Items** remain visible on initial load. Auto-generated metadata (`S/N`, `Quote Ref`, `Logged Date`, `Assigned Rep`, `Currency`, `Status`) collapses into a single-line interactive summary bar at the top, and secondary sections expand on demand via inline `+ Add` triggers.
-- **Confirmed Mobile Card Quick-Actions Contract**: Mobile summary cards will support four direct thumb-friendly interactions: **Tap card to view/edit details**, **Quick button to log/schedule a call**, **Quick button to open Quotation Studio**, and **One-tap WhatsApp or phone dialer action**.
-- **Strict Zero-Quota & Zero-Regression Guarantee**: All Firestore queries, sequence reservation rules, BOM cost/margin math, AI RFQ extraction pipelines, and RBAC confidentiality masks remain 100% preserved inside the headless controller hook without adding any new Firestore read effects.
+This plan streamlines the Enquiry Form into a clean, predictable workflow with zero jargon:
+1. **Every Line Item Shares One Consistent Main Row**: Whether an item is a single product or a complete system/set, the main row always displays `Item Name / Heading`, `Qty`, `Unit` (e.g., `Set`, `Nos`), `Unit Price (AED/USD)`, and `Line Total`.
+2. **Simple "Included Items / Sub-Items" Checklist**: Replaces the confusing 3-part *"Composite Package / Kit (BOM) Breakdown"* and *"Itemized vs Single Package Lump-Sum"* toggle with a single, clean **Included Items / Package Contents** list underneath the main row.
+3. **No More "Supplier Cost Markup %" Bar**: Removes the markup calculator bar completely and keeps internal `Unit Cost` and `Margin %` tucked behind the optional `+ Cost & Margin` toggle.
+4. **One Unified Top Bar & Sequential 1–2–3 Chapters**: Eliminates the duplicate top bars and fixes the broken chapter numbering where Step `2` disappeared unless toggled.
 
 ---
 
-## 1. Overview & Core Concept
+## 2. Concrete Fixes Informed by Your Screenshots
 
-- **What It Does**: Replaces the monolithic 9,200-line `EnquiryForm` view with a separated Headless Controller hook (`useEnquiryFormController`) and focused, lightweight visual sub-components that surface only the essential 20% of controls needed for 80% of daily enquiry logging—while keeping 100% of advanced capabilities (multi-option scopes, BOM kits, custom engineering specs, AI extraction, currency overrides, and attachments) one click away.
-- **Target Audience / Persona**: Sales engineers, commercial estimators, and executives logging and pricing RFQs who need rapid, distraction-free data entry on both desktop monitors and mobile phones.
-- **Key Value**: Cuts initial visual clutter by ~70% so a standard enquiry can be logged in under 30 seconds, while modularizing the codebase so future UI refinements never risk breaking Firestore quota circuit breakers or state synchronization.
+### A. Simplify Package / Set & Included Items (`src/components/quotations/CompositePackageEditor.tsx` & `src/components/EnquiryForm.tsx`)
+- **Keep the Main Price Row Visible at All Times**:
+  - Previously, clicking *"Convert to BOM Kit"* hid the main item's `Qty`, `Unit`, and `Selling Price` inputs and replaced them with a full-width *"PACKAGE / BOM KIT HEADING"* box, forcing the price down into sub-components and causing your `AED 7,157.00` package price to show as `AED 0.00` on the line item.
+  - **New Behavior**: Every line item always keeps its standard top row (`Item Name`, `Qty`, `Unit`, `Unit Price`, `Total`).
+- **Fix the `AED 0.00` Package Price Disconnect**:
+  - If a package has a main unit price (e.g., `AED 7,157.00`) and included zero-price items (`2 x Top and bottom distribution system`, `1 x Vacuum Breaker`, `1 x Riser Pipe`), the line item preserves `Unit Price = 7,157.00` and `Total = 7,157.00` directly on the main row—no more zeroing out the parent price or relying on *"Manual Lump-Sum Override"* at the bottom of the form.
+  - If individual sub-items *do* have prices entered, a subtle helper pill (`Sum of sub-items: AED X,XXX — Apply to Unit Price`) lets you sync or keep your main package price in one click.
+- **Single Compact "Included Items / Package Contents" List**:
+  - Replaces the three separate sections (*"1. Priced Main Components"*, *"2. Included Accessories & Zero-Price Sub-Items"*, *"3. Package / Option Scope Notes"*) with **one compact single-line list**:
+    - Each row has: `Qty` (e.g. `2`), `Unit` (`Nos` / `Set`), `Item / Component Name` (`Top and Bottom Distribution System`), optional `Price` (`Included` by default when `0`, or enter a price if itemized), a Catalog link icon, and a delete button.
+    - Removes the mandatory second-row *"Optional application / scope remark..."* input from every sub-item so 3 included items take 3 compact lines instead of 6+ tall cards. An optional note or scope remark can still be opened on demand via a tiny `+ Note` icon.
+- **Remove Jargon & Markup Calculator**:
+  - Removes the *"Supplier Cost Markup: 25% [Apply Markup to Costs]"* bar.
+  - Removes the *"Itemized Component Prices | Single Package Lump-Sum"* toggle bar.
+  - Renames *"Convert to Composite Package / Kit (BOM)"* to a simple inline toggle pill: **`+ Included Items / Package Contents`** alongside the other line-item pills (`+ Category & Scope`, `+ Tech Specs`, `+ Brand & Media`, `+ Cost & Margin`).
 
----
+### B. Clean Up Line Item Tech Specs & Cost Toggles (`src/components/EnquiryForm.tsx`)
+- **Unclipped Spec Attribute Inputs**:
+  - In Screenshot 5, the 14 attribute cards (`Tank Size`, `Vessel Qty`, `Valve Model`, `Manufacturing Standard`) clip their values (`24" x 72" (Dia x`, `USA ASME Stan`) because the key dropdown takes up 175px inside a narrow 2-column split.
+  - **Fix**: Adjust the attribute row layout so the key label/select is compact (`w-32 sm:w-36`) and the value input gets full remaining width with clean text visibility, plus a `Clear Empty` action if needed.
+- **Unified `+ Cost & Margin` Toggle**:
+  - Works identically for both single items and packages—tucked away by default, showing `Unit Cost (AED)`, live `Margin %` badge, and optional `Line Total Override` only when clicked.
 
-## 2. User Experience & Visual Design
+### C. Merge Duplicate Top Bars & Fix Chapter Numbering (`src/components/EnquiryForm.tsx` & `src/components/enquiry/EnquiryMetadataSummaryBar.tsx`)
+- **Eliminate Triple-Stacked Top Action Bars**:
+  - Currently, below the modal title bar, there are three separate bars with duplicate buttons (`AI / RFQ Autofill`, `Paste RFQ`, `Files / AI`, `Auto-Detect Clipboard`).
+  - **New Unified Sticky Top Bar**:
+    - Left side: Clean sequential section jump tabs that match the actual visible cards:
+      - **`1. Client & Details`**
+      - **`2. Line Items (N)`**
+      - **`3. Summary, Terms & Files (N)`**
+    - Right side: One **`Paste RFQ`** button and one **`Files / AI Autofill`** button.
+- **Clean Chapter 1 Header & Consolidated Metadata Drawer**:
+  - Inside Chapter 1 (`1. Client, Contact & Subject`), display the quiet auto-metadata summary pills (`#67`, `AVENTURA/UAE/VWS/2853-201026`, `19/10/2026`, `Nitin Srivastava`, `Dubai, UAE`, `AED`) right in the Chapter 1 sub-bar with a single **`Customize Details`** toggle.
+  - When expanded, combine `Sequence, Quote Ref, Dates, Salesperson, Currency` and `Country, City, Client Ref, Option Scope` into one clean, well-aligned grid instead of two separate stacked sub-cards with duplicate toggle pills (`Sequence, Quote Ref & Log Dates` + `Location, Client Ref & Option Scope`).
+  - Fix the truncated `Option Scope` select (`None / Single Opti` -> full readable width).
 
-### Key User Flows
-
-1. **Zero-Clutter Arrival & Auto-Metadata Summary Bar**:
-   - Opening **Register New Enquiry** displays a single quiet summary bar at the top of the drawer:
-     `S/N #2752 · Ref: Auto (2752-091126AA) · Today · Rep: Syed Ameer · Currency: AED · Status: Active` with an inline `[Customize Metadata]` toggle.
-   - If the user never needs to override the sequence number, backdate the enquiry, or change the currency, they never see those six input boxes. Clicking any segment or `[Customize Metadata]` smoothly reveals the metadata override drawer.
-2. **Step 1 — Core Client & Subject Entry**:
-   - Immediately below the summary bar sits a clean, single-elevation card containing **Company Search & Pairing**, **Contact Person Selection**, and **Enquiry Subject / Description**.
-   - Optional context fields are presented as quiet inline micro-triggers right below the Subject input: `+ Project & Location`, `+ Source & Assigned Team`, `+ Custom Engineering Specs`, and `+ AI / Clipboard Autofill`. When an enquiry already has values in any of those fields (when editing an existing record or after AI extraction), that specific sub-panel auto-expands automatically.
-3. **Step 2 — Compact Line Items with Inline Progressive Disclosure**:
-   - Each Line Item starts as a single, scannable horizontal row: **Catalog/Item Name**, **Qty**, **Unit**, **Unit Price**, and **Line Total**.
-   - Directly beneath the row sit quiet text triggers for optional power features: `+ Classification & Option Scope`, `+ Technical Specs (0)`, `+ Product Photo / Media`, `+ Vendor Cost & Margin`, and `+ Convert to Composite BOM`.
-   - Clicking any trigger reveals only that specific sub-drawer on that line item. Existing line items that already contain specs, photos, or BOM sub-components automatically show an active indicator pill and expand when inspected.
-4. **Step 3 — Terms, Valuation & Attachments Drawer**:
-   - A streamlined footer section shows calculated **Net Subtotal**, **VAT (5%)**, and **Grand Total**, with one-click toggles for `+ Lump-Sum Package Override`, `+ Remarks & Follow-up Notes`, and `+ Source Attachments`.
-
-### Visual Identity & Theme
-
-- **Aesthetic Direction**: Utilitarian precision inspired by Linear and Stripe Billing—calm neutral canvases, crisp hairline borders, unboxed typographic metadata, and high-contrast tabular numerals.
-- **Color Palette & Mood**:
-  - **60% Dominant Neutral Canvas**: Slate-50 (`bg-slate-50/80 dark:bg-slate-950/70`) drawer background with crisp white (`bg-white dark:bg-slate-900`) primary work surfaces.
-  - **30% Structural Surfaces**: Subtle hairline dividers (`border-slate-200/80 dark:border-slate-800`) and muted secondary labels (`text-slate-500 dark:text-slate-400`).
-  - **10% Accent Budget**: High-intent Royal Blue (`bg-blue-600 text-white`) reserved strictly for primary save actions and active focus rings; Emerald (`text-emerald-600`) for AI autofill confidence and positive margin states; Amber/Crimson for price discrepancies and RBAC locks.
-- **Typography & Hierarchy**:
-  - Clean sans-serif UI labels (`font-sans`) paired with strict tabular monospace (`font-mono tabular-nums`) for all prices, quantities, margins, serial numbers, and quotation references.
-  - Zero all-caps shouting on long headers; clear contrast between section titles (`text-sm font-semibold text-slate-900 dark:text-slate-100`) and inline disclosure triggers (`text-xs font-medium text-slate-500 hover:text-blue-600`).
-- **Interactive Feedback & Motion**:
-  - Instant (<150ms) expand/collapse transitions on progressive disclosure drawers.
-  - Auto-expansion of any collapsed section when AI Smart Paste or PDF extraction populates fields inside it, paired with a subtle emerald highlight pulse so the user sees every extracted value immediately.
-
----
-
-## 3. Key Product Decisions & Trade-Offs
-
-- **Decision 1: Contextual Progressive Disclosure (`+ Add` Triggers) vs. Global Simple/Advanced Toggle**
-  - *Chosen Approach*: Inline contextual disclosure bars and per-feature `+` triggers that auto-expand when populated.
-  - *Why*: Sales engineers frequently need just *one* advanced capability (e.g., setting a USD exchange rate or adding 2 technical specs to item #1) without wanting 40 other irrelevant fields cluttering the screen. Auto-expanding populated fields also guarantees zero hidden data when editing existing enquiries.
-  - *Alternatives Considered*: A global "Simple / Advanced" switch was rejected because flipping to Advanced Mode re-exposes all 45 inputs at once, recreating the exact cognitive overload we are solving.
-- **Decision 2: Headless Controller Extraction vs. In-Place Monolith Editing**
-  - *Chosen Approach*: Extract state, validation, AI extraction, and Firestore persistence into a dedicated controller module and break the UI into focused visual sub-components (`EnquiryMetadataBar`, `EnquiryClientScopeCard`, `EnquiryLineItemRow`, `EnquiryTermsAttachmentsCard`).
-  - *Why*: Separating business/database logic from JSX presentation ensures future visual tweaks are fast, predictable, and mathematically incapable of introducing Firestore read loops or breaking sequence counters.
-  - *Alternatives Considered*: Keeping everything in a single 9,200-line file was rejected because it causes context truncation and makes holistic layout review brittle.
+### D. Declutter Chapter 3: Financial Summary, Terms & Source Files (`src/components/EnquiryForm.tsx`)
+- **Compact Attachment & AI Panel**:
+  - When a file is already attached and previewing on the left (like `2853-201026_AVENTURA Proposal...pdf`), collapse the giant dashed drag-and-drop upload zone and the technical *"Cloud Storage Target: proposal-attachments"* banner into a compact, single-row toolbar (`+ Attach Another File`, `Paste Raw Excel/Text`, and AI Model selector) right above the attached file row.
 
 ---
 
-## 4. Technical Architecture & Data Strategy *(Technical Reference)*
-
-### Architecture & Component Diagram
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                   useEnquiryFormController (Headless Hook)                  │
-│  • Form State, Dirty Tracking & Validation                                  │
-│  • Safe Firestore Reads/Writes (safeGetDoc,Sequence Cache, RBAC Guards)     │
-│  • AI PDF / Excel Smart Paste Extraction & Entity Matching                  │
-│  • Live Financial Totals, Multi-Currency Conversion & BOM Rollup Math       │
-└──────────────────────────────────────┬──────────────────────────────────────┘
-                                       │ Props & Action Handlers (Zero DB Code)
-                                       ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        EnquiryForm Drawer Shell                             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  1. EnquiryMetadataSummaryBar                                               │
-│     ├─ Quiet Inline Summary: S/N · Ref · Date · Rep · Currency · Status     │
-│     └─ [Customize] Expandable Drawer (Manual SN, Gap Pool, FX Rate, Status) │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  2. EnquiryClientAndScopeSection                                            │
-│     ├─ Always Visible: Company Combobox + Contact Picker + Subject Input    │
-│     └─ Inline Triggers (+):                                                 │
-│        ├─ [Project & Location]     ├─ [Source & Team Roster]                │
-│        ├─ [Custom Project Specs]   └─ [AI / RFQ Document & Clipboard Paste] │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  3. EnquiryLineItemsWorkspace                                               │
-│     ├─ Compact Core Row: Item / Catalog Picker · Qty · Unit · Price · Total │
-│     └─ Per-Item Inline Triggers (+):                                        │
-│        ├─ [Classification & Option] ├─ [Technical Specs Grid]               │
-│        ├─ [Product Media & Image]   ├─ [Supplier Cost & Margin]             │
-│        └─ [Composite Package / BOM Editor]                                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  4. EnquiryValuationAndAttachmentsSection                                   │
-│     ├─ Inline Triggers (+): [Lump-Sum Override] · [Remarks] · [Attachments] │
-│     └─ Sticky Executive Footer: Live Totals + Cancel / Save & Add / Save    │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Data Model & State
-
-- **Zero Schema Changes**: The `Enquiry`, `LineItem`, `Company`, `Contact`, and `Product` interfaces remain 100% backward-compatible with all existing Firestore documents and `QuotationStudioModal` integrations.
-- **Disclosure UI State**:
-  - `isMetadataExpanded`: boolean (defaults to `false` on new enquiries; auto-expands if user clicks `[Customize]` or claims a reserved sequence gap).
-  - `expandedScopePanels`: set of active optional panels (`'location' | 'routing' | 'custom_specs' | 'ai_intake'`), automatically hydrated with any panel that has non-default data when editing an existing enquiry or after AI extraction.
-  - `expandedLineItemPanels`: map of `lineItemIndex -> Set<'classification' | 'specs' | 'media' | 'costing' | 'bom'>`, keeping new line items ultra-compact while automatically badging and expanding populated sub-sections.
-
-### Interactive Component & State Mapping
-
-- **Metadata Summary Bar (`EnquiryMetadataSummaryBar`)**:
-  - Displays live computed values (`sn`, `quoteRefNo`, `receivedDate`, `assignedTo`, `formCurrency`, `status`).
-  - Clicking any token opens the override grid and focuses that specific control (e.g., clicking `Currency: AED` opens the currency & exchange rate selector).
-- **Core Client & Scope Card (`EnquiryClientAndScopeSection`)**:
-  - Preserves instant fuzzy search for companies, inline `+ New Company` / `Edit Company` modals, filtered contact dropdowns, and `+ New Contact` creation.
-  - Clicking `+ AI / RFQ Autofill` or `Auto-Detect Clipboard` runs the existing Gemini extraction pipeline and automatically expands any section that receives extracted tokens.
-- **Compact Line Item Row (`EnquiryLineItemRow`)**:
-  - Renders the 5 primary commercial fields on a single clean row with catalog autocomplete and variant selection.
-  - Toggling `+ Technical Specs` opens the attribute key/value editor; toggling `+ Supplier Cost & Margin` opens the RBAC-protected cost/markup calculator; toggling `+ Composite BOM` mounts `CompositePackageEditor`.
-- **Mobile Enquiry Card Quick-Action Readiness (`EnquiryList` Mobile View)**:
-  - Aligns mobile card actions so smartphone users (< 640px) have direct 44px touch targets for: Tap card to view/edit, Log/Schedule Call, Open Quotation Studio, and One-Tap WhatsApp/Phone dialer.
+## 3. Files to Modify
+1. `src/components/quotations/CompositePackageEditor.tsx`:
+   - Redesign into a clean, jargon-free **Included Items / Package Contents** checklist with single-line rows (`Qty`, `Unit`, `Item Name`, optional `Unit Price` / `"Included"` badge, optional `+ Note`, and `Bulk Paste`), removing the Supplier Cost Markup calculator bar and preserving parent package pricing.
+2. `src/components/EnquiryForm.tsx`:
+   - Keep the main `Item Name`, `Qty`, `Unit`, `Selling Price`, and `Total` row visible for all line items (including packages/sets).
+   - Add `+ Included Items (N)` to the line item progressive-disclosure pill bar and auto-preserve parent unit price when adding included items.
+   - Merge the duplicate top bars, renumber visible chapters sequentially (`1. Client & Details`, `2. Proposal Line Items`, `3. Summary, Terms & Files`), unify Chapter 1's metadata expansion into a single clean grid, fix attribute input clipping, and compact the Chapter 3 file upload zone when attachments exist.
+3. `src/components/enquiry/EnquiryMetadataSummaryBar.tsx`:
+   - Streamline into a compact inline metadata pill strip without duplicate `Paste RFQ` / `Files / AI` buttons that already live in the sticky top bar.
