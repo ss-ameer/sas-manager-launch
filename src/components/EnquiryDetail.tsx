@@ -35,6 +35,7 @@ import { ProcurementRepository } from '../services/repositories/ProcurementRepos
 import { Quotation, WorkspaceDocumentProfile, CommercialDocumentType, SupplierBill } from '../types';
 import { QuotationStudioModal } from './quotations/QuotationStudioModal';
 import { QuotationDocument } from './quotations/QuotationDocument';
+import { resolvePdfFilename } from '../utils/quotationTokenResolver';
 import EnquiryCollaboratorsModal from './EnquiryCollaboratorsModal';
 import { CreateCompanyModal } from './companies/CreateCompanyModal';
 import SaveToCatalogModal, {
@@ -799,7 +800,7 @@ export default function EnquiryDetail({
     return () => {
       isMounted = false;
     };
-  }, [currentEnquiry?.id, currentEnquiry?.workspace_id, activeWorkspaceId]);
+  }, [currentEnquiry?.id, currentEnquiry?.workspace_id, currentEnquiry?.updatedAt, enquiry?.updatedAt, activeWorkspaceId]);
 
   // Enquiry Procurement & Actual Margin Rollup
   const enquiryProcurementRollup = useMemo(() => {
@@ -839,8 +840,14 @@ export default function EnquiryDetail({
     return (targetEnq.line_items || []).map((li, idx) => {
       const qty = Number(li.quantity) || 1;
       const rate = Number(li.unit_price) || 0;
+      const rawOpt = String((li as any).option_designation || li.option || '').trim();
+      const isOptionalOrAlt =
+        rawOpt.toLowerCase().includes('optional') ||
+        rawOpt.toLowerCase().includes('add-on') ||
+        /option\s+[b-z]/i.test(rawOpt);
       return {
         id: li.id || `item_${idx}`,
+        sn: idx + 1,
         product_id: li.product_id,
         sku: li.sku,
         item_name: li.item_name || li.product_type || `Item #${idx + 1}`,
@@ -850,16 +857,27 @@ export default function EnquiryDetail({
         unit_price: rate,
         cost_price: li.cost_price,
         total_price: QuotationRepository.roundCurrency(qty * rate),
+        line_total: QuotationRepository.roundCurrency(qty * rate),
         brand_make: li.brand_make,
         model_part_no: li.model_part_no,
         country_of_origin: li.country_of_origin,
         hs_code: li.hs_code,
-        availability: li.lead_time_note || 'Ex-Stock / Standard',
+        availability: li.lead_time_note || (li as any).availability || 'Ex-Stock / Standard',
+        lead_time_note: li.lead_time_note || (li as any).availability || 'Ex-Stock / Standard',
+        option: rawOpt || undefined,
+        option_group: rawOpt && rawOpt !== 'Default / Included' && rawOpt !== 'Baseline / All' ? rawOpt : undefined,
+        is_optional: isOptionalOrAlt,
+        attributes: li.attributes || [],
         image_url: li.image_url,
         secondary_image_url: li.secondary_image_url,
         image_caption: li.image_caption,
         secondary_image_caption: li.secondary_image_caption,
         image_adjustments: li.image_adjustments,
+        image_display_override: li.image_display_override,
+        image_size_override: li.image_size_override,
+        image_aspect_override: li.image_aspect_override,
+        datasheet_attachment: li.datasheet_attachment,
+        include_datasheet_in_quote: li.include_datasheet_in_quote !== false,
         is_composite_set: li.is_composite_set,
         sub_components: li.sub_components,
         package_pricing_mode: li.package_pricing_mode
@@ -879,7 +897,8 @@ export default function EnquiryDetail({
     const comp = companies.find((c) => c.id === targetEnq.company_id);
     const cont = contacts.find((c) => c.id === targetEnq.contact_id);
     const synthItems = buildBaseLineItemsFromSource(null, targetEnq);
-    const calcTotals = QuotationRepository.calculateTotals(synthItems, 0, 'taxes_extra', 5);
+    const effectiveTaxMode = targetEnq.tax_mode || 'taxes_extra';
+    const calcTotals = QuotationRepository.calculateTotals(synthItems, 0, effectiveTaxMode, 5);
     const hasItems = synthItems.length > 0 && !targetEnq.is_lump_sum;
     const rawValAed = Number(targetEnq.value_aed || 0);
     const isUSD = targetEnq.currency === 'USD';
@@ -895,6 +914,9 @@ export default function EnquiryDetail({
       ? 'Sent'
       : 'Draft';
 
+    const effectiveValidityDays = Number(targetEnq.validity_days) > 0 ? Number(targetEnq.validity_days) : 30;
+    const resolvedSpName = resolveSalespersonName(targetEnq, salespersons) || user?.full_name || user?.username || '';
+
     const synth: Quotation = {
       id: `baseline_${targetEnq.id || targetEnq.sn || 'current'}_r${revNum}`,
       workspace_id: targetEnq.workspace_id || activeWorkspaceId || 'ws_default',
@@ -905,7 +927,7 @@ export default function EnquiryDetail({
       formatted_quote_ref: formattedRef,
       status: derivedStatus,
       created_at: targetEnq.enquiry_date || targetEnq.createdAt || new Date().toISOString(),
-      valid_until: new Date(Date.now() + 30 * 86400000).toISOString(),
+      valid_until: targetEnq.valid_until || new Date(Date.now() + effectiveValidityDays * 86400000).toISOString(),
       sender_snapshot: {
         entity_name: documentProfile?.legal_entity_name || documentProfile?.legal_name || activeWorkspace?.name || 'Aventura Components FZE',
         legal_name: documentProfile?.legal_name || activeWorkspace?.name || 'Aventura Components FZE',
@@ -933,14 +955,16 @@ export default function EnquiryDetail({
       line_items: synthItems,
       subtotal: subTotal,
       freight_amount: 0,
-      tax_mode: 'taxes_extra',
+      tax_mode: effectiveTaxMode,
       tax_rate_percent: 5,
       tax_amount: taxAmt,
       grand_total: grandTotal,
-      payment_terms: '100% Advance / As Agreed',
-      price_basis: 'Ex-Works Warehouse',
-      validity_days: 30,
-      prepared_by: resolveSalespersonName(targetEnq) || user?.full_name || user?.username || ''
+      payment_terms: targetEnq.payment_terms || '100% Advance / As Agreed',
+      price_basis: targetEnq.price_basis || 'Ex-Works Warehouse',
+      delivery_period: targetEnq.delivery_period || undefined,
+      validity_days: effectiveValidityDays,
+      prepared_by: resolvedSpName,
+      signatories: []
     };
     (synth as any)._isBaselineEnquiryProposal = true;
     (synth as any)._linkedEnquiryId = targetEnq.id;
@@ -2435,7 +2459,58 @@ export default function EnquiryDetail({
       setIsInlineEditingItems(false);
 
       if (quotations.length > 0) {
-        setShowQuoteSyncPrompt(true);
+        const draftQuotes = quotations.filter(
+          (q) => !q.is_deleted && (!q.document_type || q.document_type === 'quotation') && (q.status || 'Draft') === 'Draft'
+        );
+        if (draftQuotes.length > 0) {
+          const mappedQuoteItems = buildBaseLineItemsFromSource(null, updatedEnquiry);
+          const syncedDrafts: Quotation[] = [];
+          for (const dq of draftQuotes) {
+            const mergedItems: QuotationLineItem[] = mappedQuoteItems.map((freshIt, idx) => {
+              const prevIt =
+                (dq.line_items || []).find(
+                  (oldIt) =>
+                    (oldIt.id && freshIt.id && oldIt.id === freshIt.id) ||
+                    (oldIt.product_id && freshIt.product_id && oldIt.product_id === freshIt.product_id && oldIt.sn === idx + 1)
+                ) || (dq.line_items || [])[idx];
+              return {
+                ...(prevIt || {}),
+                ...freshIt,
+                page_break_after: prevIt?.page_break_after,
+                visible_attributes: prevIt?.visible_attributes
+              };
+            });
+            const totals = QuotationRepository.calculateTotals(
+              mergedItems,
+              dq.freight_amount || 0,
+              dq.tax_mode || 'taxes_extra',
+              dq.tax_rate_percent ?? 5
+            );
+            const nextDraft: Quotation = {
+              ...dq,
+              line_items: mergedItems,
+              subtotal: totals.subtotal,
+              freight_amount: totals.freight_amount,
+              tax_rate_percent: totals.tax_rate_percent,
+              tax_amount: totals.tax_amount,
+              grand_total: totals.grand_total,
+              updatedAt: now,
+              updated_at: now
+            };
+            await QuotationRepository.saveQuotation(nextDraft).catch(() => {});
+            syncedDrafts.push(nextDraft);
+          }
+          if (syncedDrafts.length > 0) {
+            setQuotations((prev) =>
+              prev.map((q) => {
+                const match = syncedDrafts.find((sd) => sd.id === q.id);
+                return match || q;
+              })
+            );
+          }
+        } else {
+          setShowQuoteSyncPrompt(true);
+        }
       }
 
       if (triggerToast) {
@@ -2698,9 +2773,111 @@ export default function EnquiryDetail({
   const matchedContact = contacts.find((c) => c.id === (currentEnquiry.contact_id || enquiry.contact_id));
 
   const studioSpName = useMemo(
-    () => currentEnquiry.assigned_salesperson || resolveSalespersonName(currentEnquiry),
+    () => currentEnquiry.assigned_salesperson || resolveSalespersonName(currentEnquiry, salespersons),
     [currentEnquiry, salespersons]
   );
+
+  const handleOutsideQuickPrint = async (q: Quotation) => {
+    try {
+      const rehydrated = await rehydrateDocumentBlobsFromLocal(q);
+      const catalogHydratedItems = rehydrateLineItemsFromCatalog(rehydrated.line_items || [], products || []);
+      const enrichedItems = catalogHydratedItems.map((it, idx) => {
+        const matchingEnqItem =
+          (currentEnquiry.line_items || []).find(
+            (li) =>
+              (li.id && it.id && li.id === it.id) ||
+              (li.product_id && it.product_id && li.product_id === it.product_id) ||
+              (li.sku && it.sku && li.sku.trim().toLowerCase() === it.sku.trim().toLowerCase())
+          ) || (currentEnquiry.line_items || [])[idx];
+        const matchingProd = (products || []).find(
+          (p) =>
+            (it.product_id && p.id === it.product_id) ||
+            (matchingEnqItem?.product_id && p.id === matchingEnqItem.product_id) ||
+            (it.sku && p.sku && p.sku.trim().toLowerCase() === it.sku.trim().toLowerCase())
+        );
+        return {
+          ...it,
+          image_url: it.image_url || matchingEnqItem?.image_url || matchingProd?.image_url,
+          secondary_image_url:
+            it.secondary_image_url || matchingEnqItem?.secondary_image_url || matchingProd?.secondary_image_url,
+          brand_make: it.brand_make || matchingEnqItem?.brand_make || matchingProd?.brand_make || matchingProd?.brand,
+          model_part_no:
+            it.model_part_no || matchingEnqItem?.model_part_no || matchingProd?.model_part_no || matchingProd?.part_no,
+          country_of_origin:
+            it.country_of_origin || matchingEnqItem?.country_of_origin || matchingProd?.country_of_origin,
+          availability:
+            it.availability ||
+            it.lead_time_note ||
+            matchingEnqItem?.lead_time_note ||
+            (matchingEnqItem as any)?.availability ||
+            matchingProd?.default_availability ||
+            'Ex-Stock / Standard'
+        };
+      });
+      const hydratedQuote: Quotation = {
+        ...rehydrated,
+        line_items: enrichedItems
+      };
+
+      const originalTitle = document.title;
+      const resolvedPdfName = resolvePdfFilename(
+        hydratedQuote.pdf_filename_pattern || documentProfile?.pdf_filename_pattern,
+        {
+          quotation: hydratedQuote,
+          enquiry: currentEnquiry,
+          profile: documentProfile
+        }
+      );
+      if (resolvedPdfName) {
+        document.title = resolvedPdfName;
+      }
+
+      setViewingQuotation(hydratedQuote);
+
+      const cleanup = () => {
+        document.title = originalTitle;
+        setViewingQuotation(null);
+      };
+      window.addEventListener('afterprint', cleanup, { once: true });
+
+      await new Promise<void>((resolve) => setTimeout(resolve, 120));
+      const portalEl = document.getElementById('quotation-print-portal');
+      if (portalEl) {
+        const imgs = Array.from(portalEl.querySelectorAll('img')).filter((img) => {
+          const src = img.getAttribute('src') || '';
+          return Boolean(src.trim());
+        });
+        if (imgs.length > 0) {
+          await Promise.race([
+            Promise.all(
+              imgs.map(
+                (img) =>
+                  new Promise<void>((res) => {
+                    if (img.complete && img.naturalWidth > 0) {
+                      res();
+                      return;
+                    }
+                    const done = () => {
+                      img.removeEventListener('load', done);
+                      img.removeEventListener('error', done);
+                      res();
+                    };
+                    img.addEventListener('load', done, { once: true });
+                    img.addEventListener('error', done, { once: true });
+                  })
+              )
+            ),
+            new Promise<void>((res) => setTimeout(res, 1500))
+          ]);
+        }
+      }
+      window.print();
+    } catch (err) {
+      console.warn('[EnquiryDetail] Quick print hydration fallback:', err);
+      setViewingQuotation(q);
+      setTimeout(() => window.print(), 200);
+    }
+  };
 
   const enrichedEnquiry = useMemo<Enquiry>(() => {
     const contactName =
@@ -3466,7 +3643,7 @@ export default function EnquiryDetail({
                   />
                   <div
                     role="menu"
-                    className="absolute right-0 top-full mt-1.5 w-60 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl py-1.5 z-40 divide-y divide-slate-100 dark:divide-slate-800"
+                    className="absolute right-0 top-full mt-1.5 w-60 rounded-xl bg-white text-slate-800 border border-slate-200 shadow-xl py-1.5 z-40 divide-y divide-slate-100"
                   >
                     <div className="py-1">
                       {canEditEnquiry(user, activeWorkspace, enquiry) && (
@@ -3476,9 +3653,9 @@ export default function EnquiryDetail({
                             setIsMoreActionsOpen(false);
                             handleDuplicateAsNewEnquiry();
                           }}
-                          className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer transition"
+                          className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-900 flex items-center gap-2.5 cursor-pointer transition"
                         >
-                          <Copy className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                          <Copy className="w-3.5 h-3.5 text-slate-600 shrink-0" />
                           <span>Duplicate as New Enquiry</span>
                         </button>
                       )}
@@ -3512,7 +3689,7 @@ export default function EnquiryDetail({
                             setActiveTab('items');
                             setIsInlineEditingItems(true);
                           }}
-                          className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer transition"
+                          className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-900 flex items-center gap-2.5 cursor-pointer transition"
                         >
                           <ListOrdered className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                           <span>Manage Line Items</span>
@@ -4223,10 +4400,7 @@ export default function EnquiryDetail({
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        setViewingQuotation(q);
-                                        const cleanup = () => setViewingQuotation(null);
-                                        window.addEventListener('afterprint', cleanup, { once: true });
-                                        setTimeout(() => window.print(), 150);
+                                        void handleOutsideQuickPrint(q);
                                       }}
                                       className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
                                       title="Print or Save as PDF"
@@ -6950,10 +7124,7 @@ export default function EnquiryDetail({
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    setViewingQuotation(q);
-                                    const cleanup = () => setViewingQuotation(null);
-                                    window.addEventListener('afterprint', cleanup, { once: true });
-                                    setTimeout(() => window.print(), 150);
+                                    void handleOutsideQuickPrint(q);
                                   }}
                                   className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-semibold transition cursor-pointer flex items-center gap-1"
                                 >
@@ -8042,7 +8213,13 @@ export default function EnquiryDetail({
                 )}
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={() => {
+                    if (viewingQuotation) {
+                      void handleOutsideQuickPrint(viewingQuotation);
+                    } else {
+                      window.print();
+                    }
+                  }}
                   className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold rounded-lg shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5 text-slate-500" />

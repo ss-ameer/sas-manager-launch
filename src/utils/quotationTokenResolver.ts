@@ -805,7 +805,7 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
   const senderSnap = q.sender_snapshot || ({} as any);
 
   // Dates
-  const rawIssueDate = q.created_at || (enq as any)?.created_at || '';
+  const rawIssueDate = q.issue_date || q.created_at || (enq as any)?.created_at || '';
   const quoteDateStr = formatReadableDate(rawIssueDate);
 
   const vDays = Number(q.validity_days ?? prof.default_validity_days ?? 30);

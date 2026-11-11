@@ -2547,6 +2547,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   signatoryTitle,
   enquiry,
   salesRepName,
+  salespersons,
   blockStyle = 'framed',
   globalCardRadius: propGlobalCardRadius,
   cardsOrder: propCardsOrder,
@@ -3040,10 +3041,12 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     }
   };
 
+  const effectiveIssueDateIso = (quotation.issue_date || quotation.created_at || '').trim();
+
   // Unified validity date: ensures Offer Details and Commercial Terms always show the exact same Valid Until date
   const resolvedValidUntilIso = React.useMemo(() => {
     const rawValid = (quotation.valid_until || '').trim();
-    const rawCreated = (quotation.created_at || '').trim();
+    const rawCreated = (quotation.issue_date || quotation.created_at || '').trim();
     const vDays = Number(quotation.validity_days ?? profile?.default_validity_days ?? 30);
     const validFormatted = rawValid ? formatDate(rawValid) : '';
     const createdFormatted = rawCreated ? formatDate(rawCreated) : '';
@@ -3057,7 +3060,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       return baseDate.toISOString();
     }
     return rawValid;
-  }, [quotation.valid_until, quotation.created_at, quotation.validity_days, profile?.default_validity_days]);
+  }, [quotation.valid_until, quotation.issue_date, quotation.created_at, quotation.validity_days, profile?.default_validity_days]);
 
   // Determine active columns & technical attributes config
   const columnConfig: QuotationPresetColumns = propColumnConfig || propVisibleColumns || quotation.visible_columns || {};
@@ -3223,15 +3226,54 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       quotation.enquiry_id ||
       enquiry?.id
   );
-  const resolvedSalesRep =
+  const expandRepNameOrInitials = (val?: string | null): string => {
+    if (!val) return '';
+    const trimmed = val.trim();
+    if (!trimmed) return '';
+    const upper = trimmed.toUpperCase();
+    if (Array.isArray(salespersons) && salespersons.length > 0) {
+      const sp = salespersons.find(
+        (s) =>
+          s.id === trimmed ||
+          s.uid === trimmed ||
+          (s.initials && s.initials.trim().toUpperCase() === upper) ||
+          (s.full_name && s.full_name.trim().toUpperCase() === upper) ||
+          (s.name && s.name.trim().toUpperCase() === upper)
+      );
+      if (sp) return sp.full_name || sp.name || sp.displayName || trimmed;
+    }
+    const KNOWN_MAP: Record<string, string> = {
+      NS: 'Nitin Srivastava',
+      SAS: 'Syed Ameer Sibuma',
+      SA: 'Syed Ameer Sibuma',
+      SS: 'Syed Ameer Sibuma'
+    };
+    if (KNOWN_MAP[upper]) return KNOWN_MAP[upper];
+    return trimmed;
+  };
+
+  const resolvedEnquirySalesRep = expandRepNameOrInitials(
     salesRepName ||
-    quotation.prepared_by ||
-    (quotation as any)?.salesperson_name ||
-    enquiry?.assigned_salesperson ||
-    enquiry?.assignedSalesperson ||
-    enquiry?.sales_representative ||
-    enquiry?.salesperson ||
-    user?.displayName;
+      enquiry?.assigned_salesperson ||
+      enquiry?.assignedSalesperson ||
+      enquiry?.sales_representative ||
+      enquiry?.salesperson ||
+      enquiry?.sales_person ||
+      enquiry?.assigned_to
+  );
+
+  const rawPreparedBy = expandRepNameOrInitials(quotation.prepared_by || (quotation as any)?.salesperson_name);
+  const loggedInNamesLower = [user?.displayName, user?.name, (user as any)?.full_name]
+    .filter(Boolean)
+    .map((s) => String(s).trim().toLowerCase());
+
+  const resolvedSalesRep =
+    rawPreparedBy &&
+    resolvedEnquirySalesRep &&
+    loggedInNamesLower.includes(rawPreparedBy.toLowerCase()) &&
+    !loggedInNamesLower.includes(resolvedEnquirySalesRep.toLowerCase())
+      ? resolvedEnquirySalesRep
+      : rawPreparedBy || resolvedEnquirySalesRep || user?.displayName;
 
   // Resolved B2B Client Details
   const clientEntityName = quotation.client_snapshot?.entity_name || 'Client Name / Unspecified';
@@ -3290,16 +3332,19 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       return !trimmed || trimmed === 'SS' || (trimmed.length <= 3 && trimmed === trimmed.toUpperCase());
     };
 
-    const rawPName =
+    const rawPName = expandRepNameOrInitials(
       signatoryName ||
-      quotation.primary_signatory_name ||
-      quotation.signatories?.[0]?.name;
+        quotation.primary_signatory_name ||
+        quotation.signatories?.[0]?.name ||
+        (quotation as any)?.presentation_preset?.primary_signatory_name
+    );
 
     let pName = rawPName;
 
-    // If unset or initials only, resolve via 5-tier fallback hierarchy
+    // If unset or initials only, resolve via 5-tier fallback hierarchy (expanding initials first!)
     if (isUnsetOrInitials(pName)) {
       const candidates = [
+        resolvedEnquirySalesRep,
         salesRepName,
         enquiry?.sales_representative,
         enquiry?.salesperson,
@@ -3310,7 +3355,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         profile?.primary_signatory_name,
         user?.displayName,
         user?.name
-      ];
+      ].map((c) => expandRepNameOrInitials(c));
 
       const match = candidates.find((c) => !isUnsetOrInitials(c));
       pName = match ? match.trim() : (senderEntityName ? `${senderEntityName} Authorized Signatory` : 'Authorized Signatory');
@@ -9169,7 +9214,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               {!isFieldOmitted('issue_date', omittedFields) && (
                 <div>
                   <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Date</span>
-                  <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
+                  <span className="font-semibold text-slate-800">{formatDate(effectiveIssueDateIso)}</span>
                 </div>
               )}
               {showValidity && resolvedValidUntilIso && resolvedValidUntilIso.trim() !== '' ? (
@@ -9257,7 +9302,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 {!isFieldOmitted('issue_date', omittedFields) && (
                   <div className="flex items-center justify-between gap-2">
                     <span className={`text-slate-400 ${typoScale.sub} uppercase`}>Date</span>
-                    <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
+                    <span className="font-semibold text-slate-800">{formatDate(effectiveIssueDateIso)}</span>
                   </div>
                 )}
                 {showValidity && resolvedValidUntilIso && resolvedValidUntilIso.trim() !== '' && (
@@ -9307,7 +9352,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             ) : offerGridLayout === 'minimal_inline' ? (
               <div className={`flex flex-wrap items-center justify-center gap-x-3 gap-y-1 ${isMinimal ? 'pt-1' : 'pt-1.5 border-t border-slate-200/60'} ${typoScale.sub} text-slate-600 ${offerMetaGridFmt.className}`} style={offerMetaGridFmt.style}>
                 {!isFieldOmitted('issue_date', omittedFields) && (
-                  <span><strong className="text-slate-500 uppercase">Date:</strong> {formatDate(quotation.created_at)}</span>
+                  <span><strong className="text-slate-500 uppercase">Date:</strong> {formatDate(effectiveIssueDateIso)}</span>
                 )}
                 {showValidity && resolvedValidUntilIso && resolvedValidUntilIso.trim() !== '' && (
                   <span>• <strong className="text-slate-500 uppercase">Valid:</strong> {formatDate(resolvedValidUntilIso)}</span>
@@ -9336,7 +9381,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 {!isFieldOmitted('issue_date', omittedFields) && (
                   <div>
                     <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Date</span>
-                    <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
+                    <span className="font-semibold text-slate-800">{formatDate(effectiveIssueDateIso)}</span>
                   </div>
                 )}
                 {showValidity && resolvedValidUntilIso && resolvedValidUntilIso.trim() !== '' && (

@@ -10,6 +10,7 @@ import {
   DocumentProfileBankAccount,
   Enquiry,
   Salesperson,
+  getInitials,
   UserProfile,
   LineItem,
   Workspace,
@@ -2026,21 +2027,35 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   const [newPresetName, setNewPresetName] = useState<string>('');
   const [isSavingPreset, setIsSavingPreset] = useState<boolean>(false);
 
-  // Commercial terms
+  // Commercial terms & Issue Date
+  const [quotationIssueDate, setQuotationIssueDate] = useState<string>(() => {
+    const raw = editingQuotation?.issue_date || editingQuotation?.created_at || new Date().toISOString();
+    return raw.slice(0, 10);
+  });
   const [priceBasis, setPriceBasis] = useState<string>(() => {
     if (editingQuotation?.price_basis != null) return editingQuotation.price_basis;
+    if (enquiry?.price_basis) return enquiry.price_basis;
     return 'Ex-Works / Delivered Site';
+  });
+  const [deliveryPeriod, setDeliveryPeriod] = useState<string>(() => {
+    if (editingQuotation?.delivery_period != null) return editingQuotation.delivery_period;
+    if (enquiry?.delivery_period) return enquiry.delivery_period;
+    return '';
   });
   const [paymentTerms, setPaymentTerms] = useState<string>(() => {
     if (editingQuotation?.payment_terms != null) return editingQuotation.payment_terms;
+    if (enquiry?.payment_terms) return enquiry.payment_terms;
     return '100% Advance against PI / Approved Credit';
   });
   const [validityDays, setValidityDays] = useState<number>(() => {
     if (typeof editingQuotation?.validity_days === 'number' && editingQuotation.validity_days > 0) {
       return editingQuotation.validity_days;
     }
+    if (typeof enquiry?.validity_days === 'number' && enquiry.validity_days > 0) {
+      return enquiry.validity_days;
+    }
     if (editingQuotation?.created_at && editingQuotation?.valid_until) {
-      const issuedMs = Date.parse(editingQuotation.created_at);
+      const issuedMs = Date.parse(editingQuotation.issue_date || editingQuotation.created_at);
       const validMs = Date.parse(editingQuotation.valid_until);
       if (!Number.isNaN(issuedMs) && !Number.isNaN(validMs)) {
         const diffDays = Math.round((validMs - issuedMs) / (1000 * 60 * 60 * 24));
@@ -2215,62 +2230,101 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     return /^[A-Z]{2,3}$/.test(trimmed);
   };
 
+  // Helper to expand a 2-3 letter salesperson code/initials or ID against presets and known map
+  const expandInitialsOrRepId = (rawVal?: string | null): string => {
+    if (!rawVal) return '';
+    const trimmed = rawVal.trim();
+    if (!trimmed) return '';
+    const upper = trimmed.toUpperCase();
+
+    if (Array.isArray(presets) && presets.length > 0) {
+      const matchedPreset = presets.find(
+        (p) =>
+          p.primary_signatory_name &&
+          !isInitialsOnly(p.primary_signatory_name) &&
+          (getInitials(p.primary_signatory_name) === upper ||
+            new RegExp(`[-\\s]${upper}$`, 'i').test((p.preset_name || '').trim()))
+      );
+      if (matchedPreset?.primary_signatory_name) {
+        return matchedPreset.primary_signatory_name.trim();
+      }
+    }
+
+    const KNOWN_INITIALS: Record<string, string> = {
+      NS: 'Nitin Srivastava',
+      SAS: 'Syed Ameer Sibuma',
+      SA: 'Syed Ameer Sibuma',
+      SS: 'Syed Ameer Sibuma'
+    };
+    if (KNOWN_INITIALS[upper]) {
+      return KNOWN_INITIALS[upper];
+    }
+
+    return !isInitialsOnly(trimmed) ? trimmed : '';
+  };
+
   // Helper to resolve full rep name, protecting against uppercase initials and multi-user attribution overwrites
   const resolveRepFullName = (candidate?: string | null): string => {
-    if (candidate && !isInitialsOnly(candidate)) {
-      return candidate.trim();
-    }
+    const expandedCandidate = expandInitialsOrRepId(candidate);
 
-    // Candidate is missing or matches uppercase initials (e.g. "SS", "PV")
-    // Attribution Integrity Guard: First look up assigned representative fields from enquiry, team or profile
+    // Attribution Integrity Guard: First look up assigned representative fields from enquiry, team or preset
     const assignedCandidates = [
+      (enquiry as any)?.assigned_salesperson,
+      enquiry?.assignedSalesperson,
       enquiry?.sales_representative,
       enquiry?.salesperson,
-      enquiry?.assignedSalesperson,
       enquiry?.sales_person,
+      enquiry?.assigned_to,
       salespersonName,
       (editingQuotation as any)?.assigned_to_name,
-      (editingQuotation as any)?.salesperson_name,
-      enquiry?.created_by_name,
-      profile?.primary_signatory_name
+      (editingQuotation as any)?.salesperson_name
     ];
 
-    for (const name of assignedCandidates) {
-      if (name && !isInitialsOnly(name) && name.trim().length > 1) {
-        return name.trim();
+    let resolvedEnquiryRep = '';
+    for (const rawName of assignedCandidates) {
+      const expanded = expandInitialsOrRepId(rawName);
+      if (expanded && expanded.length > 1) {
+        resolvedEnquiryRep = expanded;
+        break;
       }
     }
 
-    // Direct SS resolution to full name
-    if (candidate === 'SS' || (candidate && candidate.trim() === 'SS')) {
-      return (
-        profile?.primary_signatory_name?.trim() ||
-        user?.displayName?.trim() ||
-        user?.name?.trim() ||
-        'Syed Sibuma'
-      );
+    // If candidate matches the logged-in user (e.g. an Admin opening another rep's Enquiry),
+    // but the Enquiry itself has a distinct assigned salesperson, prioritize the Enquiry's assigned rep!
+    const loggedInNames = [user?.displayName, user?.name, (user as any)?.full_name]
+      .filter(Boolean)
+      .map((s) => String(s).trim().toLowerCase());
+    if (
+      expandedCandidate &&
+      resolvedEnquiryRep &&
+      loggedInNames.includes(expandedCandidate.toLowerCase()) &&
+      !loggedInNames.includes(resolvedEnquiryRep.toLowerCase())
+    ) {
+      return resolvedEnquiryRep;
     }
 
-    // If candidate has initials (other than SS) and editing an existing quotation, preserve candidate attribution
-    // rather than overwriting with an unrelated admin / current session user
-    if (editingQuotation && candidate && candidate.trim().length > 0) {
-      return candidate.trim();
+    if (expandedCandidate) {
+      return expandedCandidate;
     }
 
-    // Only fall back to current logged-in user if creating a brand-new quotation where no assigned rep exists
-    if (!editingQuotation && (user?.displayName || user?.name)) {
-      const sessionUser = user.displayName || user.name;
-      if (sessionUser && !isInitialsOnly(sessionUser)) {
-        return sessionUser.trim();
-      }
+    if (resolvedEnquiryRep) {
+      return resolvedEnquiryRep;
+    }
+
+    const defaultPreset = presets.find((p) => p.is_default) || presets[0];
+    if (defaultPreset?.primary_signatory_name && !isInitialsOnly(defaultPreset.primary_signatory_name)) {
+      return defaultPreset.primary_signatory_name.trim();
+    }
+
+    if (profile?.primary_signatory_name && !isInitialsOnly(profile.primary_signatory_name)) {
+      return profile.primary_signatory_name.trim();
     }
 
     return (
-      (candidate && !isInitialsOnly(candidate) ? candidate.trim() : '') ||
-      profile?.primary_signatory_name?.trim() ||
       user?.displayName?.trim() ||
       user?.name?.trim() ||
-      'Syed Sibuma'
+      (user as any)?.full_name?.trim() ||
+      'Authorized Signatory'
     );
   };
 
@@ -2496,10 +2550,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     (targetQuote: Quotation | null) => {
       setActiveSourceQuotation(targetQuote);
       const defaultPreset = presets.find((p) => p.is_default) || presets[0] || null;
+      const isBaselineOrUnstyledDraft =
+        !targetQuote ||
+        Boolean((targetQuote as any)._isBaselineEnquiryProposal) ||
+        (!targetQuote.preset_id && (!targetQuote.signatories || targetQuote.signatories.length === 0));
       const hydrated = QuotationRepository.hydrateStudioStateFromQuotation(
         targetQuote,
         profile,
-        !targetQuote ? defaultPreset : null
+        isBaselineOrUnstyledDraft ? defaultPreset : null
       );
 
       setActiveQuotationId(hydrated.activeQuotationId);
@@ -2507,6 +2565,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setRevisionNumber(hydrated.revisionNumber);
       setFormattedQuoteRefOverride(hydrated.formattedQuoteRefOverride);
       setQuotationStatus(hydrated.quotationStatus);
+      setQuotationIssueDate(
+        (targetQuote?.issue_date || targetQuote?.created_at || new Date().toISOString()).slice(0, 10)
+      );
       const resolvedDocType = hydrated.documentType || initialDocumentType || 'quotation';
       setDocumentType(resolvedDocType);
       if (resolvedDocType !== 'quotation') {
@@ -2536,10 +2597,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setStockDeductedForDoc(Boolean(hydrated.vendorReturnMetadata?.stock_deducted));
       setVisibleColumns(hydrated.visibleColumns);
       setFreightAmount(hydrated.freightAmount);
-      setTaxMode(hydrated.taxMode);
+      setTaxMode(targetQuote?.tax_mode || enquiry?.tax_mode || hydrated.taxMode);
       setTaxRatePercent(hydrated.taxRatePercent);
-      setPriceBasis(hydrated.priceBasis);
-      setPaymentTerms(hydrated.paymentTerms);
+      setPriceBasis(targetQuote?.price_basis || enquiry?.price_basis || hydrated.priceBasis);
+      setDeliveryPeriod(targetQuote?.delivery_period || enquiry?.delivery_period || '');
+      setPaymentTerms(targetQuote?.payment_terms || enquiry?.payment_terms || hydrated.paymentTerms);
+      if (typeof targetQuote?.validity_days === 'number' && targetQuote.validity_days > 0) {
+        setValidityDays(targetQuote.validity_days);
+      } else if (typeof enquiry?.validity_days === 'number' && enquiry.validity_days > 0) {
+        setValidityDays(enquiry.validity_days);
+      }
       setTableDensity(hydrated.tableDensity);
       setFontSizeScale(hydrated.fontSizeScale);
       setTableFontScale(
@@ -2644,32 +2711,45 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         );
         const sType =
           targetQuote.signatory_type ||
-          (targetQuote.signatories && targetQuote.signatories.length > 1 ? 'dual' : 'single');
-        setSignatoryType(sType);
-        setSignatoryMode(sType);
-        setSignatureStyle(targetQuote.signature_style || profile?.signature_style || 'script');
+          (targetQuote.signatories && targetQuote.signatories.length > 1
+            ? 'dual'
+            : defaultPreset?.signatory_type ||
+              defaultPreset?.signatory_mode ||
+              (defaultPreset?.secondary_signatory_name ? 'dual' : 'single'));
+        setSignatoryType(sType as 'single' | 'dual' | 'stamp_only');
+        setSignatoryMode(sType as QuotationSignatoryMode);
+        setSignatureStyle(
+          targetQuote.signature_style ||
+            defaultPreset?.signature_style ||
+            profile?.signature_style ||
+            'script'
+        );
         setSignatoryName(
           resolveRepFullName(
             targetQuote.primary_signatory_name ||
               targetQuote.signatories?.[0]?.name ||
+              defaultPreset?.primary_signatory_name ||
               salespersonName
           )
         );
         setSignatoryTitle(
           targetQuote.primary_signatory_title ||
             targetQuote.signatories?.[0]?.designation ||
+            defaultPreset?.primary_signatory_title ||
             profile?.primary_signatory_title ||
             'Account Manager'
         );
         setSecondarySignatoryName(
           targetQuote.secondary_signatory_name ||
             targetQuote.signatories?.[1]?.name ||
+            defaultPreset?.secondary_signatory_name ||
             profile?.secondary_signatory_name ||
             'Authorized Director'
         );
         setSecondarySignatoryTitle(
           targetQuote.secondary_signatory_title ||
             targetQuote.signatories?.[1]?.designation ||
+            defaultPreset?.secondary_signatory_title ||
             profile?.secondary_signatory_title ||
             'Commercial Approver'
         );
@@ -2749,11 +2829,80 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         setItemVisibleAttributes(initialMap);
         setItemPageBreaks(initialBreaks);
         setItemCompositeOverrides({});
-        const initialStudioItems = Array.isArray(targetQuote.line_items)
-          ? rehydrateLineItemsFromCatalog(
-              targetQuote.line_items.map((item) => ({ ...item })),
-              workspaceProducts
-            )
+        const isDraftQuote = (targetQuote.status || 'Draft') === 'Draft' && (targetQuote.document_type || 'quotation') === 'quotation';
+        const hasFreshEnquiryItems = Array.isArray(enquiry?.line_items) && enquiry!.line_items.length > 0;
+        const rawSourceItems: QuotationLineItem[] | null =
+          isDraftQuote && hasFreshEnquiryItems
+            ? enquiry!.line_items.map((li, idx) => {
+                const prevIt =
+                  (targetQuote.line_items || []).find(
+                    (oldIt) =>
+                      (oldIt.id && li.id && oldIt.id === li.id) ||
+                      (oldIt.product_id && li.product_id && oldIt.product_id === li.product_id && oldIt.sn === idx + 1)
+                  ) || (targetQuote.line_items || [])[idx];
+                const qty = Number(li.quantity) || 1;
+                const rate = Number(li.unit_price) || 0;
+                const tot =
+                  li.total_price !== undefined
+                    ? QuotationRepository.roundCurrency(Number(li.total_price) || 0)
+                    : QuotationRepository.roundCurrency(qty * rate);
+                const rawOpt = String((li as any).option_designation || li.option || prevIt?.option || '').trim();
+                const isOptionalOrAlt =
+                  rawOpt.toLowerCase().includes('optional') ||
+                  rawOpt.toLowerCase().includes('add-on') ||
+                  /option\s+[b-z]/i.test(rawOpt);
+                const deliveryNote =
+                  li.lead_time_note ||
+                  (li as any).delivery_time ||
+                  (li as any).lead_time ||
+                  (li as any).availability ||
+                  prevIt?.availability ||
+                  'Ex-Stock / Standard';
+                return {
+                  ...(prevIt || {}),
+                  id: li.id || prevIt?.id || `item_${idx + 1}`,
+                  sn: idx + 1,
+                  product_id: li.product_id ?? prevIt?.product_id,
+                  sku: li.sku ?? prevIt?.sku,
+                  item_name: li.item_name || li.product_type || prevIt?.item_name || `Item #${idx + 1}`,
+                  description: li.description !== undefined ? li.description : (prevIt?.description || ''),
+                  brand_make: li.brand_make ?? prevIt?.brand_make,
+                  model_part_no: li.model_part_no ?? prevIt?.model_part_no,
+                  country_of_origin: li.country_of_origin ?? prevIt?.country_of_origin,
+                  hs_code: li.hs_code ?? prevIt?.hs_code,
+                  availability: deliveryNote,
+                  lead_time_note: deliveryNote,
+                  quantity: qty,
+                  unit: li.unit || prevIt?.unit || 'Nos',
+                  unit_price: rate,
+                  cost_price: li.cost_price ?? prevIt?.cost_price,
+                  total_price: tot,
+                  line_total: tot,
+                  option: rawOpt || undefined,
+                  option_group: rawOpt && rawOpt !== 'Default / Included' && rawOpt !== 'Baseline / All' ? rawOpt : undefined,
+                  is_optional: isOptionalOrAlt,
+                  attributes: Array.isArray(li.attributes) && li.attributes.length > 0 ? li.attributes : (prevIt?.attributes || []),
+                  image_url: li.image_url || prevIt?.image_url,
+                  secondary_image_url: li.secondary_image_url || prevIt?.secondary_image_url,
+                  image_caption: li.image_caption ?? prevIt?.image_caption,
+                  secondary_image_caption: li.secondary_image_caption ?? prevIt?.secondary_image_caption,
+                  image_adjustments: li.image_adjustments ?? prevIt?.image_adjustments,
+                  image_display_override: li.image_display_override ?? prevIt?.image_display_override,
+                  image_size_override: li.image_size_override ?? prevIt?.image_size_override,
+                  image_aspect_override: li.image_aspect_override ?? prevIt?.image_aspect_override,
+                  datasheet_attachment: li.datasheet_attachment ?? prevIt?.datasheet_attachment,
+                  include_datasheet_in_quote: li.include_datasheet_in_quote ?? prevIt?.include_datasheet_in_quote ?? true,
+                  is_composite_set: li.is_composite_set ?? prevIt?.is_composite_set,
+                  sub_components: Array.isArray(li.sub_components) ? li.sub_components : prevIt?.sub_components,
+                  package_pricing_mode: li.package_pricing_mode ?? prevIt?.package_pricing_mode
+                };
+              })
+            : Array.isArray(targetQuote.line_items)
+            ? targetQuote.line_items.map((item) => ({ ...item }))
+            : null;
+
+        const initialStudioItems = rawSourceItems
+          ? rehydrateLineItemsFromCatalog(rawSourceItems, workspaceProducts)
           : null;
         setCustomStudioLineItems(initialStudioItems);
         if (initialStudioItems && initialStudioItems.length > 0) {
@@ -2833,10 +2982,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     [enquiry, profile, presets, salespersonName]
   );
 
-  // Hydrate state when editingQuotation?.id or enquiry?.id changes
+  // Hydrate state when editingQuotation?.id, enquiry?.id, or enquiry?.updatedAt changes
   useEffect(() => {
     hydrateStudioFromQuotation(editingQuotation || null);
-  }, [editingQuotation?.id, enquiry?.id]);
+  }, [editingQuotation?.id, enquiry?.id, enquiry?.updatedAt]);
 
   // Load revision chain for the current enquiry so the In-Studio Revision History Switcher is populated
   useEffect(() => {
@@ -3156,8 +3305,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           if (matched) applyPreset(matched);
         } else if (defaultPresetForDoc) {
           setSelectedPresetId(defaultPresetForDoc.id);
-          if (!editingQuotation) {
-            applyPreset(defaultPresetForDoc);
+          const isUnstyledOrBaseline =
+            !editingQuotation ||
+            Boolean((editingQuotation as any)._isBaselineEnquiryProposal) ||
+            (!editingQuotation.preset_id && (!editingQuotation.signatories || editingQuotation.signatories.length === 0));
+          if (isUnstyledOrBaseline) {
+            applyPreset(defaultPresetForDoc, { includeSignatory: true });
           }
         }
       })
@@ -3612,9 +3765,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     );
   };
 
-  // Apply chosen preset (Strictly Layout, Theme & Table Structure by default; Signatory decoupled)
+  // Apply chosen preset (Includes Signatory & Dual-Mode settings by default so ★ Default presets work 100%)
   const applyPreset = (preset: QuotationPreset, options?: { includeSignatory?: boolean }) => {
-    const includeSignatory = options?.includeSignatory ?? false;
+    const includeSignatory = options?.includeSignatory ?? true;
     const hydrated = QuotationRepository.hydrateFromPresetSnapshot(preset);
     setSelectedPresetId(preset.id || '');
     if (preset.visible_columns) {
@@ -3633,13 +3786,35 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     if (preset.pdf_filename_pattern) setPdfFilenamePattern(preset.pdf_filename_pattern);
     if (preset.signatory_mode) {
       setSignatoryMode(preset.signatory_mode);
-      if (preset.signatory_mode === 'dual' || preset.signatory_mode === 'single') {
+      if (preset.signatory_mode === 'dual' || preset.signatory_mode === 'single' || preset.signatory_mode === 'stamp_only') {
         setSignatoryType(preset.signatory_mode);
       }
     }
-    if (preset.primary_signatory_name) setSignatoryName(preset.primary_signatory_name);
+    if (preset.signatory_type) {
+      setSignatoryType(preset.signatory_type as 'single' | 'dual' | 'stamp_only');
+      setSignatoryMode(preset.signatory_type as QuotationSignatoryMode);
+    }
+    if (preset.primary_signatory_name) {
+      const resolvedPrimary = resolveRepFullName(preset.primary_signatory_name);
+      setSignatoryName(resolvedPrimary);
+      setPreparedBy((prev) => {
+        const loggedInNames = [user?.displayName, user?.name, (user as any)?.full_name]
+          .filter(Boolean)
+          .map((s) => String(s).trim().toLowerCase());
+        if (!prev || loggedInNames.includes(prev.trim().toLowerCase()) || isInitialsOnly(prev)) {
+          return resolvedPrimary;
+        }
+        return prev;
+      });
+    }
     if (preset.primary_signatory_title) setSignatoryTitle(preset.primary_signatory_title);
-    if (preset.secondary_signatory_name) setSecondarySignatoryName(preset.secondary_signatory_name);
+    if (preset.secondary_signatory_name) {
+      setSecondarySignatoryName(preset.secondary_signatory_name);
+      if (!preset.signatory_mode && !preset.signatory_type) {
+        setSignatoryType('dual');
+        setSignatoryMode('dual');
+      }
+    }
     if (preset.secondary_signatory_title) setSecondarySignatoryTitle(preset.secondary_signatory_title);
     if (preset.company_seal_url !== undefined) setCompanySealUrl(preset.company_seal_url || '');
     if (preset.signature_image_url !== undefined) setSignatureImageUrl(preset.signature_image_url || '');
@@ -5467,14 +5642,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     footerConfig.secondarySignatureImageUrl
   ]);
 
-  // Derived validity date anchored to the quotation issue date (never falling back to issue date when validityDays > 0)
+  // Derived validity date anchored to the editable quotation issue date
   const validUntilDate = useMemo(() => {
-    const baseIso = editingQuotation?.created_at || new Date().toISOString();
+    const baseIso = quotationIssueDate
+      ? `${quotationIssueDate}T12:00:00.000Z`
+      : editingQuotation?.issue_date || editingQuotation?.created_at || new Date().toISOString();
     const baseMs = Date.parse(baseIso);
     const d = !Number.isNaN(baseMs) ? new Date(baseMs) : new Date();
     d.setDate(d.getDate() + (Number(validityDays) || 30));
     return d.toISOString();
-  }, [validityDays, editingQuotation?.created_at]);
+  }, [validityDays, quotationIssueDate, editingQuotation?.issue_date, editingQuotation?.created_at]);
 
   // Combined Annexes: Explicit studio flyers + Enquiry RFQ attachments marked for Quote Annex + Line-item Datasheets
   const resolvedFlyerAttachments = useMemo(() => {
@@ -5671,6 +5848,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       tax_amount: financialTotals.tax_amount,
       grand_total: financialTotals.grand_total,
       price_basis: priceBasis,
+      delivery_period: deliveryPeriod || undefined,
       payment_terms: paymentTerms,
       validity_days: validityDays,
       custom_notes: customNotes,
@@ -5743,7 +5921,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       visible_columns: visibleColumns,
       omitted_fields: omittedFields,
       auto_paginate_items: autoPaginateItems,
-      created_at: editingQuotation?.created_at || new Date().toISOString(),
+      issue_date: quotationIssueDate,
+      created_at: quotationIssueDate
+        ? `${quotationIssueDate}T12:00:00.000Z`
+        : editingQuotation?.created_at || new Date().toISOString(),
       valid_until: validUntilDate,
       currency: (enquiry.currency as string) || activeBankAccount?.currency || 'AED',
       preset_id: selectedPresetId || undefined,
@@ -5760,8 +5941,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     financialTotals,
     customNotes,
     priceBasis,
+    deliveryPeriod,
     paymentTerms,
     validityDays,
+    quotationIssueDate,
     activeBankAccount,
     signatories,
     validUntilDate,
@@ -6492,7 +6675,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         visible_columns: visibleColumns as any,
         omitted_fields: omittedFields,
         auto_paginate_items: autoPaginateItems,
-        created_at: editingQuotation?.created_at || new Date().toISOString(),
+        issue_date: quotationIssueDate,
+        created_at: quotationIssueDate
+          ? `${quotationIssueDate}T12:00:00.000Z`
+          : editingQuotation?.created_at || new Date().toISOString(),
+        delivery_period: deliveryPeriod || undefined,
         validity_days: validityDays,
         valid_until: liveQuotation.valid_until,
         currency: liveQuotation.currency,
@@ -7519,6 +7706,41 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             </div>
           </div>
         </header>
+
+        {/* Smart Stale Draft Date Banner */}
+        {(quotationStatus || 'Draft') === 'Draft' &&
+          quotationIssueDate &&
+          quotationIssueDate !== new Date().toISOString().slice(0, 10) && (
+            <div className="px-6 py-1.5 bg-blue-50 border-b border-blue-200 flex items-center justify-between gap-3 flex-wrap text-xs text-blue-900 shrink-0 print:hidden">
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded bg-blue-600 text-white font-mono font-bold text-[10px] uppercase">
+                  Draft Date Notice
+                </span>
+                <span>
+                  📅 Draft issue date is{' '}
+                  <strong className="font-mono">
+                    {new Date(`${quotationIssueDate}T12:00:00`).toLocaleDateString('en-GB', {
+                      day: '2-digit',
+                      month: 'short',
+                      year: 'numeric'
+                    })}
+                  </strong>{' '}
+                  — would you like to update it to today before sending or printing?
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const todayStr = new Date().toISOString().slice(0, 10);
+                  setQuotationIssueDate(todayStr);
+                  triggerToast?.('Issue Date updated to today and Valid Until recalculated.', 'success');
+                }}
+                className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[11px] transition cursor-pointer shadow-2xs"
+              >
+                Update Date to Today ({new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })})
+              </button>
+            </div>
+          )}
 
         {/* Superseded Revision Inspection Banner */}
         {(quotationStatus || 'Draft') === 'Superseded' && (
@@ -11479,6 +11701,45 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
                       />
                     </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-slate-500 font-medium">Issue Date</label>
+                          <button
+                            type="button"
+                            onClick={() => setQuotationIssueDate(new Date().toISOString().slice(0, 10))}
+                            className="text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-1.5 py-0.5 rounded transition cursor-pointer"
+                            title="Set Issue Date to Today"
+                          >
+                            Set to Today
+                          </button>
+                        </div>
+                        <input
+                          type="date"
+                          value={quotationIssueDate}
+                          onChange={(e) => {
+                            if (e.target.value) setQuotationIssueDate(e.target.value);
+                          }}
+                          className="w-full rounded-lg border border-slate-300 p-2 font-mono text-slate-800 text-xs bg-white"
+                        />
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-slate-500 font-medium">Validity (Days)</label>
+                          <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                            Until {new Date(validUntilDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </span>
+                        </div>
+                        <input
+                          type="number"
+                          min="1"
+                          max="180"
+                          value={validityDays}
+                          onChange={(e) => setValidityDays(Number(e.target.value) || 30)}
+                          className="w-full rounded-lg border border-slate-300 p-2 font-mono text-slate-800 text-xs bg-white"
+                        />
+                      </div>
+                    </div>
                     <div>
                       <label className="block text-slate-500 font-medium mb-1">
                         Price Basis <span className="text-[10px] font-mono text-blue-600">(Type @ for tags)</span>
@@ -11493,6 +11754,18 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     </div>
                     <div>
                       <label className="block text-slate-500 font-medium mb-1">
+                        Delivery Period / Lead Time <span className="text-[10px] font-mono text-blue-600">(Type @ for tags)</span>
+                      </label>
+                      <AtMentionInput
+                        value={deliveryPeriod}
+                        onChange={setDeliveryPeriod}
+                        tokenContext={studioTokenContext}
+                        placeholder="e.g., Ex-Stock Subject to Prior Sale / 4–6 Weeks from PO"
+                        className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-500 font-medium mb-1">
                         Payment Terms <span className="text-[10px] font-mono text-blue-600">(Type @ for tags)</span>
                       </label>
                       <AtMentionInput
@@ -11501,17 +11774,6 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         tokenContext={studioTokenContext}
                         placeholder="e.g., 100% Advance / 30 Days Net"
                         className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-slate-500 font-medium mb-1">Validity (Days)</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="180"
-                        value={validityDays}
-                        onChange={(e) => setValidityDays(Number(e.target.value) || 30)}
-                        className="w-full rounded-lg border border-slate-300 p-2 font-mono text-slate-800"
                       />
                     </div>
                     <div>
@@ -15092,6 +15354,51 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           placeholder="e.g. AVENTURA/UAE/CWS/2844-121026"
                           className="w-full px-2.5 py-1.5 text-xs font-mono font-bold bg-white border border-slate-200 rounded-lg text-blue-800 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
                         />
+                      </div>
+
+                      {/* Issue Date & Validity Quick Controls */}
+                      <div className="p-2.5 rounded-xl border border-blue-200/80 bg-blue-50/40 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-slate-800 font-bold text-[11px]">
+                            Issue Date &amp; Offer Validity
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setQuotationIssueDate(new Date().toISOString().slice(0, 10))}
+                            className="px-2 py-0.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[10px] transition cursor-pointer shadow-2xs"
+                          >
+                            Set to Today
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <span className="block text-[10px] text-slate-500 font-medium mb-0.5">Issue Date</span>
+                            <input
+                              type="date"
+                              value={quotationIssueDate}
+                              onChange={(e) => {
+                                if (e.target.value) setQuotationIssueDate(e.target.value);
+                              }}
+                              className="w-full px-2 py-1 text-xs font-mono bg-white border border-slate-200 rounded-lg text-slate-800"
+                            />
+                          </div>
+                          <div>
+                            <span className="block text-[10px] text-slate-500 font-medium mb-0.5">
+                              Validity ({new Date(validUntilDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })})
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                min="1"
+                                max="180"
+                                value={validityDays}
+                                onChange={(e) => setValidityDays(Number(e.target.value) || 30)}
+                                className="w-full px-2 py-1 text-xs font-mono bg-white border border-slate-200 rounded-lg text-slate-800"
+                              />
+                              <span className="text-[10px] font-mono text-slate-500">days</span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
 
                       {/* Revision Suffix Format Selector */}

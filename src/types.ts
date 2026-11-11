@@ -861,6 +861,12 @@ export interface Enquiry extends SoftDeleteFields {
   remarks?: string;
   invoice_po_no?: string;
   payment_status?: string;
+  validity_days?: number;
+  valid_until?: string;
+  price_basis?: string;
+  delivery_period?: string;
+  payment_terms?: string;
+  tax_mode?: QuotationTaxMode;
   project_id?: string | null;
   project_number?: string | null;
   stock_reserved?: boolean;
@@ -1044,20 +1050,51 @@ export function resolveSalespersonIdentifier(enquiry: Partial<Enquiry> | null | 
   );
 }
 
-/**
- * Resolves the salesperson display name or initials across assignment keys.
- */
-export function resolveSalespersonName(enquiry: Partial<Enquiry> | null | undefined): string {
+export function resolveSalespersonName(
+  enquiry: Partial<Enquiry> | null | undefined,
+  salespersons?: Salesperson[]
+): string {
   if (!enquiry) return '';
-  return (
+  const raw = (
     enquiry.assigned_salesperson ||
     enquiry.assignedSalesperson ||
     enquiry.sales_representative ||
     enquiry.sales_person ||
     enquiry.salesperson ||
     enquiry.assigned_to ||
+    enquiry.sales_person_id ||
+    enquiry.salesperson_id ||
     ''
-  );
+  ).trim();
+  if (!raw) return '';
+
+  if (Array.isArray(salespersons) && salespersons.length > 0) {
+    const upper = raw.toUpperCase();
+    const matched = salespersons.find(
+      (sp) =>
+        sp.id === raw ||
+        sp.uid === raw ||
+        (sp.initials && sp.initials.trim().toUpperCase() === upper) ||
+        (sp.full_name && sp.full_name.trim().toUpperCase() === upper) ||
+        (sp.name && sp.name.trim().toUpperCase() === upper) ||
+        getInitials(sp.full_name || sp.name || '') === upper
+    );
+    if (matched) {
+      return matched.full_name || matched.name || matched.displayName || raw;
+    }
+  }
+
+  const KNOWN_INITIALS_MAP: Record<string, string> = {
+    NS: 'Nitin Srivastava',
+    SAS: 'Syed Ameer Sibuma',
+    SA: 'Syed Ameer Sibuma'
+  };
+  const upperRaw = raw.toUpperCase();
+  if (KNOWN_INITIALS_MAP[upperRaw]) {
+    return KNOWN_INITIALS_MAP[upperRaw];
+  }
+
+  return raw;
 }
 
 export function resolveEnquiryContactPerson(enquiry: Partial<Enquiry> | null | undefined): string {
@@ -2697,6 +2734,7 @@ export interface Quotation extends SoftDeleteFields {
   quotation_subject?: string;
   prepared_by?: string;
   price_basis?: string;
+  delivery_period?: string;
   payment_terms?: string;
   custom_notes?: string;
   block_style?: 'framed' | 'minimal';
@@ -2713,6 +2751,7 @@ export interface Quotation extends SoftDeleteFields {
   show_submittals_index?: boolean;
   pdf_storage_path?: string;
   pdf_download_url?: string;
+  issue_date?: string;
   created_at: string;
   created_by?: string;
   updatedAt?: string;

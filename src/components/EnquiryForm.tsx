@@ -16,7 +16,7 @@ import {
 import mammoth from 'mammoth';
 import { PdfViewer } from './PdfViewer';
 import { MarqueeLabel } from './MarqueeLabel';
-import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductType, UnitType, EnquiryStatus, Product, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, DropdownOption, Workspace, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, LegalSuffix, PIPELINE_STATUS_GROUPS, WorkspaceSequenceCounters, resolveCountryCode, sanitizeCompanyCode, LineItemImageDisplayOverride, LineItemImageSizeOverride, LineItemImageAspectOverride } from '../types';
+import { Enquiry, Company, Contact, Salesperson, LineItem, Attachment, ProductType, UnitType, EnquiryStatus, Product, ProductAttribute, CATEGORY_SUGGESTED_ATTRIBUTES, DropdownOption, Workspace, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, LegalSuffix, PIPELINE_STATUS_GROUPS, WorkspaceSequenceCounters, resolveCountryCode, sanitizeCompanyCode, LineItemImageDisplayOverride, LineItemImageSizeOverride, LineItemImageAspectOverride, QuotationTaxMode, resolveSalespersonName } from '../types';
 import { db } from '../firebase';
 import { writeBatch, doc, updateDoc } from 'firebase/firestore';
 import { safeAddDoc, safeUpdateDoc, uploadAttachmentWithProgress } from '../firebase';
@@ -1078,6 +1078,11 @@ export default function EnquiryForm({
   const [remarks, setRemarks] = useState('');
   const [invoicePoNo, setInvoicePoNo] = useState('');
   const [paymentStatus, setPaymentStatus] = useState('');
+  const [validityDays, setValidityDays] = useState<number>(30);
+  const [priceBasis, setPriceBasis] = useState<string>('');
+  const [deliveryPeriod, setDeliveryPeriod] = useState<string>('');
+  const [paymentTerms, setPaymentTerms] = useState<string>('');
+  const [taxMode, setTaxMode] = useState<QuotationTaxMode>('taxes_extra');
   const [subject, setSubject] = useState('');
   const [customerReferenceCode, setCustomerReferenceCode] = useState('');
   const [proposalOption, setProposalOption] = useState('');
@@ -1105,6 +1110,11 @@ export default function EnquiryForm({
     setRemarks('');
     setInvoicePoNo('');
     setPaymentStatus('');
+    setValidityDays(30);
+    setPriceBasis('');
+    setDeliveryPeriod('');
+    setPaymentTerms('');
+    setTaxMode('taxes_extra');
     setSubject('');
     setCustomerReferenceCode('');
     setProposalOption('');
@@ -2088,6 +2098,22 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       setManualValue(resolvedManualVal);
       setInvoicePoNo(enquiryToEdit.invoice_po_no || '');
       setPaymentStatus(enquiryToEdit.payment_status || '');
+      const rawRem = enquiryToEdit.remarks || '';
+      const extractedValidity = rawRem.match(/validity\s*[:=-]\s*(\d+)\s*day/i)?.[1];
+      const extractedPriceBasis = rawRem.match(/(?:price\s*basis|incoterms?)\s*[:=-]\s*([^\n;|]+)/i)?.[1]?.trim();
+      const extractedDelivery = rawRem.match(/delivery(?:\s*period|\s*terms)?\s*[:=-]\s*([^\n;|]+)/i)?.[1]?.trim();
+      const extractedPayment = rawRem.match(/payment(?:\s*terms)?\s*[:=-]\s*([^\n;|]+)/i)?.[1]?.trim();
+      setValidityDays(
+        typeof enquiryToEdit.validity_days === 'number' && enquiryToEdit.validity_days > 0
+          ? enquiryToEdit.validity_days
+          : extractedValidity
+          ? Number(extractedValidity) || 30
+          : 30
+      );
+      setPriceBasis(enquiryToEdit.price_basis || extractedPriceBasis || '');
+      setDeliveryPeriod(enquiryToEdit.delivery_period || extractedDelivery || '');
+      setPaymentTerms(enquiryToEdit.payment_terms || extractedPayment || enquiryToEdit.payment_status || '');
+      setTaxMode(enquiryToEdit.tax_mode || 'taxes_extra');
       setSubject(enquiryToEdit.subject || '');
       setCustomerReferenceCode(enquiryToEdit.customer_reference_code || '');
       setProposalOption(enquiryToEdit.proposal_option || '');
@@ -4158,6 +4184,17 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       remarks: (remarks || '').trim(),
       invoice_po_no: (invoicePoNo || '').trim() || undefined,
       payment_status: (paymentStatus || '').trim() || undefined,
+      validity_days: Number(validityDays) > 0 ? Number(validityDays) : 30,
+      valid_until: (() => {
+        const base = new Date(enquiryDate || Date.now());
+        const d = !isNaN(base.getTime()) ? base : new Date();
+        d.setDate(d.getDate() + (Number(validityDays) > 0 ? Number(validityDays) : 30));
+        return d.toISOString();
+      })(),
+      price_basis: (priceBasis || '').trim() || undefined,
+      delivery_period: (deliveryPeriod || '').trim() || undefined,
+      payment_terms: (paymentTerms || '').trim() || undefined,
+      tax_mode: taxMode || 'taxes_extra',
       custom_project_details: customProjectDetails.filter(d => d.key.trim() && d.value.trim()),
       line_items: stripCatalogRedundantLineItemMedia(cleanLineItems, products),
       attachments: firestoreAttachments && firestoreAttachments.length > 0 ? firestoreAttachments : undefined,
@@ -4281,14 +4318,22 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           console.warn('Failed to save updated enquiry to EnquiryRepository:', repoErr);
         }
 
-        // Keep active Draft quotation line items synchronized with Enquiry Form edits
+        // Keep all active Draft quotations for this Enquiry 100% synchronized with Enquiry Form edits
         try {
           const wsId = activeWorkspace?.id || 'ws_default';
           const relatedQuotes = await QuotationRepository.getQuotationsForEnquiry(enquiryToEdit.id, wsId);
-          const activeDraftQuote = relatedQuotes.find((q) => q.status === 'Draft' && !q.is_deleted);
-          if (activeDraftQuote && activeDraftQuote.id) {
+          const draftQuotes = relatedQuotes.filter(
+            (q) =>
+              !q.is_deleted &&
+              String(q.status || 'Draft').toLowerCase() === 'draft' &&
+              (q.document_type || 'quotation') === 'quotation'
+          );
+          for (const activeDraftQuote of draftQuotes) {
+            if (!activeDraftQuote.id) continue;
             const updatedQuoteLineItems = cleanLineItems.map((li, idx) => {
-              const existingQuoteItem = activeDraftQuote.line_items?.[idx];
+              const existingQuoteItem =
+                (li.id && activeDraftQuote.line_items?.find((qi) => qi.id === li.id)) ||
+                activeDraftQuote.line_items?.[idx];
               const qty = Number(li.quantity) || 1;
               const uPrice = Number(li.unit_price) || 0;
               const tPrice =
@@ -4297,36 +4342,69 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   : QuotationRepository.roundCurrency(qty * uPrice);
               const deliveryVal =
                 li.lead_time_note ||
-                li.delivery_time ||
-                li.lead_time ||
-                li.availability ||
+                (li as any).delivery_time ||
+                (li as any).lead_time ||
+                (li as any).availability ||
                 (li.specifications as any)?.['Delivery'] ||
                 (li.specifications as any)?.['Lead Time'] ||
+                existingQuoteItem?.availability ||
                 'Ex-Stock / Standard';
               return {
                 ...(existingQuoteItem || {}),
                 id: existingQuoteItem?.id || li.id || `item_${idx}`,
                 item_name: li.item_name || existingQuoteItem?.item_name || `Item ${idx + 1}`,
-                description: li.description || existingQuoteItem?.description || '',
+                description: li.description ?? existingQuoteItem?.description ?? '',
                 quantity: qty,
                 unit: li.unit || existingQuoteItem?.unit || 'pcs',
                 unit_price: uPrice,
                 cost_price: li.cost_price,
                 total_price: tPrice,
                 availability: deliveryVal,
+                lead_time_note: deliveryVal,
                 product_id: li.product_id,
                 sku: li.sku,
                 brand_make: li.brand_make || existingQuoteItem?.brand_make,
                 model_part_no: li.model_part_no || existingQuoteItem?.model_part_no,
                 country_of_origin: li.country_of_origin || existingQuoteItem?.country_of_origin,
+                hs_code: li.hs_code || existingQuoteItem?.hs_code,
+                image_url: li.image_url || existingQuoteItem?.image_url,
+                secondary_image_url: li.secondary_image_url || existingQuoteItem?.secondary_image_url,
+                image_caption: li.image_caption ?? existingQuoteItem?.image_caption,
+                secondary_image_caption: li.secondary_image_caption ?? existingQuoteItem?.secondary_image_caption,
+                datasheet_attachment: li.datasheet_attachment || existingQuoteItem?.datasheet_attachment,
+                option: li.option || existingQuoteItem?.option,
+                option_group: li.option || existingQuoteItem?.option_group,
+                option_scope_notes: li.option_scope_notes ?? existingQuoteItem?.option_scope_notes,
+                is_composite_set: li.is_composite_set,
+                sub_components: li.sub_components,
+                package_pricing_mode: li.package_pricing_mode,
+                specifications: li.specifications,
                 attributes:
                   Array.isArray(li.attributes) && li.attributes.length > 0
                     ? li.attributes
                     : existingQuoteItem?.attributes
               };
             });
+            const resolvedTaxMode = taxMode || activeDraftQuote.tax_mode || 'taxes_extra';
+            const totals = QuotationRepository.calculateTotals(
+              updatedQuoteLineItems as any,
+              activeDraftQuote.freight_amount || 0,
+              resolvedTaxMode,
+              activeDraftQuote.tax_rate_percent ?? 5
+            );
+            const assignedRep = resolveSalespersonName(updatedDoc);
             await QuotationRepository.updateQuotation(activeDraftQuote.id, {
-              line_items: updatedQuoteLineItems,
+              line_items: updatedQuoteLineItems as any,
+              subject: (subject || '').trim() || activeDraftQuote.subject,
+              ...(assignedRep ? { prepared_by: assignedRep } : {}),
+              ...(priceBasis.trim() ? { price_basis: priceBasis.trim() } : {}),
+              ...(deliveryPeriod.trim() ? { delivery_period: deliveryPeriod.trim() } : {}),
+              ...(paymentTerms.trim() ? { payment_terms: paymentTerms.trim() } : {}),
+              ...(Number(validityDays) > 0 ? { validity_days: Number(validityDays) } : {}),
+              tax_mode: resolvedTaxMode,
+              subtotal: totals.subtotal,
+              tax_amount: totals.tax_amount,
+              grand_total: totals.grand_total,
               updated_at: new Date().toISOString()
             });
           }
@@ -5806,28 +5884,6 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 return (
                   <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = !needsMetaOpen;
-                          disclosure.setIsMetadataExpanded(next);
-                          disclosure.setSectionExpanded('locationScope', next);
-                        }}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition inline-flex items-center gap-1.5 cursor-pointer ${
-                          needsMetaOpen
-                            ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
-                            : 'bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
-                        }`}
-                      >
-                        <Sliders className="w-3 h-3 text-slate-400" />
-                        <span>Ref, Dates, Location &amp; Scope</span>
-                        {locSummary && (
-                          <span className="px-1.5 py-0.2 rounded bg-white dark:bg-slate-900 text-[10px] font-mono text-slate-500 dark:text-slate-400 border border-slate-200/70 dark:border-slate-700">
-                            {locSummary}
-                          </span>
-                        )}
-                      </button>
-
                       <button
                         type="button"
                         onClick={() => disclosure.toggleSection('customSpecs')}
@@ -7995,12 +8051,160 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                   {/* Collapsible Subsection 4C: Commercial Terms & Remarks */}
                   {showRemarksTerms && (
-                    <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4 space-y-3 animate-in fade-in duration-150">
-                      <div className="flex items-center gap-2">
-                        <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
-                          Commercial Terms &amp; Remarks
+                    <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4 space-y-4 animate-in fade-in duration-150">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                          <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
+                            Commercial Terms &amp; Remarks
+                          </span>
+                        </div>
+                        <span className="text-[10.5px] text-slate-500">
+                          Automatically flows into Quotation Studio &amp; Draft Proposals
                         </span>
+                      </div>
+
+                      {/* Structured Quotation Commercial Terms Grid */}
+                      <div className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                          {/* 1. Offer Validity (Days) + Valid Until Preview */}
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300">
+                                Offer Validity (Days)
+                              </label>
+                              <span className="text-[10px] font-mono font-semibold text-blue-600 dark:text-blue-400">
+                                Until:{' '}
+                                {(() => {
+                                  const base = new Date(enquiryDate || Date.now());
+                                  const d = !isNaN(base.getTime()) ? base : new Date();
+                                  d.setDate(d.getDate() + (Number(validityDays) > 0 ? Number(validityDays) : 30));
+                                  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+                                })()}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="number"
+                                min={1}
+                                max={365}
+                                value={validityDays}
+                                onChange={(e) => setValidityDays(Math.max(1, Number(e.target.value) || 30))}
+                                className="w-20 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                              />
+                              <div className="flex items-center gap-1 flex-wrap">
+                                {[7, 15, 30, 60].map((dVal) => (
+                                  <button
+                                    key={dVal}
+                                    type="button"
+                                    onClick={() => setValidityDays(dVal)}
+                                    className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition cursor-pointer ${
+                                      Number(validityDays) === dVal
+                                        ? 'bg-blue-600 text-white border-blue-600'
+                                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    {dVal}d
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 2. Price Basis / Incoterms */}
+                          <div>
+                            <label className="block text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                              Price Basis / Incoterms
+                            </label>
+                            <input
+                              type="text"
+                              list="enquiry-price-basis-presets"
+                              value={priceBasis}
+                              onChange={(e) => setPriceBasis(e.target.value)}
+                              placeholder="e.g. EX Warehouse Ajman, UAE"
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                            />
+                            <datalist id="enquiry-price-basis-presets">
+                              <option value="EX Warehouse Ajman, UAE" />
+                              <option value="Ex-Works Warehouse" />
+                              <option value="DDP Client Site" />
+                              <option value="CIF / FOB Port" />
+                            </datalist>
+                          </div>
+
+                          {/* 3. Delivery Period */}
+                          <div>
+                            <label className="block text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                              Delivery Period
+                            </label>
+                            <input
+                              type="text"
+                              list="enquiry-delivery-period-presets"
+                              value={deliveryPeriod}
+                              onChange={(e) => setDeliveryPeriod(e.target.value)}
+                              placeholder="e.g. As mentioned against each item"
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                            />
+                            <datalist id="enquiry-delivery-period-presets">
+                              <option value="As mentioned against each item" />
+                              <option value="Ex-Stock / Immediate" />
+                              <option value="1 - 2 Weeks from order" />
+                              <option value="4 - 6 Weeks from advance" />
+                            </datalist>
+                          </div>
+
+                          {/* 4. VAT / Tax Mode */}
+                          <div>
+                            <label className="block text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                              VAT / Tax Mode
+                            </label>
+                            <select
+                              value={taxMode}
+                              onChange={(e) => setTaxMode(e.target.value as QuotationTaxMode)}
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                            >
+                              <option value="taxes_extra">5% Standard VAT (Extra)</option>
+                              <option value="inclusive">VAT Included in Total</option>
+                              <option value="zero_rated">0% Zero-Rated / Export</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* 5. Payment Terms with Quick Preset Chips */}
+                        <div>
+                          <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+                            <label className="text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300">
+                              Payment Terms (Quotation Commercial Clause)
+                            </label>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {[
+                                '50% advance to reserve and 50% before collection',
+                                '30 days PDC from Invoice & Collection',
+                                '100% Advance against PI'
+                              ].map((presetTerm) => (
+                                <button
+                                  key={presetTerm}
+                                  type="button"
+                                  onClick={() => setPaymentTerms(presetTerm)}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-medium border transition cursor-pointer ${
+                                    paymentTerms === presetTerm
+                                      ? 'bg-blue-600 text-white border-blue-600'
+                                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-blue-50'
+                                  }`}
+                                >
+                                  {presetTerm}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <input
+                            type="text"
+                            value={paymentTerms}
+                            onChange={(e) => setPaymentTerms(e.target.value)}
+                            placeholder="e.g. 50% advance to reserve and 50% before collection / 30 days PDC from Invoice & Collection"
+                            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-3 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
