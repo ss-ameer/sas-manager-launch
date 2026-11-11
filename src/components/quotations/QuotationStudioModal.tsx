@@ -124,6 +124,8 @@ import {
   ShieldCheck,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   FileCheck,
   Palette,
   AlignLeft,
@@ -1858,6 +1860,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     };
   }, [inspectorSubTarget, selectedSection]);
 
+  const [focusedItemIndex, setFocusedItemIndex] = useState<number | null>(null);
+  const [newSpecKey, setNewSpecKey] = useState<string>('');
+  const [newSpecVal, setNewSpecVal] = useState<string>('');
   const [focusedBlockStyleTarget, setFocusedBlockStyleTarget] = useState<string>('block:acceptance');
 
   const handleCanvasSelectSection = (section: StudioSelectedSection, subTarget?: string) => {
@@ -1902,7 +1907,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     }
 
     if (effectiveSubTarget) {
-      if (normalizedSection === 'recipient_info' && effectiveSubTarget.startsWith('recipient_')) {
+      if (normalizedSection === 'items_table' && effectiveSubTarget.startsWith('item:')) {
+        const rawIdx = parseInt(effectiveSubTarget.replace('item:', ''), 10);
+        if (!Number.isNaN(rawIdx)) {
+          setFocusedItemIndex(rawIdx);
+        }
+      } else if (normalizedSection === 'recipient_info' && effectiveSubTarget.startsWith('recipient_')) {
         setFocusedRecipientStyleTarget(effectiveSubTarget);
       } else if (
         normalizedSection === 'quote_meta' &&
@@ -1975,8 +1985,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     }
   };
 
-  const handleInspectSection = (section: StudioSelectedSection) => {
-    if (selectedSection === section) {
+  const handleInspectSection = (section: StudioSelectedSection, subTarget?: string) => {
+    if (subTarget) {
+      handleCanvasSelectSection(section, subTarget);
+      return;
+    }
+    if (selectedSection === section && !subTarget) {
       setSelectedSection(null);
     } else if (
       section === 'items_table' ||
@@ -1988,6 +2002,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       section === 'footer'
     ) {
       setSelectedSection(section);
+      if (section === 'items_table') {
+        // preserve current focusedItemIndex if already inspecting an item
+      }
     } else if (section) {
       handleInspectBlock(section as QuotationBlockId);
     } else {
@@ -10635,7 +10652,25 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-2 text-[11px]"
                             >
                               <div className="flex items-center justify-between gap-2">
-                                <span className="font-mono font-bold text-slate-500">#{idx + 1}</span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span className="font-mono font-bold text-slate-500">#{idx + 1}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setFocusedItemIndex(idx);
+                                      setSelectedSection('items_table');
+                                      setInspectorSubTarget(`item:${idx}::${Date.now()}`);
+                                    }}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-colors ${
+                                      focusedItemIndex === idx && selectedSection === 'items_table'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
+                                    }`}
+                                    title="Open Unified Item Inspector"
+                                  >
+                                    Inspect #{idx + 1}
+                                  </button>
+                                </div>
                                 <select
                                   value={li.product_id || ''}
                                   onChange={(e) => {
@@ -11771,6 +11806,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       layoutBlocks={layoutBlocks}
                       selectedSection={selectedSection}
                       selectedBlockId={selectedBlockId}
+                      focusedItemIndex={focusedItemIndex}
                       onSelectSection={handleCanvasSelectSection}
                       onSelectBlock={(id) => handleCanvasSelectSection(id)}
                       onInlineFieldEdit={handleInlineFieldEdit}
@@ -15422,55 +15458,668 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       </div>
                       <div className="min-w-0">
                         <h4 className="font-bold text-slate-900 text-xs truncate">
-                          Line Items Table
+                          {focusedItemIndex !== null && quotationLineItems[focusedItemIndex]
+                            ? `Line Item #${focusedItemIndex + 1}`
+                            : 'Line Items Table'}
                         </h4>
-                        <p className="text-[10px] text-slate-400 font-mono">
-                          Structural Section • Fixed Canvas Layout
+                        <p className="text-[10px] text-slate-400 font-mono truncate">
+                          {focusedItemIndex !== null && quotationLineItems[focusedItemIndex]
+                            ? (quotationLineItems[focusedItemIndex]?.item_name || 'Focused Item Inspector')
+                            : 'Structural Section • Fixed Canvas Layout'}
                         </p>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedSection(null)}
-                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition cursor-pointer"
-                      title="Close Inspector"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* Sticky 4-Tab Segmented Navigation Bar */}
-                  <div className="px-3 py-2 bg-slate-100/90 border-b border-slate-200 sticky top-[53px] z-10 backdrop-blur-xs">
-                    <div className="grid grid-cols-4 gap-1 p-1 bg-slate-200/75 rounded-xl">
-                      {[
-                        { id: 'specs' as const, label: 'Specs & Grid' },
-                        { id: 'columns' as const, label: 'Columns' },
-                        { id: 'media' as const, label: 'Photos/BOM' },
-                        { id: 'pagination' as const, label: 'Pagination' }
-                      ].map((tab) => {
-                        const isActive = tableInspectorTab === tab.id;
-                        return (
-                          <button
-                            key={tab.id}
-                            type="button"
-                            onClick={() => setTableInspectorTab(tab.id)}
-                            className={`py-1.5 px-1 rounded-lg text-[10px] font-bold transition cursor-pointer truncate ${
-                              isActive
-                                ? 'bg-white text-blue-700 shadow-2xs ring-1 ring-slate-200'
-                                : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-                            }`}
-                          >
-                            {tab.label}
-                          </button>
-                        );
-                      })}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {focusedItemIndex !== null && (
+                        <button
+                          type="button"
+                          onClick={() => setFocusedItemIndex(null)}
+                          className="px-2 py-0.5 rounded text-[10.5px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition cursor-pointer"
+                          title="Show All Items & Table Options"
+                        >
+                          Show All
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSection(null)}
+                        className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition cursor-pointer"
+                        title="Close Inspector"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
 
+                  {/* Focused Item Selector Bar (Active when inspecting a single item) */}
+                  {focusedItemIndex !== null && quotationLineItems[focusedItemIndex] ? (
+                    <div className="px-3 py-2 bg-blue-50/90 border-b border-blue-200 sticky top-[53px] z-10 backdrop-blur-xs space-y-1.5">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[10px] font-bold text-blue-900 uppercase tracking-wider">
+                          Inspecting Item #{focusedItemIndex + 1} of {quotationLineItems.length}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setFocusedItemIndex(null)}
+                          className="text-[10px] font-bold text-blue-700 hover:text-blue-900 underline cursor-pointer"
+                        >
+                          Table Specs &amp; Columns &rarr;
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          value={focusedItemIndex}
+                          onChange={(e) => setFocusedItemIndex(Number(e.target.value))}
+                          className="flex-1 min-w-0 text-xs rounded-lg border border-blue-300 bg-white py-1 px-2 text-slate-800 font-semibold truncate focus:ring-2 focus:ring-blue-500"
+                        >
+                          {quotationLineItems.map((item, idx) => (
+                            <option key={item.id || idx} value={idx}>
+                              #{idx + 1}: {item.item_name || 'Untitled Line Item'}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          disabled={focusedItemIndex <= 0}
+                          onClick={() => setFocusedItemIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : prev))}
+                          className="p-1 rounded-lg border border-blue-300 bg-white text-blue-800 hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                          title="Previous Item"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={focusedItemIndex >= quotationLineItems.length - 1}
+                          onClick={() => setFocusedItemIndex((prev) => (prev !== null && prev < quotationLineItems.length - 1 ? prev + 1 : prev))}
+                          className="p-1 rounded-lg border border-blue-300 bg-white text-blue-800 hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                          title="Next Item"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Sticky 4-Tab Segmented Navigation Bar */
+                    <div className="px-3 py-2 bg-slate-100/90 border-b border-slate-200 sticky top-[53px] z-10 backdrop-blur-xs">
+                      <div className="grid grid-cols-4 gap-1 p-1 bg-slate-200/75 rounded-xl">
+                        {[
+                          { id: 'specs' as const, label: 'Specs & Grid' },
+                          { id: 'columns' as const, label: 'Columns' },
+                          { id: 'media' as const, label: 'Photos/BOM' },
+                          { id: 'pagination' as const, label: 'Pagination' }
+                        ].map((tab) => {
+                          const isActive = tableInspectorTab === tab.id;
+                          return (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={() => setTableInspectorTab(tab.id)}
+                              className={`py-1.5 px-1 rounded-lg text-[10px] font-bold transition cursor-pointer truncate ${
+                                isActive
+                                  ? 'bg-white text-blue-700 shadow-2xs ring-1 ring-slate-200'
+                                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                              }`}
+                            >
+                              {tab.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Drawer Content (Single Outer Scroll Container — Zero Nested Scrollbars) */}
                   <div className="p-4 space-y-4 text-xs">
-                    {/* 0. Unified Commercial Summary & Totals Hub Shortcut */}
-                    <div className="p-3 rounded-xl border border-indigo-200 bg-indigo-50/60 space-y-2">
+                    {focusedItemIndex !== null && quotationLineItems[focusedItemIndex] ? (
+                      (() => {
+                        const curItem = quotationLineItems[focusedItemIndex];
+                        const isVendorCostDoc =
+                          documentType === 'purchase_order' ||
+                          documentType === 'material_return_note' ||
+                          (documentType as string) === 'material_return' ||
+                          documentType === 'debit_note';
+
+                        const updateCurItem = (patch: Partial<QuotationLineItem>) => {
+                          const currentList = customStudioLineItems ?? quotationLineItems;
+                          setCustomStudioLineItems(
+                            currentList.map((row, rIdx) =>
+                              rIdx === focusedItemIndex ? { ...row, ...patch } : row
+                            )
+                          );
+                        };
+
+                        const attrs: Array<{ key: string; value: string }> = Array.isArray(curItem.attributes)
+                          ? curItem.attributes.map((a: any) => ({ key: a.key || a.name || '', value: a.value || '' }))
+                          : curItem.technical_attributes && typeof curItem.technical_attributes === 'object' && !Array.isArray(curItem.technical_attributes)
+                          ? Object.entries(curItem.technical_attributes).map(([k, v]) => ({ key: k, value: String(v) }))
+                          : [];
+
+                        const hiddenKeys = curItem.hidden_attributes || [];
+                        const fullWidthKeys = curItem.attribute_full_width_keys || [];
+
+                        return (
+                          <div className="space-y-4">
+                            {/* Card 1: Core Row & Price */}
+                            <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                                  <Tag className="w-3.5 h-3.5 text-blue-600" />
+                                  Core Row &amp; Pricing
+                                </span>
+                                <span className="text-[10px] font-mono text-slate-400">
+                                  #{focusedItemIndex + 1}
+                                </span>
+                              </div>
+
+                              <div>
+                                <label className="block text-[10.5px] font-medium text-slate-500 mb-1">
+                                  Item Name / Header *
+                                </label>
+                                <input
+                                  type="text"
+                                  value={curItem.item_name || ''}
+                                  onChange={(e) => updateCurItem({ item_name: e.target.value })}
+                                  placeholder="Item Name (e.g. AUTOMATIC DUPLEX MMF SYSTEM)"
+                                  className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500"
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-3 gap-2">
+                                <div>
+                                  <label className="block text-[10px] text-slate-500 mb-0.5">Quantity</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={curItem.quantity === 0 ? '' : curItem.quantity}
+                                    onChange={(e) => {
+                                      const q = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
+                                      updateCurItem({
+                                        quantity: q,
+                                        qty_ordered: q,
+                                        total_price: QuotationRepository.roundCurrency(q * (Number(curItem.unit_price) || 0))
+                                      });
+                                    }}
+                                    className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-mono text-right"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="block text-[10px] text-slate-500 mb-0.5">Unit (UOM)</label>
+                                  <input
+                                    type="text"
+                                    value={curItem.unit || 'Nos'}
+                                    onChange={(e) => updateCurItem({ unit: e.target.value })}
+                                    className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-mono"
+                                    placeholder="Nos / Set"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="block text-[10px] text-slate-500 mb-0.5">
+                                    {isVendorCostDoc ? 'Cost Rate' : 'Selling Rate'}
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={curItem.unit_price === 0 ? '' : curItem.unit_price}
+                                    placeholder="0.00"
+                                    onChange={(e) => {
+                                      const r = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
+                                      updateCurItem({
+                                        unit_price: r,
+                                        ...(isVendorCostDoc ? { cost_price: r } : {}),
+                                        total_price: QuotationRepository.roundCurrency((Number(curItem.quantity) || 0) * r)
+                                      });
+                                    }}
+                                    className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-mono text-right font-bold text-slate-900"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between pt-1 border-t border-slate-200/80">
+                                <span className="text-[11px] font-medium text-slate-500">Calculated Line Total</span>
+                                <span className="font-mono font-bold text-xs text-blue-700">
+                                  {liveQuotation.currency || 'AED'} {((Number(curItem.quantity) || 0) * (Number(curItem.unit_price) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                              </div>
+
+                              {/* Catalog Product Link */}
+                              <div>
+                                <label className="block text-[10px] text-slate-500 mb-1">Link Catalog Product</label>
+                                <select
+                                  value={curItem.product_id || ''}
+                                  onChange={(e) => {
+                                    const pid = e.target.value;
+                                    const prod = workspaceProducts.find((p) => p.id === pid);
+                                    const rate = isVendorCostDoc
+                                      ? Number(prod?.cost_price ?? prod?.last_landed_cost ?? prod?.unit_price ?? curItem.unit_price ?? 0)
+                                      : Number(prod?.unit_price ?? (prod as any)?.selling_price ?? curItem.unit_price ?? 0);
+                                    updateCurItem({
+                                      product_id: pid || undefined,
+                                      sku: prod?.sku || curItem.sku,
+                                      item_name: prod?.name || curItem.item_name,
+                                      description: prod?.description || curItem.description,
+                                      unit_price: rate,
+                                      ...(isVendorCostDoc ? { cost_price: rate } : {}),
+                                      total_price: QuotationRepository.roundCurrency((Number(curItem.quantity) || 0) * rate)
+                                    });
+                                  }}
+                                  className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700"
+                                >
+                                  <option value="">-- No linked catalog product --</option>
+                                  {workspaceProducts.filter((p) => !p.is_deleted).map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                      {formatProductVariantSelectorLabel(p, workspaceProducts)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="flex items-center justify-between pt-1 border-t border-slate-200/80">
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(curItem.is_optional)}
+                                    onChange={(e) => updateCurItem({ is_optional: e.target.checked })}
+                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                  />
+                                  <span className="text-[10.5px] font-semibold text-slate-600">Mark as Optional Row</span>
+                                </label>
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(curItem.hide_row_price)}
+                                    onChange={(e) => updateCurItem({ hide_row_price: e.target.checked })}
+                                    className="rounded text-blue-600 focus:ring-blue-500"
+                                  />
+                                  <span className="text-[10.5px] font-semibold text-slate-600">Hide Rate &amp; Total</span>
+                                </label>
+                              </div>
+                            </div>
+
+                            {/* Card 2: Multi-Line Technical Description */}
+                            <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2.5">
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                                  <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                                  Technical Description &amp; Specs
+                                </span>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const cur = (curItem.description || '').trim();
+                                    const prefix = cur ? `${cur}\n` : '';
+                                    updateCurItem({ description: `${prefix}SECTION HEADING :-\n` });
+                                  }}
+                                  className="px-2 py-0.5 rounded text-[10px] font-semibold bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 transition cursor-pointer"
+                                  title="Insert bold uppercase sub-heading"
+                                >
+                                  + Sub-Heading
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const cur = (curItem.description || '').trim();
+                                    const prefix = cur ? `${cur}\n` : '';
+                                    updateCurItem({ description: `${prefix}• ` });
+                                  }}
+                                  className="px-2 py-0.5 rounded text-[10px] font-semibold bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 transition cursor-pointer"
+                                  title="Insert bullet point"
+                                >
+                                  • Bullet
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const raw = (curItem.description || '').trim();
+                                    if (!raw) return;
+                                    const formatted = formatSlashSeparatedDescription(raw);
+                                    updateCurItem({ description: formatted });
+                                  }}
+                                  className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition cursor-pointer"
+                                  title='Split "/" separated specs into clean lines'
+                                >
+                                  ✨ Split &quot;/&quot; into Lines
+                                </button>
+                              </div>
+
+                              <textarea
+                                rows={Math.min(10, Math.max(3, (curItem.description || '').split('\n').length))}
+                                value={curItem.description || ''}
+                                onChange={(e) => updateCurItem({ description: e.target.value })}
+                                placeholder="Multi-line technical specifications (use SECTION :- for bold sub-headings, • for bullets)..."
+                                className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs text-slate-800 leading-relaxed resize-y focus:ring-2 focus:ring-blue-500"
+                              />
+                            </div>
+
+                            {/* Card 3: Spec Attribute Pills for that item only */}
+                            <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                                  <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                                  Spec Attribute Pills
+                                </span>
+                                <span className="text-[10px] font-mono text-slate-400">
+                                  {attrs.length} Specs
+                                </span>
+                              </div>
+
+                              {attrs.length === 0 ? (
+                                <p className="text-[11px] text-slate-400 italic">No spec attribute pills yet on this item.</p>
+                              ) : (
+                                <div className="space-y-1.5">
+                                  {attrs.map((at, aIdx) => {
+                                    const isHidden = hiddenKeys.includes(at.key);
+                                    const isFullWidth = fullWidthKeys.includes(at.key);
+                                    return (
+                                      <div
+                                        key={aIdx}
+                                        className={`flex items-center justify-between gap-1.5 p-2 rounded-lg border text-xs transition ${
+                                          isHidden ? 'bg-slate-100/60 border-slate-200 opacity-60' : 'bg-white border-slate-200 shadow-2xs'
+                                        }`}
+                                      >
+                                        <div className="min-w-0 flex-1">
+                                          <span className="font-semibold text-slate-700 block truncate">{at.key}</span>
+                                          <span className="text-[10.5px] text-slate-500 font-mono block truncate">{at.value}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const nextFullWidth = isFullWidth
+                                                ? fullWidthKeys.filter((k) => k !== at.key)
+                                                : [...fullWidthKeys, at.key];
+                                              updateCurItem({ attribute_full_width_keys: nextFullWidth });
+                                            }}
+                                            className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition ${
+                                              isFullWidth ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                                            }`}
+                                            title="Toggle 100% full-width span across both columns"
+                                          >
+                                            {isFullWidth ? '100% Full' : '50% Half'}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const nextHidden = isHidden
+                                                ? hiddenKeys.filter((k) => k !== at.key)
+                                                : [...hiddenKeys, at.key];
+                                              updateCurItem({ hidden_attributes: nextHidden });
+                                            }}
+                                            className={`p-1 rounded text-xs cursor-pointer ${
+                                              isHidden ? 'text-slate-400 hover:text-slate-700' : 'text-blue-600 hover:bg-blue-50'
+                                            }`}
+                                            title={isHidden ? 'Show attribute pill' : 'Hide attribute pill'}
+                                          >
+                                            {isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const nextAttrs = attrs.filter((_, idx) => idx !== aIdx);
+                                              updateCurItem({
+                                                attributes: nextAttrs,
+                                                technical_attributes: nextAttrs
+                                              });
+                                            }}
+                                            className="p-1 rounded text-rose-500 hover:bg-rose-50 cursor-pointer"
+                                            title="Remove attribute"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {/* Inline + Add Spec Pill Row */}
+                              <div className="pt-2 border-t border-slate-200/80 space-y-1.5">
+                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                                  + Add Spec Pill
+                                </span>
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="text"
+                                    value={newSpecKey}
+                                    onChange={(e) => setNewSpecKey(e.target.value)}
+                                    placeholder="Spec (e.g. Tank Size)"
+                                    className="flex-1 min-w-0 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={newSpecVal}
+                                    onChange={(e) => setNewSpecVal(e.target.value)}
+                                    placeholder="Value (e.g. 24x72)"
+                                    className="flex-1 min-w-0 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs"
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={!newSpecKey.trim()}
+                                    onClick={() => {
+                                      if (!newSpecKey.trim()) return;
+                                      const nextAttrs = [...attrs, { key: newSpecKey.trim(), value: newSpecVal.trim() }];
+                                      updateCurItem({
+                                        attributes: nextAttrs,
+                                        technical_attributes: nextAttrs
+                                      });
+                                      setNewSpecKey('');
+                                      setNewSpecVal('');
+                                    }}
+                                    className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shrink-0"
+                                  >
+                                    Add
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Card 4: Product Photo & Diagram */}
+                            <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                                  <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
+                                  Product Photo &amp; Diagram
+                                </span>
+                                {curItem.image_url && (
+                                  <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    Image Attached
+                                  </span>
+                                )}
+                              </div>
+
+                              {curItem.image_url ? (
+                                <div className="space-y-2.5">
+                                  <div className="relative group rounded-xl border border-slate-200 bg-white p-2 flex items-center justify-center overflow-hidden">
+                                    <img
+                                      src={curItem.image_url}
+                                      alt={curItem.item_name || 'Product'}
+                                      className="max-h-36 object-contain rounded-lg"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => updateCurItem({ image_url: undefined })}
+                                      className="absolute top-2 right-2 p-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-md transition cursor-pointer"
+                                      title="Remove Photo"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-[10px] text-slate-500 mb-1">Photo Caption (Optional)</label>
+                                    <input
+                                      type="text"
+                                      value={curItem.image_caption || ''}
+                                      onChange={(e) => updateCurItem({ image_caption: e.target.value })}
+                                      placeholder="e.g. Assembled Duplex Filter Unit"
+                                      className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs"
+                                    />
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  <p className="text-[11px] text-slate-500">
+                                    Add an equipment diagram or catalog photo to display directly alongside this item.
+                                  </p>
+                                  <div className="flex items-center gap-2">
+                                    <label className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border border-dashed border-blue-300 bg-blue-50/50 hover:bg-blue-100/50 text-blue-700 font-semibold text-xs cursor-pointer transition">
+                                      <Upload className="w-3.5 h-3.5" />
+                                      <span>Upload Image</span>
+                                      <input
+                                        type="file"
+                                        accept="image/*"
+                                        className="hidden"
+                                        onChange={(e) => {
+                                          const file = e.target.files?.[0];
+                                          if (!file) return;
+                                          const reader = new FileReader();
+                                          reader.onload = (evt) => {
+                                            const base64 = evt.target?.result as string;
+                                            if (base64) updateCurItem({ image_url: base64 });
+                                          };
+                                          reader.readAsDataURL(file);
+                                        }}
+                                      />
+                                    </label>
+                                  </div>
+                                  <div>
+                                    <label className="block text-[10px] text-slate-400 mb-0.5">Or Paste Direct Image URL</label>
+                                    <input
+                                      type="text"
+                                      value={curItem.image_url || ''}
+                                      onChange={(e) => updateCurItem({ image_url: e.target.value })}
+                                      placeholder="https://..."
+                                      className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-mono"
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Card 5: Included Items & Scope Notes (Package / Composite Breakdown) */}
+                            <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                                  <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                                  Package / Set Breakdown &amp; Scope
+                                </span>
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(curItem.is_composite_set)}
+                                    onChange={(e) => updateCurItem({ is_composite_set: e.target.checked })}
+                                    className="rounded text-indigo-600 focus:ring-indigo-500"
+                                  />
+                                  <span className="text-[11px] font-bold text-slate-700">Composite Set</span>
+                                </label>
+                              </div>
+
+                              {curItem.is_composite_set ? (
+                                <div className="space-y-2.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10.5px] font-semibold text-slate-600">
+                                      Included Sub-Items ({(curItem.sub_components || []).length})
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const curSub = curItem.sub_components || [];
+                                        const nextSub = [
+                                          ...curSub,
+                                          {
+                                            id: `sub_${Date.now()}_${curSub.length + 1}`,
+                                            name: '',
+                                            quantity: 1,
+                                            unit: 'Nos',
+                                            unit_price: 0,
+                                            is_included_free: true
+                                          }
+                                        ];
+                                        updateCurItem({ sub_components: nextSub });
+                                      }}
+                                      className="px-2 py-0.5 rounded text-[10.5px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer"
+                                    >
+                                      + Add Sub-Item
+                                    </button>
+                                  </div>
+
+                                  <div className="space-y-1.5">
+                                    {(curItem.sub_components || []).map((sub, sIdx) => (
+                                      <div
+                                        key={sub.id || sIdx}
+                                        className="p-2 rounded-lg bg-white border border-slate-200 flex items-center justify-between gap-1.5 text-xs"
+                                      >
+                                        <input
+                                          type="text"
+                                          value={sub.name || ''}
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            const nextSub = (curItem.sub_components || []).map((row, idx) =>
+                                              idx === sIdx ? { ...row, name: val } : row
+                                            );
+                                            updateCurItem({ sub_components: nextSub });
+                                          }}
+                                          placeholder="Sub-item name (e.g. 2 x Top Distribution System)"
+                                          className="flex-1 min-w-0 rounded border border-slate-300 px-2 py-1 text-xs"
+                                        />
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          value={sub.quantity || 1}
+                                          onChange={(e) => {
+                                            const val = Math.max(1, Number(e.target.value));
+                                            const nextSub = (curItem.sub_components || []).map((row, idx) =>
+                                              idx === sIdx ? { ...row, quantity: val } : row
+                                            );
+                                            updateCurItem({ sub_components: nextSub });
+                                          }}
+                                          className="w-14 rounded border border-slate-300 px-1.5 py-1 text-xs font-mono text-right"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const nextSub = (curItem.sub_components || []).filter((_, idx) => idx !== sIdx);
+                                            updateCurItem({ sub_components: nextSub });
+                                          }}
+                                          className="p-1 rounded text-rose-500 hover:bg-rose-50 cursor-pointer"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-[10.5px] font-semibold text-slate-600 mb-1">
+                                      Package Scope Notes / Exclusions
+                                    </label>
+                                    <textarea
+                                      rows={3}
+                                      value={curItem.option_scope_notes || ''}
+                                      onChange={(e) => updateCurItem({ option_scope_notes: e.target.value })}
+                                      placeholder="e.g. Scope includes factory pre-assembly and hydrostatic pressure testing to ASME standards..."
+                                      className="w-full rounded-lg border border-slate-300 bg-white p-2 text-xs text-slate-800"
+                                    />
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="text-[11px] text-slate-400 italic">
+                                  Enable Composite Set to break down this line item into included sub-components, accessories, and warranty/scope notes.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <>
+                        {/* 0. Unified Commercial Summary & Totals Hub Shortcut */}
+                        <div className="p-3 rounded-xl border border-indigo-200 bg-indigo-50/60 space-y-2">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-bold text-indigo-950 text-xs flex items-center gap-1.5">
                           <Layers className="w-3.5 h-3.5 text-indigo-600" />
@@ -17384,8 +18033,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         )}
                       </div>
                     )}
-                  </div>
-                </aside>
+                  </>
+                )}
+              </div>
+            </aside>
               )}
 
               {/* Retractable Right-Side Contextual Block Inspector Drawer */}

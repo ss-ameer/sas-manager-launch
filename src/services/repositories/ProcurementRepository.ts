@@ -13,6 +13,8 @@ import {
   deleteFromStorageBucket,
   WorkspaceStorageSettings,
   rehydrateDocumentBlobsSync,
+  rehydrateDocumentBlobsFromLocal,
+  hasInlineBase64Payload,
   sanitizeFirestorePayload
 } from '../attachmentStorage';
 
@@ -54,13 +56,13 @@ export class ProcurementRepository {
   private static workspaceCache = new Map<string, { data: SupplierBill[]; fetchedAt: number }>();
 
   private static normalizeBill(b: SupplierBill): SupplierBill {
-    return rehydrateDocumentBlobsSync({
+    return {
       ...b,
       vendor_company_id: b.vendor_company_id || b.supplier_id,
       vendor_name: b.vendor_name || b.supplier_name || 'Vendor',
       vendor_trn: b.vendor_trn || b.supplier_trn,
       three_way_match_status: b.three_way_match_status || b.match_status || 'no_po'
-    });
+    };
   }
 
   private static readNormalizedLocalWorkspaceBills(wsId: string): SupplierBill[] {
@@ -991,12 +993,8 @@ export class ProcurementRepository {
 
             snap.docs.forEach((d) => {
               const rawData = d.data();
-              if (!hasCompacted && rawData && !rawData.is_deleted) {
-                try {
-                  if (JSON.stringify(rawData).length > 60000) {
-                    oversizedBillsToCompact.push({ id: d.id, rawData });
-                  }
-                } catch (_) {}
+              if (!hasCompacted && rawData && !rawData.is_deleted && hasInlineBase64Payload(rawData)) {
+                oversizedBillsToCompact.push({ id: d.id, rawData });
               }
               const data = { id: d.id, ...rawData } as SupplierBill;
               if (!data.is_deleted) {
@@ -1011,14 +1009,17 @@ export class ProcurementRepository {
                 window.localStorage?.setItem(compactionFlagKey, 'true');
               } catch (_) {}
               if (oversizedBillsToCompact.length > 0) {
-                Promise.resolve().then(async () => {
-                  for (const { id: docId, rawData } of oversizedBillsToCompact) {
-                    try {
-                      const compacted = sanitizeFirestorePayload({ ...rawData, id: docId });
-                      await safeSetDoc(SUPPLIER_BILLS_COLLECTION, docId, compacted);
-                    } catch (_) {}
-                  }
-                });
+                let compIdx = 0;
+                const scheduleNext = () => {
+                  if (compIdx >= oversizedBillsToCompact.length) return;
+                  const { id: docId, rawData } = oversizedBillsToCompact[compIdx++];
+                  try {
+                    const compacted = sanitizeFirestorePayload({ ...rawData, id: docId });
+                    safeSetDoc(SUPPLIER_BILLS_COLLECTION, docId, compacted).catch(() => {});
+                  } catch (_) {}
+                  setTimeout(scheduleNext, 500);
+                };
+                setTimeout(scheduleNext, 500);
               }
             }
 

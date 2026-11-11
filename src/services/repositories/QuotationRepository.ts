@@ -16,6 +16,7 @@ import {
   offloadDataUriToLocalStore,
   rehydrateDocumentBlobsSync,
   rehydrateDocumentBlobsFromLocal,
+  hasInlineBase64Payload,
   INLINE_DATA_URI_MAX_BYTES
 } from '../attachmentStorage';
 
@@ -341,7 +342,7 @@ export class QuotationRepository {
       (Array.isArray(data.signatories) && data.signatories[0]?.signature_url) ||
       data.footer_config?.signatureImageUrl;
 
-    return rehydrateDocumentBlobsSync({
+    return {
       ...data,
       id: id || data.id,
       workspace_id: wsId,
@@ -398,7 +399,7 @@ export class QuotationRepository {
       deleted_by_id: data.deleted_by_id || null,
       deleted_by_name: data.deleted_by_name || null,
       created_at: data.created_at || new Date().toISOString()
-    } as Quotation);
+    } as Quotation;
   }
 
   /**
@@ -1278,7 +1279,7 @@ export class QuotationRepository {
     const wsId = data.workspace_id || data.workspaceId || 'ws_default';
     const resolvedLogoUrl = data.company_logo_url || data.header_config?.logoUrl;
     const resolvedSealUrl = data.company_seal_url || data.footer_config?.companySealUrl;
-    return rehydrateDocumentBlobsSync({
+    return {
       ...data,
       id: id || data.id,
       workspace_id: wsId,
@@ -1291,7 +1292,7 @@ export class QuotationRepository {
       default_tax_mode: data.default_tax_mode || 'taxes_extra',
       default_validity_days: typeof data.default_validity_days === 'number' ? data.default_validity_days : 30,
       signatory_mode: data.signatory_mode || 'single'
-    } as QuotationPreset);
+    } as QuotationPreset;
   }
 
   /**
@@ -2375,13 +2376,8 @@ export class QuotationRepository {
 
             snap.docs.forEach((d) => {
               const rawData = d.data();
-              if (!hasCompacted && rawData && !rawData.is_deleted) {
-                try {
-                  const byteLen = JSON.stringify(rawData).length;
-                  if (byteLen > 60000) {
-                    oversizedDocsToCompact.push({ id: d.id, rawData });
-                  }
-                } catch (_) {}
+              if (!hasCompacted && rawData && !rawData.is_deleted && hasInlineBase64Payload(rawData)) {
+                oversizedDocsToCompact.push({ id: d.id, rawData });
               }
               const item = this.docToQuotation(d.id, rawData);
               const itemWsId = item.workspace_id || item.workspaceId;
@@ -2395,23 +2391,26 @@ export class QuotationRepository {
               }
             });
 
-            // One-time background compaction of bloated (> 60KB) quotation docs using already-downloaded snapshot data (0 extra reads)
+            // One-time background compaction of bloated Base64 docs staggered at 500ms intervals (zero UI freeze)
             if (!hasCompacted && typeof window !== 'undefined') {
               try {
                 window.localStorage?.setItem(compactionFlagKey, 'true');
               } catch (_) {}
               if (oversizedDocsToCompact.length > 0) {
-                Promise.resolve().then(async () => {
-                  for (const { id: docId, rawData } of oversizedDocsToCompact) {
-                    try {
-                      const compacted = this.sanitizePayloadForFirestoreLimit(
-                        { ...rawData, id: docId },
-                        48000
-                      );
-                      await safeSetDoc('quotations', docId, compacted);
-                    } catch (_) {}
-                  }
-                });
+                let compIdx = 0;
+                const scheduleNext = () => {
+                  if (compIdx >= oversizedDocsToCompact.length) return;
+                  const { id: docId, rawData } = oversizedDocsToCompact[compIdx++];
+                  try {
+                    const compacted = this.sanitizePayloadForFirestoreLimit(
+                      { ...rawData, id: docId },
+                      48000
+                    );
+                    safeSetDoc('quotations', docId, compacted).catch(() => {});
+                  } catch (_) {}
+                  setTimeout(scheduleNext, 500);
+                };
+                setTimeout(scheduleNext, 500);
               }
             }
 

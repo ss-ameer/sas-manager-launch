@@ -23,12 +23,29 @@ import { syncEngine } from './services/SyncEngine';
 import { sanitizeFirestorePayload } from './services/attachmentStorage';
 
 const app = initializeApp(firebaseConfig);
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager()
-  }),
-  experimentalForceLongPolling: true
-}, firebaseConfig.firestoreDatabaseId || '(default)'); /* CRITICAL: The app will break without this line */
+const targetDatabaseId = firebaseConfig.firestoreDatabaseId || '(default)';
+
+let firestoreInstance: any;
+try {
+  firestoreInstance = initializeFirestore(
+    app,
+    {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager()
+      }),
+      experimentalForceLongPolling: true
+    },
+    targetDatabaseId
+  );
+} catch (err: any) {
+  try {
+    firestoreInstance = getFirestore(app, targetDatabaseId);
+  } catch (_) {
+    throw err;
+  }
+}
+
+export const db = firestoreInstance; /* CRITICAL: The app will break without this line */
 export const auth = getAuth();
 export const storage = getStorage(app);
 

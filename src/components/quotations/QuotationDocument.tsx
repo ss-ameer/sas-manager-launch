@@ -2434,6 +2434,7 @@ export interface QuotationDocumentProps {
   salespersons?: any[];
   selectedBlockId?: StudioSelectedSection;
   selectedSection?: StudioSelectedSection;
+  focusedItemIndex?: number | null;
   onSelectBlock?: (id: StudioSelectedSection) => void;
   onSelectSection?: (section: StudioSelectedSection, subTarget?: string) => void;
   onInlineFieldEdit?: (fieldKey: string, nextValue: string) => void;
@@ -2558,6 +2559,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   bankAccount: propBankAccount,
   selectedBlockId,
   selectedSection,
+  focusedItemIndex,
   onSelectBlock,
   onSelectSection,
   onInlineFieldEdit,
@@ -11087,6 +11089,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                         const isSetContinuation = Boolean(item.isCompositeContinuation);
                         const itemEffLayout = resolveItemEffectiveLayout(item);
                         const hasAnyItemImage = Boolean(item.image_url || item.secondary_image_url);
+                        const absoluteItemIdx = startIndex + idx;
+                        const isRowFocused = typeof focusedItemIndex === 'number' && focusedItemIndex === absoluteItemIdx;
 
                         const renderDedicatedImageCell = () => (
                           <td className={`${tdPad} px-1.5 text-center align-top`}>
@@ -11163,15 +11167,28 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                             ) : (
                               <tr
                                 className={`break-inside-avoid transition-colors ${
-                                  item.row_highlight
-                                    ? 'bg-amber-50/80'
+                                  isInteractive ? 'cursor-pointer' : ''
+                                } ${
+                                  isRowFocused
+                                    ? 'ring-2 ring-blue-500 ring-inset bg-blue-50/60 shadow-xs'
+                                    : item.row_highlight
+                                    ? 'bg-amber-50/80 hover:bg-amber-100/70'
                                     : hasCompositeSubRows
-                                    ? 'bg-slate-50/90 font-semibold'
+                                    ? 'bg-slate-50/90 font-semibold hover:bg-slate-100/80'
                                     : item.is_optional
-                                    ? 'bg-amber-50/50 hover:bg-amber-50'
-                                    : 'hover:bg-slate-50/60'
+                                    ? 'bg-amber-50/50 hover:bg-amber-100/70'
+                                    : 'hover:bg-blue-50/20'
                                 } ${item.row_bold ? 'font-bold' : ''}`}
                                 style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+                                onClick={isInteractive ? (e) => {
+                                  e.stopPropagation();
+                                  if (onSelectSection) {
+                                    onSelectSection('items_table', `item:${absoluteItemIdx}`);
+                                  } else if (onSelectBlock) {
+                                    onSelectBlock('items_table' as any);
+                                  }
+                                } : undefined}
+                                title={isInteractive ? `Click to inspect Item #${itemNumber} in the Right Sidebar` : undefined}
                               >
                                 <td className={`${tdPad} px-1.5 text-center font-mono text-slate-600 font-bold align-top ${tableFontSize} whitespace-nowrap`}>
                                   {itemNumber}

@@ -1766,3 +1766,49 @@ export async function purgeEntityStorageAssets(
   await Promise.allSettled(tasks);
 }
 
+/**
+ * High-performance, zero-serialization check for uncompacted Base64 blobs.
+ * Avoids JSON.stringify() to eliminate main-thread freeze during collection snapshot processing.
+ */
+export function hasInlineBase64Payload(obj: any): boolean {
+  if (!obj || typeof obj !== 'object') return false;
+
+  const checkVal = (v: any): boolean => typeof v === 'string' && v.startsWith('data:');
+
+  if (checkVal(obj.company_logo_url) || checkVal(obj.company_seal_url) || checkVal(obj.signature_image_url)) {
+    return true;
+  }
+  if (checkVal(obj.header_config?.logoUrl) || checkVal(obj.footer_config?.companySealUrl) || checkVal(obj.footer_config?.signatureImageUrl)) {
+    return true;
+  }
+  if (obj.attachment && typeof obj.attachment === 'object') {
+    if (checkVal(obj.attachment.url) || checkVal(obj.attachment.preview_url)) return true;
+  }
+  if (Array.isArray(obj.attachments)) {
+    for (const a of obj.attachments) {
+      if (a && (checkVal(a.url) || checkVal(a.preview_url))) return true;
+    }
+  }
+  if (Array.isArray(obj.flyer_attachments)) {
+    for (const a of obj.flyer_attachments) {
+      if (a && (checkVal(a.url) || checkVal(a.preview_url))) return true;
+      if (Array.isArray(a?.rendered_pages) && a.rendered_pages.some(checkVal)) return true;
+      if (Array.isArray(a?.renderedPages) && a.renderedPages.some(checkVal)) return true;
+    }
+  }
+  if (Array.isArray(obj.line_items)) {
+    for (const li of obj.line_items) {
+      if (!li || typeof li !== 'object') continue;
+      if (checkVal(li.image_url) || checkVal(li.secondary_image_url) || checkVal(li.datasheet_url)) return true;
+      if (li.datasheet_attachment && checkVal(li.datasheet_attachment.url)) return true;
+      if (Array.isArray(li.sub_components)) {
+        for (const sub of li.sub_components) {
+          if (sub && checkVal(sub.image_url)) return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+

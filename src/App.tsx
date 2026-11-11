@@ -52,7 +52,7 @@ import { recordAuditLog } from './utils/auditLogger';
 import { isAdmin, getUserWorkspaceRole, getEffectiveWorkspaceRole, isSuperAdmin, isUserInWorkspace, canAccessEnquiry, isActivityAttributedToUser, canUserViewActivity } from './utils/permissions';
 import { SYSTEM_CALL_STATUSES, SYSTEM_CALL_OUTCOMES, SYSTEM_CALL_PURPOSES, SYSTEM_COMPANY_RELATIONSHIPS, SYSTEM_COMPANY_TEMPERATURES, SYSTEM_RELATIONSHIP_COLORS, SYSTEM_TEMPERATURE_COLORS, normalizeOptionName, healDropdownOptions, normalizeCompany, normalizeContact, normalizeEnquiry, normalizeCallLog } from './utils/defaults';
 import { deduplicateList } from './utils/deduplicator';
-import { rehydrateDocumentBlobsSync, sanitizeFirestorePayload } from './services/attachmentStorage';
+import { rehydrateDocumentBlobsSync, hasInlineBase64Payload, sanitizeFirestorePayload } from './services/attachmentStorage';
 
 function getLocalCache<T>(key: string, defaultValue: T): T {
   try {
@@ -258,6 +258,57 @@ export default function App() {
   const [realtimeSyncEnabled, setRealtimeSyncEnabled] = useState<boolean>(() => {
     return localStorage.getItem('omni_realtime_sync') !== 'false';
   });
+  const [isIdlePaused, setIsIdlePaused] = useState<boolean>(false);
+
+  // Background Tab & Inactive Preview Idle Guard: Automatically pauses onSnapshot listeners
+  // after 3 minutes of inactivity or tab hidden to eliminate duplicate quota burn between
+  // the deployed app and the AI Studio preview iframe.
+  useEffect(() => {
+    let idleTimer: NodeJS.Timeout | null = null;
+    const IDLE_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
+
+    const triggerIdlePause = () => {
+      if (realtimeSyncEnabled) {
+        console.log('[IdleGuard] Tab backgrounded or preview idle > 3 min. Pausing active listeners to conserve Firestore quota.');
+        setIsIdlePaused(true);
+        setRealtimeSyncEnabled(false);
+      }
+    };
+
+    const resetIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(triggerIdlePause, IDLE_TIMEOUT_MS);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        resetIdleTimer();
+      } else {
+        if (idleTimer) clearTimeout(idleTimer);
+      }
+    };
+
+    const handleActivity = () => {
+      if (!document.hidden) {
+        resetIdleTimer();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('mousemove', handleActivity, { passive: true });
+    window.addEventListener('keydown', handleActivity, { passive: true });
+    window.addEventListener('touchstart', handleActivity, { passive: true });
+
+    resetIdleTimer();
+
+    return () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('mousemove', handleActivity);
+      window.removeEventListener('keydown', handleActivity);
+      window.removeEventListener('touchstart', handleActivity);
+    };
+  }, [realtimeSyncEnabled]);
 
   // Admin Data Visibility & Salesperson Selection Permissions State
   const [dataVisibilityScope, setDataVisibilityScope] = useState<'ALL_DATA' | 'OWN_DATA_ONLY'>(() => {
@@ -1639,14 +1690,10 @@ export default function App() {
 
       const list = snap.docs.map((d) => {
         const rawData = d.data();
-        if (!hasCompacted && rawData && !rawData.is_deleted) {
-          try {
-            if (JSON.stringify(rawData).length > 60000) {
-              oversizedEnquiriesToCompact.push({ id: d.id, rawData });
-            }
-          } catch (_) {}
+        if (!hasCompacted && rawData && !rawData.is_deleted && hasInlineBase64Payload(rawData)) {
+          oversizedEnquiriesToCompact.push({ id: d.id, rawData });
         }
-        return rehydrateDocumentBlobsSync(normalizeEnquiry({ id: d.id, ...rawData }, currentWsId));
+        return normalizeEnquiry({ id: d.id, ...rawData }, currentWsId);
       });
 
       if (!hasCompacted && typeof window !== 'undefined') {
@@ -1654,14 +1701,17 @@ export default function App() {
           window.localStorage?.setItem(compactionFlagKey, 'true');
         } catch (_) {}
         if (oversizedEnquiriesToCompact.length > 0) {
-          Promise.resolve().then(async () => {
-            for (const { id: docId, rawData } of oversizedEnquiriesToCompact) {
-              try {
-                const compacted = sanitizeFirestorePayload({ ...rawData, id: docId });
-                await safeSetDoc('enquiries', docId, compacted);
-              } catch (_) {}
-            }
-          });
+          let compIdx = 0;
+          const scheduleNext = () => {
+            if (compIdx >= oversizedEnquiriesToCompact.length) return;
+            const { id: docId, rawData } = oversizedEnquiriesToCompact[compIdx++];
+            try {
+              const compacted = sanitizeFirestorePayload({ ...rawData, id: docId });
+              safeSetDoc('enquiries', docId, compacted).catch(() => {});
+            } catch (_) {}
+            setTimeout(scheduleNext, 500);
+          };
+          setTimeout(scheduleNext, 500);
         }
       }
 
@@ -1673,7 +1723,7 @@ export default function App() {
       });
     }, (error) => {
       console.warn("Enquiries snapshot listener error (Quota/Offline):", error);
-      setEnquiries(getLocalCache<Enquiry[]>('omni_enquiries', INITIAL_ENQUIRIES).map((e) => rehydrateDocumentBlobsSync(normalizeEnquiry(e, currentWsId))));
+      setEnquiries(getLocalCache<Enquiry[]>('omni_enquiries', INITIAL_ENQUIRIES).map((e) => normalizeEnquiry(e, currentWsId)));
     });
 
     // Invites
@@ -2012,6 +2062,41 @@ export default function App() {
               <span className="hidden sm:inline font-sans">{user?.full_name || user?.username || user?.email || 'User'}</span>
             </button>
 
+            {/* 1-Click Live Sync Quota Guard Badge */}
+            <button
+              type="button"
+              onClick={() => {
+                setRealtimeSyncEnabled((prev) => {
+                  const next = !prev;
+                  try {
+                    localStorage.setItem('omni_realtime_sync', next ? 'true' : 'false');
+                  } catch (_) {}
+                  if (next) {
+                    setIsIdlePaused(false);
+                    triggerToast('Real-time sync enabled', 'success');
+                  } else {
+                    triggerToast('Real-time sync paused (quota protected)', 'info');
+                  }
+                  return next;
+                });
+              }}
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border shadow-2xs cursor-pointer ${
+                realtimeSyncEnabled
+                  ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
+                  : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
+              }`}
+              title={
+                realtimeSyncEnabled
+                  ? 'Click to Pause Live Firestore Listeners (Saves Quota while testing in Preview)'
+                  : 'Click to Resume Live Firestore Listeners'
+              }
+            >
+              <span className={`w-2 h-2 rounded-full shrink-0 ${realtimeSyncEnabled ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+              <span className="hidden sm:inline font-mono text-[11px]">
+                {realtimeSyncEnabled ? 'Live Sync: ON' : 'Live Sync: Paused'}
+              </span>
+            </button>
+
             <CloudSyncHub
               companies={companies}
               contacts={contacts}
@@ -2039,6 +2124,32 @@ export default function App() {
             />
           </div>
         </header>
+
+        {/* Subtle Live Sync Auto-Paused Pill / Banner */}
+        {isIdlePaused && (
+          <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-900 flex items-center justify-between shadow-2xs z-30 animate-in fade-in duration-150">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+              <span className="font-medium">
+                ⚡ <strong>Live Sync Paused</strong> to save Firestore read quota while tab was backgrounded/idle.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setIsIdlePaused(false);
+                setRealtimeSyncEnabled(true);
+                try {
+                  localStorage.setItem('omni_realtime_sync', 'true');
+                } catch (_) {}
+                triggerToast('Resumed live real-time sync', 'success');
+              }}
+              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-md text-[11px] font-bold shadow-2xs transition cursor-pointer shrink-0"
+            >
+              Click to Resume
+            </button>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto overflow-x-hidden">
           {currentTab === 'call_log' && (
