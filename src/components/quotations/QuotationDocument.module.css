@@ -1,3 +1,18 @@
 /* Print and vector layout styles for QuotationDocument */
 /* Global @media print isolation is managed in index.css */
 
+.transparentPrintImg {
+  mix-blend-mode: multiply !important;
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+  background-color: transparent !important;
+}
+
+@media print {
+  .transparentPrintImg {
+    mix-blend-mode: multiply !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    background: transparent !important;
+  }
+}

@@ -100,7 +100,9 @@ import {
   QuotationTokenContext,
   QuotationAtTagDefinition,
   buildQuotationTokenMap,
-  findUnknownAtTokensInQuotation
+  findUnknownAtTokensInQuotation,
+  resolvePdfFilename,
+  combineCityCountry
 } from '../../utils/quotationTokenResolver';
 import { formatSlashSeparatedDescription } from '../../utils/compositeBomUtils';
 import {
@@ -2411,8 +2413,31 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       editingQuotation?.client_address ||
       editingQuotation?.client_snapshot?.client_address ||
       editingQuotation?.client_snapshot?.address ||
+      combineCityCountry((enquiry as any)?.city, (enquiry as any)?.country) ||
       enquiry?.project_location ||
       enquiry?.country ||
+      ''
+    );
+  });
+
+  const [clientPhoneOverride, setClientPhoneOverride] = useState<string>(() => {
+    return (
+      editingQuotation?.client_phone ||
+      editingQuotation?.client_snapshot?.client_phone ||
+      editingQuotation?.client_snapshot?.phone ||
+      (enquiry as any)?.contact_phone ||
+      (enquiry as any)?.phone ||
+      ''
+    );
+  });
+
+  const [clientEmailOverride, setClientEmailOverride] = useState<string>(() => {
+    return (
+      editingQuotation?.client_email ||
+      editingQuotation?.client_snapshot?.client_email ||
+      editingQuotation?.client_snapshot?.email ||
+      (enquiry as any)?.contact_email ||
+      (enquiry as any)?.email ||
       ''
     );
   });
@@ -2426,14 +2451,26 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     );
   });
 
-  // Sales representative / Prepared By inheritance
+  // Customizable PDF Filename Pattern Preset (tokens: @quote_short_ref, @quote_ref_no, @company_brand, @subject, @client_code, @client_name)
+  const [pdfFilenamePattern, setPdfFilenamePattern] = useState<string>(() => {
+    return (
+      editingQuotation?.pdf_filename_pattern ||
+      profile?.pdf_filename_pattern ||
+      '@quote_short_ref_@company_brand Proposal for @subject. @client_code'
+    );
+  });
+
+  // Sales representative / Prepared By inheritance (prioritizes Enquiry's assigned salesperson over logged-in user)
   const [preparedBy, setPreparedBy] = useState<string>(() => {
     if (editingQuotation?.prepared_by) return resolveRepFullName(editingQuotation.prepared_by);
     const candidate =
+      (enquiry as any)?.assigned_to ||
+      (enquiry as any)?.assigned_to_name ||
       (enquiry as any)?.assigned_salesperson ||
       enquiry?.assignedSalesperson ||
       enquiry?.sales_representative ||
       enquiry?.salesperson ||
+      enquiry?.sales_person ||
       salespersonName ||
       user?.displayName ||
       user?.name ||
@@ -3590,12 +3627,19 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     if (preset.default_price_basis) setPriceBasis(preset.default_price_basis);
     if (preset.default_payment_terms) setPaymentTerms(preset.default_payment_terms);
     if (preset.default_validity_days) setValidityDays(preset.default_validity_days);
-    if (includeSignatory && preset.signatory_mode) {
+    if (preset.pdf_filename_pattern) setPdfFilenamePattern(preset.pdf_filename_pattern);
+    if (preset.signatory_mode) {
       setSignatoryMode(preset.signatory_mode);
       if (preset.signatory_mode === 'dual' || preset.signatory_mode === 'single') {
         setSignatoryType(preset.signatory_mode);
       }
     }
+    if (preset.primary_signatory_name) setSignatoryName(preset.primary_signatory_name);
+    if (preset.primary_signatory_title) setSignatoryTitle(preset.primary_signatory_title);
+    if (preset.secondary_signatory_name) setSecondarySignatoryName(preset.secondary_signatory_name);
+    if (preset.secondary_signatory_title) setSecondarySignatoryTitle(preset.secondary_signatory_title);
+    if (preset.company_seal_url !== undefined) setCompanySealUrl(preset.company_seal_url || '');
+    if (preset.signature_image_url !== undefined) setSignatureImageUrl(preset.signature_image_url || '');
     if (preset.notes_template !== undefined) setCustomNotes(preset.notes_template || '');
     if (preset.header_layout) setHeaderLayout(preset.header_layout);
     if (preset.table_density) setTableDensity(preset.table_density);
@@ -5580,12 +5624,19 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           clientAddressOverride || enquiry.project_location || enquiry.country || undefined,
         client_address:
           clientAddressOverride || enquiry.project_location || enquiry.country || undefined,
+        phone: clientPhoneOverride || undefined,
+        client_phone: clientPhoneOverride || undefined,
+        email: clientEmailOverride || undefined,
+        client_email: clientEmailOverride || undefined,
         trn: clientTrnOverride || undefined,
         client_trn: clientTrnOverride || undefined
       },
       client_contact_person: clientContactPerson || undefined,
       client_address: clientAddressOverride || undefined,
+      client_phone: clientPhoneOverride || undefined,
+      client_email: clientEmailOverride || undefined,
       client_trn: clientTrnOverride || undefined,
+      pdf_filename_pattern: pdfFilenamePattern || undefined,
       prepared_by: preparedBy || signatoryName,
       subject: quotationSubject,
       sender_snapshot: {
@@ -5876,6 +5927,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     [omittedFields]
   );
 
+  const resolvedPdfFilename = useMemo(() => {
+    return resolvePdfFilename(pdfFilenamePattern, studioTokenContext);
+  }, [pdfFilenamePattern, studioTokenContext]);
+
   const [isPrintPortalMounted, setIsPrintPortalMounted] = useState(false);
 
   const triggerPrintAfterImagesDecode = useCallback(async () => {
@@ -5904,13 +5959,23 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     } catch {
       // ignore image decode timeout
     }
+    const previousDocTitle = document.title;
+    if (resolvedPdfFilename) {
+      document.title = resolvedPdfFilename;
+    }
     const handleAfterPrint = () => {
+      document.title = previousDocTitle;
       setIsPrintPortalMounted(false);
       window.removeEventListener('afterprint', handleAfterPrint);
     };
     window.addEventListener('afterprint', handleAfterPrint, { once: true });
+    window.setTimeout(() => {
+      if (document.title === resolvedPdfFilename) {
+        document.title = previousDocTitle;
+      }
+    }, 3000);
     window.print();
-  }, []);
+  }, [resolvedPdfFilename]);
 
   const handleRequestPrint = useCallback(() => {
     const warnings = findUnknownAtTokensInQuotation(liveQuotation);
@@ -6591,11 +6656,29 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       remittance_bank_id: selectedBankId,
       selectedBank: activeBankProfile,
       selected_bank: activeBankProfile,
+      pdf_filename_pattern: pdfFilenamePattern || undefined,
       footer_config: {
         ...footerConfig,
         pageMode: pageMode,
         remittanceBankId: selectedBankId,
         selectedBank: activeBankProfile,
+        signatoryLayout: (footerConfig as any).signatoryLayout || (signatoryMode === 'dual' ? 'dual_col' : 'single_col'),
+        signatoryGap: (footerConfig as any).signatoryGap,
+        primaryOpeningLine: footerConfig.primaryOpeningLine,
+        primaryClosingSalutation: footerConfig.primaryClosingSalutation,
+        primaryPhonePrefix: footerConfig.primaryPhonePrefix,
+        primarySignatoryPhone: footerConfig.primarySignatoryPhone,
+        primaryEmailPrefix: footerConfig.primaryEmailPrefix,
+        primarySignatoryEmail: footerConfig.primarySignatoryEmail,
+        primaryShowStampOrSignature: footerConfig.primaryShowStampOrSignature,
+        secondaryOpeningLine: footerConfig.secondaryOpeningLine,
+        secondaryClosingSalutation: footerConfig.secondaryClosingSalutation,
+        secondaryPhonePrefix: footerConfig.secondaryPhonePrefix,
+        secondarySignatoryPhone: footerConfig.secondarySignatoryPhone,
+        secondaryEmailPrefix: footerConfig.secondaryEmailPrefix,
+        secondarySignatoryEmail: footerConfig.secondarySignatoryEmail,
+        secondaryShowStampOrSignature: footerConfig.secondaryShowStampOrSignature,
+        secondarySignatureImageUrl: footerConfig.secondarySignatureImageUrl,
         ...(companySealUrl ? { companySealUrl } : {}),
         ...(signatureImageUrl ? { signatureImageUrl } : {})
       },
@@ -6645,6 +6728,42 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     () => filteredPresetsForDocType.find((p) => p.id === selectedPresetId),
     [filteredPresetsForDocType, selectedPresetId]
   );
+
+  // Whether the current studio settings differ from the currently selected preset
+  const isPresetModified = useMemo(() => {
+    if (!selectedPreset) return false;
+    if (selectedPreset.header_layout && selectedPreset.header_layout !== headerLayout) return true;
+    if (selectedPreset.table_density && selectedPreset.table_density !== tableDensity) return true;
+    if (selectedPreset.table_font_scale && selectedPreset.table_font_scale !== tableFontScale) return true;
+    if ((selectedPreset.default_tax_mode || (selectedPreset as any).tax_mode) && (selectedPreset.default_tax_mode || (selectedPreset as any).tax_mode) !== taxMode) return true;
+    if ((selectedPreset.default_price_basis || (selectedPreset as any).price_basis) && (selectedPreset.default_price_basis || (selectedPreset as any).price_basis) !== priceBasis) return true;
+    if ((selectedPreset.default_payment_terms || (selectedPreset as any).payment_terms) && (selectedPreset.default_payment_terms || (selectedPreset as any).payment_terms) !== paymentTerms) return true;
+    if (selectedPreset.signatory_mode && selectedPreset.signatory_mode !== signatoryMode) return true;
+    if (selectedPreset.theme_accent && selectedPreset.theme_accent !== themeAccent) return true;
+    if (selectedPreset.documentFontFamily && selectedPreset.documentFontFamily !== (headerConfig.documentFontFamily || 'inter')) return true;
+    if (selectedPreset.pdf_filename_pattern && selectedPreset.pdf_filename_pattern !== pdfFilenamePattern) return true;
+    if ((selectedPreset as any).tax_rate_percent !== undefined && Number((selectedPreset as any).tax_rate_percent) !== Number(taxRatePercent)) return true;
+    if (selectedPreset.signatory_name && selectedPreset.signatory_name !== signatoryName) return true;
+    if (selectedPreset.signatory_title && selectedPreset.signatory_title !== signatoryTitle) return true;
+    if (selectedPreset.footer_config?.primarySignatoryName && selectedPreset.footer_config.primarySignatoryName !== signatoryName) return true;
+    if (selectedPreset.footer_config?.primarySignatoryDesignation && selectedPreset.footer_config.primarySignatoryDesignation !== signatoryTitle) return true;
+    return false;
+  }, [
+    selectedPreset,
+    headerLayout,
+    tableDensity,
+    tableFontScale,
+    taxMode,
+    priceBasis,
+    paymentTerms,
+    signatoryMode,
+    themeAccent,
+    headerConfig.documentFontFamily,
+    pdfFilenamePattern,
+    taxRatePercent,
+    signatoryName,
+    signatoryTitle
+  ]);
 
   // Overwrite currently selected custom preset with all current studio settings
   const handleUpdatePreset = async () => {
@@ -7453,7 +7572,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       DOCUMENT LAYOUT PRESET
                     </label>
                     <span className="block text-[9.5px] text-slate-400">
-                      Layout, theme &amp; table structure only
+                      Saves layout, theme, table setup, signatory &amp; filename preset
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -7546,40 +7665,56 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 {/* Quick-Action Lifecycle Controls for Active Profile & Preset */}
                 <div className="mt-2 flex items-center justify-between gap-1.5 pt-1.5 border-t border-slate-100 flex-wrap">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <button
-                      type="button"
-                      disabled={isSavingPreset}
-                      onClick={() => {
-                        if (
-                          selectedPreset &&
-                          selectedPreset.document_type &&
-                          selectedPreset.document_type !== (documentType || 'quotation')
-                        ) {
-                          setNewPresetName(`${selectedPreset.preset_name} (${(documentType || 'quotation').toUpperCase()})`);
-                          setIsSavePresetModalOpen(true);
-                          return;
-                        }
-                        handleSaveToActiveProfileAndPreset(false);
-                      }}
-                      title={
-                        selectedPreset &&
-                        selectedPreset.document_type &&
-                        selectedPreset.document_type !== (documentType || 'quotation')
-                          ? 'Save as a new preset for the active document type to avoid overwriting another document mode'
-                          : 'Save layout, styling, and brand overrides to the selected preset'
-                      }
-                      className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs"
-                    >
-                      <Save className="w-3 h-3" />
-                      <span>
-                        {selectedPreset
-                          ? selectedPreset.document_type &&
-                            selectedPreset.document_type !== (documentType || 'quotation')
-                            ? 'Save as New Preset for Mode'
-                            : 'Update Preset'
-                          : 'Save to Default Profile'}
-                      </span>
-                    </button>
+                    {selectedPreset ? (
+                      selectedPreset.document_type &&
+                      selectedPreset.document_type !== (documentType || 'quotation') ? (
+                        <button
+                          type="button"
+                          disabled={isSavingPreset}
+                          onClick={() => {
+                            setNewPresetName(`${selectedPreset.preset_name} (${(documentType || 'quotation').toUpperCase()})`);
+                            setIsSavePresetModalOpen(true);
+                          }}
+                          title="Save as a new preset for the active document type"
+                          className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs"
+                        >
+                          <Save className="w-3 h-3" />
+                          <span>Save as New Preset for Mode</span>
+                        </button>
+                      ) : !isPresetModified ? (
+                        <button
+                          type="button"
+                          disabled
+                          title="Preset settings match current studio configuration"
+                          className="px-2.5 py-1 text-[11px] font-medium rounded-md bg-slate-100 text-slate-500 border border-slate-200 flex items-center gap-1 cursor-default opacity-85 shadow-2xs"
+                        >
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          <span>✓ Preset Up to Date</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={isSavingPreset}
+                          onClick={handleUpdatePreset}
+                          title="Save updated layout, styling, and brand overrides to this preset"
+                          className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs animate-pulse-once"
+                        >
+                          <Save className="w-3 h-3" />
+                          <span>Update Preset</span>
+                        </button>
+                      )
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={isSavingPreset}
+                        onClick={() => handleSaveToActiveProfileAndPreset(false)}
+                        title="Save layout and brand overrides to default workspace profile"
+                        className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-indigo-600 text-white hover:bg-indigo-700 transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs"
+                      >
+                        <Save className="w-3 h-3" />
+                        <span>Save to Default Profile</span>
+                      </button>
+                    )}
 
                     {selectedPreset && (
                       <>
@@ -8102,6 +8237,89 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         >
                           Off
                         </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card: PDF Export Filename Preset */}
+                  <div className="border border-slate-200 rounded-xl p-4 bg-white space-y-3.5 text-xs shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                        <FileText className="w-3.5 h-3.5 text-blue-600" />
+                        PDF Export Filename Preset
+                      </span>
+                      <span className="text-[10.5px] font-mono text-slate-400">
+                        Print / Save as PDF
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-slate-500 font-medium text-[11px]">
+                        Filename Pattern (supports <code className="text-blue-600 bg-blue-50 px-1 py-0.5 rounded">@tag</code> tokens)
+                      </label>
+                      <AtMentionInput
+                        value={pdfFilenamePattern}
+                        onChange={setPdfFilenamePattern}
+                        tokenContext={studioTokenContext}
+                        placeholder="@quote_short_ref_@company_brand Proposal for @subject. @client_code"
+                        className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    {/* Quick-Select Pattern Chips */}
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                        Quick Preset Patterns
+                      </span>
+                      <div className="flex flex-col gap-1">
+                        {[
+                          {
+                            label: 'Preset 1 (Proposal Standard — Default)',
+                            pattern: '@quote_short_ref_@company_brand Proposal for @subject. @client_code'
+                          },
+                          {
+                            label: 'Preset 2 (Ref + Client)',
+                            pattern: '@quote_ref_no - @client_name'
+                          },
+                          {
+                            label: 'Preset 3 (Full Ref + Subject)',
+                            pattern: '@quote_ref_no_@subject'
+                          }
+                        ].map((chip) => {
+                          const isActive = pdfFilenamePattern === chip.pattern;
+                          return (
+                            <button
+                              key={chip.label}
+                              type="button"
+                              onClick={() => setPdfFilenamePattern(chip.pattern)}
+                              className={`text-left px-2 py-1.5 rounded-lg border text-[11px] transition cursor-pointer flex items-center justify-between ${
+                                isActive
+                                  ? 'bg-blue-50 border-blue-300 text-blue-700 font-medium'
+                                  : 'bg-slate-50/70 border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300'
+                              }`}
+                            >
+                              <div className="truncate mr-2">
+                                <span className="font-semibold block truncate">{chip.label}</span>
+                                <span className="font-mono text-[9.5px] text-slate-400 truncate block">
+                                  {chip.pattern}
+                                </span>
+                              </div>
+                              {isActive && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Live Resolved Output Preview */}
+                    <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
+                      <div className="flex items-center justify-between text-[10.5px]">
+                        <span className="text-slate-500 font-medium">Live Resolved Filename:</span>
+                        <span className="font-mono text-emerald-600 font-semibold text-[10px]">Ready</span>
+                      </div>
+                      <div className="font-mono text-[11px] font-bold text-slate-800 break-all select-all flex items-center gap-1.5">
+                        <FileText className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span>{resolvedPdfFilename}.pdf</span>
                       </div>
                     </div>
                   </div>
@@ -10819,7 +11037,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               title="Pull updated line items, delivery times, and pricing directly from the Enquiry Form"
                             >
                               <RefreshCw className="w-3 h-3 text-emerald-600" />
-                              <span>↻ Sync Items from Enquiry Form</span>
+                              <span>Pull from Enquiry</span>
                             </button>
                           )}
                           <button
@@ -11155,17 +11373,52 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                     <div className="grid grid-cols-1 gap-2.5 text-xs">
                       <div>
-                        <label className="block text-slate-500 font-medium mb-1">Tax Calculation</label>
+                        <label className="block text-slate-500 font-medium mb-1">VAT / Tax Mode</label>
                         <select
                           value={taxMode}
                           onChange={(e) => setTaxMode(e.target.value as QuotationTaxMode)}
                           className="w-full text-xs rounded-lg border border-slate-300 p-2 bg-white text-slate-800 focus:ring-2 focus:ring-blue-500"
                         >
-                          <option value="taxes_extra">Taxes Extra (5% add-on)</option>
-                          <option value="tax_calculated">Inclusive (Tax in price)</option>
-                          <option value="tax_exempt">Tax Exempt (0%)</option>
+                          <option value="taxes_extra">Standard VAT ({taxRatePercent}%) — Added to Grand Total</option>
+                          <option value="vat_excluded_extra">VAT Excluded / Extra ({taxRatePercent}% Extra as Applicable)</option>
+                          <option value="tax_exempt">0% Zero-Rated / Export</option>
+                          <option value="vat_hidden">Hide VAT Row Completely</option>
+                          <option value="tax_calculated">VAT Inclusive (Included in Unit Prices)</option>
                         </select>
                       </div>
+
+                      {taxMode !== 'tax_exempt' && taxMode !== 'vat_hidden' && (
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1">VAT Rate (%)</label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.5"
+                              value={taxRatePercent}
+                              onChange={(e) => setTaxRatePercent(Math.max(0, Number(e.target.value) || 0))}
+                              className="w-full text-xs rounded-lg border border-slate-300 p-2 font-mono bg-white text-slate-800"
+                            />
+                            <div className="flex gap-1 shrink-0">
+                              {[5, 0].map((rate) => (
+                                <button
+                                  key={rate}
+                                  type="button"
+                                  onClick={() => setTaxRatePercent(rate)}
+                                  className={`px-2 py-1 text-[10.5px] rounded border font-mono transition cursor-pointer ${
+                                    taxRatePercent === rate
+                                      ? 'bg-blue-600 text-white border-blue-600'
+                                      : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {rate}%
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       <div>
                         <label className="block text-slate-500 font-medium mb-1">Freight / Shipping</label>
@@ -11953,13 +12206,26 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 >
                   <span>Fit Page</span>
                 </button>
+                {/* Live PDF Filename Bar */}
+                <div
+                  onClick={() => setActiveLeftTab('structure')}
+                  className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-blue-50 border border-slate-300 rounded-lg text-slate-700 text-xs transition cursor-pointer max-w-[260px] xl:max-w-[340px] shadow-2xs group"
+                  title={`PDF Filename: ${resolvedPdfFilename}.pdf (Click to configure preset pattern)`}
+                >
+                  <FileText className="w-3.5 h-3.5 text-blue-600 shrink-0 group-hover:scale-110 transition-transform" />
+                  <span className="font-mono text-[11px] truncate text-slate-700 select-all font-medium">
+                    {resolvedPdfFilename}.pdf
+                  </span>
+                </div>
+
                 {/* Print Document */}
                 <button
                   type="button"
                   onClick={handleRequestPrint}
-                  className="px-2.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 font-semibold rounded-lg text-xs flex items-center gap-1.5 transition ml-1 shadow-2xs cursor-pointer whitespace-nowrap"
+                  className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-xs flex items-center gap-1.5 transition ml-1 shadow-2xs cursor-pointer whitespace-nowrap"
+                  title={`Print or Save as PDF (${resolvedPdfFilename}.pdf)`}
                 >
-                  <Printer className="w-3.5 h-3.5 text-slate-500" />
+                  <Printer className="w-3.5 h-3.5 text-white" />
                   <span>Print Document</span>
                 </button>
               </div>
@@ -13392,9 +13658,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           )}
                         </div>
 
-                        <div className="grid grid-cols-2 gap-2 pt-1">
-                          <label className="flex items-center justify-between p-2 rounded-lg border border-slate-200 bg-white cursor-pointer">
-                            <span className="text-[10.5px] font-semibold text-slate-700">Show Phone</span>
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-slate-500 text-[10px] uppercase font-bold">
+                              Client Phone
+                            </label>
                             <input
                               type="checkbox"
                               checked={Boolean(recipientConfig.showPhone)}
@@ -13406,9 +13674,24 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               }
                               className="rounded border-slate-300 text-blue-600 cursor-pointer"
                             />
-                          </label>
-                          <label className="flex items-center justify-between p-2 rounded-lg border border-slate-200 bg-white cursor-pointer">
-                            <span className="text-[10.5px] font-semibold text-slate-700">Show Email</span>
+                          </div>
+                          {Boolean(recipientConfig.showPhone) && (
+                            <AtMentionInput
+                              value={clientPhoneOverride}
+                              onChange={setClientPhoneOverride}
+                              onFocus={() => setFocusedRecipientStyleTarget('recipient_phone')}
+                              tokenContext={studioTokenContext}
+                              placeholder="e.g. +971 4 123 4567 or @client_phone"
+                              className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          )}
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-slate-500 text-[10px] uppercase font-bold">
+                              Client Email
+                            </label>
                             <input
                               type="checkbox"
                               checked={Boolean(recipientConfig.showEmail)}
@@ -13420,7 +13703,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               }
                               className="rounded border-slate-300 text-blue-600 cursor-pointer"
                             />
-                          </label>
+                          </div>
+                          {Boolean(recipientConfig.showEmail) && (
+                            <AtMentionInput
+                              value={clientEmailOverride}
+                              onChange={setClientEmailOverride}
+                              onFocus={() => setFocusedRecipientStyleTarget('recipient_email')}
+                              tokenContext={studioTokenContext}
+                              placeholder="e.g. contact@client.com or @client_email"
+                              className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          )}
                         </div>
 
                         {/* Specialized Mode-Specific Left Card Fields */}
@@ -15683,7 +15976,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           title="Pull updated line items, delivery times, and pricing directly from the Enquiry Form"
                         >
                           <RefreshCw className="w-3 h-3 text-emerald-600" />
-                          <span>↻ Sync Items</span>
+                          <span>Pull from Enquiry</span>
                         </button>
                       )}
                       {focusedItemIndex !== null && (
@@ -15785,7 +16078,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   )}
 
                   {/* Drawer Content (Single Outer Scroll Container — Zero Nested Scrollbars) */}
-                  <div className="p-4 space-y-4 text-xs">
+                  <div className="p-4 space-y-4 text-xs w-full min-w-0 overflow-x-hidden">
                     {focusedItemIndex !== null && quotationLineItems[focusedItemIndex] ? (
                       (() => {
                         const curItem = quotationLineItems[focusedItemIndex];
@@ -15854,9 +16147,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         };
 
                         return (
-                          <div className="space-y-4">
+                          <div className="space-y-4 w-full min-w-0 overflow-x-hidden">
                             {/* Card 1: Core Row & Price */}
-                            <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3">
+                            <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3 w-full min-w-0">
                               <div className="flex items-center justify-between">
                                 <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
                                   <Tag className="w-3.5 h-3.5 text-blue-600" />
@@ -15867,7 +16160,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 </span>
                               </div>
 
-                              <div>
+                              <div className="min-w-0">
                                 <label className="block text-[10.5px] font-medium text-slate-500 mb-1">
                                   Item Name / Header *
                                 </label>
@@ -15876,13 +16169,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   value={curItem.item_name || ''}
                                   onChange={(e) => updateCurItem({ item_name: e.target.value })}
                                   placeholder="Item Name (e.g. AUTOMATIC DUPLEX MMF SYSTEM)"
-                                  className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500"
+                                  className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500"
                                 />
                               </div>
 
-                              <div className="grid grid-cols-3 gap-2">
-                                <div>
-                                  <label className="block text-[10px] text-slate-500 mb-0.5">Quantity</label>
+                              <div className="grid grid-cols-3 gap-2 min-w-0">
+                                <div className="min-w-0">
+                                  <label className="block text-[10px] text-slate-500 mb-0.5 truncate">Quantity</label>
                                   <input
                                     type="number"
                                     min="0"
@@ -15895,23 +16188,23 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         total_price: QuotationRepository.roundCurrency(q * (Number(curItem.unit_price) || 0))
                                       });
                                     }}
-                                    className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-mono text-right"
+                                    className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-mono text-right"
                                   />
                                 </div>
 
-                                <div>
-                                  <label className="block text-[10px] text-slate-500 mb-0.5">Unit (UOM)</label>
+                                <div className="min-w-0">
+                                  <label className="block text-[10px] text-slate-500 mb-0.5 truncate">Unit (UOM)</label>
                                   <input
                                     type="text"
                                     value={curItem.unit || 'Nos'}
                                     onChange={(e) => updateCurItem({ unit: e.target.value })}
-                                    className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-mono"
+                                    className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-mono"
                                     placeholder="Nos / Set"
                                   />
                                 </div>
 
-                                <div>
-                                  <label className="block text-[10px] text-slate-500 mb-0.5">
+                                <div className="min-w-0">
+                                  <label className="block text-[10px] text-slate-500 mb-0.5 truncate">
                                     {isVendorCostDoc ? 'Cost Rate' : 'Selling Rate'}
                                   </label>
                                   <input
@@ -15927,7 +16220,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         total_price: QuotationRepository.roundCurrency((Number(curItem.quantity) || 0) * r)
                                       });
                                     }}
-                                    className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-mono text-right font-bold text-slate-900"
+                                    className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-mono text-right font-bold text-slate-900"
                                   />
                                 </div>
                               </div>
@@ -16393,8 +16686,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     </select>
                                   </div>
 
-                                  <div>
-                                    <label className="block text-[10px] text-slate-500 mb-0.5 font-medium">Aspect Ratio</label>
+                                  <div className="min-w-0">
+                                    <label className="block text-[10px] text-slate-500 mb-0.5 font-medium truncate">Aspect Ratio</label>
                                     <select
                                       value={curItem.image_aspect_override || 'inherit'}
                                       onChange={(e) => {
@@ -16402,7 +16695,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         updateCurItem({ image_aspect_override: val });
                                         handleUpdateTopItemRowOption(itemKey, { image_aspect_override: val });
                                       }}
-                                      className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
+                                      className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
                                     >
                                       <option value="inherit">Inherit Table</option>
                                       <option value="square">1:1 Square</option>
@@ -16410,6 +16703,26 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       <option value="contain">Contain (Fit)</option>
                                     </select>
                                   </div>
+                                </div>
+
+                                <div className="min-w-0">
+                                  <label className="block text-[10px] text-slate-500 mb-0.5 font-medium">
+                                    Image Background Fill (Print &amp; Preview)
+                                  </label>
+                                  <select
+                                    value={curItem.image_bg_mode || curItem.image_adjustments?.bgFill || 'transparent'}
+                                    onChange={(e) => {
+                                      const val = e.target.value as any;
+                                      const nextAdj = { ...(curItem.image_adjustments || {}), bgFill: val === 'clear' ? 'transparent' : val };
+                                      updateCurItem({ image_bg_mode: val, image_adjustments: nextAdj });
+                                      handleUpdateTopItemRowOption(itemKey, { image_bg_mode: val, image_adjustments: nextAdj });
+                                    }}
+                                    className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
+                                  >
+                                    <option value="transparent">Transparent / Clear (Multiply Print)</option>
+                                    <option value="white">Pure White</option>
+                                    <option value="slate">Soft Neutral Slate</option>
+                                  </select>
                                 </div>
                               </div>
 
@@ -16509,7 +16822,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     className="w-full py-1.5 px-3 rounded-lg bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
                                   >
                                     <Save className="w-3.5 h-3.5 text-blue-600" />
-                                    <span>Sync to Catalog ({matchedProd.sku || matchedProd.name})</span>
+                                    <span>Update Catalog SKU ({matchedProd.sku || matchedProd.name})</span>
                                   </button>
                                 )}
                               </div>
@@ -17172,7 +17485,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   Background Fill
                                 </label>
                                 <select
-                                  value={visibleColumns.lineItemImageBgFill || 'white'}
+                                  value={visibleColumns.lineItemImageBgFill || 'transparent'}
                                   onChange={(e) =>
                                     setVisibleColumns((prev) => ({
                                       ...prev,
@@ -17181,9 +17494,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   }
                                   className="w-full px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-[10.5px] font-semibold text-slate-700 cursor-pointer"
                                 >
+                                  <option value="transparent">Transparent (Clear)</option>
                                   <option value="white">Pure White</option>
                                   <option value="slate">Soft Neutral</option>
-                                  <option value="transparent">Transparent</option>
                                 </select>
                               </div>
                             </div>
@@ -17477,7 +17790,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       }}
                                       className="px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-semibold transition cursor-pointer shrink-0"
                                     >
-                                      Sync to Catalog
+                                      Update Catalog SKU
                                     </button>
                                   )}
                                 </div>
@@ -20106,6 +20419,46 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     </span>
                                   </div>
 
+                                  {/* VAT / Tax Mode Controls in Totals Inspector */}
+                                  <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-2">
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                        VAT / Tax Mode
+                                      </label>
+                                      <span className="text-[10px] font-mono text-blue-600 font-semibold">
+                                        {taxMode}
+                                      </span>
+                                    </div>
+                                    <select
+                                      value={taxMode}
+                                      onChange={(e) => setTaxMode(e.target.value as QuotationTaxMode)}
+                                      className="w-full text-xs rounded border border-slate-300 p-1.5 bg-white text-slate-800 focus:ring-1 focus:ring-blue-500"
+                                    >
+                                      <option value="taxes_extra">Standard VAT ({taxRatePercent}%) — Added to Grand Total</option>
+                                      <option value="vat_excluded_extra">VAT Excluded / Extra ({taxRatePercent}% Extra as Applicable)</option>
+                                      <option value="tax_exempt">0% Zero-Rated / Export</option>
+                                      <option value="vat_hidden">Hide VAT Row Completely</option>
+                                      <option value="tax_calculated">VAT Inclusive (Included in Unit Prices)</option>
+                                    </select>
+                                    {taxMode !== 'tax_exempt' && taxMode !== 'vat_hidden' && (
+                                      <div className="flex items-center justify-between pt-1">
+                                        <span className="text-[10.5px] text-slate-500 font-medium">VAT Rate (%):</span>
+                                        <div className="flex items-center gap-1.5">
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            max="100"
+                                            step="0.5"
+                                            value={taxRatePercent}
+                                            onChange={(e) => setTaxRatePercent(Math.max(0, Number(e.target.value) || 0))}
+                                            className="w-16 px-1.5 py-0.5 text-xs text-right font-mono border border-slate-300 rounded bg-white"
+                                          />
+                                          <span className="text-xs text-slate-500">%</span>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+
                                   {(() => {
                                     const vis = selectedBlock.visibleFields || {};
                                     const lbls = selectedBlock.fieldLabels || {};
@@ -20152,15 +20505,22 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         })}`
                                       },
                                       tax: {
-                                        defaultLabel: `VAT / Tax (${taxRatePercent}%):`,
+                                        defaultLabel:
+                                          taxMode === 'vat_excluded_extra'
+                                            ? `VAT (${taxRatePercent}% Extra as Applicable):`
+                                            : `VAT / Tax (${taxRatePercent}%):`,
                                         formattedAmount:
                                           taxMode === 'taxes_extra'
                                             ? `${liveQuotation.currency} ${financialTotals.tax_amount.toLocaleString(
                                                 'en-US',
                                                 { minimumFractionDigits: 2, maximumFractionDigits: 2 }
                                               )}`
+                                            : taxMode === 'vat_excluded_extra'
+                                            ? `(${taxRatePercent}% Extra as Applicable)`
                                             : taxMode === 'tax_exempt'
-                                            ? `0.00 (Exempt)`
+                                            ? `0.00 (0% Zero-Rated / Export)`
+                                            : taxMode === 'vat_hidden'
+                                            ? `(Hidden from Document)`
                                             : `${liveQuotation.currency} ${financialTotals.tax_amount.toLocaleString(
                                                 'en-US',
                                                 { minimumFractionDigits: 2, maximumFractionDigits: 2 }

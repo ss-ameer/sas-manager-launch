@@ -147,8 +147,12 @@ export class QuotationRepository {
     let taxAmount = 0;
     let grandTotal = taxableBase;
 
-    if (taxMode === 'tax_exempt' || taxRatePercent <= 0) {
+    if (taxMode === 'tax_exempt' || taxMode === 'vat_hidden' || taxRatePercent <= 0) {
       taxAmount = 0;
+      grandTotal = taxableBase;
+    } else if (taxMode === 'vat_excluded_extra') {
+      // VAT is noted/shown as extra but not added into the numerical grand total
+      taxAmount = this.roundCurrency(taxableBase * (taxRatePercent / 100));
       grandTotal = taxableBase;
     } else if (taxMode === 'tax_calculated') {
       // Inclusive tax: Tax = Base - (Base / (1 + rate / 100))
@@ -2809,6 +2813,7 @@ export class QuotationRepository {
       company_seal_url: resolvedSealUrl,
       signature_image_url: input.signature_image_url,
       customThemeColor: input.customThemeColor,
+      pdf_filename_pattern: input.pdf_filename_pattern || undefined,
       omitted_fields: input.omitted_fields ? { ...input.omitted_fields } : undefined,
       auto_paginate_items: Boolean(input.auto_paginate_items),
       header_config: normalizedHeaderConfig,
@@ -2833,6 +2838,7 @@ export class QuotationRepository {
     return {
       presetId: preset.id || '',
       documentType: serialized.document_type || 'quotation',
+      pdfFilenamePattern: serialized.pdf_filename_pattern || '',
       isDefault: Boolean(preset.is_default),
       visibleColumns: { ...serialized.visible_columns },
       layoutBlocks: serialized.layout_blocks ? serialized.layout_blocks.map((b) => ({ ...b })) : [],

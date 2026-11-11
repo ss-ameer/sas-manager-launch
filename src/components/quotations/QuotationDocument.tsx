@@ -50,7 +50,8 @@ import {
   shouldHideCustomRow,
   isFieldOmitted,
   formatCleanDocumentEnquiryRef,
-  isSyntheticInternalId
+  isSyntheticInternalId,
+  combineCityCountry
 } from '../../utils/quotationTokenResolver';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
 import { rasterizePdfToPageImages } from '../../services/attachmentStorage';
@@ -3097,7 +3098,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   const lineItemImagePx = tableColLayout.lineItemImagePx;
   const lineItemImageAspectRatio = columnConfig.lineItemImageAspectRatio || '1:1';
   const lineItemImageObjectFit = columnConfig.lineItemImageObjectFit || 'contain';
-  const lineItemImageBgFill = columnConfig.lineItemImageBgFill || 'white';
+  const lineItemImageBgFill = columnConfig.lineItemImageBgFill || 'transparent';
   const lineItemImageFrame = columnConfig.lineItemImageFrame || 'card';
   const bomSubComponentImageMode = columnConfig.bomSubComponentImageMode || 'off';
   const photoScheduleColumns = columnConfig.photoScheduleColumns || 2;
@@ -3241,7 +3242,28 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     enquiry?.contact_person_name ||
     (enquiry as any)?.contact_name ||
     enquiry?.concerned_person;
-  const clientAddress = quotation.client_address || quotation.client_snapshot?.client_address || quotation.client_snapshot?.address || quotation.client_snapshot?.city || 'United Arab Emirates';
+  const rawCity =
+    quotation.client_snapshot?.city ||
+    (enquiry as any)?.city ||
+    '';
+  const rawCountry =
+    quotation.client_snapshot?.country ||
+    (enquiry as any)?.country ||
+    '';
+  const combinedCityCountry = combineCityCountry(rawCity, rawCountry);
+
+  const rawClientAddress =
+    quotation.client_address ||
+    quotation.client_snapshot?.client_address ||
+    quotation.client_snapshot?.address ||
+    '';
+
+  const cleanRawAddress =
+    rawClientAddress && !rawClientAddress.trim().startsWith('@') && rawClientAddress.trim() !== '—'
+      ? rawClientAddress.trim()
+      : '';
+
+  const clientAddress = cleanRawAddress || combinedCityCountry || '';
   const clientTrn = quotation.client_trn || quotation.client_snapshot?.client_trn || quotation.client_snapshot?.trn;
   const clientPhone = quotation.client_phone || quotation.client_snapshot?.client_phone || quotation.client_snapshot?.phone;
   const clientEmail = quotation.client_email || quotation.client_snapshot?.client_email || quotation.client_snapshot?.email;
@@ -4711,8 +4733,11 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 const taxableBase = Math.round((cleanSub + cleanFreight) * 100) / 100;
                 let vatVal = 0;
                 let grandVal = taxableBase;
-                if (taxMode === 'tax_exempt' || taxRate <= 0) {
+                if (taxMode === 'tax_exempt' || taxMode === 'vat_hidden' || taxRate <= 0) {
                   vatVal = 0;
+                  grandVal = taxableBase;
+                } else if (taxMode === 'vat_excluded_extra') {
+                  vatVal = Math.round(taxableBase * (taxRate / 100) * 100) / 100;
                   grandVal = taxableBase;
                 } else if (taxMode === 'tax_calculated') {
                   vatVal = Math.round((taxableBase - taxableBase / (1 + taxRate / 100)) * 100) / 100;
@@ -4882,7 +4907,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                             return;
                           }
                           if (rowKey === 'tax') {
-                            if (vis.tax === false) return;
+                            if (vis.tax === false || quotation.tax_mode === 'vat_hidden') return;
                             const isRowBold = rowOpts.tax?.isBold || rowOpts.tax?.isHighlight;
                             if (quotation.tax_mode === 'tax_calculated') {
                               renderedAboveNodes.push(
@@ -4906,6 +4931,39 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                   >
                                     {formatCurrency(displayTaxAmount)}
                                   </span>
+                                </div>
+                              );
+                              return;
+                            }
+                            if (quotation.tax_mode === 'vat_excluded_extra') {
+                              renderedAboveNodes.push(
+                                <div
+                                  key="std_tax"
+                                  className={`py-0.5 ${borderCls} text-slate-600 space-y-0.5 text-[var(--block-base)]`}
+                                >
+                                  <div
+                                    className={`flex justify-between ${
+                                      rowOpts.tax?.isHighlight
+                                        ? 'bg-amber-50/80 border border-amber-200/80 px-2 py-1 rounded font-bold text-slate-900'
+                                        : isRowBold
+                                        ? 'font-bold text-slate-900'
+                                        : ''
+                                    }`}
+                                  >
+                                    <span>
+                                      {(labels.tax || `VAT (${quotation.tax_rate_percent || 5}% Extra as Applicable)`).replace(/:$/, '')}:
+                                    </span>
+                                    <span
+                                      className={`font-mono tabular-nums ${
+                                        isRowBold ? 'font-extrabold text-slate-950' : 'font-semibold text-slate-800'
+                                      }`}
+                                    >
+                                      VAT Extra as Applicable
+                                    </span>
+                                  </div>
+                                  <p className="text-[calc(var(--block-base)*0.85)] text-amber-700 not-italic font-medium">
+                                    * VAT {quotation.tax_rate_percent || 5}% Extra as Applicable to client account
+                                  </p>
                                 </div>
                               );
                               return;
@@ -4953,7 +5011,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                 >
                                   <span>Tax Status:</span>
                                   <span className="px-1.5 py-0.5 text-[calc(var(--block-base)*0.85)] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 rounded">
-                                    Tax Exempt (0%)
+                                    0% Zero-Rated / Export
                                   </span>
                                 </div>
                               );
@@ -8680,9 +8738,18 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     const showClientTrn =
       resolvedRecipientConfig.showCustomerTrn !== false &&
       !isFieldOmitted('client_trn', omittedFields);
-    const showClientAddress = !isFieldOmitted('client_address', omittedFields);
-    const showClientPhone = !isFieldOmitted('client_phone', omittedFields);
-    const showClientEmail = !isFieldOmitted('client_email', omittedFields);
+    const showClientAddress =
+      resolvedRecipientConfig.showAddress !== false &&
+      !isFieldOmitted('client_address', omittedFields) &&
+      Boolean(clientAddress && clientAddress !== '—');
+    const showClientPhone =
+      Boolean(resolvedRecipientConfig.showPhone) &&
+      !isFieldOmitted('client_phone', omittedFields) &&
+      Boolean(clientPhone);
+    const showClientEmail =
+      Boolean(resolvedRecipientConfig.showEmail) &&
+      !isFieldOmitted('client_email', omittedFields) &&
+      Boolean(clientEmail);
 
     const recipientElementStyles = resolvedRecipientConfig.elementStyles || {};
     const getElemFmt = (key: string) => {
@@ -10724,22 +10791,27 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             };
 
             const getFrameClasses = (it: QuotationLineItem) => {
-              const bgFill = it.image_adjustments?.bgFill || lineItemImageBgFill || 'white';
-              const bgCls =
-                bgFill === 'transparent'
-                  ? 'bg-transparent'
-                  : bgFill === 'slate'
-                  ? 'bg-slate-50'
-                  : 'bg-white';
+              const bgFill =
+                (it as any).image_bg_mode ||
+                it.image_adjustments?.bgFill ||
+                lineItemImageBgFill ||
+                'transparent';
+              const isTransparent = bgFill === 'transparent' || bgFill === 'clear';
+              const bgCls = isTransparent
+                ? 'bg-transparent print:bg-transparent'
+                : bgFill === 'slate'
+                ? 'bg-slate-50'
+                : 'bg-white';
               const frame = lineItemImageFrame || 'card';
-              const borderCls =
-                frame === 'minimal'
-                  ? 'rounded-xs'
-                  : frame === 'rounded'
-                  ? 'rounded-lg border border-slate-200/80 p-0.5'
-                  : frame === 'shadow'
-                  ? 'rounded-md border border-slate-200 p-0.5 shadow-2xs'
-                  : 'rounded border border-slate-200 p-0.5';
+              const borderCls = isTransparent
+                ? 'border-transparent shadow-none'
+                : frame === 'minimal'
+                ? 'rounded-xs'
+                : frame === 'rounded'
+                ? 'rounded-lg border border-slate-200/80 p-0.5'
+                : frame === 'shadow'
+                ? 'rounded-md border border-slate-200 p-0.5 shadow-2xs'
+                : 'rounded border border-slate-200 p-0.5';
               return `${bgCls} ${borderCls} overflow-hidden flex items-center justify-center`;
             };
 
@@ -10764,6 +10836,28 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   : undefined;
 
               const isBelowBanner = mode === 'below_specs';
+
+              const bgFill =
+                (it as any).image_bg_mode ||
+                it.image_adjustments?.bgFill ||
+                lineItemImageBgFill ||
+                'transparent';
+              const isTransparent = bgFill === 'transparent' || bgFill === 'clear';
+              const transparentImgStyle: React.CSSProperties = isTransparent
+                ? {
+                    mixBlendMode: 'multiply',
+                    WebkitPrintColorAdjust: 'exact',
+                    printColorAdjust: 'exact'
+                  }
+                : {};
+              const primaryImgStyle: React.CSSProperties = {
+                ...transformStyle,
+                ...transparentImgStyle
+              };
+              const secondaryImgStyle: React.CSSProperties = {
+                ...transparentImgStyle
+              };
+              const blendCls = isTransparent ? 'mix-blend-multiply print:bg-transparent' : '';
 
               return (
                 <div
@@ -10795,8 +10889,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                           <img
                             src={it.image_url}
                             alt={it.item_name || `Item ${itemNumber}`}
-                            className={`w-full h-full ${fitCls}`}
-                            style={transformStyle}
+                            className={`w-full h-full ${fitCls} ${blendCls}`}
+                            style={primaryImgStyle}
                           />
                         </div>
                         {it.image_caption && (
@@ -10822,7 +10916,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                           <img
                             src={it.secondary_image_url}
                             alt={`${it.item_name || `Item ${itemNumber}`} Diagram`}
-                            className={`w-full h-full ${fitCls}`}
+                            className={`w-full h-full ${fitCls} ${blendCls}`}
+                            style={secondaryImgStyle}
                           />
                         </div>
                         {(it.secondary_image_caption || (!it.image_caption && isBelowBanner)) && (
@@ -11801,17 +11896,33 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                     ? Math.min(lineItemImagePx, 56)
                                     : 30;
 
+                                const subBgFill =
+                                  (sub as any).image_bg_mode ||
+                                  lineItemImageBgFill ||
+                                  'transparent';
+                                const isSubTransparent =
+                                  subBgFill === 'transparent' || subBgFill === 'clear';
+                                const subFrameCls = getFrameClasses(sub as any);
+                                const subImgStyle: React.CSSProperties = isSubTransparent
+                                  ? {
+                                      mixBlendMode: 'multiply',
+                                      WebkitPrintColorAdjust: 'exact',
+                                      printColorAdjust: 'exact'
+                                    }
+                                  : {};
+
                                 const renderSubImageCell = () => (
                                   <td className="py-1.5 px-1.5 text-center align-top">
                                     {showSubImg && sub.image_url ? (
                                       <div
-                                        className="mx-auto rounded border border-slate-200 bg-white overflow-hidden flex items-center justify-center p-0.5"
+                                        className={`mx-auto ${subFrameCls}`}
                                         style={{ width: `${subImgPx}px`, height: `${subImgPx}px` }}
                                       >
                                         <img
                                           src={sub.image_url}
                                           alt={sub.item_name || subSn}
-                                          className="w-full h-full object-contain"
+                                          className={`w-full h-full object-contain ${isSubTransparent ? 'mix-blend-multiply print:bg-transparent' : ''}`}
+                                          style={subImgStyle}
                                         />
                                       </div>
                                     ) : null}
@@ -11838,13 +11949,14 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                         <div className={!showImageColumn && showSubImg ? 'flex items-start gap-2' : ''}>
                                           {!showImageColumn && showSubImg && sub.image_url && (
                                             <div
-                                              className="shrink-0 rounded border border-slate-200 bg-white overflow-hidden flex items-center justify-center p-0.5 mt-0.5"
+                                              className={`shrink-0 ${subFrameCls} mt-0.5`}
                                               style={{ width: `${subImgPx}px`, height: `${subImgPx}px` }}
                                             >
                                               <img
                                                 src={sub.image_url}
                                                 alt={sub.item_name || subSn}
-                                                className="w-full h-full object-contain"
+                                                className={`w-full h-full object-contain ${isSubTransparent ? 'mix-blend-multiply print:bg-transparent' : ''}`}
+                                                style={subImgStyle}
                                               />
                                             </div>
                                           )}

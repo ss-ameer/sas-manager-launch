@@ -220,6 +220,30 @@ export const QUOTATION_AT_TAGS: QuotationAtTagDefinition[] = [
     structuralSyncTarget: 'offer.quote_ref'
   },
   {
+    key: 'quote_short_ref',
+    tag: '@quote_short_ref',
+    label: 'Short Quote Ref (e.g. 2853-201026)',
+    category: 'Our Company & Quote'
+  },
+  {
+    key: 'quote_ref_no',
+    tag: '@quote_ref_no',
+    label: 'Quote Reference No.',
+    category: 'Our Company & Quote'
+  },
+  {
+    key: 'company_brand',
+    tag: '@company_brand',
+    label: 'Company Brand Name (e.g. AVENTURA)',
+    category: 'Our Company & Quote'
+  },
+  {
+    key: 'client_code',
+    tag: '@client_code',
+    label: 'Client Short Code (e.g. VWS / GISCO)',
+    category: 'Client & Project'
+  },
+  {
     key: 'revision_no',
     tag: '@revision_no',
     label: 'Revision Number (e.g. R1)',
@@ -607,6 +631,14 @@ const TOKEN_ALIAS_MAP: Record<string, string> = {
   customer_reference_code: 'customer_ref',
   quote_ref_no: 'quote_ref',
   formatted_quote_ref: 'quote_ref',
+  quote_short_ref: 'quote_short_ref',
+  short_ref: 'quote_short_ref',
+  quote_short: 'quote_short_ref',
+  company_brand: 'company_brand',
+  brand: 'company_brand',
+  brand_name: 'company_brand',
+  client_code: 'client_code',
+  customer_code: 'client_code',
   revision_number: 'revision_no',
   validity_days: 'quote_validity',
   validity: 'quote_validity',
@@ -693,6 +725,34 @@ function formatAmount(num?: number | string | null): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   });
+}
+
+/**
+ * Combines City and Country cleanly without dangling commas or redundant duplicates like "Dubai, Dubai".
+ */
+export function combineCityCountry(city?: string | null, country?: string | null): string {
+  const cCity = (city || '').trim().replace(/^[,•\s]+|[,•\s]+$/g, '');
+  const cCountry = (country || '').trim().replace(/^[,•\s]+|[,•\s]+$/g, '');
+  if (cCity && cCountry) {
+    if (cCity.toLowerCase() === cCountry.toLowerCase()) return cCity;
+    if (cCity.toLowerCase().includes(cCountry.toLowerCase())) return cCity;
+    if (cCountry.toLowerCase().includes(cCity.toLowerCase())) return cCountry;
+    return `${cCity}, ${cCountry}`;
+  }
+  return cCity || cCountry || '';
+}
+
+/**
+ * Strips dangling commas, bullet points, and em-dash artifacts from unresolved template text.
+ */
+export function cleanDanglingSeparators(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/\s*[,•]\s*—/g, '')
+    .replace(/—\s*[,•]\s*/g, '')
+    .replace(/,\s*,+/g, ', ')
+    .replace(/^[,\s•-]+|[,\s•-]+$/gm, '')
+    .trim();
 }
 
 /**
@@ -802,12 +862,22 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
     (!frozen ? (enq as any)?.contact_email || (enq as any)?.email || '' : '') ||
     '';
 
-  const clientAddress =
+  const rawCity = (clientSnap as any)?.city || (enq as any)?.city || '';
+  const rawCountry = (clientSnap as any)?.country || (enq as any)?.country || '';
+  const combinedCityCountry = combineCityCountry(rawCity, rawCountry);
+
+  const rawAddressCandidate =
     q.client_address ||
     clientSnap.client_address ||
     clientSnap.address ||
-    (!frozen ? enq.project_location || (enq as any)?.address || '' : '') ||
+    (!frozen ? (enq as any)?.client_address || (enq as any)?.address || enq.project_location : '') ||
     '';
+  const cleanAddressCandidate =
+    rawAddressCandidate && !rawAddressCandidate.trim().startsWith('@')
+      ? rawAddressCandidate.trim()
+      : '';
+
+  const clientAddress = cleanAddressCandidate || combinedCityCountry || '';
 
   const projectLocation =
     (clientSnap as any)?.project_location ||
@@ -852,12 +922,48 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
   const revisionNo =
     typeof q.revision_number === 'number' ? `R${q.revision_number}` : 'R1';
 
+  let quoteShortRef = quoteRef;
+  if (quoteShortRef.includes('/')) {
+    quoteShortRef = quoteShortRef.split('/').pop() || quoteShortRef;
+  }
+  quoteShortRef = quoteShortRef.trim();
+
   const ourCompany =
     q.companyNameOverride ||
     q.header_config?.companyNameOverride ||
     senderSnap.entity_name ||
     (!frozen ? prof.legal_entity_name || '' : '') ||
     '';
+
+  const rawBrandCandidate =
+    q.companyNameOverride ||
+    prof.profile_name ||
+    prof.legal_entity_name ||
+    'AVENTURA';
+  const companyBrand =
+    rawBrandCandidate
+      .replace(/\s*\(?(?:FZE|LLC|L\.L\.C|PJSC|W\.L\.L|EST|COMPONENTS)\)?.*$/i, '')
+      .trim() || rawBrandCandidate.split(' ')[0] || 'AVENTURA';
+
+  let clientCode =
+    (enq as any)?.client_code ||
+    (enq as any)?.company_code ||
+    (enq as any)?.client_short_code ||
+    '';
+  if (!clientCode && quoteRef.includes('/')) {
+    const parts = quoteRef.split('/').filter(Boolean);
+    if (parts.length >= 4) {
+      clientCode = parts[2].trim();
+    }
+  }
+  if (!clientCode && clientName) {
+    const parenMatch = clientName.match(/\(([^)]+)\)/);
+    if (parenMatch && parenMatch[1] && parenMatch[1].length <= 8) {
+      clientCode = parenMatch[1].trim();
+    } else {
+      clientCode = clientName.split(/[\s,.-]+/)[0] || '';
+    }
+  }
 
   const ourTrn =
     senderSnap.trn ||
@@ -1120,6 +1226,7 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
     client_phone: String(clientPhone || '').trim(),
     client_email: String(clientEmail || '').trim(),
     client_address: String(clientAddress || '').trim(),
+    client_code: String(clientCode || '').trim(),
     project_location: String(projectLocation || '').trim(),
     project_number: String(projectNumber || '').trim(),
     project_name: String(projectName || '').trim(),
@@ -1127,6 +1234,9 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
     enquiry_ref: String(enquiryRef || '').trim(),
 
     quote_ref: String(quoteRef || '').trim(),
+    quote_ref_no: String(quoteRef || '').trim(),
+    quote_short_ref: String(quoteShortRef || '').trim(),
+    company_brand: String(companyBrand || '').trim(),
     revision_no: String(revisionNo || '').trim(),
     our_company: String(ourCompany || '').trim(),
     our_trn: String(ourTrn || '').trim(),
@@ -1269,15 +1379,75 @@ export function resolveQuotationTokens(
       }
       const canonical = normalizeCanonicalTagKey(tokenName);
       if (isFieldOmitted(canonical, omitted)) {
-        return `${prefix}—`;
+        // Special case for client address: omit cleanly without printing em-dash
+        return canonical === 'client_address' ? prefix : `${prefix}—`;
       }
       const val = map[canonical];
+      if (canonical === 'client_address' && (!val || String(val).trim() === '' || String(val).trim().startsWith('@'))) {
+        return prefix;
+      }
       const resolved = val && String(val).trim() !== '' ? String(val).trim() : '—';
       return `${prefix}${resolved}`;
     }
   );
 
-  return output;
+  return cleanDanglingSeparators(output);
+}
+
+/**
+ * Resolves a customizable PDF filename pattern (e.g. "@quote_short_ref_@company_brand Proposal for @subject. @client_code")
+ * into a safe, valid, and clean filename without illegal filesystem characters.
+ */
+export function resolvePdfFilename(
+  pattern: string | undefined | null,
+  ctx?: QuotationTokenContext | null
+): string {
+  const safeCtx = (ctx || {}) as QuotationTokenContext;
+  const map = safeCtx._cachedTokenMap || buildQuotationTokenMap(safeCtx);
+  const rawPattern =
+    (pattern || '').trim() ||
+    '@quote_short_ref_@company_brand Proposal for @subject. @client_code';
+
+  // 1. Resolve @tags
+  let resolved = rawPattern.replace(
+    AT_TOKEN_REGEX,
+    (_fullMatch, prefix: string, tokenName: string) => {
+      const canonical = normalizeCanonicalTagKey(tokenName);
+      const val = map[canonical];
+      if (val !== undefined && val !== null && String(val).trim() !== '' && String(val).trim() !== '—') {
+        return `${prefix}${String(val).trim()}`;
+      }
+      return prefix;
+    }
+  );
+
+  // 2. Resolve {{tags}}
+  resolved = resolved.replace(
+    MUSTACHE_TOKEN_REGEX,
+    (_fullMatch, tokenName: string) => {
+      const canonical = normalizeCanonicalTagKey(tokenName);
+      const val = map[canonical];
+      if (val !== undefined && val !== null && String(val).trim() !== '' && String(val).trim() !== '—') {
+        return String(val).trim();
+      }
+      return '';
+    }
+  );
+
+  // 3. Strip illegal filename characters: [/\\:*?"<>|]
+  resolved = resolved
+    .replace(/[/\\:*?"<>|]/g, '-')
+    // Collapse multiple underscores or spaces or hyphens
+    .replace(/\s+/g, ' ')
+    .replace(/_{2,}/g, '_')
+    .replace(/-{2,}/g, '-')
+    .replace(/\s*([._-])\s*/g, '$1')
+    .trim();
+
+  // Strip leading and trailing punctuation
+  resolved = resolved.replace(/^[._\-\s]+|[._\-\s]+$/g, '');
+
+  return resolved || 'Quotation_Proposal';
 }
 
 /**

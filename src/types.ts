@@ -468,6 +468,7 @@ export interface LineItem {
   image_caption?: string;
   secondary_image_caption?: string;
   image_adjustments?: ImageAdjustmentConfig;
+  image_bg_mode?: 'transparent' | 'clear' | 'white' | 'slate' | string;
   image_display_override?: LineItemImageDisplayOverride;
   image_size_override?: LineItemImageSizeOverride;
   image_aspect_override?: LineItemImageAspectOverride;
@@ -1322,7 +1323,12 @@ export const WORKSPACE_STORAGE_KEY = 'sas_active_workspace_id';
 // QUOTATION ENGINE & PRESET ARCHITECTURE TYPES
 // ==========================================
 
-export type QuotationTaxMode = 'tax_calculated' | 'taxes_extra' | 'tax_exempt';
+export type QuotationTaxMode =
+  | 'tax_calculated'
+  | 'taxes_extra'
+  | 'tax_exempt'
+  | 'vat_excluded_extra'
+  | 'vat_hidden';
 
 export type QuotationSignatoryMode = 'single' | 'dual' | 'stamp_only' | 'none';
 
@@ -1390,6 +1396,7 @@ export interface QuotationLineItem {
   image_display_override?: LineItemImageDisplayOverride;
   image_size_override?: LineItemImageSizeOverride;
   image_aspect_override?: LineItemImageAspectOverride;
+  image_bg_mode?: 'transparent' | 'clear' | 'white' | 'slate' | string;
   datasheet_attachment?: Attachment;
   datasheet_url?: string;
   include_datasheet_in_quote?: boolean;
@@ -1543,6 +1550,7 @@ export interface WorkspaceDocumentProfile extends SoftDeleteFields {
   showAmountInWords?: boolean;
   default_tax_rate?: number;
   show_amount_in_words?: boolean;
+  pdf_filename_pattern?: string;
   repeatHeaderOnSubsequentPages?: boolean;
   showBankRemittance?: boolean;
   showCustomerAcceptance?: boolean;
@@ -1921,6 +1929,10 @@ export interface QuotationRecipientConfig {
   showCustomerTrn?: boolean;
   showOfferMeta?: boolean;
   showAttention?: boolean;
+  showAddress?: boolean;
+  showTrn?: boolean;
+  showPhone?: boolean;
+  showEmail?: boolean;
   showSalesRep?: boolean;
   showValidity?: boolean;
   showEnquiryRef?: boolean;
@@ -2044,6 +2056,7 @@ export interface QuotationPreset extends SoftDeleteFields {
   default_payment_terms?: string; // e.g., '100% Advance', '30 Days Net'
   default_validity_days: number; // e.g., 30
   signatory_mode: QuotationSignatoryMode;
+  pdf_filename_pattern?: string;
   flyer_attachments?: Attachment[];
   show_submittals_index?: boolean;
   notes_template?: string;
@@ -2579,6 +2592,7 @@ export interface Quotation extends SoftDeleteFields {
   project_number?: string;
   document_type?: CommercialDocumentType;
   preset_id?: string;
+  pdf_filename_pattern?: string;
   delivery_metadata?: DeliveryNoteMetadata;
   purchase_order_metadata?: PurchaseOrderMetadata;
   receipt_metadata?: ReceiptVoucherMetadata;
