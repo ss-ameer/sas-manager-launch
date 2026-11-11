@@ -69,7 +69,10 @@ import {
 import SaveToCatalogModal, {
   parseLineItemTitleAndSpec,
   hasCatalogDrift,
-  syncLineItemToCatalogProduct
+  syncLineItemToCatalogProduct,
+  isLineItemPopulated,
+  linkLineItemToCatalogProductNonDestructive,
+  CatalogSyncMenu
 } from '../SaveToCatalogModal';
 import CompositePackageEditor from './CompositePackageEditor';
 import LineItemImageOptionsPopover from '../common/LineItemImageOptionsPopover';
@@ -11098,50 +11101,55 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   value={li.product_id || ''}
                                   onChange={(e) => {
                                     const pid = e.target.value;
-                                    const prod = workspaceProducts.find((p) => p.id === pid);
                                     const currentList = customStudioLineItems ?? quotationLineItems;
+                                    if (!pid) {
+                                      setCustomStudioLineItems(
+                                        currentList.map((row, rIdx) =>
+                                          rIdx === idx
+                                            ? {
+                                                ...row,
+                                                product_id: undefined,
+                                                sku: undefined,
+                                                product_sku: undefined,
+                                                variant_id: undefined,
+                                                variant_name: undefined
+                                              }
+                                            : row
+                                        )
+                                      );
+                                      return;
+                                    }
+                                    const prod = workspaceProducts.find((p) => p.id === pid);
+                                    if (!prod) return;
                                     const isVendorCostDoc =
                                       documentType === 'purchase_order' ||
                                       documentType === 'material_return_note' ||
                                       (documentType as string) === 'material_return' ||
                                       documentType === 'debit_note';
-                                    const rate = isVendorCostDoc
-                                      ? Number(
-                                          prod?.cost_price ??
-                                            prod?.last_landed_cost ??
-                                            prod?.unit_price ??
-                                            (prod as any)?.selling_price ??
-                                            li.unit_price ??
-                                            0
-                                        )
-                                      : Number(
-                                          prod?.unit_price ??
-                                            (prod as any)?.selling_price ??
-                                            li.unit_price ??
-                                            0
-                                        );
-                                    const resolvedCost = Number(
-                                      prod?.cost_price ?? prod?.last_landed_cost ?? li.cost_price ?? 0
-                                    );
-                                    const qty = Number(li.quantity) || 1;
+                                    const wasPopulated = isLineItemPopulated(li);
                                     setCustomStudioLineItems(
                                       currentList.map((row, rIdx) =>
                                         rIdx === idx
-                                          ? {
-                                              ...row,
-                                              product_id: pid || undefined,
-                                              item_name: prod?.name || row.item_name,
-                                              description: prod?.description || row.description,
-                                              model_part_no: prod?.model_part_no || prod?.sku || row.model_part_no,
-                                              brand_make: prod?.brand_make || row.brand_make,
-                                              unit: prod?.unit || row.unit || 'Nos',
-                                              unit_price: rate,
-                                              cost_price: isVendorCostDoc ? rate : resolvedCost,
-                                              total_price: QuotationRepository.roundCurrency(qty * rate)
-                                            }
+                                          ? linkLineItemToCatalogProductNonDestructive(
+                                              row,
+                                              prod,
+                                              liveQuotation.currency,
+                                              isVendorCostDoc
+                                            )
                                           : row
                                       )
                                     );
+                                    if (triggerToast) {
+                                      const skuLabel = prod.sku || prod.name || 'Catalog SKU';
+                                      if (wasPopulated) {
+                                        triggerToast(
+                                          `Linked to SKU ${skuLabel} — kept your custom quote price & specs intact. Use the SKU Sync menu to Save as Variant, Push to Catalog, or Pull Catalog Defaults.`,
+                                          'info'
+                                        );
+                                      } else {
+                                        triggerToast(`Linked line item to SKU ${skuLabel}.`, 'success');
+                                      }
+                                    }
                                   }}
                                   className="flex-1 rounded border border-slate-300 px-2 py-1 bg-slate-50 text-[11px] min-w-0"
                                 >
@@ -16233,25 +16241,70 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               </div>
 
                               {/* Catalog Product Link */}
-                              <div>
-                                <label className="block text-[10px] text-slate-500 mb-1">Link Catalog Product</label>
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between gap-2">
+                                  <label className="block text-[10px] text-slate-500">Link Catalog Product (Non-Destructive)</label>
+                                  {!matchedProd ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setCatalogModalTarget({ itemKey, item: curItem })}
+                                      className="px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-semibold transition cursor-pointer"
+                                    >
+                                      + Save to Catalog
+                                    </button>
+                                  ) : (
+                                    <CatalogSyncMenu
+                                      item={curItem}
+                                      matchedProduct={matchedProd}
+                                      products={workspaceProducts}
+                                      setProducts={(updater) => {
+                                        setWorkspaceProducts(updater);
+                                        if (propSetProducts) propSetProducts(updater);
+                                      }}
+                                      currency={liveQuotation.currency}
+                                      isVendorCostDoc={isVendorCostDoc}
+                                      activeWorkspaceId={activeWorkspace?.id}
+                                      triggerToast={triggerToast}
+                                      compact
+                                      onUpdateLineItem={(patch) => updateCurItem(patch)}
+                                    />
+                                  )}
+                                </div>
                                 <select
                                   value={curItem.product_id || ''}
                                   onChange={(e) => {
                                     const pid = e.target.value;
+                                    if (!pid) {
+                                      updateCurItem({
+                                        product_id: undefined,
+                                        sku: undefined,
+                                        product_sku: undefined,
+                                        variant_id: undefined,
+                                        variant_name: undefined
+                                      });
+                                      return;
+                                    }
                                     const prod = workspaceProducts.find((p) => p.id === pid);
-                                    const rate = isVendorCostDoc
-                                      ? Number(prod?.cost_price ?? prod?.last_landed_cost ?? prod?.unit_price ?? curItem.unit_price ?? 0)
-                                      : Number(prod?.unit_price ?? (prod as any)?.selling_price ?? curItem.unit_price ?? 0);
-                                    updateCurItem({
-                                      product_id: pid || undefined,
-                                      sku: prod?.sku || curItem.sku,
-                                      item_name: prod?.name || curItem.item_name,
-                                      description: prod?.description || curItem.description,
-                                      unit_price: rate,
-                                      ...(isVendorCostDoc ? { cost_price: rate } : {}),
-                                      total_price: QuotationRepository.roundCurrency((Number(curItem.quantity) || 0) * rate)
-                                    });
+                                    if (!prod) return;
+                                    const wasPopulated = isLineItemPopulated(curItem);
+                                    const merged = linkLineItemToCatalogProductNonDestructive(
+                                      curItem,
+                                      prod,
+                                      liveQuotation.currency,
+                                      isVendorCostDoc
+                                    );
+                                    updateCurItem(merged);
+                                    if (triggerToast) {
+                                      const skuLabel = prod.sku || prod.name || 'Catalog SKU';
+                                      if (wasPopulated) {
+                                        triggerToast(
+                                          `Linked to SKU ${skuLabel} — kept your custom quote price & specs intact. Use the SKU Sync menu to Save as Variant, Push to Catalog, or Pull Catalog Defaults.`,
+                                          'info'
+                                        );
+                                      } else {
+                                        triggerToast(`Linked line item to SKU ${skuLabel}.`, 'success');
+                                      }
+                                    }
                                   }}
                                   className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700"
                                 >
@@ -16801,29 +16854,27 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   </div>
                                 )}
 
-                                {/* Sync to Catalog Button */}
+                                {/* 3-Action Catalog Sync Menu */}
                                 {matchedProd && (
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      const updated = await syncLineItemToCatalogProduct(
-                                        curItem,
-                                        matchedProd,
-                                        setWorkspaceProducts,
-                                        triggerToast,
-                                        liveQuotation.currency
-                                      );
-                                      if (updated && propSetProducts) {
-                                        propSetProducts((prev) =>
-                                          prev.map((p) => (p.id === updated.id ? updated : p))
-                                        );
-                                      }
-                                    }}
-                                    className="w-full py-1.5 px-3 rounded-lg bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
-                                  >
-                                    <Save className="w-3.5 h-3.5 text-blue-600" />
-                                    <span>Update Catalog SKU ({matchedProd.sku || matchedProd.name})</span>
-                                  </button>
+                                  <div className="pt-1 flex items-center justify-between gap-2">
+                                    <span className="text-[11px] font-mono text-slate-500 truncate">
+                                      Linked SKU: <strong className="text-slate-700">{matchedProd.sku || matchedProd.name}</strong>
+                                    </span>
+                                    <CatalogSyncMenu
+                                      item={curItem}
+                                      matchedProduct={matchedProd}
+                                      products={workspaceProducts}
+                                      setProducts={(updater) => {
+                                        setWorkspaceProducts(updater);
+                                        if (propSetProducts) propSetProducts(updater);
+                                      }}
+                                      currency={liveQuotation.currency}
+                                      isVendorCostDoc={isVendorCostDoc}
+                                      activeWorkspaceId={activeWorkspace?.id}
+                                      triggerToast={triggerToast}
+                                      onUpdateLineItem={(patch) => updateCurItem(patch)}
+                                    />
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -17757,7 +17808,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 )}
 
                                 {/* Two-Way Catalog Sync Actions */}
-                                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60">
+                                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60 flex-wrap">
                                   {!matchedProd ? (
                                     <button
                                       type="button"
@@ -17771,27 +17822,34 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       Catalog SKU: {matchedProd.sku || matchedProd.id?.slice(0, 8)}
                                     </span>
                                   )}
-                                  {matchedProd && itemDrifted && (
-                                    <button
-                                      type="button"
-                                      onClick={async () => {
-                                        const updated = await syncLineItemToCatalogProduct(
-                                          item,
-                                          matchedProd,
-                                          setWorkspaceProducts,
-                                          triggerToast,
-                                          liveQuotation.currency
-                                        );
-                                        if (updated && propSetProducts) {
-                                          propSetProducts((prev) =>
-                                            prev.map((p) => (p.id === updated.id ? updated : p))
-                                          );
-                                        }
+                                  {matchedProd && (
+                                    <CatalogSyncMenu
+                                      item={item}
+                                      matchedProduct={matchedProd}
+                                      products={workspaceProducts}
+                                      setProducts={(updater) => {
+                                        setWorkspaceProducts(updater);
+                                        if (propSetProducts) propSetProducts(updater);
                                       }}
-                                      className="px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-semibold transition cursor-pointer shrink-0"
-                                    >
-                                      Update Catalog SKU
-                                    </button>
+                                      currency={liveQuotation.currency}
+                                      isVendorCostDoc={
+                                        documentType === 'purchase_order' ||
+                                        documentType === 'material_return_note' ||
+                                        (documentType as string) === 'material_return' ||
+                                        documentType === 'debit_note'
+                                      }
+                                      activeWorkspaceId={activeWorkspace?.id}
+                                      triggerToast={triggerToast}
+                                      compact
+                                      onUpdateLineItem={(patch) => {
+                                        const currentList = customStudioLineItems ?? quotationLineItems;
+                                        setCustomStudioLineItems(
+                                          currentList.map((row, rIdx) =>
+                                            rIdx === idx ? { ...row, ...patch } : row
+                                          )
+                                        );
+                                      }}
+                                    />
                                   )}
                                 </div>
 

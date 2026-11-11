@@ -93,7 +93,10 @@ import SaveToCatalogModal, {
   parseLineItemTitleAndSpec,
   hasCatalogDrift,
   syncLineItemToCatalogProduct,
-  compileDescriptionWithSpecs
+  compileDescriptionWithSpecs,
+  isLineItemPopulated,
+  linkLineItemToCatalogProductNonDestructive,
+  CatalogSyncMenu
 } from './SaveToCatalogModal';
 import { useEnquiryDisclosureState } from '../hooks/useEnquiryDisclosureState';
 import { EnquiryMetadataSummaryBar } from './enquiry/EnquiryMetadataSummaryBar';
@@ -2294,61 +2297,40 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         : undefined;
 
     if (linkingLineIndex !== null && lineItems[linkingLineIndex]) {
-      // Update existing line item in place
+      // Update existing line item in place — 100% NON-DESTRUCTIVE when line item is already populated
+      const existingTarget = lineItems[linkingLineIndex];
+      const wasPopulated = isLineItemPopulated(existingTarget);
+      const fullCatalogProd: Product =
+        (products || []).find((p) => p.id === item.id) ||
+        ({
+          ...item,
+          unit_price: item.unit_price ?? item.unit_price_aed ?? 0,
+          cost_price: item.cost_price ?? item.cost_price_aed ?? undefined,
+          default_availability: item.default_availability ?? item.lead_time_note ?? undefined
+        } as Product);
+
       setLineItems((prev) => {
         const next = [...prev];
         const current = next[linkingLineIndex];
-        const qty = Number(current.quantity) || 1;
-        const fallbackSelling = current.unit_price > 0 ? current.unit_price : price;
-        const fallbackCost = current.cost_price && current.cost_price > 0 ? current.cost_price : costPrice;
-        const bomRollup = clonedSubComponents
-          ? recalculateCompositeItemTotals(clonedSubComponents, qty, fallbackSelling, fallbackCost)
-          : null;
-        const resolvedUnitPrice =
-          bomRollup && bomRollup.unitSellingPrice > 0
-            ? bomRollup.unitSellingPrice
-            : fallbackSelling;
-        const resolvedCostPrice =
-          bomRollup && bomRollup.unitCostPrice > 0
-            ? bomRollup.unitCostPrice
-            : fallbackCost;
-
-        next[linkingLineIndex] = {
-          ...current,
-          product_id: item.id || undefined,
-          sku: item.sku || current.sku,
-          item_name: item.name || current.item_name,
-          product_type: item.product_type || current.product_type,
-          description: current.description?.trim() ? current.description : item.description,
-          unit: item.unit || current.unit,
-          unit_price: resolvedUnitPrice,
-          cost_price: resolvedCostPrice,
-          total_price: Math.round(qty * resolvedUnitPrice * 100) / 100,
-          brand_make: item.brand_make || current.brand_make,
-          model_part_no: item.model_part_no || current.model_part_no,
-          country_of_origin: item.country_of_origin || current.country_of_origin,
-          hs_code: item.hs_code || current.hs_code,
-          image_url: item.image_url || current.image_url,
-          secondary_image_url: item.secondary_image_url || current.secondary_image_url,
-          image_caption: item.image_caption || current.image_caption,
-          secondary_image_caption: item.secondary_image_caption || current.secondary_image_caption,
-          image_adjustments: item.image_adjustments || current.image_adjustments,
-          datasheet_attachment: item.datasheet_attachment || current.datasheet_attachment,
-          include_datasheet_in_quote:
-            item.datasheet_attachment || current.datasheet_attachment
-              ? current.include_datasheet_in_quote !== false
-              : undefined,
-          lead_time_note: current.lead_time_note && !current.lead_time_note.startsWith('SKU:')
-            ? current.lead_time_note
-            : (item.lead_time_note || ''),
-          attributes: current.attributes && current.attributes.length > 0 ? current.attributes : (item.attributes || []),
-          ...(item.is_composite_set ? { is_composite_set: true } : {}),
-          ...(bomRollup ? { sub_components: bomRollup.normalizedComponents } : {}),
-          ...(item.package_pricing_mode ? { package_pricing_mode: item.package_pricing_mode } : {}),
-          ...(item.option_scope_notes ? { option_scope_notes: item.option_scope_notes } : {})
-        };
+        next[linkingLineIndex] = linkLineItemToCatalogProductNonDestructive(
+          current,
+          fullCatalogProd,
+          formCurrency,
+          false
+        );
         return next;
       });
+      if (triggerToast) {
+        const skuLabel = fullCatalogProd.sku || fullCatalogProd.name || 'Catalog SKU';
+        if (wasPopulated) {
+          triggerToast(
+            `Linked to SKU ${skuLabel} — kept your custom quote price & specs intact. Use the SKU Sync menu to Save as Variant, Push to Catalog, or Pull Catalog Defaults.`,
+            'info'
+          );
+        } else {
+          triggerToast(`Linked line item to Catalog SKU ${skuLabel}.`, 'success');
+        }
+      }
       setLinkingLineIndex(null);
     } else {
       // Default append behavior
@@ -6673,40 +6655,21 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                       {matchedProduct.default_availability || 'Order / Non-Stock'}
                                     </span>
                                   )}
-                                  {drifted && (
-                                    <button
-                                      type="button"
-                                      disabled={syncingCatalogIdx === index}
-                                      onClick={async () => {
-                                        setSyncingCatalogIdx(index);
-                                        try {
-                                          await syncLineItemToCatalogProduct(
-                                            item,
-                                            matchedProduct,
-                                            setProducts,
-                                            triggerToast,
-                                            formCurrency
-                                          );
-                                        } catch (err: any) {
-                                          if (triggerToast) {
-                                            triggerToast(
-                                              'Failed to sync to catalog: ' + (err?.message || 'Error'),
-                                              'error'
-                                            );
-                                          }
-                                        } finally {
-                                          setSyncingCatalogIdx(null);
-                                        }
-                                      }}
-                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
-                                      title="Push updated price, cost, brand, model, or specs back to the master Product Catalog"
-                                    >
-                                      <RefreshCw
-                                        className={`w-2.5 h-2.5 ${syncingCatalogIdx === index ? 'animate-spin' : ''}`}
-                                      />
-                                      <span>Sync Catalog</span>
-                                    </button>
-                                  )}
+                                  <CatalogSyncMenu
+                                    item={item}
+                                    matchedProduct={matchedProduct}
+                                    products={products}
+                                    setProducts={setProducts}
+                                    currency={formCurrency}
+                                    activeWorkspaceId={activeWorkspace?.id}
+                                    triggerToast={triggerToast}
+                                    compact
+                                    onUpdateLineItem={(patch) => {
+                                      setLineItems((prev) =>
+                                        prev.map((li, i) => (i === index ? { ...li, ...patch } : li))
+                                      );
+                                    }}
+                                  />
                                   <button
                                     type="button"
                                     onClick={() => handleUnlinkCatalogItem(index)}

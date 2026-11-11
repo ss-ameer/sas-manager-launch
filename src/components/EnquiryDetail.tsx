@@ -37,7 +37,15 @@ import { QuotationStudioModal } from './quotations/QuotationStudioModal';
 import { QuotationDocument } from './quotations/QuotationDocument';
 import EnquiryCollaboratorsModal from './EnquiryCollaboratorsModal';
 import { CreateCompanyModal } from './companies/CreateCompanyModal';
-import SaveToCatalogModal, { parseLineItemTitleAndSpec, hasCatalogDrift, syncLineItemToCatalogProduct, compileDescriptionWithSpecs } from './SaveToCatalogModal';
+import SaveToCatalogModal, {
+  parseLineItemTitleAndSpec,
+  hasCatalogDrift,
+  syncLineItemToCatalogProduct,
+  compileDescriptionWithSpecs,
+  isLineItemPopulated,
+  linkLineItemToCatalogProductNonDestructive,
+  CatalogSyncMenu
+} from './SaveToCatalogModal';
 import CompositePackageEditor from './quotations/CompositePackageEditor';
 import { cloneLineItemToNextOption, recalculateCompositeItemTotals, isOptionActiveForInventoryAndBaseline } from '../utils/compositeBomUtils';
 import LineItemImageOptionsPopover from './common/LineItemImageOptionsPopover';
@@ -5687,34 +5695,94 @@ export default function EnquiryDetail({
 
                           <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
                             {!matchedProduct ? (
-                              <button
-                                type="button"
-                                onClick={() => setSaveToCatalogState({ isOpen: true, item, itemIndex: idx, isFromDraft: true })}
-                                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 transition"
-                                title="Register this custom line item in the Products Catalog"
-                              >
-                                <Plus className="w-3 h-3" />
-                                <span>Save to Catalog</span>
-                              </button>
-                            ) : isDrifted ? (
-                              <button
-                                type="button"
-                                disabled={syncingCatalogIdx === idx}
-                                onClick={async () => {
-                                  setSyncingCatalogIdx(idx);
-                                  await syncLineItemToCatalogProduct(item, matchedProduct, setProducts, triggerToast, currentEnquiry.currency);
-                                  setSyncingCatalogIdx(null);
-                                }}
-                                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1 cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0 transition"
-                                title="Push updated price, cost, brand, or specs back to Products Catalog"
-                              >
-                                <RefreshCw className={`w-3 h-3 ${syncingCatalogIdx === idx ? 'animate-spin' : ''}`} />
-                                <span>Sync to Catalog</span>
-                              </button>
+                              <>
+                                <select
+                                  value=""
+                                  onChange={(e) => {
+                                    const chosenId = e.target.value;
+                                    if (!chosenId) return;
+                                    const chosenProd = (products || []).find((p) => p.id === chosenId);
+                                    if (!chosenProd) return;
+                                    const wasPopulated = isLineItemPopulated(item);
+                                    const merged = linkLineItemToCatalogProductNonDestructive(
+                                      item,
+                                      chosenProd,
+                                      currentEnquiry.currency,
+                                      false
+                                    );
+                                    setDraftLineItems((prev) =>
+                                      prev.map((li, i) => (i === idx ? merged : li))
+                                    );
+                                    if (triggerToast) {
+                                      const skuLabel = chosenProd.sku || chosenProd.name || 'Catalog SKU';
+                                      if (wasPopulated) {
+                                        triggerToast(
+                                          `Linked to SKU ${skuLabel} — kept your custom quote price & specs intact. Use the SKU Sync menu to Save as Variant, Push to Catalog, or Pull Catalog Defaults.`,
+                                          'info'
+                                        );
+                                      } else {
+                                        triggerToast(`Linked line item to SKU ${skuLabel}.`, 'success');
+                                      }
+                                    }
+                                  }}
+                                  className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 cursor-pointer max-w-[165px] truncate focus:outline-none"
+                                  title="Non-destructively link this item to an existing Catalog SKU (keeps your custom quote price & specs intact)"
+                                >
+                                  <option value="">🔗 Link SKU...</option>
+                                  {(products || []).map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                      {p.sku ? `[${p.sku}] ` : ''}
+                                      {p.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  onClick={() => setSaveToCatalogState({ isOpen: true, item, itemIndex: idx, isFromDraft: true })}
+                                  className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 transition"
+                                  title="Register this custom line item in the Products Catalog (New SKU or Spec Variant)"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  <span>Save to Catalog</span>
+                                </button>
+                              </>
                             ) : (
-                              <span className="text-[11px] font-mono font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg whitespace-nowrap shrink-0">
-                                Linked: {matchedProduct.sku || 'Catalog'}
-                              </span>
+                              <>
+                                <span className="text-[11px] font-mono font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg whitespace-nowrap shrink-0">
+                                  Linked: {matchedProduct.sku || 'Catalog'}
+                                </span>
+                                <CatalogSyncMenu
+                                  item={item}
+                                  matchedProduct={matchedProduct}
+                                  products={products}
+                                  setProducts={setProducts}
+                                  currency={currentEnquiry.currency}
+                                  activeWorkspaceId={activeWorkspace?.id}
+                                  triggerToast={triggerToast}
+                                  compact
+                                  onUpdateLineItem={(patch) => {
+                                    setDraftLineItems((prev) =>
+                                      prev.map((li, i) => (i === idx ? { ...li, ...patch } : li))
+                                    );
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setDraftLineItems((prev) =>
+                                      prev.map((li, i) =>
+                                        i === idx
+                                          ? { ...li, product_id: undefined, sku: undefined, product_sku: undefined, variant_id: undefined, variant_name: undefined }
+                                          : li
+                                      )
+                                    );
+                                  }}
+                                  className="text-[10px] text-slate-400 hover:text-rose-600 underline cursor-pointer px-1"
+                                  title="Unlink from Catalog SKU"
+                                >
+                                  Unlink
+                                </button>
+                              </>
                             )}
 
                             {!(item.is_composite_set || (item.sub_components && item.sub_components.length > 0)) && (
@@ -6318,23 +6386,51 @@ export default function EnquiryDetail({
                                         <span>Save to Catalog</span>
                                       </button>
                                     )}
-                                    {canEditEnquiry(user, activeWorkspace, currentEnquiry) && matchedProduct && isDrifted && (
-                                      <button
-                                        type="button"
-                                        disabled={syncingCatalogIdx === (origIdx >= 0 ? origIdx : idx)}
-                                        onClick={async (e) => {
-                                          e.stopPropagation();
-                                          const targetIdx = origIdx >= 0 ? origIdx : idx;
-                                          setSyncingCatalogIdx(targetIdx);
-                                          await syncLineItemToCatalogProduct(item, matchedProduct, setProducts, triggerToast, currentEnquiry.currency);
-                                          setSyncingCatalogIdx(null);
-                                        }}
-                                        className="text-[10px] font-sans font-semibold px-1.5 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-0.5 cursor-pointer shrink-0"
-                                        title="Push modified price, cost, or specs to master Catalog Product"
-                                      >
-                                        <RefreshCw className={`w-2.5 h-2.5 ${syncingCatalogIdx === (origIdx >= 0 ? origIdx : idx) ? 'animate-spin' : ''}`} />
-                                        <span>Sync to Catalog</span>
-                                      </button>
+                                    {canEditEnquiry(user, activeWorkspace, currentEnquiry) && matchedProduct && (
+                                      <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+                                        <CatalogSyncMenu
+                                          item={item}
+                                          matchedProduct={matchedProduct}
+                                          products={products}
+                                          setProducts={setProducts}
+                                          currency={currentEnquiry.currency}
+                                          activeWorkspaceId={activeWorkspace?.id}
+                                          triggerToast={triggerToast}
+                                          compact
+                                          onUpdateLineItem={async (patch) => {
+                                            const targetIdx = origIdx >= 0 ? origIdx : idx;
+                                            const nextItems = [...(currentEnquiry.line_items || [])];
+                                            if (!nextItems[targetIdx]) return;
+                                            nextItems[targetIdx] = { ...nextItems[targetIdx], ...patch };
+                                            const updatedEnq = {
+                                              ...currentEnquiry,
+                                              line_items: nextItems,
+                                              updatedAt: new Date().toISOString()
+                                            };
+                                            setCurrentEnquiry(updatedEnq);
+                                            setDraftLineItems(nextItems);
+                                            if (onUpdateEnquiry) onUpdateEnquiry(updatedEnq);
+                                            if (setEnquiries) {
+                                              setEnquiries((prev) =>
+                                                prev.map((e) => (e.id === currentEnquiry.id ? updatedEnq : e))
+                                              );
+                                            }
+                                            try {
+                                              const stripped = stripCatalogRedundantLineItemMedia(
+                                                nextItems,
+                                                products || []
+                                              );
+                                              await safeUpdateDoc('enquiries', currentEnquiry.id, {
+                                                line_items: stripped,
+                                                updatedAt: updatedEnq.updatedAt
+                                              });
+                                              await EnquiryRepository.save(updatedEnq);
+                                            } catch (err) {
+                                              console.warn('Failed updating line item from CatalogSyncMenu:', err);
+                                            }
+                                          }}
+                                        />
+                                      </div>
                                     )}
                                   </div>
                                   <div className="text-xs text-slate-500 truncate flex items-center gap-1.5">

@@ -442,10 +442,33 @@ export type QuotationOptionDisplayMode =
   | 'option_c_only'
   | 'combined_table';
 
+export interface ProductSpecVariant {
+  id: string;
+  variant_name: string;
+  sku?: string;
+  unit_price?: number;
+  cost_price?: number;
+  unit?: UnitType;
+  model_part_no?: string;
+  lead_time_note?: string;
+  description?: string;
+  attributes?: ProductAttribute[];
+  specifications?: Record<string, string>;
+  sub_components?: LineItemComponent[];
+  is_composite_set?: boolean;
+  package_pricing_mode?: 'itemized' | 'lump_sum';
+  option_scope_notes?: string;
+  image_url?: string;
+  createdAt?: string;
+}
+
 export interface LineItem {
   id?: string;
   product_id?: string;
   sku?: string;
+  product_sku?: string;
+  variant_id?: string;
+  variant_name?: string;
   part_no?: string;
   item_name?: string;
   item_type?: ItemType;
@@ -989,6 +1012,8 @@ export interface Product extends SoftDeleteFields {
   min_stock_level?: number;
   variant_group_id?: string;
   product_code?: string;
+  spec_variants?: ProductSpecVariant[];
+  variants?: ProductSpecVariant[];
   updated_at?: string;
 }
 
@@ -1369,6 +1394,9 @@ export interface QuotationLineItem {
   sn?: number;
   product_id?: string;
   sku?: string;
+  product_sku?: string;
+  variant_id?: string;
+  variant_name?: string;
   part_no?: string;
   item_name: string;
   description: string;
