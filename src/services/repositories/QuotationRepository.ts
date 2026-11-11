@@ -2477,6 +2477,50 @@ export class QuotationRepository {
   }
 
   /**
+   * Pauses all active Firestore onSnapshot listeners when tab is idle or sync is paused.
+   * Preserves in-memory caches and registered subscriber callbacks.
+   */
+  public static pauseSubscriptions(): void {
+    for (const [wsId, unsub] of this.activeSnapshotUnsubs.entries()) {
+      try {
+        unsub();
+      } catch (_) {}
+    }
+    this.activeSnapshotUnsubs.clear();
+  }
+
+  /**
+   * Resumes Firestore onSnapshot listeners when sync is turned back on or tab becomes active.
+   */
+  public static resumeSubscriptions(workspaceId: string): void {
+    const wsId = workspaceId || 'ws_default';
+    const subs = this.workspaceSubscribers.get(wsId);
+    if (!subs || subs.size === 0) return;
+    if (this.activeSnapshotUnsubs.has(wsId)) return;
+
+    // Immediately push cached state to subscribers
+    const cached = this.workspaceCache.get(wsId);
+    if (cached) {
+      subs.forEach((cb) => {
+        try {
+          cb([...cached.data]);
+        } catch (_) {}
+      });
+    }
+
+    // Attach fresh onSnapshot listener
+    const unsubHolder = this.subscribe(wsId, () => {});
+    unsubHolder();
+  }
+
+  /**
+   * Canonical normalizer alias matching docToQuotation
+   */
+  public static normalizeQuotation(id: string, data: any): Quotation {
+    return this.docToQuotation(id, data);
+  }
+
+  /**
    * Calculates structured financial_totals alongside standard subtotal/tax/grand_total
    */
   public static calculateFinancialTotals(

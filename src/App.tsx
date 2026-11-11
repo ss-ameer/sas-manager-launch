@@ -53,6 +53,8 @@ import { isAdmin, getUserWorkspaceRole, getEffectiveWorkspaceRole, isSuperAdmin,
 import { SYSTEM_CALL_STATUSES, SYSTEM_CALL_OUTCOMES, SYSTEM_CALL_PURPOSES, SYSTEM_COMPANY_RELATIONSHIPS, SYSTEM_COMPANY_TEMPERATURES, SYSTEM_RELATIONSHIP_COLORS, SYSTEM_TEMPERATURE_COLORS, normalizeOptionName, healDropdownOptions, normalizeCompany, normalizeContact, normalizeEnquiry, normalizeCallLog } from './utils/defaults';
 import { deduplicateList } from './utils/deduplicator';
 import { rehydrateDocumentBlobsSync, hasInlineBase64Payload, sanitizeFirestorePayload } from './services/attachmentStorage';
+import { QuotationRepository } from './services/repositories/QuotationRepository';
+import { ProcurementRepository } from './services/repositories/ProcurementRepository';
 
 function getLocalCache<T>(key: string, defaultValue: T): T {
   try {
@@ -309,6 +311,17 @@ export default function App() {
       window.removeEventListener('touchstart', handleActivity);
     };
   }, [realtimeSyncEnabled]);
+
+  // Synchronize QuotationRepository and ProcurementRepository singleton listeners with realtimeSyncEnabled
+  useEffect(() => {
+    if (!realtimeSyncEnabled) {
+      QuotationRepository.pauseSubscriptions();
+      ProcurementRepository.pauseSubscriptions();
+    } else if (activeWorkspaceId) {
+      QuotationRepository.resumeSubscriptions(activeWorkspaceId);
+      ProcurementRepository.resumeSubscriptions(activeWorkspaceId);
+    }
+  }, [realtimeSyncEnabled, activeWorkspaceId]);
 
   // Admin Data Visibility & Salesperson Selection Permissions State
   const [dataVisibilityScope, setDataVisibilityScope] = useState<'ALL_DATA' | 'OWN_DATA_ONLY'>(() => {

@@ -112,6 +112,7 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCcw,
+  RotateCw,
   CheckCircle2,
   Send,
   Save,
@@ -2306,6 +2307,42 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       profile?.secondary_signatory_title ||
       'Commercial Approver'
   );
+
+  // On-demand rehydration of IndexedDB blobs (brand assets, signatures, flyer annexes, line item images)
+  useEffect(() => {
+    if (editingQuotation?.id) {
+      rehydrateDocumentBlobsFromLocal(editingQuotation)
+        .then((reh) => {
+          if (!reh) return;
+          if (reh.company_logo_url) setCompanyLogoUrl(reh.company_logo_url);
+          if (reh.company_seal_url) setCompanySealUrl(reh.company_seal_url);
+          if (reh.signature_image_url) setSignatureImageUrl(reh.signature_image_url);
+          if (reh.header_config?.logoUrl) {
+            setHeaderConfig((prev) => ({ ...prev, logoUrl: reh.header_config!.logoUrl }));
+          }
+          if (reh.footer_config?.companySealUrl) {
+            setFooterConfig((prev) => ({ ...prev, companySealUrl: reh.footer_config!.companySealUrl }));
+          }
+          if (Array.isArray(reh.signatories) && reh.signatories.length > 0) {
+            if (reh.signatories[0]?.name) setSignatoryName(reh.signatories[0].name);
+            if (reh.signatories[0]?.designation) setSignatoryTitle(reh.signatories[0].designation);
+            if (reh.signatories[0]?.signature_url) setSignatureImageUrl(reh.signatories[0].signature_url);
+            if (reh.signatories[1]) {
+              if (reh.signatories[1].name) setSecondarySignatoryName(reh.signatories[1].name);
+              if (reh.signatories[1].designation) setSecondarySignatoryTitle(reh.signatories[1].designation);
+              setSignatoryMode('dual');
+            }
+          }
+          if (Array.isArray(reh.flyer_attachments) && reh.flyer_attachments.length > 0) {
+            setFlyerAttachments(reh.flyer_attachments);
+          }
+          if (Array.isArray(reh.line_items) && reh.line_items.length > 0) {
+            setCustomStudioLineItems(rehydrateLineItemsFromCatalog(reh.line_items, workspaceProducts));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [editingQuotation?.id]);
 
   // Multi-Account Bank Registry Selection & Custom Overrides
   const [selectedBankId, setSelectedBankId] = useState<string>(() => {
@@ -15579,6 +15616,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           (documentType as string) === 'material_return' ||
                           documentType === 'debit_note';
 
+                        const itemKey = curItem.id || `item_${focusedItemIndex}`;
+                        const matchedProd = workspaceProducts.find((p) => p.id === curItem.product_id);
+
                         const updateCurItem = (patch: Partial<QuotationLineItem>) => {
                           const currentList = customStudioLineItems ?? quotationLineItems;
                           setCustomStudioLineItems(
@@ -15586,16 +15626,53 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               rIdx === focusedItemIndex ? { ...row, ...patch } : row
                             )
                           );
+                          handleUpdateTopItemRowOption(itemKey, patch);
                         };
 
-                        const attrs: Array<{ key: string; value: string }> = Array.isArray(curItem.attributes)
-                          ? curItem.attributes.map((a: any) => ({ key: a.key || a.name || '', value: a.value || '' }))
-                          : curItem.technical_attributes && typeof curItem.technical_attributes === 'object' && !Array.isArray(curItem.technical_attributes)
-                          ? Object.entries(curItem.technical_attributes).map(([k, v]) => ({ key: k, value: String(v) }))
-                          : [];
+                        const rawItemAttrs = getItemAttributeKeys(curItem);
+                        const rowOrder = curItem.attribute_order || visibleColumns.attributeLayoutOrder || [];
+                        const itemAttrs = [
+                          ...rowOrder.filter((k) => rawItemAttrs.includes(k)),
+                          ...rawItemAttrs.filter((k) => !rowOrder.includes(k))
+                        ];
+                        const currentVisible = itemVisibleAttributes[itemKey] ?? curItem.visible_attributes ?? itemAttrs;
+                        const rowBreaks = curItem.attribute_line_breaks_after ?? visibleColumns.attributeLineBreaksAfter ?? [];
+                        const rowFullWidth = curItem.attribute_full_width_keys ?? visibleColumns.attributeFullWidthKeys ?? [];
 
-                        const hiddenKeys = curItem.hidden_attributes || [];
-                        const fullWidthKeys = curItem.attribute_full_width_keys || [];
+                        const moveRowAttr = (attrKey: string, dir: -1 | 1) => {
+                          const aIdx = itemAttrs.indexOf(attrKey);
+                          const nextIdx = aIdx + dir;
+                          if (aIdx < 0 || nextIdx < 0 || nextIdx >= itemAttrs.length) return;
+                          const next = [...itemAttrs];
+                          const [removed] = next.splice(aIdx, 1);
+                          next.splice(nextIdx, 0, removed);
+                          handleUpdateTopItemRowOption(itemKey, { attribute_order: next });
+                          updateCurItem({ attribute_order: next });
+                        };
+
+                        const toggleRowBreak = (attrKey: string) => {
+                          const next = rowBreaks.includes(attrKey)
+                            ? rowBreaks.filter((k) => k !== attrKey)
+                            : [...rowBreaks, attrKey];
+                          handleUpdateTopItemRowOption(itemKey, { attribute_line_breaks_after: next });
+                          updateCurItem({ attribute_line_breaks_after: next });
+                        };
+
+                        const toggleRowFullWidth = (attrKey: string) => {
+                          const next = rowFullWidth.includes(attrKey)
+                            ? rowFullWidth.filter((k) => k !== attrKey)
+                            : [...rowFullWidth, attrKey];
+                          handleUpdateTopItemRowOption(itemKey, { attribute_full_width_keys: next });
+                          updateCurItem({ attribute_full_width_keys: next });
+                        };
+
+                        const toggleVis = (attrKey: string) => {
+                          toggleItemAttribute(itemKey, itemAttrs, attrKey);
+                          const nextVis = currentVisible.includes(attrKey)
+                            ? currentVisible.filter((k) => k !== attrKey)
+                            : [...currentVisible, attrKey];
+                          updateCurItem({ visible_attributes: nextVis });
+                        };
 
                         return (
                           <div className="space-y-4">
@@ -15802,76 +15879,126 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   <Sliders className="w-3.5 h-3.5 text-blue-600" />
                                   Spec Attribute Pills
                                 </span>
-                                <span className="text-[10px] font-mono text-slate-400">
-                                  {attrs.length} Specs
-                                </span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[10px] font-mono text-slate-400">
+                                    {itemAttrs.filter((k) => currentVisible.includes(k)).length}/{itemAttrs.length} Active
+                                  </span>
+                                  {itemAttrs.length >= 2 && (
+                                    <div className="flex items-center gap-1 ml-1 pl-1.5 border-l border-slate-200">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          showAllItemAttributes(itemKey, itemAttrs);
+                                          updateCurItem({ visible_attributes: [...itemAttrs] });
+                                        }}
+                                        className="text-[9.5px] font-semibold text-blue-600 hover:text-blue-800 transition cursor-pointer"
+                                        title="Show all attributes"
+                                      >
+                                        Show All
+                                      </button>
+                                      <span className="text-slate-300 text-[9px]">•</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          hideAllItemAttributes(itemKey);
+                                          updateCurItem({ visible_attributes: [] });
+                                        }}
+                                        className="text-[9.5px] font-semibold text-slate-400 hover:text-slate-600 transition cursor-pointer"
+                                        title="Hide all attributes"
+                                      >
+                                        Hide All
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
 
-                              {attrs.length === 0 ? (
+                              {itemAttrs.length === 0 ? (
                                 <p className="text-[11px] text-slate-400 italic">No spec attribute pills yet on this item.</p>
                               ) : (
-                                <div className="space-y-1.5">
-                                  {attrs.map((at, aIdx) => {
-                                    const isHidden = hiddenKeys.includes(at.key);
-                                    const isFullWidth = fullWidthKeys.includes(at.key);
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {itemAttrs.map((attrKey, aIdx) => {
+                                    const isVisible = currentVisible.includes(attrKey);
+                                    const hasBreak = rowBreaks.includes(attrKey);
+                                    const isFull = rowFullWidth.includes(attrKey);
+
                                     return (
-                                      <div
-                                        key={aIdx}
-                                        className={`flex items-center justify-between gap-1.5 p-2 rounded-lg border text-xs transition ${
-                                          isHidden ? 'bg-slate-100/60 border-slate-200 opacity-60' : 'bg-white border-slate-200 shadow-2xs'
-                                        }`}
-                                      >
-                                        <div className="min-w-0 flex-1">
-                                          <span className="font-semibold text-slate-700 block truncate">{at.key}</span>
-                                          <span className="text-[10.5px] text-slate-500 font-mono block truncate">{at.value}</span>
-                                        </div>
-                                        <div className="flex items-center gap-1 shrink-0">
+                                      <React.Fragment key={attrKey}>
+                                        <div
+                                          className={`inline-flex items-center rounded-md border text-[10px] font-medium overflow-hidden transition ${
+                                            isVisible
+                                              ? 'bg-white border-blue-300 shadow-2xs'
+                                              : 'bg-slate-100 border-dashed border-slate-300 opacity-60'
+                                          }`}
+                                        >
                                           <button
                                             type="button"
-                                            onClick={() => {
-                                              const nextFullWidth = isFullWidth
-                                                ? fullWidthKeys.filter((k) => k !== at.key)
-                                                : [...fullWidthKeys, at.key];
-                                              updateCurItem({ attribute_full_width_keys: nextFullWidth });
-                                            }}
-                                            className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold cursor-pointer transition ${
-                                              isFullWidth ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                                            onClick={() => toggleVis(attrKey)}
+                                            className={`px-1.5 py-0.5 flex items-center gap-1 cursor-pointer transition ${
+                                              isVisible
+                                                ? 'text-blue-800 hover:bg-blue-50'
+                                                : 'text-slate-400 line-through hover:bg-slate-200/60'
                                             }`}
-                                            title="Toggle 100% full-width span across both columns"
+                                            title={isVisible ? `Hide ${attrKey}` : `Show ${attrKey}`}
                                           >
-                                            {isFullWidth ? '100% Full' : '50% Half'}
+                                            <span className="text-[9px] font-bold">{isVisible ? '✓' : '✕'}</span>
+                                            <span>{attrKey}</span>
                                           </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              const nextHidden = isHidden
-                                                ? hiddenKeys.filter((k) => k !== at.key)
-                                                : [...hiddenKeys, at.key];
-                                              updateCurItem({ hidden_attributes: nextHidden });
-                                            }}
-                                            className={`p-1 rounded text-xs cursor-pointer ${
-                                              isHidden ? 'text-slate-400 hover:text-slate-700' : 'text-blue-600 hover:bg-blue-50'
-                                            }`}
-                                            title={isHidden ? 'Show attribute pill' : 'Hide attribute pill'}
-                                          >
-                                            {isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              const nextAttrs = attrs.filter((_, idx) => idx !== aIdx);
-                                              updateCurItem({
-                                                attributes: nextAttrs,
-                                                technical_attributes: nextAttrs
-                                              });
-                                            }}
-                                            className="p-1 rounded text-rose-500 hover:bg-rose-50 cursor-pointer"
-                                            title="Remove attribute"
-                                          >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                          </button>
+
+                                          {isVisible && (
+                                            <div className="flex items-center border-l border-slate-200 bg-slate-50 divide-x divide-slate-200/80">
+                                              <button
+                                                type="button"
+                                                onClick={() => toggleRowBreak(attrKey)}
+                                                className={`px-1 py-0.5 text-[9px] font-mono font-bold cursor-pointer transition ${
+                                                  hasBreak
+                                                    ? 'bg-amber-500 text-white'
+                                                    : 'text-slate-500 hover:bg-amber-50 hover:text-amber-700'
+                                                }`}
+                                                title="Insert line break (↵) after this attribute"
+                                              >
+                                                ↵
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => toggleRowFullWidth(attrKey)}
+                                                className={`px-1 py-0.5 text-[8.5px] font-mono font-bold cursor-pointer transition ${
+                                                  isFull
+                                                    ? 'bg-indigo-600 text-white'
+                                                    : 'text-slate-500 hover:bg-indigo-50 hover:text-indigo-700'
+                                                }`}
+                                                title="Force 100% full-width span across both columns"
+                                              >
+                                                100%
+                                              </button>
+                                              <button
+                                                type="button"
+                                                disabled={aIdx === 0}
+                                                onClick={() => moveRowAttr(attrKey, -1)}
+                                                className="px-1 py-0.5 text-[9px] font-mono text-slate-500 hover:bg-slate-200/70 disabled:opacity-30 cursor-pointer"
+                                                title="Move left"
+                                              >
+                                                ←
+                                              </button>
+                                              <button
+                                                type="button"
+                                                disabled={aIdx === itemAttrs.length - 1}
+                                                onClick={() => moveRowAttr(attrKey, 1)}
+                                                className="px-1 py-0.5 text-[9px] font-mono text-slate-500 hover:bg-slate-200/70 disabled:opacity-30 cursor-pointer"
+                                                title="Move right"
+                                              >
+                                                →
+                                              </button>
+                                            </div>
+                                          )}
                                         </div>
-                                      </div>
+
+                                        {isVisible && hasBreak && (
+                                          <span className="px-1 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-800 text-[8.5px] font-mono font-bold">
+                                            ↵ Break
+                                          </span>
+                                        )}
+                                      </React.Fragment>
                                     );
                                   })}
                                 </div>
@@ -15902,11 +16029,20 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     disabled={!newSpecKey.trim()}
                                     onClick={() => {
                                       if (!newSpecKey.trim()) return;
-                                      const nextAttrs = [...attrs, { key: newSpecKey.trim(), value: newSpecVal.trim() }];
+                                      const k = newSpecKey.trim();
+                                      const v = newSpecVal.trim();
+                                      const existingAttrs = Array.isArray(curItem.attributes) ? [...curItem.attributes] : [];
+                                      const nextAttrs = [...existingAttrs, { key: k, value: v }];
+                                      const nextVisible = [...currentVisible, k];
                                       updateCurItem({
                                         attributes: nextAttrs,
-                                        technical_attributes: nextAttrs
+                                        visible_attributes: nextVisible
                                       });
+                                      handleUpdateTopItemRowOption(itemKey, {
+                                        attributes: nextAttrs,
+                                        visible_attributes: nextVisible
+                                      });
+                                      setItemVisibleAttributes((prev) => ({ ...prev, [itemKey]: nextVisible }));
                                       setNewSpecKey('');
                                       setNewSpecVal('');
                                     }}
@@ -15927,7 +16063,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 </span>
                                 {curItem.image_url && (
                                   <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                    Image Attached
+                                    Primary Attached
                                   </span>
                                 )}
                               </div>
@@ -15938,24 +16074,52 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     <img
                                       src={curItem.image_url}
                                       alt={curItem.item_name || 'Product'}
-                                      className="max-h-36 object-contain rounded-lg"
+                                      style={{
+                                        transform: curItem.image_adjustments?.rotation
+                                          ? `rotate(${curItem.image_adjustments.rotation}deg)`
+                                          : undefined
+                                      }}
+                                      className="max-h-36 object-contain rounded-lg transition-transform"
                                     />
-                                    <button
-                                      type="button"
-                                      onClick={() => updateCurItem({ image_url: undefined })}
-                                      className="absolute top-2 right-2 p-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-md transition cursor-pointer"
-                                      title="Remove Photo"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
+                                    <div className="absolute top-2 right-2 flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const currentRot = curItem.image_adjustments?.rotation || 0;
+                                          const nextRot = (currentRot + 90) % 360;
+                                          const nextAdj = { ...(curItem.image_adjustments || {}), rotation: nextRot };
+                                          updateCurItem({ image_adjustments: nextAdj });
+                                          handleUpdateTopItemRowOption(itemKey, { image_adjustments: nextAdj });
+                                        }}
+                                        className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-900 text-white shadow-md transition cursor-pointer"
+                                        title="Rotate 90°"
+                                      >
+                                        <RotateCw className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          updateCurItem({ image_url: undefined });
+                                          handleUpdateTopItemRowOption(itemKey, { image_url: undefined });
+                                          setItemImageOverrides((prev) => ({ ...prev, [itemKey]: '' }));
+                                        }}
+                                        className="p-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-md transition cursor-pointer"
+                                        title="Remove Photo"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
                                   </div>
 
                                   <div>
-                                    <label className="block text-[10px] text-slate-500 mb-1">Photo Caption (Optional)</label>
+                                    <label className="block text-[10px] text-slate-500 mb-1">Primary Caption (Optional)</label>
                                     <input
                                       type="text"
                                       value={curItem.image_caption || ''}
-                                      onChange={(e) => updateCurItem({ image_caption: e.target.value })}
+                                      onChange={(e) => {
+                                        updateCurItem({ image_caption: e.target.value });
+                                        handleUpdateTopItemRowOption(itemKey, { image_caption: e.target.value });
+                                      }}
                                       placeholder="e.g. Assembled Duplex Filter Unit"
                                       className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs"
                                     />
@@ -15980,7 +16144,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                           const reader = new FileReader();
                                           reader.onload = (evt) => {
                                             const base64 = evt.target?.result as string;
-                                            if (base64) updateCurItem({ image_url: base64 });
+                                            if (base64) {
+                                              updateCurItem({ image_url: base64 });
+                                              handleUpdateTopItemRowOption(itemKey, { image_url: base64 });
+                                              setItemImageOverrides((prev) => ({ ...prev, [itemKey]: base64 }));
+                                              setVisibleColumns((prev) => ({ ...prev, showLineItemImages: true }));
+                                            }
                                           };
                                           reader.readAsDataURL(file);
                                         }}
@@ -15992,13 +16161,179 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     <input
                                       type="text"
                                       value={curItem.image_url || ''}
-                                      onChange={(e) => updateCurItem({ image_url: e.target.value })}
+                                      onChange={(e) => {
+                                        updateCurItem({ image_url: e.target.value });
+                                        handleUpdateTopItemRowOption(itemKey, { image_url: e.target.value });
+                                        setItemImageOverrides((prev) => ({ ...prev, [itemKey]: e.target.value }));
+                                        if (e.target.value) setVisibleColumns((prev) => ({ ...prev, showLineItemImages: true }));
+                                      }}
                                       placeholder="https://..."
                                       className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-mono"
                                     />
                                   </div>
                                 </div>
                               )}
+
+                              {/* Image Placement, Size, and Aspect Ratio Overrides */}
+                              <div className="pt-2 border-t border-slate-200/80 space-y-2">
+                                <div className="grid grid-cols-3 gap-2">
+                                  <div>
+                                    <label className="block text-[10px] text-slate-500 mb-0.5 font-medium">Placement</label>
+                                    <select
+                                      value={curItem.image_display_override || 'inherit'}
+                                      onChange={(e) => {
+                                        const val = e.target.value as any;
+                                        updateCurItem({ image_display_override: val });
+                                        handleUpdateTopItemRowOption(itemKey, { image_display_override: val });
+                                      }}
+                                      className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
+                                    >
+                                      <option value="inherit">Inherit Table</option>
+                                      <option value="inline_left">Inline Left</option>
+                                      <option value="inline_right">Inline Right</option>
+                                      <option value="column">Media Column</option>
+                                      <option value="below_specs">Below Specs</option>
+                                    </select>
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-[10px] text-slate-500 mb-0.5 font-medium">Size Override</label>
+                                    <select
+                                      value={curItem.image_size_override || 'inherit'}
+                                      onChange={(e) => {
+                                        const val = e.target.value as any;
+                                        updateCurItem({ image_size_override: val });
+                                        handleUpdateTopItemRowOption(itemKey, { image_size_override: val });
+                                      }}
+                                      className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
+                                    >
+                                      <option value="inherit">Inherit Table</option>
+                                      <option value="compact">Compact (45px)</option>
+                                      <option value="standard">Standard (75px)</option>
+                                      <option value="large">Large (110px)</option>
+                                    </select>
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-[10px] text-slate-500 mb-0.5 font-medium">Aspect Ratio</label>
+                                    <select
+                                      value={curItem.image_aspect_override || 'inherit'}
+                                      onChange={(e) => {
+                                        const val = e.target.value as any;
+                                        updateCurItem({ image_aspect_override: val });
+                                        handleUpdateTopItemRowOption(itemKey, { image_aspect_override: val });
+                                      }}
+                                      className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
+                                    >
+                                      <option value="inherit">Inherit Table</option>
+                                      <option value="square">1:1 Square</option>
+                                      <option value="natural">Natural Aspect</option>
+                                      <option value="contain">Contain (Fit)</option>
+                                    </select>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Secondary Diagram / 2nd Image */}
+                              <div className="pt-2 border-t border-slate-200/80 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10.5px] font-bold text-slate-700 flex items-center gap-1.5">
+                                    <ImageIcon className="w-3 h-3 text-indigo-600" />
+                                    Secondary Technical Diagram
+                                  </span>
+                                  {curItem.secondary_image_url && (
+                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                      2nd Diagram Attached
+                                    </span>
+                                  )}
+                                </div>
+
+                                {curItem.secondary_image_url ? (
+                                  <div className="space-y-2">
+                                    <div className="relative group rounded-xl border border-slate-200 bg-white p-2 flex items-center justify-center overflow-hidden">
+                                      <img
+                                        src={curItem.secondary_image_url}
+                                        alt="Secondary Diagram"
+                                        className="max-h-28 object-contain rounded-lg"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          updateCurItem({ secondary_image_url: undefined });
+                                          handleUpdateTopItemRowOption(itemKey, { secondary_image_url: undefined });
+                                        }}
+                                        className="absolute top-2 right-2 p-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-md transition cursor-pointer"
+                                        title="Remove Secondary Diagram"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] text-slate-500 mb-0.5">2nd Diagram Caption</label>
+                                      <input
+                                        type="text"
+                                        value={curItem.secondary_image_caption || ''}
+                                        onChange={(e) => {
+                                          updateCurItem({ secondary_image_caption: e.target.value });
+                                          handleUpdateTopItemRowOption(itemKey, { secondary_image_caption: e.target.value });
+                                        }}
+                                        placeholder="e.g. Dimensional GA Drawing / P&amp;ID Schematic"
+                                        className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs"
+                                      />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-1.5">
+                                    <label className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg border border-dashed border-indigo-300 bg-indigo-50/50 hover:bg-indigo-100/50 text-indigo-700 font-semibold text-[11px] cursor-pointer transition">
+                                      <Upload className="w-3.5 h-3.5" />
+                                      <span>+ Add 2nd Diagram / Schematic</span>
+                                      <input
+                                        type="file"
+                                        accept="image/*"
+                                        className="hidden"
+                                        onChange={(e) => {
+                                          const file = e.target.files?.[0];
+                                          if (!file) return;
+                                          const reader = new FileReader();
+                                          reader.onload = (evt) => {
+                                            const base64 = evt.target?.result as string;
+                                            if (base64) {
+                                              updateCurItem({ secondary_image_url: base64 });
+                                              handleUpdateTopItemRowOption(itemKey, { secondary_image_url: base64 });
+                                            }
+                                          };
+                                          reader.readAsDataURL(file);
+                                        }}
+                                      />
+                                    </label>
+                                  </div>
+                                )}
+
+                                {/* Sync to Catalog Button */}
+                                {matchedProd && (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const updated = await syncLineItemToCatalogProduct(
+                                        curItem,
+                                        matchedProd,
+                                        setWorkspaceProducts,
+                                        triggerToast,
+                                        liveQuotation.currency
+                                      );
+                                      if (updated && propSetProducts) {
+                                        propSetProducts((prev) =>
+                                          prev.map((p) => (p.id === updated.id ? updated : p))
+                                        );
+                                      }
+                                    }}
+                                    className="w-full py-1.5 px-3 rounded-lg bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                                  >
+                                    <Save className="w-3.5 h-3.5 text-blue-600" />
+                                    <span>Sync to Catalog ({matchedProd.sku || matchedProd.name})</span>
+                                  </button>
+                                )}
+                              </div>
                             </div>
 
                             {/* Card 5: Included Items & Scope Notes (Package / Composite Breakdown) */}
@@ -16011,107 +16346,52 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 <label className="flex items-center gap-1.5 cursor-pointer">
                                   <input
                                     type="checkbox"
-                                    checked={Boolean(curItem.is_composite_set)}
-                                    onChange={(e) => updateCurItem({ is_composite_set: e.target.checked })}
+                                    checked={Boolean(
+                                      curItem.is_composite_set ||
+                                        (curItem.sub_components && curItem.sub_components.length > 0)
+                                    )}
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      updateCurItem({ is_composite_set: checked });
+                                      handleUpdateTopItemRowOption(itemKey, { is_composite_set: checked });
+                                    }}
                                     className="rounded text-indigo-600 focus:ring-indigo-500"
                                   />
                                   <span className="text-[11px] font-bold text-slate-700">Composite Set</span>
                                 </label>
                               </div>
 
-                              {curItem.is_composite_set ? (
-                                <div className="space-y-2.5">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-[10.5px] font-semibold text-slate-600">
-                                      Included Sub-Items ({(curItem.sub_components || []).length})
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const curSub = curItem.sub_components || [];
-                                        const nextSub = [
-                                          ...curSub,
-                                          {
-                                            id: `sub_${Date.now()}_${curSub.length + 1}`,
-                                            name: '',
-                                            quantity: 1,
-                                            unit: 'Nos',
-                                            unit_price: 0,
-                                            is_included_free: true
-                                          }
-                                        ];
-                                        updateCurItem({ sub_components: nextSub });
-                                      }}
-                                      className="px-2 py-0.5 rounded text-[10.5px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer"
-                                    >
-                                      + Add Sub-Item
-                                    </button>
-                                  </div>
-
-                                  <div className="space-y-1.5">
-                                    {(curItem.sub_components || []).map((sub, sIdx) => (
-                                      <div
-                                        key={sub.id || sIdx}
-                                        className="p-2 rounded-lg bg-white border border-slate-200 flex items-center justify-between gap-1.5 text-xs"
-                                      >
-                                        <input
-                                          type="text"
-                                          value={sub.name || ''}
-                                          onChange={(e) => {
-                                            const val = e.target.value;
-                                            const nextSub = (curItem.sub_components || []).map((row, idx) =>
-                                              idx === sIdx ? { ...row, name: val } : row
-                                            );
-                                            updateCurItem({ sub_components: nextSub });
-                                          }}
-                                          placeholder="Sub-item name (e.g. 2 x Top Distribution System)"
-                                          className="flex-1 min-w-0 rounded border border-slate-300 px-2 py-1 text-xs"
-                                        />
-                                        <input
-                                          type="number"
-                                          min="1"
-                                          value={sub.quantity || 1}
-                                          onChange={(e) => {
-                                            const val = Math.max(1, Number(e.target.value));
-                                            const nextSub = (curItem.sub_components || []).map((row, idx) =>
-                                              idx === sIdx ? { ...row, quantity: val } : row
-                                            );
-                                            updateCurItem({ sub_components: nextSub });
-                                          }}
-                                          className="w-14 rounded border border-slate-300 px-1.5 py-1 text-xs font-mono text-right"
-                                        />
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            const nextSub = (curItem.sub_components || []).filter((_, idx) => idx !== sIdx);
-                                            updateCurItem({ sub_components: nextSub });
-                                          }}
-                                          className="p-1 rounded text-rose-500 hover:bg-rose-50 cursor-pointer"
-                                        >
-                                          <Trash2 className="w-3.5 h-3.5" />
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-
-                                  <div>
-                                    <label className="block text-[10.5px] font-semibold text-slate-600 mb-1">
-                                      Package Scope Notes / Exclusions
-                                    </label>
-                                    <textarea
-                                      rows={3}
-                                      value={curItem.option_scope_notes || ''}
-                                      onChange={(e) => updateCurItem({ option_scope_notes: e.target.value })}
-                                      placeholder="e.g. Scope includes factory pre-assembly and hydrostatic pressure testing to ASME standards..."
-                                      className="w-full rounded-lg border border-slate-300 bg-white p-2 text-xs text-slate-800"
-                                    />
-                                  </div>
-                                </div>
-                              ) : (
-                                <p className="text-[11px] text-slate-400 italic">
-                                  Enable Composite Set to break down this line item into included sub-components, accessories, and warranty/scope notes.
-                                </p>
-                              )}
+                              <CompositePackageEditor
+                                compact={true}
+                                isCompositeSet={Boolean(
+                                  curItem.is_composite_set ||
+                                    (curItem.sub_components && curItem.sub_components.length > 0)
+                                )}
+                                subComponents={curItem.sub_components || []}
+                                packagePricingMode={curItem.package_pricing_mode || 'lump_sum'}
+                                optionScopeNotes={curItem.option_scope_notes || ''}
+                                parentQuantity={curItem.quantity || 1}
+                                currency={liveQuotation.currency || 'AED'}
+                                products={workspaceProducts}
+                                activeWorkspace={activeWorkspace}
+                                tokenContext={studioTokenContext}
+                                onChange={(patch) => {
+                                  const cleanedPatch = { ...patch };
+                                  if (cleanedPatch.unit_price === 0 && Number(curItem.unit_price) > 0) {
+                                    delete cleanedPatch.unit_price;
+                                    delete cleanedPatch.total_price;
+                                  }
+                                  updateCurItem(cleanedPatch);
+                                  handleUpdateTopItemRowOption(itemKey, cleanedPatch);
+                                  setItemCompositeOverrides((prev) => ({
+                                    ...prev,
+                                    [itemKey]: {
+                                      ...(prev[itemKey] || {}),
+                                      ...cleanedPatch
+                                    }
+                                  }));
+                                }}
+                              />
                             </div>
                           </div>
                         );

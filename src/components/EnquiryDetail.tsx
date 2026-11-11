@@ -242,6 +242,23 @@ export default function EnquiryDetail({
   const [workspaceSupplierBills, setWorkspaceSupplierBills] = useState<SupplierBill[]>([]);
   const [isQuotationStudioOpen, setIsQuotationStudioOpen] = useState<boolean>(false);
   const [viewingQuotation, setViewingQuotation] = useState<Quotation | null>(null);
+
+  // On-demand rehydration of IndexedDB blobs (logo, seal, signatures, line item media, flyer annexes) for viewing & quick-printing
+  useEffect(() => {
+    if (viewingQuotation?.id) {
+      let active = true;
+      rehydrateDocumentBlobsFromLocal(viewingQuotation)
+        .then((rehydrated) => {
+          if (active && rehydrated) {
+            setViewingQuotation((prev) => (prev?.id === viewingQuotation.id ? { ...prev, ...rehydrated } : prev));
+          }
+        })
+        .catch(() => {});
+      return () => {
+        active = false;
+      };
+    }
+  }, [viewingQuotation?.id]);
   const [documentProfile, setDocumentProfile] = useState<WorkspaceDocumentProfile | null>(null);
   const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null);
   const [docHubFilter, setDocHubFilter] = useState<'all' | CommercialDocumentType>('all');
