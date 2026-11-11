@@ -1061,22 +1061,29 @@ export default function ProductManager({
       resolvedBrand || resolvedModel
     );
 
+    const fallbackSell =
+      typeof formUnitPrice === 'number' && !isNaN(formUnitPrice) && formUnitPrice >= 0
+        ? formUnitPrice
+        : undefined;
+    const fallbackCost =
+      typeof formCostPrice === 'number' && !isNaN(formCostPrice) && formCostPrice >= 0
+        ? formCostPrice
+        : undefined;
+
     const computedBomTotals =
       formIsCompositeSet && formSubComponents.length > 0
-        ? recalculateCompositeItemTotals(formSubComponents, 1)
+        ? recalculateCompositeItemTotals(formSubComponents, 1, fallbackSell, fallbackCost)
         : null;
 
-    const finalSellingPrice = computedBomTotals
-      ? computedBomTotals.unitSellingPrice
-      : typeof formUnitPrice === 'number' && !isNaN(formUnitPrice) && formUnitPrice >= 0
-      ? formUnitPrice
-      : undefined;
+    const finalSellingPrice =
+      computedBomTotals && computedBomTotals.unitSellingPrice > 0
+        ? computedBomTotals.unitSellingPrice
+        : fallbackSell;
 
-    const finalCostPrice = computedBomTotals
-      ? computedBomTotals.unitCostPrice
-      : typeof formCostPrice === 'number' && !isNaN(formCostPrice) && formCostPrice >= 0
-      ? formCostPrice
-      : undefined;
+    const finalCostPrice =
+      computedBomTotals && computedBomTotals.unitCostPrice > 0
+        ? computedBomTotals.unitCostPrice
+        : fallbackCost;
 
     const data: Partial<Product> = {
       workspace_id: activeWorkspace.id,
@@ -2576,50 +2583,76 @@ export default function ProductManager({
                     </div>
                   )}
 
-                  {/* Composite Package / Kit (BOM) Builder inside Products Catalog */}
+                  {/* Included Items & Package Sub-Components inside Products Catalog */}
                   <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80">
-                    <CompositePackageEditor
-                      item={{
-                        id: editingProduct?.id || 'catalog_bom_draft',
-                        item_type: 'Product',
-                        product_type: formProductType || 'System Package',
-                        name: formName || 'Composite Package / Kit',
-                        description: formDescription || formName || 'Composite Package / Kit',
-                        quantity: 1,
-                        unit: formUnit || 'SET',
-                        unit_price: formUnitPrice,
-                        cost_price: formCostPrice,
-                        is_composite_set: formIsCompositeSet,
-                        sub_components: formSubComponents,
-                        package_pricing_mode: formPackagePricingMode,
-                        option_scope_notes: formOptionScopeNotes
-                      }}
-                      currency="AED"
-                      products={activeCatalogProducts.filter((p) => p.id !== editingProduct?.id)}
-                      onChange={(updates) => {
-                        if (updates.is_composite_set !== undefined) {
-                          setFormIsCompositeSet(updates.is_composite_set);
-                          if (updates.is_composite_set && (!formUnit || formUnit === 'Nos')) {
-                            setFormUnit('SET');
+                    {!formIsCompositeSet && formSubComponents.length === 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormIsCompositeSet(true);
+                          setFormPackagePricingMode('lump_sum');
+                          setFormSubComponents([
+                            {
+                              id: `comp_${Date.now()}_1`,
+                              sn: '1',
+                              item_name: '',
+                              remark: '',
+                              quantity: 1,
+                              unit: 'Nos',
+                              cost_price: 0,
+                              unit_price: 0,
+                              total_price: 0,
+                              line_total: 0,
+                              is_included_accessory: true
+                            }
+                          ]);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 text-xs font-semibold transition cursor-pointer"
+                      >
+                        <Layers className="w-3.5 h-3.5" />
+                        <span>+ Included Package Items / Accessories</span>
+                      </button>
+                    ) : (
+                      <CompositePackageEditor
+                        item={{
+                          id: editingProduct?.id || 'catalog_bom_draft',
+                          item_type: 'Product',
+                          product_type: formProductType || 'System Package',
+                          name: formName || 'Package / Set',
+                          description: formDescription || formName || 'Package / Set',
+                          quantity: 1,
+                          unit: formUnit || 'SET',
+                          unit_price: formUnitPrice,
+                          cost_price: formCostPrice,
+                          is_composite_set: formIsCompositeSet,
+                          sub_components: formSubComponents,
+                          package_pricing_mode: formPackagePricingMode,
+                          option_scope_notes: formOptionScopeNotes
+                        }}
+                        currency="AED"
+                        products={activeCatalogProducts.filter((p) => p.id !== editingProduct?.id)}
+                        onChange={(updates) => {
+                          if (updates.is_composite_set !== undefined) {
+                            setFormIsCompositeSet(updates.is_composite_set);
                           }
-                        }
-                        if (updates.sub_components !== undefined) {
-                          setFormSubComponents(updates.sub_components);
-                        }
-                        if (updates.package_pricing_mode !== undefined) {
-                          setFormPackagePricingMode(updates.package_pricing_mode);
-                        }
-                        if (updates.option_scope_notes !== undefined) {
-                          setFormOptionScopeNotes(updates.option_scope_notes);
-                        }
-                        if (updates.unit_price !== undefined) {
-                          setFormUnitPrice(updates.unit_price);
-                        }
-                        if (updates.cost_price !== undefined) {
-                          setFormCostPrice(updates.cost_price);
-                        }
-                      }}
-                    />
+                          if (updates.sub_components !== undefined) {
+                            setFormSubComponents(updates.sub_components);
+                          }
+                          if (updates.package_pricing_mode !== undefined) {
+                            setFormPackagePricingMode(updates.package_pricing_mode);
+                          }
+                          if (updates.option_scope_notes !== undefined) {
+                            setFormOptionScopeNotes(updates.option_scope_notes);
+                          }
+                          if (updates.unit_price !== undefined && updates.unit_price > 0) {
+                            setFormUnitPrice(updates.unit_price);
+                          }
+                          if (updates.cost_price !== undefined && updates.cost_price > 0) {
+                            setFormCostPrice(updates.cost_price);
+                          }
+                        }}
+                      />
+                    )}
                   </div>
 
                   {/* Default Lead Time / Availability */}
@@ -2852,7 +2885,7 @@ export default function ProductManager({
                                   return next;
                                 });
                               }}
-                              className="w-[42%] bg-slate-50/80 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl py-1.5 px-3 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500"
+                              className="w-32 sm:w-44 shrink-0 bg-slate-50/80 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl py-1.5 px-3 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500"
                             />
                             <input
                               type="text"

@@ -42,6 +42,7 @@ import {
   amountInWordsAED,
   formatAmountInWords
 } from '../../utils/numberToWords';
+import { isTechnicalSectionHeaderLine } from '../../utils/compositeBomUtils';
 import {
   QuotationTokenContext,
   resolveQuotationTokens,
@@ -1033,8 +1034,10 @@ export function extractLineItemAttributesAndCleanDescription(item: QuotationLine
   }
 
   const itemTitleNorm = (item.item_name || (item as any).title || '').trim().toLowerCase();
+  const rawLines = rawDesc.split('\n');
+  const hasMultiSectionHeaders = rawLines.some((l) => isTechnicalSectionHeaderLine(l));
 
-  rawDesc.split('\n').forEach((line) => {
+  rawLines.forEach((line) => {
     const trimmed = line.trim();
     if (!trimmed) return;
     if (itemTitleNorm && trimmed.replace(/[:\-–—]\s*$/, '').toLowerCase() === itemTitleNorm) {
@@ -1056,16 +1059,24 @@ export function extractLineItemAttributesAndCleanDescription(item: QuotationLine
       return;
     }
 
-    // Check if this line is a standalone "Key: Value" line that duplicates an existing structured attribute
-    const colonIdx = trimmed.indexOf(':');
-    if (colonIdx > 0 && colonIdx <= 38 && !/^https?:/i.test(trimmed) && !/^note:/i.test(trimmed)) {
-      const candidateKey = trimmed.slice(0, colonIdx).trim();
-      const candidateVal = trimmed.slice(colonIdx + 1).trim();
-      if (candidateKey && candidateVal) {
-        const cKey = canonicalizeSpecKey(candidateKey);
-        if (existingCanonicalKeys.has(cKey)) {
-          // Already rendered in structured attribute pills — strip from narrative to prevent duplicate printing
-          return;
+    // Check if this line is a standalone "Key: Value" line that duplicates an existing structured attribute.
+    // Never strip lines when the description uses multi-section sub-headings (e.g. MOTOR SPECIFICATIONS:- / GEARBOX SPECIFICATIONS:-).
+    if (!hasMultiSectionHeaders) {
+      const colonIdx = trimmed.indexOf(':');
+      if (
+        colonIdx > 0 &&
+        colonIdx <= 38 &&
+        !/^https?:/i.test(trimmed) &&
+        !/^note:/i.test(trimmed) &&
+        !isTechnicalSectionHeaderLine(trimmed)
+      ) {
+        const candidateKey = trimmed.replace(/^[•\-*]\s*/, '').slice(0, colonIdx).trim();
+        const candidateVal = trimmed.slice(colonIdx + 1).trim();
+        if (candidateKey && candidateVal) {
+          const cKey = canonicalizeSpecKey(candidateKey);
+          if (existingCanonicalKeys.has(cKey)) {
+            return;
+          }
         }
       }
     }
@@ -2929,23 +2940,59 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   };
 
 
-  // Table Density & Typography helpers
+  // Table Density & Dedicated Table Typography Scale
   const isCompact = tableDensity === 'compact';
   const thPad = isCompact ? 'py-1.5' : 'py-2.5';
   const tdPad = isCompact ? 'py-1.5' : 'py-2.5';
-  const explicitTableFont = propTableFontScale || quotation.table_font_scale;
-  const tableFontSize =
-    !propFontSizeScale && !quotation.fontSizeScale && explicitTableFont === 'compact'
-      ? 'text-[8.5px] print:text-[8px]'
-      : !propFontSizeScale && !quotation.fontSizeScale && explicitTableFont === 'prominent'
-      ? 'text-[10.5px] print:text-[10px]'
-      : typoScale.body;
-  const tableHeadingSize =
-    !propFontSizeScale && !quotation.fontSizeScale && explicitTableFont === 'compact'
-      ? 'text-[9.5px] print:text-[9px]'
-      : !propFontSizeScale && !quotation.fontSizeScale && explicitTableFont === 'prominent'
-      ? 'text-[11.5px] print:text-[11px]'
-      : typoScale.heading;
+  const explicitTableFont = propTableFontScale || quotation.table_font_scale || profile?.table_font_scale;
+  const tableTypoScale = React.useMemo(() => {
+    if (!explicitTableFont || explicitTableFont === 'inherit') {
+      return {
+        heading: typoScale.heading,
+        body: typoScale.body,
+        sub: typoScale.sub,
+        micro: typoScale.micro
+      };
+    }
+    switch (explicitTableFont) {
+      case 'compact':
+      case 'small':
+        return {
+          heading: 'text-[9.5px] print:text-[9px]',
+          body: 'text-[8.5px] print:text-[8px]',
+          sub: 'text-[8px] print:text-[7.5px]',
+          micro: 'text-[7.5px] print:text-[7px]'
+        };
+      case 'medium':
+      case 'prominent':
+        return {
+          heading: 'text-[11.5px] print:text-[11px]',
+          body: 'text-[10.5px] print:text-[10px]',
+          sub: 'text-[9.5px] print:text-[9px]',
+          micro: 'text-[8.5px] print:text-[8px]'
+        };
+      case 'large':
+        return {
+          heading: 'text-[12.5px] print:text-[12px]',
+          body: 'text-[11.5px] print:text-[11px]',
+          sub: 'text-[10.5px] print:text-[10px]',
+          micro: 'text-[9.5px] print:text-[9px]'
+        };
+      case 'standard':
+      default:
+        return {
+          heading: 'text-[10.5px] print:text-[10px]',
+          body: 'text-[9.5px] print:text-[9px]',
+          sub: 'text-[8.5px] print:text-[8px]',
+          micro: 'text-[8px] print:text-[7.5px]'
+        };
+    }
+  }, [explicitTableFont, typoScale]);
+
+  const tableFontSize = tableTypoScale.body;
+  const tableHeadingSize = tableTypoScale.heading;
+  const tableSubSize = tableTypoScale.sub;
+  const tableMicroSize = tableTypoScale.micro;
 
   const showAmountInWords =
     quotation.showAmountInWords ??
@@ -2989,6 +3036,25 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       return isoString;
     }
   };
+
+  // Unified validity date: ensures Offer Details and Commercial Terms always show the exact same Valid Until date
+  const resolvedValidUntilIso = React.useMemo(() => {
+    const rawValid = (quotation.valid_until || '').trim();
+    const rawCreated = (quotation.created_at || '').trim();
+    const vDays = Number(quotation.validity_days ?? profile?.default_validity_days ?? 30);
+    const validFormatted = rawValid ? formatDate(rawValid) : '';
+    const createdFormatted = rawCreated ? formatDate(rawCreated) : '';
+
+    if (rawValid && (!createdFormatted || validFormatted !== createdFormatted || vDays <= 0)) {
+      return rawValid;
+    }
+    const baseDate = new Date(rawCreated || rawValid || Date.now());
+    if (!isNaN(baseDate.getTime()) && Number.isFinite(vDays) && vDays > 0) {
+      baseDate.setDate(baseDate.getDate() + vDays);
+      return baseDate.toISOString();
+    }
+    return rawValid;
+  }, [quotation.valid_until, quotation.created_at, quotation.validity_days, profile?.default_validity_days]);
 
   // Determine active columns & technical attributes config
   const columnConfig: QuotationPresetColumns = propColumnConfig || propVisibleColumns || quotation.visible_columns || {};
@@ -3180,7 +3246,18 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
   // Resolved Signatories for executive signatory block
   const resolvedSignatories = React.useMemo(() => {
-    const list: Array<{ name: string; title: string; signature_url?: string }> = [];
+    const list: Array<{
+      name: string;
+      title: string;
+      signature_url?: string;
+      opening_line?: string;
+      closing_salutation?: string;
+      phone_prefix?: string;
+      phone?: string;
+      email_prefix?: string;
+      email?: string;
+      show_stamp_or_signature?: boolean;
+    }> = [];
 
     // Helper to detect unpopulated or initial-only values (e.g. "SS", "PV", or <= 3 chars all uppercase)
     const isUnsetOrInitials = (val?: string | null): boolean => {
@@ -3221,23 +3298,53 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       quotation.signatories?.[0]?.designation ||
       profile?.primary_signatory_title ||
       'Authorized Representative';
-    const pUrl = quotation.signatories?.[0]?.signature_url;
+    const sig0 = quotation.signatories?.[0];
+    const pUrl = sig0?.signature_url;
 
-    list.push({ name: pName || 'Authorized Signatory', title: pTitle, signature_url: pUrl });
+    list.push({
+      name: pName || 'Authorized Signatory',
+      title: pTitle,
+      signature_url: pUrl,
+      opening_line: sig0?.opening_line ?? resolvedFooterConfig.primaryOpeningLine,
+      closing_salutation: sig0?.closing_salutation ?? resolvedFooterConfig.primaryClosingSalutation,
+      phone_prefix: sig0?.phone_prefix ?? resolvedFooterConfig.primaryPhonePrefix,
+      phone: sig0?.phone ?? resolvedFooterConfig.signatoryPhone,
+      email_prefix: sig0?.email_prefix ?? resolvedFooterConfig.primaryEmailPrefix,
+      email: sig0?.email ?? resolvedFooterConfig.signatoryEmail,
+      show_stamp_or_signature:
+        sig0?.show_stamp_or_signature !== undefined
+          ? sig0.show_stamp_or_signature
+          : resolvedFooterConfig.primaryShowStampOrSignature
+    });
 
     if (signatoryType === 'dual') {
+      const sig1 = quotation.signatories?.[1];
       const sName =
         quotation.secondary_signatory_name ||
-        quotation.signatories?.[1]?.name ||
+        sig1?.name ||
         profile?.secondary_signatory_name ||
         'Authorized Director';
       const sTitle =
         quotation.secondary_signatory_title ||
-        quotation.signatories?.[1]?.designation ||
+        sig1?.designation ||
         profile?.secondary_signatory_title ||
         'Commercial Approver';
-      const sUrl = quotation.signatories?.[1]?.signature_url;
-      list.push({ name: sName, title: sTitle, signature_url: sUrl });
+      const sUrl = sig1?.signature_url || resolvedFooterConfig.secondarySignatureImageUrl;
+      list.push({
+        name: sName,
+        title: sTitle,
+        signature_url: sUrl,
+        opening_line: sig1?.opening_line ?? resolvedFooterConfig.secondaryOpeningLine,
+        closing_salutation: sig1?.closing_salutation ?? resolvedFooterConfig.secondaryClosingSalutation,
+        phone_prefix: sig1?.phone_prefix ?? resolvedFooterConfig.secondaryPhonePrefix,
+        phone: sig1?.phone ?? resolvedFooterConfig.secondarySignatoryPhone,
+        email_prefix: sig1?.email_prefix ?? resolvedFooterConfig.secondaryEmailPrefix,
+        email: sig1?.email ?? resolvedFooterConfig.secondarySignatoryEmail,
+        show_stamp_or_signature:
+          sig1?.show_stamp_or_signature !== undefined
+            ? sig1.show_stamp_or_signature
+            : resolvedFooterConfig.secondaryShowStampOrSignature
+      });
     }
     return list;
   }, [
@@ -5347,29 +5454,72 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       };
 
       const renderSingleSignatoryColumn = (
-        sig: { name: string; title: string; signature_url?: string },
+        sig: {
+          name: string;
+          title: string;
+          signature_url?: string;
+          opening_line?: string;
+          closing_salutation?: string;
+          phone_prefix?: string;
+          phone?: string;
+          email_prefix?: string;
+          email?: string;
+          show_stamp_or_signature?: boolean;
+        },
         sIdx: number
       ) => {
         const resolvedSignatureImgUrl =
-          (sIdx === 0 ? stampSigOverlay.activeSignatureUrl : undefined) ||
+          (sIdx === 0 ? stampSigOverlay.activeSignatureUrl : resolvedFooterConfig.secondarySignatureImageUrl) ||
           sig.signature_url ||
           '';
+        const showStampOrSigForCol =
+          sig.show_stamp_or_signature !== undefined
+            ? sig.show_stamp_or_signature
+            : sIdx === 0
+            ? resolvedFooterConfig.primaryShowStampOrSignature !== false
+            : resolvedFooterConfig.secondaryShowStampOrSignature !== false;
         const useUploadedSignatureImage =
+          showStampOrSigForCol &&
           Boolean(resolvedSignatureImgUrl) &&
           (signatureStyle === 'image' ||
             Boolean(quotation.signature_image_url) ||
-            Boolean(stampSigOverlay.activeSignatureUrl));
+            Boolean(stampSigOverlay.activeSignatureUrl) ||
+            Boolean(sig.signature_url));
         const nameFieldKey = sIdx === 0 ? 'primary_signatory_name' : 'secondary_signatory_name';
         const titleFieldKey = sIdx === 0 ? 'primary_signatory_title' : 'secondary_signatory_title';
 
+        const openingLine = (
+          sig.opening_line ??
+          (sIdx === 0 ? resolvedFooterConfig.primaryOpeningLine : resolvedFooterConfig.secondaryOpeningLine) ??
+          ''
+        ).trim();
+        const closingSalutation = (
+          sig.closing_salutation ??
+          (sIdx === 0 ? resolvedFooterConfig.primaryClosingSalutation : resolvedFooterConfig.secondaryClosingSalutation) ??
+          ''
+        ).trim();
+
+        const phonePrefix = (
+          sig.phone_prefix ??
+          (sIdx === 0 ? resolvedFooterConfig.primaryPhonePrefix : resolvedFooterConfig.secondaryPhonePrefix) ??
+          'Mob:'
+        ).trim();
+        const emailPrefix = (
+          sig.email_prefix ??
+          (sIdx === 0 ? resolvedFooterConfig.primaryEmailPrefix : resolvedFooterConfig.secondaryEmailPrefix) ??
+          'Email:'
+        ).trim();
+
         const sigPhone =
-          sIdx === 0
+          sig.phone ||
+          (sIdx === 0
             ? resolvedFooterConfig.signatoryPhone || senderPhone || ''
-            : resolvedFooterConfig.secondarySignatoryPhone || '';
+            : resolvedFooterConfig.secondarySignatoryPhone || '');
         const sigEmail =
-          sIdx === 0
+          sig.email ||
+          (sIdx === 0
             ? resolvedFooterConfig.signatoryEmail || senderEmail || user?.email || ''
-            : resolvedFooterConfig.secondarySignatoryEmail || '';
+            : resolvedFooterConfig.secondarySignatoryEmail || '');
 
         const applicableCustomLines = customLines.filter((line) => {
           if (!line.value && !line.label) return false;
@@ -5404,7 +5554,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             );
           }
 
-          if (lineType === 'title') {
+          if (lineType === 'title' && sig.title && sig.title.trim()) {
             return (
               <p
                 key="sig-title"
@@ -5421,30 +5571,51 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             );
           }
 
-          if (lineType === 'phone' && showSignatoryPhone && sigPhone) {
+          if (lineType === 'phone' && (showSignatoryPhone || Boolean(sig.phone)) && sigPhone) {
+            const formattedPrefix = phonePrefix
+              ? phonePrefix.endsWith(':')
+                ? phonePrefix
+                : `${phonePrefix}:`
+              : 'Mob:';
             return (
               <p
                 key="sig-phone"
-                className={`${phoneStyle.weightClass} ${phoneStyle.colorClass} text-[calc(var(--block-base)*0.88)] leading-tight mt-0.5 flex items-center gap-1`}
+                className={`${phoneStyle.weightClass} ${phoneStyle.colorClass} text-[calc(var(--block-base)*0.92)] leading-tight mt-0.5 flex items-center gap-1`}
                 style={phoneStyle.colorStyle}
               >
                 {contactFormat === 'icon' && <Phone className="w-2.5 h-2.5 text-slate-400 shrink-0" />}
-                {contactFormat === 'label' && <span className="text-slate-400 font-medium">Tel:</span>}
+                {contactFormat !== 'plain' && (
+                  <span className="text-slate-700 font-semibold">{formattedPrefix}</span>
+                )}
                 <span>{sigPhone}</span>
               </p>
             );
           }
 
-          if (lineType === 'email' && showSignatoryEmail && sigEmail) {
+          if (lineType === 'email' && (showSignatoryEmail || Boolean(sig.email)) && sigEmail) {
+            const cleanMail = sigEmail.trim();
+            const formattedEmailPrefix = emailPrefix
+              ? emailPrefix.endsWith(':')
+                ? emailPrefix
+                : `${emailPrefix}:`
+              : 'Email:';
             return (
               <p
                 key="sig-email"
-                className={`${emailStyle.weightClass} ${emailStyle.colorClass} text-[calc(var(--block-base)*0.88)] leading-tight mt-0.5 flex items-center gap-1`}
+                className={`${emailStyle.weightClass} ${emailStyle.colorClass} text-[calc(var(--block-base)*0.92)] leading-tight mt-0.5 flex items-center gap-1 flex-wrap`}
                 style={emailStyle.colorStyle}
               >
                 {contactFormat === 'icon' && <Mail className="w-2.5 h-2.5 text-slate-400 shrink-0" />}
-                {contactFormat === 'label' && <span className="text-slate-400 font-medium">Email:</span>}
-                <span>{sigEmail}</span>
+                {contactFormat !== 'plain' && (
+                  <span className="text-slate-700 font-semibold">{formattedEmailPrefix}</span>
+                )}
+                <a
+                  href={`mailto:${cleanMail}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-blue-600 underline hover:text-blue-800 font-medium break-all"
+                >
+                  {cleanMail}
+                </a>
               </p>
             );
           }
@@ -5490,67 +5661,102 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             key={sIdx}
             className={`flex flex-col ${textAlignmentClass} min-w-[140px] overflow-visible relative`}
           >
-            {/* Dedicated signature & stamp space above the signature line and printed name */}
-            <div
-              onClick={
-                isInteractive
-                  ? (e) => {
-                      e.stopPropagation();
-                      if (onSelectSection) {
-                        onSelectSection('signatory', 'signature');
-                      } else if (onSelectBlock) {
-                        onSelectBlock('signatory');
-                      }
-                    }
-                  : undefined
-              }
-              title={isInteractive ? 'Click to inspect & adjust Authorized Signature' : undefined}
-              style={{ minHeight: `${signatureSpaceHeightMm}mm` }}
-              className={`${sigAnchorHeightClass} w-32 flex items-end justify-center mb-1.5 pb-1 overflow-visible relative ${
-                isInteractive ? 'cursor-pointer' : ''
-              }`}
-            >
-              {stampPlacement === 'overlay' && sIdx === 0 && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 overflow-visible">
-                  {renderSealBox('pointer-events-auto')}
-                </div>
-              )}
-              {useUploadedSignatureImage ? (
-                <img
-                  src={resolvedSignatureImgUrl}
-                  alt="Authorized Signature"
-                  style={{
-                    position: 'absolute',
-                    bottom: '6px',
-                    height: `${stampSigOverlay.signatureSizePx}px`,
-                    width: 'auto',
-                    maxWidth: 'none',
-                    transform: stampSigOverlay.signatureTransformStyle,
-                    mixBlendMode: stampSigOverlay.inkMultiplyBlend ? 'multiply' : 'normal'
-                  }}
-                  className={`object-contain mx-auto select-none z-20 ${
-                    isInteractive ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'
-                  }`}
-                />
-              ) : signatureStyle === 'script' ? (
-                <span className="font-serif italic text-base text-slate-800 tracking-wide font-medium select-none transform -rotate-1 pb-1 z-20">
-                  {sig.name}
-                </span>
-              ) : signatureStyle === 'image' ? (
-                <div className="h-8 w-24 border border-dashed border-slate-300 rounded flex items-center justify-center text-[calc(var(--block-base)*0.85)] text-slate-400 italic">
-                  Digital Signature
-                </div>
-              ) : (
-                <div className="h-4" />
-              )}
-            </div>
+            {openingLine && (
+              <p className="text-[calc(var(--block-base)*0.96)] font-medium text-slate-800 leading-snug mb-0.5">
+                {renderResolvedQuotationText(openingLine, tokenContext)}
+              </p>
+            )}
+            {closingSalutation && (
+              <p
+                className={`text-[calc(var(--block-base)*1.0)] font-bold text-slate-900 leading-snug ${
+                  showStampOrSigForCol ? 'mb-1' : 'mb-1.5'
+                }`}
+              >
+                {renderResolvedQuotationText(closingSalutation, tokenContext)}
+              </p>
+            )}
 
-            <div className={sigLineClass} />
+            {/* Dedicated signature & stamp space — completely collapsed when showStampOrSigForCol is false (Executive Text-Only Mode) */}
+            {showStampOrSigForCol && (
+              <>
+                <div
+                  onClick={
+                    isInteractive
+                      ? (e) => {
+                          e.stopPropagation();
+                          if (onSelectSection) {
+                            onSelectSection('signatory', 'signature');
+                          } else if (onSelectBlock) {
+                            onSelectBlock('signatory');
+                          }
+                        }
+                      : undefined
+                  }
+                  title={isInteractive ? 'Click to inspect & adjust Authorized Signature' : undefined}
+                  style={{ minHeight: `${signatureSpaceHeightMm}mm` }}
+                  className={`${sigAnchorHeightClass} w-32 flex items-end justify-center mb-1.5 pb-1 overflow-visible relative ${
+                    isInteractive ? 'cursor-pointer' : ''
+                  }`}
+                >
+                  {stampPlacement === 'overlay' && sIdx === 0 && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 overflow-visible">
+                      {renderSealBox('pointer-events-auto')}
+                    </div>
+                  )}
+                  {useUploadedSignatureImage ? (
+                    <img
+                      src={resolvedSignatureImgUrl}
+                      alt="Authorized Signature"
+                      style={{
+                        position: 'absolute',
+                        bottom: '6px',
+                        height: `${stampSigOverlay.signatureSizePx}px`,
+                        width: 'auto',
+                        maxWidth: 'none',
+                        transform: stampSigOverlay.signatureTransformStyle,
+                        mixBlendMode: stampSigOverlay.inkMultiplyBlend ? 'multiply' : 'normal'
+                      }}
+                      className={`object-contain mx-auto select-none z-20 ${
+                        isInteractive ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'
+                      }`}
+                    />
+                  ) : signatureStyle === 'script' ? (
+                    <span className="font-serif italic text-base text-slate-800 tracking-wide font-medium select-none transform -rotate-1 pb-1 z-20">
+                      {sig.name}
+                    </span>
+                  ) : signatureStyle === 'image' ? (
+                    <div className="h-8 w-24 border border-dashed border-slate-300 rounded flex items-center justify-center text-[calc(var(--block-base)*0.85)] text-slate-400 italic">
+                      Digital Signature
+                    </div>
+                  ) : (
+                    <div className="h-4" />
+                  )}
+                </div>
+
+                <div className={sigLineClass} />
+              </>
+            )}
 
             {lineOrder.map((lineType) => renderDetailLine(lineType))}
           </div>
         );
       };
+
+      const colGapClass =
+        resolvedFooterConfig.signatoryColumnGap === 'compact'
+          ? 'gap-6'
+          : resolvedFooterConfig.signatoryColumnGap === 'wide'
+          ? 'gap-12'
+          : 'gap-8';
+
+      const isDualSideBySide = resolvedSignatories.length === 2;
+      const anySignatoryUsesStampBox = resolvedSignatories.some((sig, idx) =>
+        sig.show_stamp_or_signature !== undefined
+          ? sig.show_stamp_or_signature
+          : idx === 0
+          ? resolvedFooterConfig.primaryShowStampOrSignature !== false
+          : resolvedFooterConfig.secondaryShowStampOrSignature !== false
+      );
 
       return (
         <div
@@ -5569,10 +5775,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           )}
 
           {/* When "For and on behalf of" is shown above a non-space_between layout */}
-          {showForAndOnBehalf && blockAlign !== 'space_between' && (
+          {showForAndOnBehalf && (blockAlign !== 'space_between' || isDualSideBySide) && (
             <div
               className={`mb-1.5 ${
-                blockAlign === 'left'
+                blockAlign === 'left' || isDualSideBySide
                   ? 'text-left'
                   : blockAlign === 'center'
                   ? 'text-center'
@@ -5588,53 +5794,58 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             </div>
           )}
 
-          <div
-            className={`flex items-center ${containerJustifyClass} gap-5 w-full overflow-visible relative`}
-          >
-            {blockAlign === 'space_between' && (
-              <div className="text-left text-slate-600 pr-4">
-                {showForAndOnBehalf ? (
-                  <>
-                    <p
-                      className="font-bold text-[calc(var(--block-base)*1.05)] uppercase tracking-wider"
-                      style={{ color: themePalette.textAccent }}
-                    >
-                      {forAndOnBehalfText}
-                    </p>
-                    <p className="text-slate-400 text-[calc(var(--block-base)*0.85)] mt-0.5">
-                      {blockConfig?.subtitleOverride || 'Authorized Signatures & Official Seal'}
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider font-semibold">
-                    {blockConfig?.subtitleOverride || 'Authorized Signatures'}
-                  </p>
-                )}
+          {isDualSideBySide ? (
+            <div className={`grid grid-cols-2 ${colGapClass} items-start w-full overflow-visible relative`}>
+              <div className="flex items-end gap-4 min-w-0">
+                {stampPlacement === 'left' && anySignatoryUsesStampBox && renderSealBox()}
+                {renderSingleSignatoryColumn(resolvedSignatories[0], 0)}
+                {stampPlacement === 'center' && anySignatoryUsesStampBox && renderSealBox()}
               </div>
-            )}
-
-            <div className="flex items-center gap-5 shrink-0 overflow-visible relative">
-              {stampPlacement === 'left' && renderSealBox()}
-
-              {/* Signatories Rendering */}
-              <div className="flex items-end gap-5 overflow-visible relative">
-                {resolvedSignatories.length === 2 && stampPlacement === 'center' ? (
-                  <>
-                    {renderSingleSignatoryColumn(resolvedSignatories[0], 0)}
-                    {renderSealBox()}
-                    {renderSingleSignatoryColumn(resolvedSignatories[1], 1)}
-                  </>
-                ) : (
-                  <>
-                    {stampPlacement === 'center' && resolvedSignatories.length === 1 && renderSealBox()}
-                    {resolvedSignatories.map((sig, sIdx) => renderSingleSignatoryColumn(sig, sIdx))}
-                  </>
-                )}
+              <div className="flex items-end gap-4 min-w-0">
+                {renderSingleSignatoryColumn(resolvedSignatories[1], 1)}
+                {stampPlacement === 'right' && anySignatoryUsesStampBox && renderSealBox()}
               </div>
-
-              {stampPlacement === 'right' && renderSealBox()}
             </div>
-          </div>
+          ) : (
+            <div
+              className={`flex items-center ${containerJustifyClass} gap-5 w-full overflow-visible relative`}
+            >
+              {blockAlign === 'space_between' && (
+                <div className="text-left text-slate-600 pr-4">
+                  {showForAndOnBehalf ? (
+                    <>
+                      <p
+                        className="font-bold text-[calc(var(--block-base)*1.05)] uppercase tracking-wider"
+                        style={{ color: themePalette.textAccent }}
+                      >
+                        {forAndOnBehalfText}
+                      </p>
+                      {anySignatoryUsesStampBox && (
+                        <p className="text-slate-400 text-[calc(var(--block-base)*0.85)] mt-0.5">
+                          {blockConfig?.subtitleOverride || 'Authorized Signatures & Official Seal'}
+                        </p>
+                      )}
+                    </>
+                  ) : anySignatoryUsesStampBox ? (
+                    <p className="text-slate-400 text-[calc(var(--block-base)*0.85)] uppercase tracking-wider font-semibold">
+                      {blockConfig?.subtitleOverride || 'Authorized Signatures'}
+                    </p>
+                  ) : null}
+                </div>
+              )}
+
+              <div className="flex items-center gap-5 shrink-0 overflow-visible relative">
+                {stampPlacement === 'left' && anySignatoryUsesStampBox && renderSealBox()}
+
+                <div className={`flex items-end ${colGapClass} overflow-visible relative`}>
+                  {stampPlacement === 'center' && anySignatoryUsesStampBox && renderSealBox()}
+                  {resolvedSignatories.map((sig, sIdx) => renderSingleSignatoryColumn(sig, sIdx))}
+                </div>
+
+                {stampPlacement === 'right' && anySignatoryUsesStampBox && renderSealBox()}
+              </div>
+            </div>
+          )}
         </div>
       );
     };
@@ -6387,9 +6598,15 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     const renderCustomBlock = (blockConfig: QuotationBlockConfig) => {
       const pieces = Array.isArray(blockConfig.pieces) ? blockConfig.pieces : [];
       const activePieces = pieces.filter((p) => p && p.enabled !== false);
+      const hasHeadingPiece = activePieces.some((p) => p.type === 'heading');
+      const showContainerHeader =
+        blockConfig.showContainerHeader !== undefined
+          ? blockConfig.showContainerHeader
+          : Boolean(blockConfig.titleOverride && blockConfig.titleOverride.trim() !== '') && !hasHeadingPiece;
       const hasHeaderTitle =
-        (blockConfig.titleOverride !== undefined && blockConfig.titleOverride.trim() !== '') ||
-        (blockConfig.title !== undefined && blockConfig.title.trim() !== '');
+        showContainerHeader &&
+        ((blockConfig.titleOverride !== undefined && blockConfig.titleOverride.trim() !== '') ||
+          (blockConfig.title !== undefined && blockConfig.title.trim() !== ''));
 
       return (
         <div
@@ -6406,7 +6623,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             {hasHeaderTitle &&
               renderBlockSectionHeader(
                 blockConfig,
-                blockConfig.title || 'Custom Section',
+                blockConfig.titleOverride || blockConfig.title || 'Custom Section',
                 FileText,
                 blockConfig.subtitleOverride
               )}
@@ -8886,10 +9103,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
                 </div>
               )}
-              {showValidity && quotation.valid_until && quotation.valid_until.trim() !== '' ? (
+              {showValidity && resolvedValidUntilIso && resolvedValidUntilIso.trim() !== '' ? (
                 <div>
                   <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Valid Until</span>
-                  <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
+                  <span className="font-semibold text-slate-800">{formatDate(resolvedValidUntilIso)}</span>
                 </div>
               ) : showEnquiryRef && enquiryRef ? (
                 <div>
@@ -8974,10 +9191,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
                   </div>
                 )}
-                {showValidity && quotation.valid_until && quotation.valid_until.trim() !== '' && (
+                {showValidity && resolvedValidUntilIso && resolvedValidUntilIso.trim() !== '' && (
                   <div className="flex items-center justify-between gap-2">
                     <span className={`text-slate-400 ${typoScale.sub} uppercase`}>Valid Until</span>
-                    <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
+                    <span className="font-semibold text-slate-800">{formatDate(resolvedValidUntilIso)}</span>
                   </div>
                 )}
                 {showSalesRep && resolvedSalesRep && (
@@ -9023,8 +9240,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 {!isFieldOmitted('issue_date', omittedFields) && (
                   <span><strong className="text-slate-500 uppercase">Date:</strong> {formatDate(quotation.created_at)}</span>
                 )}
-                {showValidity && quotation.valid_until && quotation.valid_until.trim() !== '' && (
-                  <span>• <strong className="text-slate-500 uppercase">Valid:</strong> {formatDate(quotation.valid_until)}</span>
+                {showValidity && resolvedValidUntilIso && resolvedValidUntilIso.trim() !== '' && (
+                  <span>• <strong className="text-slate-500 uppercase">Valid:</strong> {formatDate(resolvedValidUntilIso)}</span>
                 )}
                 {showSalesRep && resolvedSalesRep && (
                   <span>• <strong className="text-slate-500 uppercase">By:</strong> {resolvedSalesRep}</span>
@@ -9053,10 +9270,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     <span className="font-semibold text-slate-800">{formatDate(quotation.created_at)}</span>
                   </div>
                 )}
-                {showValidity && quotation.valid_until && quotation.valid_until.trim() !== '' && (
+                {showValidity && resolvedValidUntilIso && resolvedValidUntilIso.trim() !== '' && (
                   <div>
                     <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Valid Until</span>
-                    <span className="font-semibold text-slate-800">{formatDate(quotation.valid_until)}</span>
+                    <span className="font-semibold text-slate-800">{formatDate(resolvedValidUntilIso)}</span>
                   </div>
                 )}
                 {showSalesRep && resolvedSalesRep && (
@@ -11011,12 +11228,32 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                         return (
                                           <>
                                             {cleanDescription && (
-                                              <div className={`${tableFontSize} text-slate-600 mt-1 leading-snug break-words whitespace-pre-line ${item.row_bold ? 'font-semibold text-slate-800' : 'font-normal'}`}>
-                                                {renderResolvedQuotationText(cleanDescription, tokenContext)}
+                                              <div className={`${tableFontSize} text-slate-600 mt-1 leading-snug break-words ${item.row_bold ? 'font-semibold text-slate-800' : 'font-normal'}`}>
+                                                {cleanDescription.split('\n').map((descLine, dIdx) => {
+                                                  const trimmedLine = descLine.trim();
+                                                  if (!trimmedLine) {
+                                                    return <div key={dIdx} className="h-1" />;
+                                                  }
+                                                  if (isTechnicalSectionHeaderLine(trimmedLine)) {
+                                                    return (
+                                                      <span
+                                                        key={dIdx}
+                                                        className="font-bold text-slate-900 mt-1.5 first:mt-0 block tracking-tight"
+                                                      >
+                                                        {renderResolvedQuotationText(trimmedLine, tokenContext)}
+                                                      </span>
+                                                    );
+                                                  }
+                                                  return (
+                                                    <span key={dIdx} className="block">
+                                                      {renderResolvedQuotationText(descLine, tokenContext)}
+                                                    </span>
+                                                  );
+                                                })}
                                               </div>
                                             )}
                                             {item.row_note && item.row_note.trim() && (
-                                              <div className={`${typoScale.sub} italic text-slate-700 mt-1 pl-2 border-l-2 border-amber-400/80 leading-snug break-words whitespace-pre-line font-normal`}>
+                                              <div className={`${tableSubSize} italic text-slate-700 mt-1 pl-2 border-l-2 border-amber-400/80 leading-snug break-words whitespace-pre-line font-normal`}>
                                                 Note: {renderResolvedQuotationText(item.row_note, tokenContext)}
                                               </div>
                                             )}
@@ -11255,15 +11492,15 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                                         const spanFull = single.isFullWidth || balanceOrphan;
                                                         return spanFull ? (
                                                           <div key={rIdx} className="w-full">
-                                                            <div className="flex items-baseline justify-between gap-2 px-2 py-0.5 rounded border border-slate-200 bg-slate-50/90 text-[10px] leading-snug w-full">
-                                                              <span className="font-semibold text-slate-500 shrink-0">{single.key}:</span>
+                                                            <div className={`flex items-baseline justify-between gap-2 px-2 py-0.5 rounded border border-slate-200 bg-slate-50/90 ${tableSubSize} leading-snug w-full`}>
+                                                              <span className="font-semibold text-slate-500 whitespace-nowrap shrink-0">{single.key}:</span>
                                                               <span className="font-bold text-slate-800 text-right break-words">{String(single.value)}</span>
                                                             </div>
                                                           </div>
                                                         ) : (
                                                           <div key={rIdx} className="grid grid-cols-2 gap-1.5 w-full">
-                                                            <div className="flex items-baseline justify-between gap-2 px-2 py-0.5 rounded border border-slate-200 bg-slate-50/90 text-[10px] leading-snug w-full">
-                                                              <span className="font-semibold text-slate-500 shrink-0">{single.key}:</span>
+                                                            <div className={`flex items-baseline justify-between gap-2 px-2 py-0.5 rounded border border-slate-200 bg-slate-50/90 ${tableSubSize} leading-snug w-full`}>
+                                                              <span className="font-semibold text-slate-500 whitespace-nowrap shrink-0">{single.key}:</span>
                                                               <span className="font-bold text-slate-800 text-right break-words">{String(single.value)}</span>
                                                             </div>
                                                           </div>
@@ -11274,9 +11511,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                                           {row.map((cell, cIdx) => (
                                                             <div
                                                               key={cIdx}
-                                                              className="flex items-baseline justify-between gap-2 px-2 py-0.5 rounded border border-slate-200 bg-slate-50/90 text-[10px] leading-snug w-full"
+                                                              className={`flex items-baseline justify-between gap-2 px-2 py-0.5 rounded border border-slate-200 bg-slate-50/90 ${tableSubSize} leading-snug w-full`}
                                                             >
-                                                              <span className="font-semibold text-slate-500 shrink-0">{cell.key}:</span>
+                                                              <span className="font-semibold text-slate-500 whitespace-nowrap shrink-0">{cell.key}:</span>
                                                               <span className="font-bold text-slate-800 text-right break-words">{String(cell.value)}</span>
                                                             </div>
                                                           ))}
@@ -11290,7 +11527,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                               if (attributeDisplayFormat === 'table_2col') {
                                                 const rows2 = buildAttributeRows(enrichedAttrs, 2);
                                                 return (
-                                                  <div className="mt-1.5 w-full border border-slate-200 rounded overflow-hidden divide-y divide-slate-200 text-[10px] bg-white font-normal">
+                                                  <div className={`mt-1.5 w-full border border-slate-200 rounded overflow-hidden divide-y divide-slate-200 ${tableSubSize} bg-white font-normal`}>
                                                     {rows2.map((row, rIdx) => {
                                                       if (row.length === 1) {
                                                         const single = row[0];
@@ -11300,7 +11537,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                                             key={rIdx}
                                                             className="flex items-baseline justify-between gap-2 px-2 py-1 w-full bg-white"
                                                           >
-                                                            <span className="font-semibold text-slate-500 bg-slate-50/70 px-1 rounded shrink-0">
+                                                            <span className="font-semibold text-slate-500 bg-slate-50/70 px-1 rounded whitespace-nowrap shrink-0">
                                                               {single.key}:
                                                             </span>
                                                             <span className="font-bold text-slate-800 text-right break-words">
@@ -11310,7 +11547,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                                         ) : (
                                                           <div key={rIdx} className="grid grid-cols-2 divide-x divide-slate-200 w-full">
                                                             <div className="flex items-baseline justify-between gap-2 px-2 py-1 bg-white">
-                                                              <span className="font-semibold text-slate-500 bg-slate-50/70 px-1 rounded shrink-0">
+                                                              <span className="font-semibold text-slate-500 bg-slate-50/70 px-1 rounded whitespace-nowrap shrink-0">
                                                                 {single.key}:
                                                               </span>
                                                               <span className="font-bold text-slate-800 text-right break-words">
@@ -11328,7 +11565,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                                               key={cIdx}
                                                               className="flex items-baseline justify-between gap-2 px-2 py-1 bg-white"
                                                             >
-                                                              <span className="font-semibold text-slate-500 bg-slate-50/70 px-1 rounded shrink-0">
+                                                              <span className="font-semibold text-slate-500 bg-slate-50/70 px-1 rounded whitespace-nowrap shrink-0">
                                                                 {cell.key}:
                                                               </span>
                                                               <span className="font-bold text-slate-800 text-right break-words">
@@ -11359,9 +11596,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                                           {row.map((cell, cIdx) => (
                                                             <div
                                                               key={cIdx}
-                                                              className="flex items-baseline justify-between gap-1.5 px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50/90 text-[9.5px] leading-snug w-full"
+                                                              className={`flex items-baseline justify-between gap-1.5 px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50/90 ${tableSubSize} leading-snug w-full`}
                                                             >
-                                                              <span className="font-semibold text-slate-500 shrink-0">{cell.key}:</span>
+                                                              <span className="font-semibold text-slate-500 whitespace-nowrap shrink-0">{cell.key}:</span>
                                                               <span className="font-bold text-slate-800 text-right break-words">{String(cell.value)}</span>
                                                             </div>
                                                           ))}
@@ -11396,7 +11633,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                                 return (
                                                   <div className="mt-1 space-y-0.5 font-normal">
                                                     {inlineLines.map((lineAttrs, lIdx) => (
-                                                      <div key={lIdx} className="text-[10px] text-slate-600 leading-relaxed">
+                                                      <div key={lIdx} className={`${tableSubSize} text-slate-600 leading-relaxed`}>
                                                         {lIdx === 0 && (
                                                           <span className="font-semibold text-slate-500">Specs: </span>
                                                         )}
@@ -11412,12 +11649,12 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                                   {enrichedAttrs.map((attr, aIdx) => (
                                                     <React.Fragment key={aIdx}>
                                                       <span
-                                                        className={`inline-flex items-center ${
+                                                        className={`inline-flex flex-wrap items-baseline gap-x-1 ${
                                                           attr.isFullWidth ? 'w-full justify-between' : ''
-                                                        } ${typoScale.sub} font-mono bg-slate-50 text-slate-800 px-1.5 py-0.5 rounded border border-slate-200 print:bg-transparent print:border-slate-300 print:text-black leading-tight`}
+                                                        } ${tableSubSize} font-mono bg-slate-50 text-slate-800 px-1.5 py-0.5 rounded border border-slate-200 print:bg-transparent print:border-slate-300 print:text-black leading-tight`}
                                                       >
-                                                        <span className="text-slate-700 font-semibold mr-1">{attr.key}:</span>
-                                                        <span>{attr.value}</span>
+                                                        <span className="text-slate-700 font-semibold whitespace-nowrap shrink-0">{attr.key}:</span>
+                                                        <span className="font-semibold text-slate-900 break-words">{attr.value}</span>
                                                       </span>
                                                       {attr.hasBreakAfter && <div className="basis-full h-0" />}
                                                     </React.Fragment>
@@ -11576,7 +11813,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                       } ${sub.row_bold ? 'font-bold' : ''}`}
                                       style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
                                     >
-                                      <td className={`py-1.5 px-1.5 text-center font-mono ${sub.row_bold ? 'text-slate-700 font-bold' : 'text-slate-400'} align-top ${typoScale.sub} whitespace-nowrap`}>
+                                      <td className={`py-1.5 px-1.5 text-center font-mono ${sub.row_bold ? 'text-slate-700 font-bold' : 'text-slate-400'} align-top ${tableSubSize} whitespace-nowrap`}>
                                         {subSn}
                                       </td>
                                       {showImageColumn && isImgColBeforeDesc && renderSubImageCell()}
@@ -11599,12 +11836,12 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                               {sub.item_name}
                                             </div>
                                             {sub.remark && (
-                                              <div className={`${typoScale.sub} font-bold text-slate-700 mt-0.5`}>
+                                              <div className={`${tableSubSize} font-bold text-slate-700 mt-0.5`}>
                                                 Remark : {renderResolvedQuotationText(sub.remark, tokenContext)}
                                               </div>
                                             )}
                                             {sub.row_note && sub.row_note.trim() && (
-                                              <div className={`${typoScale.sub} italic text-slate-700 mt-0.5 pl-2 border-l-2 border-amber-400/80 leading-snug whitespace-pre-line font-normal`}>
+                                              <div className={`${tableSubSize} italic text-slate-700 mt-0.5 pl-2 border-l-2 border-amber-400/80 leading-snug whitespace-pre-line font-normal`}>
                                                 Note: {renderResolvedQuotationText(sub.row_note, tokenContext)}
                                               </div>
                                             )}
@@ -11723,12 +11960,28 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                             {!shouldSplitByOptionTables && !item.hasMoreSubComponentsAfter && item.option_scope_notes && (
                               <tr className="bg-slate-50/70 break-inside-avoid">
                                 <td colSpan={tableColLayout.activeColumnCount} className="px-3 py-2 text-left">
-                                  <div className={`${typoScale.sub} font-bold text-slate-800 mb-0.5`}>
-                                    Technical Scope &amp; Material Notes ({item.option || item.item_name}):
-                                  </div>
-                                  <div className={`${typoScale.sub} text-slate-700 whitespace-pre-line leading-relaxed`}>
-                                    {renderResolvedQuotationText(item.option_scope_notes, tokenContext)}
-                                  </div>
+                                  {(() => {
+                                    const rawNotes = String(item.option_scope_notes || '').trim();
+                                    const alreadyStartsWithNote = /^notes?\s*[:\-–—]/i.test(rawNotes);
+                                    const rawOpt = String(item.option || '').trim();
+                                    const isDefaultOpt =
+                                      !rawOpt ||
+                                      /^(default\s*\/\s*included|baseline\s*\/\s*included|default|standard|included|baseline\s*\/\s*all|all|none)$/i.test(
+                                        rawOpt
+                                      );
+                                    return (
+                                      <>
+                                        {!alreadyStartsWithNote && (
+                                          <div className={`${tableSubSize} font-bold text-slate-800 mb-0.5`}>
+                                            {isDefaultOpt ? 'Note:' : `Note (${rawOpt}):`}
+                                          </div>
+                                        )}
+                                        <div className={`${tableSubSize} text-slate-700 whitespace-pre-line leading-relaxed`}>
+                                          {renderResolvedQuotationText(rawNotes, tokenContext)}
+                                        </div>
+                                      </>
+                                    );
+                                  })()}
                                 </td>
                               </tr>
                             )}
@@ -11816,10 +12069,19 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 {/* Option Scope Notes Footer Block when Split by Option Tables (only on final chunk for that Option) */}
                 {shouldSplitByOptionTables && isFinalChunkForGroup && groupScopeNotes.length > 0 && (
                   <div className="px-3.5 py-2.5 bg-slate-50/90 border-t border-slate-200 text-left">
-                    <div className={`${typoScale.sub} font-bold text-slate-900 uppercase tracking-wide mb-1`}>
-                      Note ({group.optionKey}):
-                    </div>
-                    <div className={`${typoScale.sub} text-slate-700 whitespace-pre-line leading-relaxed`}>
+                    {(() => {
+                      const isDefaultGroupOpt =
+                        !group.optionKey ||
+                        /^(default\s*\/\s*included|baseline\s*\/\s*included|default|standard|included|baseline\s*\/\s*all|all|none)$/i.test(
+                          group.optionKey.trim()
+                        );
+                      return (
+                        <div className={`${tableSubSize} font-bold text-slate-900 uppercase tracking-wide mb-1`}>
+                          {isDefaultGroupOpt ? 'Note:' : `Note (${group.optionKey}):`}
+                        </div>
+                      );
+                    })()}
+                    <div className={`${tableSubSize} text-slate-700 whitespace-pre-line leading-relaxed`}>
                       {renderResolvedQuotationText(groupScopeNotes.join('\n'), tokenContext)}
                     </div>
                   </div>

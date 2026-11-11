@@ -51,6 +51,17 @@ REQUIRED JSON OUTPUT FORMAT:
       "margin_amount": null,
       "cogs_amount": null,
       "remarks": null,
+      "is_composite_set": false,
+      "sub_components": [
+        {
+          "item_name": "string",
+          "quantity": 1,
+          "unit": "Nos",
+          "unit_price": 0,
+          "is_included_accessory": true,
+          "technical_Highlight": "string"
+        }
+      ],
       "attributes": [
         {
           "key": "string",
@@ -83,10 +94,11 @@ HIGH-PRECISION EXTRACTION RULES FOR ENTITIES & CONTACTS:
    - contact_email: Extract valid email addresses (e.g. rajesh.menon@apexindustrial.com, purchase@arpco.ae). DO NOT leave empty if an email appears anywhere in the text or signature.
    - contact_phone: Extract mobile or landline numbers (e.g. "+971 55 267 0574", "+971 2 5591110", "050-1234567"). DO NOT leave empty if a phone/mobile string is present.
 
-3. CUSTOM ATTRIBUTE KEY-VALUE PAIRS & CURRENCY DETECTION FOR LINE ITEMS:
+3. CUSTOM ATTRIBUTE KEY-VALUE PAIRS, INCLUDED SUB-ITEMS & CURRENCY DETECTION FOR LINE ITEMS:
    - currency: Detect the document's primary commercial currency ("USD" or "AED"). If table headers or values say "Unit Price (USD)", "Total Price (USD)", "USD", or "$", set "currency": "USD". Otherwise default to "AED".
-   - unit_price & unit_price_aed: Extract the exact numeric unit rate shown in the document table (e.g. 436.00 or 2000.00) into BOTH "unit_price" and "unit_price_aed" WITHOUT performing any currency conversion.
-   - item_name: Extract the primary bold heading or equipment name of the line item (e.g. "RO PRESSURE VESSEL - 8\\" x 6E, 300PSI, End port With Accessories" or "MULTIMEDIA FILTER VESSEL 63\\" X 67\\"").
+   - unit_price & unit_price_aed: Extract the exact numeric unit rate shown in the document table (e.g. 7157.00 or 2000.00) into BOTH "unit_price" and "unit_price_aed" WITHOUT performing any currency conversion. NEVER set unit_price to 0 when the table shows a package price!
+   - item_name: Extract the primary bold heading or equipment name of the line item (e.g. "AUTOMATIC DUPLEX MMF SYSTEM 4.32m3/hr" or "RO PRESSURE VESSEL - 8\\" x 6E, 300PSI").
+   - is_composite_set & sub_components: When a line item description lists "Including with followings:", "Includes:", or sub-items/accessories with quantities (e.g. "2 x Top and bottom distribution system", "1 x Vacuum Breaker", "1 x Riser Pipe"), set "is_composite_set": true and extract each sub-item into "sub_components" with "unit_price": 0 and "is_included_accessory": true, while keeping the main package selling price in the parent item's "unit_price"!
    - For every line item, extract ALL technical specifications, model specs, materials, and parameters into the 'attributes' array as explicit key-value objects: [{ "key": "Model", "value": "CCU-6300" }, { "key": "Make", "value": "OEM Standard" }, { "key": "Design Rating", "value": "10.5 Bar" }, { "key": "Material", "value": "SS316L" }].
    - Common Attribute Keys to extract when found: "Model", "Make / Brand", "Design Rating", "Dimensions", "Material / Grade", "Operation", "Capacity", "Application", "Standard", "Lead Time / Delivery".
    - BOTH 'key' and 'value' strings MUST be non-empty strings for each attribute object.
@@ -148,27 +160,21 @@ Extract the details accurately into the requested JSON format.${salespersonExclu
 };
 
 export const AVAILABLE_GEMINI_MODELS = [
-  { id: 'auto', label: '⚡ Auto-Cascade (Failover Pool)' },
-  { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Flagship Default)' },
-  { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash' },
-  { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash' },
-  { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
-  { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite' },
-  { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
-  { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
-  { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview' },
-  { id: 'gemini-flash-latest', label: 'Gemini Flash Latest (Auto-Alias)' },
+  { id: 'auto', label: '⚡ Auto-Cascade (Fast Flash Routing)' },
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Fast & Reliable Default)' },
+  { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (High Speed)' },
+  { id: 'gemini-flash-latest', label: 'Gemini Flash Latest (Stable Alias)' },
+  { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
+  { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite (Ultra Fast)' },
+  { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview (Deep Complex BOQ)' },
 ];
 
 export const DEFAULT_MODEL_CASCADE = [
-  'gemini-3.8-flash',
-  'gemini-3.7-flash',
-  'gemini-3.6-flash',
-  'gemini-3.5-flash',
-  'gemini-3.5-flash-lite',
-  'gemini-3.1-flash-lite',
+  'gemini-2.5-flash',
   'gemini-3-flash-preview',
   'gemini-flash-latest',
+  'gemini-3.8-flash',
+  'gemini-3.1-flash-lite',
   'gemini-3.1-pro-preview',
 ];
 
@@ -190,23 +196,24 @@ export async function discoverLiveGeminiModels(apiKey: string): Promise<string[]
         if (!methods.includes('generateContent')) return false;
         const name = String(m?.name || '').replace(/^models\//, '').toLowerCase();
         if (!name.startsWith('gemini-')) return false;
-        const excluded = ['2.5', '1.5', 'embedding', 'imagen', 'veo', 'tts', 'audio'];
+        const excluded = ['1.5', '1.0', '2.0', 'embedding', 'imagen', 'veo', 'tts', 'audio', 'robotics', 'computer-use', 'customtools'];
         if (excluded.some((ex) => name.includes(ex))) return false;
         return true;
       })
       .map((m) => String(m.name).replace(/^models\//, ''));
 
-    // Prioritize 'flash' and '3.' models first
+    // Prioritize proven Flash models first
     candidates.sort((a, b) => {
-      const aScore =
-        (a.includes('3.') || a.includes('gemini-3') ? 4 : 0) +
-        (a.includes('flash') ? 2 : 0) +
-        (a.includes('latest') ? 1 : 0);
-      const bScore =
-        (b.includes('3.') || b.includes('gemini-3') ? 4 : 0) +
-        (b.includes('flash') ? 2 : 0) +
-        (b.includes('latest') ? 1 : 0);
-      return bScore - aScore;
+      const score = (id: string) => {
+        if (id === 'gemini-2.5-flash') return 110;
+        if (id === 'gemini-3-flash-preview') return 105;
+        if (id === 'gemini-flash-latest') return 100;
+        if (id.includes('flash') && !id.includes('lite')) return 90;
+        if (id.includes('flash-lite')) return 80;
+        if (id.includes('pro')) return 70;
+        return 50;
+      };
+      return score(b) - score(a);
     });
 
     return Array.from(new Set(candidates));
@@ -225,7 +232,8 @@ export async function extractEnquiryClientSide(
   salespersons?: any[],
   signal?: AbortSignal,
   preferredModel?: string,
-  onStatusUpdate?: (status: string) => void
+  onStatusUpdate?: (status: string) => void,
+  scanMode: 'fast' | 'deep' = 'fast'
 ): Promise<any> {
   if (!apiKey) {
     throw new Error('No active Gemini API Key found. Please enter your personal API key in Settings or AI Studio.');
@@ -250,12 +258,17 @@ export async function extractEnquiryClientSide(
     responseMimeType: "application/json",
   };
 
-  const primaryModel = preferredModel && preferredModel !== 'auto' ? preferredModel : DEFAULT_MODEL_CASCADE[0];
-  const modelSequence = [
-    primaryModel,
-    ...DEFAULT_MODEL_CASCADE.filter((m) => m !== primaryModel),
-  ];
+  const baseCascade =
+    scanMode === 'deep'
+      ? ['gemini-2.5-flash', 'gemini-3.1-pro-preview', 'gemini-3-flash-preview', ...DEFAULT_MODEL_CASCADE]
+      : DEFAULT_MODEL_CASCADE;
 
+  const primaryModel = preferredModel && preferredModel !== 'auto' ? preferredModel : baseCascade[0];
+  const modelSequence = Array.from(
+    new Set([primaryModel, ...baseCascade.filter((m) => m !== primaryModel)])
+  );
+
+  const perModelTimeoutMs = scanMode === 'deep' ? 90000 : 45000;
   let lastError: any = null;
   let hasAttemptedLiveDiscovery = false;
 
@@ -266,7 +279,11 @@ export async function extractEnquiryClientSide(
       throw new DOMException('Aborted', 'AbortError');
     }
 
-    onStatusUpdate?.(`Querying ${modelName}...`);
+    onStatusUpdate?.(
+      i === 0
+        ? `Scanning with ${modelName} (${scanMode === 'deep' ? 'Deep Scan' : 'Fast Scan'})...`
+        : `Failing over to ${modelName} (${i + 1}/${modelSequence.length})...`
+    );
 
     let modelTimeoutTimer: any = null;
     let abortListener: (() => void) | undefined;
@@ -284,7 +301,7 @@ export async function extractEnquiryClientSide(
             parts: [
               filePart as any,
               {
-                text: "Analyze the attached document or raw Excel copy-pasted text and extract the enquiry details into the requested JSON format.",
+                text: "Analyze the attached document or raw Excel copy-pasted text and extract the enquiry details (including any sub_components for packages/sets) into the requested JSON format.",
               },
             ],
           },
@@ -292,13 +309,14 @@ export async function extractEnquiryClientSide(
         generationConfig,
       });
 
-      // Internal per-model timeout of 35 seconds (35000ms)
       const perModelTimeoutPromise = new Promise<never>((_, reject) => {
         modelTimeoutTimer = setTimeout(() => {
-          const timeoutErr: any = new Error(`Model ${modelName} call exceeded 35s latency threshold.`);
+          const timeoutErr: any = new Error(
+            `Model ${modelName} call exceeded ${Math.round(perModelTimeoutMs / 1000)}s latency threshold.`
+          );
           timeoutErr.isModelTimeout = true;
           reject(timeoutErr);
-        }, 35000);
+        }, perModelTimeoutMs);
       });
 
       const racePromises: Promise<any>[] = [callPromise, perModelTimeoutPromise];
@@ -320,27 +338,19 @@ export async function extractEnquiryClientSide(
       const response: any = await Promise.race(racePromises);
 
       const text = response.response.text();
+      let parsed: any;
       try {
-        return JSON.parse(text);
-      } catch (parseErr) {
-        // Strip backticks just in case
-        const stripped = text.replace(/^```json\n/, '').replace(/\n```$/, '').trim();
-        return JSON.parse(stripped);
+        parsed = JSON.parse(text);
+      } catch {
+        const stripped = text.replace(/^```json\n?/i, '').replace(/\n?```$/i, '').trim();
+        parsed = JSON.parse(stripped);
       }
+      if (parsed && typeof parsed === 'object') {
+        parsed._ai_model_used = modelName;
+      }
+      return parsed;
     } catch (err: any) {
       lastError = err;
-
-      // Handle per-model 35s timeout
-      if (err?.isModelTimeout) {
-        console.warn(`[aiExtractionClient] ${modelName} latency threshold reached (35s).`);
-        const hasNextModel = i < modelSequence.length - 1;
-        if (hasNextModel) {
-          onStatusUpdate?.(`${modelName} latency threshold reached. Failing over to next engine...`);
-          continue;
-        } else {
-          throw new Error(`Model ${modelName} timed out (35s limit) and no more engines are available in pool.`);
-        }
-      }
 
       // If aborted, exit immediately without retrying other models
       if (
@@ -351,25 +361,31 @@ export async function extractEnquiryClientSide(
         throw new DOMException('Aborted', 'AbortError');
       }
 
-      const errMsg = String(err?.message || '');
-      const errStatus = err?.status || err?.code;
-      const isRecoverableError =
-        errStatus === 503 ||
-        errStatus === 429 ||
-        errStatus === 404 ||
-        errMsg.includes('503') ||
-        errMsg.includes('429') ||
-        errMsg.includes('404') ||
-        errMsg.toLowerCase().includes('high demand') ||
-        errMsg.toLowerCase().includes('no longer available') ||
-        errMsg.toLowerCase().includes('not found') ||
-        errMsg.toLowerCase().includes('resourceexhausted') ||
-        errMsg.toLowerCase().includes('resource_exhausted') ||
-        errMsg.toLowerCase().includes('temporarily unavailable') ||
-        errMsg.toLowerCase().includes('overloaded') ||
-        errMsg.toLowerCase().includes('rate limit');
+      // Handle per-model timeout
+      if (err?.isModelTimeout) {
+        console.warn(`[aiExtractionClient] ${modelName} latency threshold reached.`);
+        const hasNextModel = i < modelSequence.length - 1;
+        if (hasNextModel) {
+          onStatusUpdate?.(`${modelName} timed out. Failing over to next engine...`);
+          continue;
+        } else {
+          throw new Error(`Model ${modelName} timed out and no more engines are available in pool.`);
+        }
+      }
 
-      if (isRecoverableError && i === modelSequence.length - 1 && !hasAttemptedLiveDiscovery) {
+      const errMsg = String(err?.message || '');
+      const lowerMsg = errMsg.toLowerCase();
+      const isInvalidApiKey =
+        lowerMsg.includes('api_key_invalid') ||
+        lowerMsg.includes('api key not valid') ||
+        lowerMsg.includes('unauthenticated');
+
+      if (isInvalidApiKey) {
+        throw err;
+      }
+
+      // Treat 400, 404, 429, 500, 503, unsupported model, or network errors as immediate failover triggers (<100ms)
+      if (i === modelSequence.length - 1 && !hasAttemptedLiveDiscovery) {
         hasAttemptedLiveDiscovery = true;
         onStatusUpdate?.('Discovering live Gemini models for failover...');
         const discovered = await discoverLiveGeminiModels(apiKey);
@@ -380,16 +396,14 @@ export async function extractEnquiryClientSide(
       }
 
       const hasNextModel = i < modelSequence.length - 1;
-
-      if (isRecoverableError && hasNextModel) {
-        onStatusUpdate?.(`${modelName} unavailable. Auto-failing over...`);
-        console.warn(`[aiExtractionClient] ${modelName} unavailable (${errMsg}). Auto-failing over to next model...`);
+      if (hasNextModel) {
+        onStatusUpdate?.(`${modelName} unavailable. Failing over immediately...`);
+        console.warn(`[aiExtractionClient] ${modelName} failed (${errMsg}). Failing over immediately to next model...`);
+        await new Promise((r) => setTimeout(r, 60));
         continue;
       }
 
-      if (!hasNextModel || !isRecoverableError) {
-        throw err;
-      }
+      throw err;
     } finally {
       if (modelTimeoutTimer) {
         clearTimeout(modelTimeoutTimer);

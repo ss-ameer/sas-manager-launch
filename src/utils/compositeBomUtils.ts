@@ -6,7 +6,9 @@ import { LineItem, LineItemComponent } from '../types';
  */
 export const recalculateCompositeItemTotals = (
   components: LineItemComponent[],
-  parentQty: number = 1
+  parentQty: number = 1,
+  fallbackUnitPrice?: number,
+  fallbackCostPrice?: number
 ): {
   unit_price: number;
   cost_price: number;
@@ -23,20 +25,24 @@ export const recalculateCompositeItemTotals = (
 
   let pricedSn = 1;
   const normalizedComponents: LineItemComponent[] = (components || []).map((comp) => {
-    const isAcc = Boolean(comp.is_included_accessory);
+    const rawUnitPrice = Number(comp.unit_price) || 0;
+    const isAcc = rawUnitPrice <= 0 ? true : Boolean(comp.is_included_accessory && rawUnitPrice <= 0);
     const compQty = Math.max(0, Number(comp.quantity) || 0);
-    const compUnitPrice = isAcc ? 0 : Number(comp.unit_price) || 0;
-    const compCostPrice = isAcc ? 0 : Math.max(0, Number(comp.cost_price) || 0);
+    const compUnitPrice = isAcc ? 0 : rawUnitPrice;
+    const compCostPrice = Math.max(0, Number(comp.cost_price) || 0);
     const compTotal = isAcc ? 0 : Math.round(compQty * compUnitPrice * 100) / 100;
 
     if (!isAcc) {
       totalUnitSelling += compTotal;
+    }
+    if (compCostPrice > 0) {
       totalUnitCost += compQty * compCostPrice;
     }
 
     return {
       ...comp,
       sn: isAcc ? undefined : String(pricedSn++),
+      is_included_accessory: isAcc,
       quantity: compQty,
       unit_price: compUnitPrice,
       cost_price: compCostPrice,
@@ -45,8 +51,23 @@ export const recalculateCompositeItemTotals = (
     };
   });
 
-  const roundedUnitSelling = Math.round(totalUnitSelling * 100) / 100;
-  const roundedUnitCost = Math.round(totalUnitCost * 100) / 100;
+  const computedUnitSelling = Math.round(totalUnitSelling * 100) / 100;
+  const computedUnitCost = Math.round(totalUnitCost * 100) / 100;
+
+  const roundedUnitSelling =
+    computedUnitSelling > 0
+      ? computedUnitSelling
+      : Number(fallbackUnitPrice) > 0
+      ? Math.round(Number(fallbackUnitPrice) * 100) / 100
+      : 0;
+
+  const roundedUnitCost =
+    computedUnitCost > 0
+      ? computedUnitCost
+      : Number(fallbackCostPrice) > 0
+      ? Math.round(Number(fallbackCostPrice) * 100) / 100
+      : 0;
+
   const totalPrice = Math.round(roundedUnitSelling * safeParentQty * 100) / 100;
 
   return {
@@ -350,3 +371,108 @@ export const isOptionActiveForInventoryAndBaseline = (
   // When no specific winning option is designated, Option A is the primary baseline option
   return optLower === 'option a' || optLower.startsWith('option a ') || optLower.startsWith('option a(');
 };
+
+/**
+ * Checks whether a single line inside a technical description is a section sub-heading
+ * (e.g. "MOTOR SPECIFICATIONS:-", "GEARBOX SPECIFICATIONS:", "PUMP PARAMETERS:-", "SCOPE OF SUPPLY:").
+ */
+export const isTechnicalSectionHeaderLine = (line: string): boolean => {
+  const trimmed = (line || '').trim();
+  if (!trimmed || trimmed.length > 75) return false;
+  if (/^[•\-*]\s/.test(trimmed)) return false;
+  if (trimmed.endsWith(':-') || trimmed.endsWith(':–') || trimmed.endsWith(':—')) {
+    return true;
+  }
+  if (
+    /^[A-Z0-9\s&/()._-]{3,}(?:SPECIFICATIONS|SPECS|DETAILS|PARAMETERS|DATA|SCOPE|ACCESSORIES|FEATURES|CONSTRUCTION|CONFIGURATION|STANDARDS)\s*[:\-–—]*$/i.test(
+      trimmed
+    ) &&
+    trimmed === trimmed.toUpperCase()
+  ) {
+    return true;
+  }
+  // Uppercase heading ending in colon without a value after it
+  if (/^[A-Z][A-Z0-9\s&/()._-]{2,50}:$/.test(trimmed)) {
+    return true;
+  }
+  return false;
+};
+
+/**
+ * Converts dense slash-separated technical descriptions (such as Item #9 Anoxic Tank Mixer:
+ * "Supply of Submersible Mixer... MOTOR SPECIFICATIONS - Make: PYTHON / Origin: Poland / ... GEARBOX SPECIFICATIONS - Make: ATLAS / ...")
+ * into cleanly structured multi-section headings ("MOTOR SPECIFICATIONS:-") and bulleted lines ("• Make: PYTHON").
+ */
+export const formatSlashSeparatedDescription = (rawText: string): string => {
+  if (!rawText || !rawText.trim()) return '';
+
+  let working = rawText.replace(/\r\n/g, '\n').trim();
+
+  // 1. Promote inline section headers like "MOTOR SPECIFICATIONS - " or "GEARBOX SPECIFICATIONS: " onto their own sub-heading lines
+  working = working.replace(
+    /(?:^|\.\s+|\n+|\s{2,}|\s*\/\s*)([A-Z][A-Z0-9\s&()_-]{1,42}?(?:SPECIFICATIONS|SPECS|DETAILS|PARAMETERS|DATA|SCOPE|ACCESSORIES|FEATURES|CONSTRUCTION))\s*(?::-|[-:–—]+)\s*/g,
+    (_match, heading: string) => `\n\n${heading.trim().toUpperCase()}:-\n`
+  );
+
+  // 2. Also promote any ALL-CAPS section header followed by " - " before a Key: Value pair
+  working = working.replace(
+    /(?:^|\.\s+|\n+)([A-Z][A-Z0-9\s&]{3,35})\s+[-–—]+\s+(?=[A-Za-z0-9\s()]+\s*:)/g,
+    (_match, heading: string) => `\n\n${heading.trim().toUpperCase()}:-\n`
+  );
+
+  // 3. Process line-by-line and split " / " separated technical segments into clean bullets
+  const rawLines = working.split('\n');
+  const outputLines: string[] = [];
+
+  for (const rawLine of rawLines) {
+    const line = rawLine.trim();
+    if (!line) {
+      if (outputLines.length > 0 && outputLines[outputLines.length - 1] !== '') {
+        outputLines.push('');
+      }
+      continue;
+    }
+
+    if (isTechnicalSectionHeaderLine(line)) {
+      if (outputLines.length > 0 && outputLines[outputLines.length - 1] !== '') {
+        outputLines.push('');
+      }
+      const cleanHeader = line.replace(/\s*[:\-–—]+$/, '').trim().toUpperCase();
+      outputLines.push(`${cleanHeader}:-`);
+      continue;
+    }
+
+    // If the line contains spaced slashes (" / ") or multiple Key: Value pairs separated by "/", split them
+    if (/\s+\/\s+/.test(line) || (line.split('/').length >= 3 && /:\s*[^/]+\//.test(line))) {
+      const segments = line
+        .split(/\s+\/\s+|(?<=:\s*[^/\n]{1,45})\s*\/\s*(?=[A-Z][A-Za-z0-9\s()._-]{1,28}:)/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      if (segments.length > 1) {
+        segments.forEach((seg) => {
+          // Check if the final segment has a trailing sentence that starts a new section or note
+          const cleanedSeg = seg.replace(/^[•\-*]\s*/, '').replace(/\.\s*$/, '').trim();
+          if (!cleanedSeg) return;
+          if (isTechnicalSectionHeaderLine(cleanedSeg)) {
+            if (outputLines.length > 0 && outputLines[outputLines.length - 1] !== '') {
+              outputLines.push('');
+            }
+            outputLines.push(`${cleanedSeg.replace(/\s*[:\-–—]+$/, '').toUpperCase()}:-`);
+          } else {
+            outputLines.push(`• ${cleanedSeg}`);
+          }
+        });
+        continue;
+      }
+    }
+
+    outputLines.push(line);
+  }
+
+  return outputLines
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
+

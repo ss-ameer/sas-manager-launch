@@ -102,6 +102,7 @@ import {
   buildQuotationTokenMap,
   findUnknownAtTokensInQuotation
 } from '../../utils/quotationTokenResolver';
+import { formatSlashSeparatedDescription } from '../../utils/compositeBomUtils';
 import {
   X,
   FileText,
@@ -1791,7 +1792,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
   const handleSetFontSizeScale = (scale: QuotationFontSizeScale) => {
     setFontSizeScale(scale);
-    setTableFontScale(scale === 'compact' ? 'compact' : scale === 'large' ? 'prominent' : 'standard');
+    setTableFontScale((prev) =>
+      prev === 'inherit'
+        ? 'inherit'
+        : scale === 'compact'
+        ? 'small'
+        : scale === 'large'
+        ? 'large'
+        : scale === 'comfortable'
+        ? 'medium'
+        : 'standard'
+    );
     setFooterConfig((prev) => ({ ...prev, fontSizeScale: scale }));
   };
 
@@ -1998,7 +2009,20 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     if (editingQuotation?.payment_terms != null) return editingQuotation.payment_terms;
     return '100% Advance against PI / Approved Credit';
   });
-  const [validityDays, setValidityDays] = useState<number>(30);
+  const [validityDays, setValidityDays] = useState<number>(() => {
+    if (typeof editingQuotation?.validity_days === 'number' && editingQuotation.validity_days > 0) {
+      return editingQuotation.validity_days;
+    }
+    if (editingQuotation?.created_at && editingQuotation?.valid_until) {
+      const issuedMs = Date.parse(editingQuotation.created_at);
+      const validMs = Date.parse(editingQuotation.valid_until);
+      if (!Number.isNaN(issuedMs) && !Number.isNaN(validMs)) {
+        const diffDays = Math.round((validMs - issuedMs) / (1000 * 60 * 60 * 24));
+        if (diffDays > 0 && diffDays <= 365) return diffDays;
+      }
+    }
+    return 30;
+  });
   const [customNotes, setCustomNotes] = useState<string>(() => {
     if (editingQuotation?.custom_notes != null) return editingQuotation.custom_notes;
     return editingQuotation?.applied_terms ?? '';
@@ -4006,9 +4030,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           compOverride.option_scope_notes ??
           item.option_scope_notes ??
           matchedCatalogProduct?.option_scope_notes,
-        ...(compOverride.unit_price !== undefined ? { unit_price: compOverride.unit_price } : {}),
-        ...(compOverride.cost_price !== undefined ? { cost_price: compOverride.cost_price } : {}),
-        ...(compOverride.total_price !== undefined ? { total_price: compOverride.total_price } : {}),
+        ...(compOverride.unit_price !== undefined && (compOverride.unit_price > 0 || !(Number(item.unit_price) > 0))
+          ? { unit_price: compOverride.unit_price }
+          : {}),
+        ...(compOverride.cost_price !== undefined && (compOverride.cost_price > 0 || !(Number(item.cost_price) > 0))
+          ? { cost_price: compOverride.cost_price }
+          : {}),
+        ...(compOverride.total_price !== undefined && (compOverride.total_price > 0 || !(Number(item.total_price) > 0))
+          ? { total_price: compOverride.total_price }
+          : {}),
         ...(compOverride.item_name !== undefined ? { item_name: compOverride.item_name } : {}),
         ...(compOverride.description !== undefined ? { description: compOverride.description } : {}),
         ...(compOverride.qty_ordered !== undefined
@@ -5124,12 +5154,32 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     const primarySig = {
       name: signatoryName,
       designation: signatoryTitle,
+      opening_line: footerConfig.primaryOpeningLine,
+      closing_salutation: footerConfig.primaryClosingSalutation,
+      phone_prefix: footerConfig.primaryPhonePrefix || 'Mob:',
+      phone: footerConfig.primarySignatoryPhone || '',
+      email_prefix: footerConfig.primaryEmailPrefix || 'Email:',
+      email: footerConfig.primarySignatoryEmail || '',
+      show_stamp_or_signature: footerConfig.primaryShowStampOrSignature,
       ...(signatureImageUrl ? { signature_url: signatureImageUrl } : {})
     };
     if (signatoryMode === 'dual') {
       return [
         primarySig,
-        { name: secondarySignatoryName, designation: secondarySignatoryTitle }
+        {
+          name: secondarySignatoryName,
+          designation: secondarySignatoryTitle,
+          opening_line: footerConfig.secondaryOpeningLine,
+          closing_salutation: footerConfig.secondaryClosingSalutation,
+          phone_prefix: footerConfig.secondaryPhonePrefix || 'Mob:',
+          phone: footerConfig.secondarySignatoryPhone || '',
+          email_prefix: footerConfig.secondaryEmailPrefix || 'Email:',
+          email: footerConfig.secondarySignatoryEmail || '',
+          show_stamp_or_signature: footerConfig.secondaryShowStampOrSignature,
+          ...(footerConfig.secondarySignatureImageUrl
+            ? { signature_url: footerConfig.secondarySignatureImageUrl }
+            : {})
+        }
       ];
     }
     return [primarySig];
@@ -5139,15 +5189,32 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     signatoryTitle,
     secondarySignatoryName,
     secondarySignatoryTitle,
-    signatureImageUrl
+    signatureImageUrl,
+    footerConfig.primaryOpeningLine,
+    footerConfig.primaryClosingSalutation,
+    footerConfig.primaryPhonePrefix,
+    footerConfig.primarySignatoryPhone,
+    footerConfig.primaryEmailPrefix,
+    footerConfig.primarySignatoryEmail,
+    footerConfig.primaryShowStampOrSignature,
+    footerConfig.secondaryOpeningLine,
+    footerConfig.secondaryClosingSalutation,
+    footerConfig.secondaryPhonePrefix,
+    footerConfig.secondarySignatoryPhone,
+    footerConfig.secondaryEmailPrefix,
+    footerConfig.secondarySignatoryEmail,
+    footerConfig.secondaryShowStampOrSignature,
+    footerConfig.secondarySignatureImageUrl
   ]);
 
-  // Derived validity date
+  // Derived validity date anchored to the quotation issue date (never falling back to issue date when validityDays > 0)
   const validUntilDate = useMemo(() => {
-    const d = new Date();
+    const baseIso = editingQuotation?.created_at || new Date().toISOString();
+    const baseMs = Date.parse(baseIso);
+    const d = !Number.isNaN(baseMs) ? new Date(baseMs) : new Date();
     d.setDate(d.getDate() + (Number(validityDays) || 30));
     return d.toISOString();
-  }, [validityDays]);
+  }, [validityDays, editingQuotation?.created_at]);
 
   // Combined Annexes: Explicit studio flyers + Enquiry RFQ attachments marked for Quote Annex + Line-item Datasheets
   const resolvedFlyerAttachments = useMemo(() => {
@@ -5338,6 +5405,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       grand_total: financialTotals.grand_total,
       price_basis: priceBasis,
       payment_terms: paymentTerms,
+      validity_days: validityDays,
       custom_notes: customNotes,
       applied_terms: customNotes,
       applied_bank_account: activeBankAccount,
@@ -6140,6 +6208,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         omitted_fields: omittedFields,
         auto_paginate_items: autoPaginateItems,
         created_at: editingQuotation?.created_at || new Date().toISOString(),
+        validity_days: validityDays,
         valid_until: liveQuotation.valid_until,
         currency: liveQuotation.currency
       };
@@ -7498,6 +7567,54 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             >
                               <span className="text-[10px] font-semibold leading-tight">{s.label}</span>
                               <span className={`text-[8.5px] font-mono mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>({s.pt})</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Table Font Size (Independent 5-Option Control) */}
+                    <div className="pt-2.5 border-t border-slate-100">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-slate-600 font-medium">
+                          Table Font Size
+                        </label>
+                        <span className="text-[10px] text-slate-400 font-mono capitalize">
+                          {tableFontScale === 'compact'
+                            ? 'small (8.5pt)'
+                            : tableFontScale === 'prominent'
+                            ? 'large (11.5pt)'
+                            : tableFontScale}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-5 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                        {[
+                          { id: 'inherit', label: 'Inherit', pt: 'Auto' },
+                          { id: 'small', label: 'Small', pt: '8.5pt' },
+                          { id: 'standard', label: 'Standard', pt: '9.5pt' },
+                          { id: 'medium', label: 'Medium', pt: '10.5pt' },
+                          { id: 'large', label: 'Large', pt: '11.5pt' }
+                        ].map((s) => {
+                          const normalizedCurrent =
+                            tableFontScale === 'compact'
+                              ? 'small'
+                              : tableFontScale === 'prominent'
+                              ? 'large'
+                              : tableFontScale;
+                          const isSelected = normalizedCurrent === s.id;
+                          return (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => setTableFontScale(s.id as QuotationTableFontScale)}
+                              className={`py-1.5 px-0.5 rounded-lg text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                                isSelected
+                                  ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                                  : 'hover:bg-white text-slate-600'
+                              }`}
+                            >
+                              <span className="text-[9.5px] font-semibold leading-tight">{s.label}</span>
+                              <span className={`text-[8px] font-mono mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>({s.pt})</span>
                             </button>
                           );
                         })}
@@ -10602,9 +10719,87 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     )
                                   );
                                 }}
-                                placeholder="Item Name / Description *"
+                                placeholder="Item Name / Heading *"
                                 className="w-full rounded border border-slate-300 px-2 py-1 bg-white text-slate-900 font-semibold"
                               />
+
+                              <div className="space-y-1">
+                                <div className="flex flex-wrap items-center justify-between gap-1">
+                                  <span className="text-[9.5px] font-semibold text-slate-500 uppercase tracking-wider">
+                                    Technical Description &amp; Multi-Section Specs
+                                  </span>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const cur = (li.description || '').trim();
+                                        const prefix = cur ? `${cur}\n` : '';
+                                        const nextVal = `${prefix}SECTION HEADING :-\n`;
+                                        const currentList = customStudioLineItems ?? quotationLineItems;
+                                        setCustomStudioLineItems(
+                                          currentList.map((row, rIdx) =>
+                                            rIdx === idx ? { ...row, description: nextVal } : row
+                                          )
+                                        );
+                                      }}
+                                      className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 transition cursor-pointer"
+                                      title="Insert uppercase section sub-heading (e.g. MOTOR SPECIFICATIONS :-)"
+                                    >
+                                      + Sub-Heading
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const cur = (li.description || '').trim();
+                                        const prefix = cur ? `${cur}\n` : '';
+                                        const nextVal = `${prefix}• `;
+                                        const currentList = customStudioLineItems ?? quotationLineItems;
+                                        setCustomStudioLineItems(
+                                          currentList.map((row, rIdx) =>
+                                            rIdx === idx ? { ...row, description: nextVal } : row
+                                          )
+                                        );
+                                      }}
+                                      className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 transition cursor-pointer"
+                                    >
+                                      • Bullet
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const raw = (li.description || '').trim();
+                                        if (!raw) return;
+                                        const formatted = formatSlashSeparatedDescription(raw);
+                                        const currentList = customStudioLineItems ?? quotationLineItems;
+                                        setCustomStudioLineItems(
+                                          currentList.map((row, rIdx) =>
+                                            rIdx === idx ? { ...row, description: formatted } : row
+                                          )
+                                        );
+                                      }}
+                                      className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition cursor-pointer"
+                                      title='Split "/" separated specs and sub-headings into clean lines'
+                                    >
+                                      ✨ Split &quot;/&quot; into Lines
+                                    </button>
+                                  </div>
+                                </div>
+                                <textarea
+                                  rows={Math.min(8, Math.max(2, (li.description || '').split('\n').length))}
+                                  value={li.description || ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    const currentList = customStudioLineItems ?? quotationLineItems;
+                                    setCustomStudioLineItems(
+                                      currentList.map((row, rIdx) =>
+                                        rIdx === idx ? { ...row, description: val } : row
+                                      )
+                                    );
+                                  }}
+                                  placeholder="Multi-line technical specifications (use SECTION :- for bold sub-headings)..."
+                                  className="w-full rounded border border-slate-300 px-2 py-1 bg-white text-slate-700 text-[11px] leading-relaxed resize-y"
+                                />
+                              </div>
 
                               <div className="grid grid-cols-3 gap-2">
                                 <div>
@@ -15452,40 +15647,52 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           </div>
                         </div>
 
-                        {/* 3. Table Text Size */}
+                        {/* 3. Table Font Size */}
                         <div className="pt-2 border-t border-slate-100 space-y-2">
                           <div className="flex items-center justify-between">
                             <label className="block text-slate-800 font-bold text-xs flex items-center gap-1.5">
                               <Type className="w-3.5 h-3.5 text-blue-600" />
-                              Table Text Size
+                              Table Font Size
                             </label>
                             <span className="text-[10px] font-mono text-slate-400 capitalize">
-                              {tableFontScale}
+                              {tableFontScale === 'compact'
+                                ? 'small (8.5pt)'
+                                : tableFontScale === 'prominent'
+                                ? 'large (11.5pt)'
+                                : tableFontScale}
                             </span>
                           </div>
                           <p className="text-[10.5px] text-slate-500 leading-normal">
-                            Scale font sizes specifically for descriptions, item titles, and numbers across table cells.
+                            Independently scale table headers, item titles, descriptions, technical spec attributes, sub-items, and pricing columns.
                           </p>
-                          <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                          <div className="grid grid-cols-5 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
                             {[
-                              { id: 'compact' as const, label: 'Compact', pt: '9pt' },
-                              { id: 'standard' as const, label: 'Standard', pt: '10pt' },
-                              { id: 'prominent' as const, label: 'Prominent', pt: '11pt' }
+                              { id: 'inherit' as const, label: 'Inherit', pt: 'Auto' },
+                              { id: 'small' as const, label: 'Small', pt: '8.5pt' },
+                              { id: 'standard' as const, label: 'Standard', pt: '9.5pt' },
+                              { id: 'medium' as const, label: 'Medium', pt: '10.5pt' },
+                              { id: 'large' as const, label: 'Large', pt: '11.5pt' }
                             ].map((s) => {
-                              const isSelected = tableFontScale === s.id;
+                              const normalizedCurrent =
+                                tableFontScale === 'compact'
+                                  ? 'small'
+                                  : tableFontScale === 'prominent'
+                                  ? 'large'
+                                  : tableFontScale;
+                              const isSelected = normalizedCurrent === s.id;
                               return (
                                 <button
                                   key={s.id}
                                   type="button"
                                   onClick={() => setTableFontScale(s.id)}
-                                  className={`py-2 px-1 rounded-lg text-center transition cursor-pointer flex flex-col items-center justify-center ${
+                                  className={`py-2 px-0.5 rounded-lg text-center transition cursor-pointer flex flex-col items-center justify-center ${
                                     isSelected
                                       ? 'bg-blue-600 text-white font-semibold shadow-xs'
                                       : 'hover:bg-white text-slate-600'
                                   }`}
                                 >
-                                  <span className="text-[10px] font-semibold leading-tight">{s.label}</span>
-                                  <span className={`text-[8.5px] font-mono mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>({s.pt})</span>
+                                  <span className="text-[9.5px] font-semibold leading-tight">{s.label}</span>
+                                  <span className={`text-[8px] font-mono mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>({s.pt})</span>
                                 </button>
                               );
                             })}
@@ -16186,7 +16393,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   </label>
                                 )}
 
-                                {/* Multi-Component Set / BOM & Pricing Mode Quick Controls */}
+                                {/* Included Items & Package Sub-Components Quick Controls */}
                                 <div className="pt-1 border-t border-slate-200/60 space-y-1.5">
                                   <div className="flex items-center justify-between gap-1">
                                     <button
@@ -16203,34 +16410,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       <Layers className="w-3 h-3" />
                                       <span>
                                         {Array.isArray(item.sub_components) && item.sub_components.length > 0
-                                          ? `BOM Set (${item.sub_components.length} parts)`
-                                          : '+ Configure Multi-Component Set'}
+                                          ? `Included Items (${item.sub_components.length})`
+                                          : '+ Included Items'}
                                       </span>
                                     </button>
-
-                                    {Array.isArray(item.sub_components) && item.sub_components.length > 0 && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setItemCompositeOverrides((prev) => ({
-                                            ...prev,
-                                            [itemKey]: {
-                                              ...(prev[itemKey] || {}),
-                                              package_pricing_mode:
-                                                item.package_pricing_mode === 'lump_sum'
-                                                  ? 'itemized'
-                                                  : 'lump_sum'
-                                            }
-                                          }))
-                                        }
-                                        className="px-2 py-0.5 rounded-md bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-[9.5px] font-semibold cursor-pointer"
-                                        title="Toggle between showing individual component prices vs a single package lump-sum price"
-                                      >
-                                        {item.package_pricing_mode === 'lump_sum'
-                                          ? 'Mode: Lump-Sum Set'
-                                          : 'Mode: Itemized Rates'}
-                                      </button>
-                                    )}
                                   </div>
 
                                   {expandedCompositeKey === itemKey && (
@@ -16242,7 +16425,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                             (item.sub_components && item.sub_components.length > 0)
                                         )}
                                         subComponents={item.sub_components || []}
-                                        packagePricingMode={item.package_pricing_mode || 'itemized'}
+                                        packagePricingMode={item.package_pricing_mode || 'lump_sum'}
                                         optionScopeNotes={item.option_scope_notes || ''}
                                         parentQuantity={item.quantity || 1}
                                         currency={(enquiry?.currency as string) || 'USD'}
@@ -16250,13 +16433,21 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         activeWorkspace={activeWorkspace}
                                         tokenContext={studioTokenContext}
                                         onChange={(patch) =>
-                                          setItemCompositeOverrides((prev) => ({
-                                            ...prev,
-                                            [itemKey]: {
-                                              ...(prev[itemKey] || {}),
-                                              ...patch
+                                          setItemCompositeOverrides((prev) => {
+                                            const existing = prev[itemKey] || {};
+                                            const cleanedPatch = { ...patch };
+                                            if (cleanedPatch.unit_price === 0 && (Number(item.unit_price) > 0 || Number(existing.unit_price) > 0)) {
+                                              delete cleanedPatch.unit_price;
+                                              delete cleanedPatch.total_price;
                                             }
-                                          }))
+                                            return {
+                                              ...prev,
+                                              [itemKey]: {
+                                                ...existing,
+                                                ...cleanedPatch
+                                              }
+                                            };
+                                          })
                                         }
                                       />
                                     </div>
@@ -19617,16 +19808,202 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               {/* Signatory Block Specific Options */}
                           {selectedBlock.id === 'signatory' && (
                             <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-3">
-                              {/* Direct Signatory Mode & Primary/Secondary Identity Editor */}
-                              <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-2">
+                              {/* Quick Signatory Presets Bar */}
+                              <div className="p-2.5 rounded-lg bg-indigo-50/70 border border-indigo-200/80 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10.5px] font-bold text-indigo-950 uppercase tracking-wider">
+                                    Quick Signatory Presets
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const presetPayload = {
+                                        signatoryType,
+                                        signatoryMode,
+                                        signatoryName,
+                                        signatoryTitle,
+                                        secondarySignatoryName,
+                                        secondarySignatoryTitle,
+                                        showCompanySeal,
+                                        signatoryColumnGap: footerConfig.signatoryColumnGap || 'standard',
+                                        primaryOpeningLine: footerConfig.primaryOpeningLine ?? '',
+                                        primaryClosingSalutation: footerConfig.primaryClosingSalutation ?? '',
+                                        primaryPhonePrefix: footerConfig.primaryPhonePrefix || 'Mob:',
+                                        primarySignatoryPhone: footerConfig.primarySignatoryPhone || '',
+                                        primaryEmailPrefix: footerConfig.primaryEmailPrefix || 'Email:',
+                                        primarySignatoryEmail: footerConfig.primarySignatoryEmail || '',
+                                        primaryShowStampOrSignature: footerConfig.primaryShowStampOrSignature,
+                                        secondaryOpeningLine: footerConfig.secondaryOpeningLine ?? '',
+                                        secondaryClosingSalutation: footerConfig.secondaryClosingSalutation ?? '',
+                                        secondaryPhonePrefix: footerConfig.secondaryPhonePrefix || 'Mob:',
+                                        secondarySignatoryPhone: footerConfig.secondarySignatoryPhone || '',
+                                        secondaryEmailPrefix: footerConfig.secondaryEmailPrefix || 'Email:',
+                                        secondarySignatoryEmail: footerConfig.secondarySignatoryEmail || '',
+                                        secondaryShowStampOrSignature: footerConfig.secondaryShowStampOrSignature
+                                      };
+                                      try {
+                                        localStorage.setItem(
+                                          `aventura_signatory_preset_${activeWorkspaceId || 'default'}`,
+                                          JSON.stringify(presetPayload)
+                                        );
+                                        triggerToast?.('Saved current Signatory layout as your custom preset', 'success');
+                                      } catch {
+                                        // ignore storage errors
+                                      }
+                                    }}
+                                    className="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-700 text-white text-[9.5px] font-semibold transition cursor-pointer shadow-2xs"
+                                    title="Save current 1-column or 2-column signatory configuration for 1-click reuse"
+                                  >
+                                    Save Current as Preset
+                                  </button>
+                                </div>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSignatoryType('dual');
+                                      setSignatoryMode('dual');
+                                      setShowCompanySeal(false);
+                                      if (!signatoryName || signatoryName === 'Syed Sibuma') {
+                                        setSignatoryName('M.Shihab');
+                                      }
+                                      if (!signatoryTitle || signatoryTitle === 'Account Manager') {
+                                        setSignatoryTitle('Export Sales Manager');
+                                      }
+                                      if (!secondarySignatoryName || secondarySignatoryName === 'Authorized Director') {
+                                        setSecondarySignatoryName('Nitin Srivastava');
+                                      }
+                                      if (!secondarySignatoryTitle || secondarySignatoryTitle === 'Commercial Approver') {
+                                        setSecondarySignatoryTitle('Operations Manager');
+                                      }
+                                      setFooterConfig((prev) => ({
+                                        ...prev,
+                                        signatoryColumnGap: 'wide',
+                                        primaryOpeningLine: prev.primaryOpeningLine || 'Thanking you.',
+                                        primaryClosingSalutation: prev.primaryClosingSalutation || 'Yours Sincerely,',
+                                        primaryPhonePrefix: prev.primaryPhonePrefix || 'Mob:',
+                                        primarySignatoryPhone: prev.primarySignatoryPhone || '+971 58 692 6816',
+                                        primaryEmailPrefix: prev.primaryEmailPrefix || 'Email:',
+                                        primarySignatoryEmail: prev.primarySignatoryEmail || 'sales@aventuracomponents.com',
+                                        primaryShowStampOrSignature: false,
+                                        secondaryOpeningLine: prev.secondaryOpeningLine || 'Thank You.',
+                                        secondaryClosingSalutation: prev.secondaryClosingSalutation || 'Yours Sincerely,',
+                                        secondaryPhonePrefix: prev.secondaryPhonePrefix || 'Mob:',
+                                        secondarySignatoryPhone: prev.secondarySignatoryPhone || '+971 55 408 2500',
+                                        secondaryEmailPrefix: prev.secondaryEmailPrefix || 'Email:',
+                                        secondarySignatoryEmail: prev.secondarySignatoryEmail || 'info@aventuracomponents.com',
+                                        secondaryShowStampOrSignature: false
+                                      }));
+                                      triggerToast?.('Applied Dual Executive (Text-Only) side-by-side signatory preset', 'success');
+                                    }}
+                                    className="px-2 py-1.5 rounded-md bg-white hover:bg-indigo-50 text-indigo-900 border border-indigo-200 text-[10px] font-semibold text-left transition cursor-pointer shadow-2xs"
+                                  >
+                                    <span className="block font-bold">✨ Dual Executive (Text-Only)</span>
+                                    <span className="block text-[9px] text-slate-500">2-Col • Compact • No Stamp Box</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSignatoryType('single');
+                                      setSignatoryMode('single');
+                                      setShowCompanySeal(true);
+                                      setFooterConfig((prev) => ({
+                                        ...prev,
+                                        primaryOpeningLine: prev.primaryOpeningLine ?? '',
+                                        primaryClosingSalutation:
+                                          prev.primaryClosingSalutation ||
+                                          `For ${
+                                            activeProfile?.legal_entity_name ||
+                                            (activeProfile as any)?.company_name ||
+                                            activeWorkspace?.name ||
+                                            'Aventura Components (FZE)'
+                                          }`,
+                                        primaryShowStampOrSignature: true
+                                      }));
+                                      triggerToast?.('Applied Single Signatory (Stamped) layout', 'success');
+                                    }}
+                                    className="px-2 py-1.5 rounded-md bg-white hover:bg-indigo-50 text-slate-800 border border-slate-200 text-[10px] font-semibold text-left transition cursor-pointer shadow-2xs"
+                                  >
+                                    <span className="block font-bold">🏛️ Single Signatory (Stamped)</span>
+                                    <span className="block text-[9px] text-slate-500">1-Col • Official Seal &amp; Sign</span>
+                                  </button>
+                                </div>
+                                {(() => {
+                                  try {
+                                    const rawSaved = localStorage.getItem(
+                                      `aventura_signatory_preset_${activeWorkspaceId || 'default'}`
+                                    );
+                                    if (!rawSaved) return null;
+                                    const saved = JSON.parse(rawSaved);
+                                    return (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (saved.signatoryType) setSignatoryType(saved.signatoryType);
+                                          if (saved.signatoryMode) setSignatoryMode(saved.signatoryMode);
+                                          if (saved.signatoryName !== undefined) setSignatoryName(saved.signatoryName);
+                                          if (saved.signatoryTitle !== undefined) setSignatoryTitle(saved.signatoryTitle);
+                                          if (saved.secondarySignatoryName !== undefined)
+                                            setSecondarySignatoryName(saved.secondarySignatoryName);
+                                          if (saved.secondarySignatoryTitle !== undefined)
+                                            setSecondarySignatoryTitle(saved.secondarySignatoryTitle);
+                                          if (typeof saved.showCompanySeal === 'boolean')
+                                            setShowCompanySeal(saved.showCompanySeal);
+                                          setFooterConfig((prev) => ({
+                                            ...prev,
+                                            signatoryColumnGap: saved.signatoryColumnGap || prev.signatoryColumnGap,
+                                            primaryOpeningLine: saved.primaryOpeningLine ?? prev.primaryOpeningLine,
+                                            primaryClosingSalutation:
+                                              saved.primaryClosingSalutation ?? prev.primaryClosingSalutation,
+                                            primaryPhonePrefix: saved.primaryPhonePrefix || prev.primaryPhonePrefix,
+                                            primarySignatoryPhone:
+                                              saved.primarySignatoryPhone ?? prev.primarySignatoryPhone,
+                                            primaryEmailPrefix: saved.primaryEmailPrefix || prev.primaryEmailPrefix,
+                                            primarySignatoryEmail:
+                                              saved.primarySignatoryEmail ?? prev.primarySignatoryEmail,
+                                            primaryShowStampOrSignature:
+                                              saved.primaryShowStampOrSignature ?? prev.primaryShowStampOrSignature,
+                                            secondaryOpeningLine:
+                                              saved.secondaryOpeningLine ?? prev.secondaryOpeningLine,
+                                            secondaryClosingSalutation:
+                                              saved.secondaryClosingSalutation ?? prev.secondaryClosingSalutation,
+                                            secondaryPhonePrefix:
+                                              saved.secondaryPhonePrefix || prev.secondaryPhonePrefix,
+                                            secondarySignatoryPhone:
+                                              saved.secondarySignatoryPhone ?? prev.secondarySignatoryPhone,
+                                            secondaryEmailPrefix:
+                                              saved.secondaryEmailPrefix || prev.secondaryEmailPrefix,
+                                            secondarySignatoryEmail:
+                                              saved.secondarySignatoryEmail ?? prev.secondarySignatoryEmail,
+                                            secondaryShowStampOrSignature:
+                                              saved.secondaryShowStampOrSignature ?? prev.secondaryShowStampOrSignature
+                                          }));
+                                          triggerToast?.('Loaded your saved Custom Signatory Preset', 'success');
+                                        }}
+                                        className="w-full py-1 px-2 rounded bg-indigo-100/80 hover:bg-indigo-200/70 text-indigo-800 text-[10px] font-semibold transition cursor-pointer text-center"
+                                      >
+                                        Load My Saved Signatory Preset ({saved.signatoryName || 'Primary'}
+                                        {saved.signatoryType === 'dual' && saved.secondarySignatoryName
+                                          ? ` + ${saved.secondarySignatoryName}`
+                                          : ''})
+                                      </button>
+                                    );
+                                  } catch {
+                                    return null;
+                                  }
+                                })()}
+                              </div>
+
+                              {/* 1-Column vs 2-Column Layout & Column Gap */}
+                              <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-2.5">
                                 <div className="flex items-center justify-between">
                                   <span className="text-[11px] font-bold text-slate-800">
-                                    Signatory Identity &amp; Mode
+                                    Layout Columns
                                   </span>
                                   <div className="grid grid-cols-2 gap-1 bg-slate-100 p-0.5 rounded-md">
                                     {[
-                                      { id: 'single' as const, label: 'Single' },
-                                      { id: 'dual' as const, label: 'Dual (2)' }
+                                      { id: 'single' as const, label: '1-Col (Single)' },
+                                      { id: 'dual' as const, label: '2-Col (Side-by-Side)' }
                                     ].map((m) => {
                                       const active = signatoryType === m.id;
                                       return (
@@ -19650,58 +20027,367 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   </div>
                                 </div>
 
-                                <div className="grid grid-cols-1 gap-2">
-                                  <div>
-                                    <label className="block text-[9.5px] font-semibold text-slate-500 mb-0.5">
-                                      Primary Signatory Name
-                                    </label>
-                                    <input
-                                      type="text"
-                                      value={signatoryName}
-                                      onChange={(e) => setSignatoryName(e.target.value)}
-                                      placeholder="Full Name"
-                                      className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] text-slate-800"
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="block text-[9.5px] font-semibold text-slate-500 mb-0.5">
-                                      Primary Title / Role
-                                    </label>
-                                    <input
-                                      type="text"
-                                      value={signatoryTitle}
-                                      onChange={(e) => setSignatoryTitle(e.target.value)}
-                                      placeholder="Account Manager"
-                                      className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] text-slate-800"
-                                    />
-                                  </div>
-                                </div>
-
                                 {signatoryType === 'dual' && (
-                                  <div className="grid grid-cols-1 gap-2 pt-1.5 border-t border-slate-100">
+                                  <div className="flex items-center justify-between pt-1.5 border-t border-slate-100">
+                                    <span className="text-[10px] font-semibold text-slate-600">
+                                      2-Column Spacing Gap
+                                    </span>
+                                    <div className="grid grid-cols-3 gap-1 bg-slate-100 p-0.5 rounded-md">
+                                      {[
+                                        { id: 'compact' as const, label: 'Compact' },
+                                        { id: 'standard' as const, label: 'Standard' },
+                                        { id: 'wide' as const, label: 'Wide' }
+                                      ].map((g) => {
+                                        const curGap = footerConfig.signatoryColumnGap || 'standard';
+                                        const isGapSelected = curGap === g.id;
+                                        return (
+                                          <button
+                                            key={g.id}
+                                            type="button"
+                                            onClick={() =>
+                                              setFooterConfig((prev) => ({
+                                                ...prev,
+                                                signatoryColumnGap: g.id
+                                              }))
+                                            }
+                                            className={`px-2 py-0.5 rounded text-[9px] font-semibold transition cursor-pointer ${
+                                              isGapSelected
+                                                ? 'bg-blue-600 text-white shadow-2xs'
+                                                : 'text-slate-600 hover:text-slate-900'
+                                            }`}
+                                          >
+                                            {g.label}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Primary / Left Signatory #1 Card */}
+                                <div className="p-2 rounded-lg bg-slate-50 border border-slate-200/80 space-y-2">
+                                  <div className="flex items-center justify-between border-b border-slate-200/70 pb-1.5">
+                                    <span className="text-[10.5px] font-bold text-slate-800">
+                                      {signatoryType === 'dual' ? 'Signatory #1 (Left Column)' : 'Primary Signatory'}
+                                    </span>
+                                    <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={footerConfig.primaryShowStampOrSignature !== false}
+                                        onChange={(e) =>
+                                          setFooterConfig((prev) => ({
+                                            ...prev,
+                                            primaryShowStampOrSignature: e.target.checked
+                                          }))
+                                        }
+                                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                                      />
+                                      <span className="text-[9.5px] font-semibold text-slate-600">
+                                        Show Stamp / Sign Space
+                                      </span>
+                                    </label>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-1.5">
                                     <div>
-                                      <label className="block text-[9.5px] font-semibold text-slate-500 mb-0.5">
-                                        Secondary Signatory Name
+                                      <label className="block text-[9px] font-semibold text-slate-500 mb-0.5">
+                                        Opening Line (Optional)
                                       </label>
                                       <input
                                         type="text"
-                                        value={secondarySignatoryName}
-                                        onChange={(e) => setSecondarySignatoryName(e.target.value)}
-                                        placeholder="Authorized Director"
-                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] text-slate-800"
+                                        value={footerConfig.primaryOpeningLine ?? ''}
+                                        onChange={(e) =>
+                                          setFooterConfig((prev) => ({
+                                            ...prev,
+                                            primaryOpeningLine: e.target.value
+                                          }))
+                                        }
+                                        placeholder="e.g. Thanking you."
+                                        className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[10.5px] text-slate-800"
                                       />
                                     </div>
                                     <div>
-                                      <label className="block text-[9.5px] font-semibold text-slate-500 mb-0.5">
-                                        Secondary Title / Role
+                                      <label className="block text-[9px] font-semibold text-slate-500 mb-0.5">
+                                        Closing Salutation
                                       </label>
                                       <input
                                         type="text"
-                                        value={secondarySignatoryTitle}
-                                        onChange={(e) => setSecondarySignatoryTitle(e.target.value)}
-                                        placeholder="Commercial Approver"
-                                        className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] text-slate-800"
+                                        value={footerConfig.primaryClosingSalutation ?? ''}
+                                        onChange={(e) =>
+                                          setFooterConfig((prev) => ({
+                                            ...prev,
+                                            primaryClosingSalutation: e.target.value
+                                          }))
+                                        }
+                                        placeholder="e.g. Yours Sincerely,"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[10.5px] text-slate-800"
                                       />
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <div>
+                                      <label className="block text-[9px] font-semibold text-slate-500 mb-0.5">
+                                        Signatory Name (Bold)
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={signatoryName}
+                                        onChange={(e) => setSignatoryName(e.target.value)}
+                                        placeholder="e.g. M.Shihab"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[10.5px] font-semibold text-slate-900"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9px] font-semibold text-slate-500 mb-0.5">
+                                        Designation / Title
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={signatoryTitle}
+                                        onChange={(e) => setSignatoryTitle(e.target.value)}
+                                        placeholder="e.g. Export Sales Manager"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[10.5px] text-slate-800"
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-3 gap-1.5">
+                                    <div>
+                                      <label className="block text-[9px] font-semibold text-slate-500 mb-0.5">
+                                        Phone Prefix
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={footerConfig.primaryPhonePrefix ?? 'Mob:'}
+                                        onChange={(e) =>
+                                          setFooterConfig((prev) => ({
+                                            ...prev,
+                                            primaryPhonePrefix: e.target.value
+                                          }))
+                                        }
+                                        placeholder="Mob:"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[10.5px] text-slate-800"
+                                      />
+                                    </div>
+                                    <div className="col-span-2">
+                                      <label className="block text-[9px] font-semibold text-slate-500 mb-0.5">
+                                        Mobile / Phone Number
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={footerConfig.primarySignatoryPhone ?? ''}
+                                        onChange={(e) =>
+                                          setFooterConfig((prev) => ({
+                                            ...prev,
+                                            primarySignatoryPhone: e.target.value
+                                          }))
+                                        }
+                                        placeholder="+971 58 692 6816"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[10.5px] text-slate-800"
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-3 gap-1.5">
+                                    <div>
+                                      <label className="block text-[9px] font-semibold text-slate-500 mb-0.5">
+                                        Email Prefix
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={footerConfig.primaryEmailPrefix ?? 'Email:'}
+                                        onChange={(e) =>
+                                          setFooterConfig((prev) => ({
+                                            ...prev,
+                                            primaryEmailPrefix: e.target.value
+                                          }))
+                                        }
+                                        placeholder="Email:"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[10.5px] text-slate-800"
+                                      />
+                                    </div>
+                                    <div className="col-span-2">
+                                      <label className="block text-[9px] font-semibold text-slate-500 mb-0.5">
+                                        Email Address (Blue Link)
+                                      </label>
+                                      <input
+                                        type="email"
+                                        value={footerConfig.primarySignatoryEmail ?? ''}
+                                        onChange={(e) =>
+                                          setFooterConfig((prev) => ({
+                                            ...prev,
+                                            primarySignatoryEmail: e.target.value
+                                          }))
+                                        }
+                                        placeholder="sales@aventuracomponents.com"
+                                        className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[10.5px] text-blue-700"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Secondary / Right Signatory #2 Card */}
+                                {signatoryType === 'dual' && (
+                                  <div className="p-2 rounded-lg bg-slate-50 border border-slate-200/80 space-y-2">
+                                    <div className="flex items-center justify-between border-b border-slate-200/70 pb-1.5">
+                                      <span className="text-[10.5px] font-bold text-slate-800">
+                                        Signatory #2 (Right Column)
+                                      </span>
+                                      <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                                        <input
+                                          type="checkbox"
+                                          checked={footerConfig.secondaryShowStampOrSignature !== false}
+                                          onChange={(e) =>
+                                            setFooterConfig((prev) => ({
+                                              ...prev,
+                                              secondaryShowStampOrSignature: e.target.checked
+                                            }))
+                                          }
+                                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                                        />
+                                        <span className="text-[9.5px] font-semibold text-slate-600">
+                                          Show Stamp / Sign Space
+                                        </span>
+                                      </label>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-1.5">
+                                      <div>
+                                        <label className="block text-[9px] font-semibold text-slate-500 mb-0.5">
+                                          Opening Line (Optional)
+                                        </label>
+                                        <input
+                                          type="text"
+                                          value={footerConfig.secondaryOpeningLine ?? ''}
+                                          onChange={(e) =>
+                                            setFooterConfig((prev) => ({
+                                              ...prev,
+                                              secondaryOpeningLine: e.target.value
+                                            }))
+                                          }
+                                          placeholder="e.g. Thank You."
+                                          className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[10.5px] text-slate-800"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-[9px] font-semibold text-slate-500 mb-0.5">
+                                          Closing Salutation
+                                        </label>
+                                        <input
+                                          type="text"
+                                          value={footerConfig.secondaryClosingSalutation ?? ''}
+                                          onChange={(e) =>
+                                            setFooterConfig((prev) => ({
+                                              ...prev,
+                                              secondaryClosingSalutation: e.target.value
+                                            }))
+                                          }
+                                          placeholder="e.g. Yours Sincerely,"
+                                          className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[10.5px] text-slate-800"
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-1.5">
+                                      <div>
+                                        <label className="block text-[9px] font-semibold text-slate-500 mb-0.5">
+                                          Signatory Name (Bold)
+                                        </label>
+                                        <input
+                                          type="text"
+                                          value={secondarySignatoryName}
+                                          onChange={(e) => setSecondarySignatoryName(e.target.value)}
+                                          placeholder="e.g. Nitin Srivastava"
+                                          className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[10.5px] font-semibold text-slate-900"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-[9px] font-semibold text-slate-500 mb-0.5">
+                                          Designation / Title
+                                        </label>
+                                        <input
+                                          type="text"
+                                          value={secondarySignatoryTitle}
+                                          onChange={(e) => setSecondarySignatoryTitle(e.target.value)}
+                                          placeholder="e.g. Operations Manager"
+                                          className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[10.5px] text-slate-800"
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-1.5">
+                                      <div>
+                                        <label className="block text-[9px] font-semibold text-slate-500 mb-0.5">
+                                          Phone Prefix
+                                        </label>
+                                        <input
+                                          type="text"
+                                          value={footerConfig.secondaryPhonePrefix ?? 'Mob:'}
+                                          onChange={(e) =>
+                                            setFooterConfig((prev) => ({
+                                              ...prev,
+                                              secondaryPhonePrefix: e.target.value
+                                            }))
+                                          }
+                                          placeholder="Mob:"
+                                          className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[10.5px] text-slate-800"
+                                        />
+                                      </div>
+                                      <div className="col-span-2">
+                                        <label className="block text-[9px] font-semibold text-slate-500 mb-0.5">
+                                          Mobile / Phone Number
+                                        </label>
+                                        <input
+                                          type="text"
+                                          value={footerConfig.secondarySignatoryPhone ?? ''}
+                                          onChange={(e) =>
+                                            setFooterConfig((prev) => ({
+                                              ...prev,
+                                              secondarySignatoryPhone: e.target.value
+                                            }))
+                                          }
+                                          placeholder="+971 55 408 2500"
+                                          className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[10.5px] text-slate-800"
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-1.5">
+                                      <div>
+                                        <label className="block text-[9px] font-semibold text-slate-500 mb-0.5">
+                                          Email Prefix
+                                        </label>
+                                        <input
+                                          type="text"
+                                          value={footerConfig.secondaryEmailPrefix ?? 'Email:'}
+                                          onChange={(e) =>
+                                            setFooterConfig((prev) => ({
+                                              ...prev,
+                                              secondaryEmailPrefix: e.target.value
+                                            }))
+                                          }
+                                          placeholder="Email:"
+                                          className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[10.5px] text-slate-800"
+                                        />
+                                      </div>
+                                      <div className="col-span-2">
+                                        <label className="block text-[9px] font-semibold text-slate-500 mb-0.5">
+                                          Email Address (Blue Link)
+                                        </label>
+                                        <input
+                                          type="email"
+                                          value={footerConfig.secondarySignatoryEmail ?? ''}
+                                          onChange={(e) =>
+                                            setFooterConfig((prev) => ({
+                                              ...prev,
+                                              secondarySignatoryEmail: e.target.value
+                                            }))
+                                          }
+                                          placeholder="info@aventuracomponents.com"
+                                          className="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[10.5px] text-blue-700"
+                                        />
+                                      </div>
                                     </div>
                                   </div>
                                 )}
@@ -19713,7 +20399,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     Show Company Seal / Stamp
                                   </span>
                                   <span className="text-[10.5px] text-slate-500">
-                                    Render official stamp image or dashed seal box inside signatory card
+                                    Render official stamp image or dashed seal box when Stamp Space is enabled above
                                   </span>
                                 </div>
                                 <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-2">
@@ -23408,8 +24094,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   )}
 
                                   {/* Block Name */}
-                                  <div>
-                                    <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                                  <div className="space-y-1.5">
+                                    <label className="block text-[10px] font-semibold text-slate-600">
                                       Block Name (Inspector Label)
                                     </label>
                                     <input
@@ -23421,6 +24107,24 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       placeholder="Custom Block Title"
                                       className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-800"
                                     />
+                                    <label className="flex items-center justify-between gap-2 pt-1 cursor-pointer select-none">
+                                      <span className="text-[10px] text-slate-500 leading-tight">
+                                        Show Block Container Header on Document
+                                        <span className="block text-[9px] text-slate-400">
+                                          Off by default when using #1 • HEADING piece inside block
+                                        </span>
+                                      </span>
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedBlock.showContainerHeader === true}
+                                        onChange={(e) =>
+                                          handleUpdateBlockConfig(selectedBlock.id, {
+                                            showContainerHeader: e.target.checked
+                                          })
+                                        }
+                                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5 shrink-0"
+                                      />
+                                    </label>
                                   </div>
 
                                   {/* Box Style Override */}

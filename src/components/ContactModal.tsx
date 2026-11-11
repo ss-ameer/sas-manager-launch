@@ -559,6 +559,7 @@ export default function ContactModal({
       className="fixed inset-0 z-[110] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-150"
       onClick={(e) => {
         e.stopPropagation();
+        if (isSaving || fullName.trim()) return;
         onClose();
       }}
     >

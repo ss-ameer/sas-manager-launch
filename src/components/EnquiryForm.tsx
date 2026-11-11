@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
 import {
   prepareAttachmentsForSave,
@@ -30,7 +30,7 @@ import { findDuplicateCompany } from '../utils/fuzzyMatch';
 import { extractEnquiryClientSide, AVAILABLE_GEMINI_MODELS } from '../utils/aiExtractionClient';
 import { getUserWorkspaceRole, canEditEnquiry } from '../utils/permissions';
 import CompositePackageEditor from './quotations/CompositePackageEditor';
-import { cloneLineItemToNextOption, recalculateCompositeItemTotals } from '../utils/compositeBomUtils';
+import { cloneLineItemToNextOption, recalculateCompositeItemTotals, formatSlashSeparatedDescription } from '../utils/compositeBomUtils';
 import { ImageLightboxModal } from './common/ImageLightboxModal';
 import {
   FileText,
@@ -1210,10 +1210,51 @@ export default function EnquiryForm({
     if (AVAILABLE_GEMINI_MODELS.some((m) => m.id === saved)) return saved;
     return 'auto';
   });
+  const [aiScanMode, setAiScanMode] = useState<'fast' | 'deep'>('fast');
+  const [extractionElapsedSec, setExtractionElapsedSec] = useState<number>(0);
+  const extractionAbortRef = useRef<AbortController | null>(null);
+  const userStoppedExtractionRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (!isExtracting) {
+      setExtractionElapsedSec(0);
+      return;
+    }
+    setExtractionElapsedSec(0);
+    const intervalId = setInterval(() => {
+      setExtractionElapsedSec((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(intervalId);
+  }, [isExtracting]);
+
+  const handleStopExtraction = () => {
+    userStoppedExtractionRef.current = true;
+    if (extractionAbortRef.current) {
+      try {
+        extractionAbortRef.current.abort();
+      } catch {
+        // ignore
+      }
+      extractionAbortRef.current = null;
+    }
+    setIsExtracting(false);
+    setExtractionStatusText('');
+    setExtractionError(null);
+    if (triggerToast) {
+      triggerToast('AI Autofill stopped — source file kept attached', 'info');
+    }
+  };
 
   // Revoke cached blob object URLs on unmount to prevent memory leaks
   useEffect(() => {
     return () => {
+      if (extractionAbortRef.current) {
+        try {
+          extractionAbortRef.current.abort();
+        } catch {
+          // ignore
+        }
+      }
       dataUrlBlobCache.forEach((blobUrl) => {
         try {
           URL.revokeObjectURL(blobUrl);
@@ -2257,17 +2298,19 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         const next = [...prev];
         const current = next[linkingLineIndex];
         const qty = Number(current.quantity) || 1;
-        const bomRollup = clonedSubComponents ? recalculateCompositeItemTotals(clonedSubComponents, qty) : null;
-        const resolvedUnitPrice = bomRollup
-          ? bomRollup.unitSellingPrice
-          : current.unit_price > 0
-          ? current.unit_price
-          : price;
-        const resolvedCostPrice = bomRollup
-          ? bomRollup.unitCostPrice
-          : current.cost_price && current.cost_price > 0
-          ? current.cost_price
-          : costPrice;
+        const fallbackSelling = current.unit_price > 0 ? current.unit_price : price;
+        const fallbackCost = current.cost_price && current.cost_price > 0 ? current.cost_price : costPrice;
+        const bomRollup = clonedSubComponents
+          ? recalculateCompositeItemTotals(clonedSubComponents, qty, fallbackSelling, fallbackCost)
+          : null;
+        const resolvedUnitPrice =
+          bomRollup && bomRollup.unitSellingPrice > 0
+            ? bomRollup.unitSellingPrice
+            : fallbackSelling;
+        const resolvedCostPrice =
+          bomRollup && bomRollup.unitCostPrice > 0
+            ? bomRollup.unitCostPrice
+            : fallbackCost;
 
         next[linkingLineIndex] = {
           ...current,
@@ -2279,7 +2322,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           unit: item.unit || current.unit,
           unit_price: resolvedUnitPrice,
           cost_price: resolvedCostPrice,
-          total_price: bomRollup ? bomRollup.totalSellingPrice : qty * resolvedUnitPrice,
+          total_price: Math.round(qty * resolvedUnitPrice * 100) / 100,
           brand_make: item.brand_make || current.brand_make,
           model_part_no: item.model_part_no || current.model_part_no,
           country_of_origin: item.country_of_origin || current.country_of_origin,
@@ -2308,7 +2351,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       setLinkingLineIndex(null);
     } else {
       // Default append behavior
-      const bomRollup = clonedSubComponents ? recalculateCompositeItemTotals(clonedSubComponents, 1) : null;
+      const bomRollup = clonedSubComponents
+        ? recalculateCompositeItemTotals(clonedSubComponents, 1, price, costPrice)
+        : null;
+      const resolvedNewUnitPrice =
+        bomRollup && bomRollup.unitSellingPrice > 0 ? bomRollup.unitSellingPrice : price;
+      const resolvedNewCostPrice =
+        bomRollup && bomRollup.unitCostPrice > 0 ? bomRollup.unitCostPrice : costPrice;
       const newItem: LineItem = {
         product_id: item.id || undefined,
         sku: item.sku || undefined,
@@ -2318,9 +2367,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         description: item.description,
         quantity: 1,
         unit: item.unit,
-        unit_price: bomRollup ? bomRollup.unitSellingPrice : price,
-        cost_price: bomRollup ? bomRollup.unitCostPrice : costPrice,
-        total_price: bomRollup ? bomRollup.totalSellingPrice : price,
+        unit_price: resolvedNewUnitPrice,
+        cost_price: resolvedNewCostPrice,
+        total_price: resolvedNewUnitPrice,
         brand_make: item.brand_make || undefined,
         model_part_no: item.model_part_no || undefined,
         country_of_origin: item.country_of_origin || undefined,
@@ -3257,7 +3306,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             id: sub.id || `sub_${Date.now()}_${sIdx + 1}`,
             sn: String(sIdx + 1),
             item_name: String(sub.item_name || sub.name || '').trim(),
-            remark: String(sub.remark || '').trim(),
+            remark: String(sub.remark || sub.technical_Highlight || '').trim(),
             quantity: Number(sub.quantity) || 1,
             unit: String(sub.unit || 'Nos').trim(),
             cost_price: Number(sub.cost_price) || 0,
@@ -3267,6 +3316,29 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             is_included_accessory: (Number(sub.unit_price) || 0) <= 0
           }))
           .filter((sub: any) => Boolean(sub.item_name));
+
+        // Fallback: if AI left sub_components empty, scan description for "2 x ..." / "1 x ..." included lines
+        if (extractedSubs.length === 0 && rawDesc) {
+          const descLines = String(rawDesc).split(/\r?\n/);
+          descLines.forEach((line, lIdx) => {
+            const m = line.trim().match(/^(\d+)\s*[xX]\s+(.+)$/);
+            if (m && m[2]) {
+              extractedSubs.push({
+                id: `sub_${Date.now()}_${lIdx + 1}`,
+                sn: String(extractedSubs.length + 1),
+                item_name: m[2].trim(),
+                remark: '',
+                quantity: Number(m[1]) || 1,
+                unit: 'Nos',
+                cost_price: 0,
+                unit_price: 0,
+                total_price: 0,
+                line_total: 0,
+                is_included_accessory: true
+              });
+            }
+          });
+        }
 
         // Remove legacy duplicate Row #1 if it just repeats the parent title with 0 price
         if (
@@ -3561,21 +3633,28 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       }
     }
 
+    if (extractionAbortRef.current) {
+      try {
+        extractionAbortRef.current.abort();
+      } catch {
+        // ignore
+      }
+    }
+    userStoppedExtractionRef.current = false;
     setIsExtracting(true);
     setExtractionStatusText('Refining extracted fields with AI...');
     const startTime = Date.now();
 
-    // 75 second safety timeout for text AI refinement so it never freezes
+    // 180 second safety timeout for text AI refinement
     const textController = new AbortController();
+    extractionAbortRef.current = textController;
     const textTimeoutId = setTimeout(() => {
       textController.abort();
-    }, 75000);
+    }, 180000);
 
     try {
-      const simGeminiHeader = localStorage.getItem('omni_sim_gemini_out_of_tokens') === 'true' ? 'true' : 'false';
-      const simLatencyHeader = localStorage.getItem('omni_sim_latency_ms') || '0';
       const userGeminiKey = localStorage.getItem('omni_user_gemini_api_key') || '';
-      const preferredModel = selectedAiModel === 'auto' ? 'gemini-3.8-flash' : selectedAiModel;
+      const preferredModel = selectedAiModel || 'auto';
 
       const data = await extractEnquiryClientSide(
         userGeminiKey,
@@ -3586,7 +3665,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         salespersons,
         textController.signal,
         preferredModel,
-        (statusText) => setExtractionStatusText(statusText)
+        (statusText) => setExtractionStatusText(statusText),
+        aiScanMode
       );
 
       clearTimeout(textTimeoutId);
@@ -3602,7 +3682,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const itemsCount = data.line_items ? data.line_items.length : 0;
       if (triggerToast) {
         triggerToast(
-          `AI Autofill completed! Refined company "${data.company_name || 'N/A'}" and ${itemsCount} line items in ${duration}ms.`,
+          `AI Autofill completed! Refined company "${data.company_name || 'N/A'}" and ${itemsCount} line items in ${(duration / 1000).toFixed(1)}s.`,
           'success'
         );
       }
@@ -3610,6 +3690,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       setRawTextInput('');
     } catch (err: any) {
       clearTimeout(textTimeoutId);
+      if (userStoppedExtractionRef.current) {
+        return;
+      }
       console.warn('Text extraction AI refinement note:', err);
       const isAuthErr = err.message?.includes('401') || err.message?.includes('UNAUTHENTICATED') || err.message?.toLowerCase().includes('api key') || err.message?.toLowerCase().includes('credentials');
       
@@ -3628,16 +3711,26 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           : `Text Autofill note: ${err.message}`;
         if (triggerToast) {
           triggerToast(msg, 'info');
-        } else {
-          alert(msg);
         }
       }
     } finally {
+      if (extractionAbortRef.current === textController) {
+        extractionAbortRef.current = null;
+      }
       setIsExtracting(false);
     }
   };
 
   const handleExtractFromAttachment = async (fileData: Attachment) => {
+    if (extractionAbortRef.current) {
+      try {
+        extractionAbortRef.current.abort();
+      } catch {
+        // ignore
+      }
+    }
+    userStoppedExtractionRef.current = false;
+
     // Set active preview immediately so they see the file side-by-side during extraction
     setActivePreviewUrl(fileData.url);
     setPreviewFileName(fileData.name);
@@ -3649,6 +3742,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     setIsExtracting(true);
     setExtractionError(null);
     setAiConfidence(null);
+    setExtractionStatusText(`Preparing "${fileData.name}" for AI extraction...`);
 
     const clientStartTime = Date.now();
     let fileFetchTime = 0;
@@ -3656,18 +3750,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     let networkRequestTime = 0;
     let stateUpdateTime = 0;
 
-    // Set up AbortController for a safety limit of 75 seconds timeout
+    // Set up AbortController for a generous 180-second (3-minute) ceiling
     const controller = new AbortController();
+    extractionAbortRef.current = controller;
     const timeoutId = setTimeout(() => {
       controller.abort();
-    }, 75000);
+    }, 180000);
 
     try {
       console.log(`%c[AI Client-Side Extraction Start] Processing: ${fileData.name}`, "color: #3b82f6; font-weight: bold; font-size: 11px;");
       const isImage = fileData.type.startsWith('image/');
       const isPdf = fileData.type === 'application/pdf';
       const isDocx = fileData.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || fileData.name.endsWith('.docx');
-      const isEml = fileData.type === 'message/rfc822' || fileData.name.endsWith('.eml');
       
       let requestPayload: any = {
         fileName: fileData.name,
@@ -3677,25 +3771,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       const fetchStart = Date.now();
       if (isImage || isPdf) {
-        // Fetch the file blob and convert
-        console.log(`[Client Phase 1/4] Fetching file blob from: ${fileData.url}`);
+        setExtractionStatusText(`Reading "${fileData.name}"...`);
         const response = await fetch(fileData.url, { signal: controller.signal });
         const blob = await response.blob();
         fileFetchTime = Date.now() - fetchStart;
-        console.log(`[Client Phase 1/4 Completed] Blob fetched in ${fileFetchTime}ms. Size: ${(blob.size / 1024).toFixed(2)} KB`);
-
-        if (isPdf && blob.size > 2 * 1024 * 1024) {
-          console.warn(`[Client PDF Warning] Selected PDF size is large (${(blob.size / 1024 / 1024).toFixed(2)} MB). Large files containing full catalogs or high-res layout designs can cause high extraction delays.`);
-        }
 
         const convertStart = Date.now();
         let base64Content = '';
         if (isImage) {
-          console.log(`[Client Phase 2/4] Downsampling and compressing image...`);
+          setExtractionStatusText(`Optimizing image for fast vision scan...`);
           base64Content = await downsampleImage(blob);
-          console.log(`[Client Phase 2/4 Completed] Downsampled and compressed image.`);
         } else {
-          console.log(`[Client Phase 2/4] Encoding PDF to Base64...`);
+          setExtractionStatusText(`Encoding PDF pages for AI extraction...`);
           const base64Promise = new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
             reader.onloadend = () => {
@@ -3709,44 +3796,38 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           base64Content = await base64Promise;
         }
         fileConversionTime = Date.now() - convertStart;
-        console.log(`[Client Phase 2/4 Completed] File prepared in ${fileConversionTime}ms.`);
 
         requestPayload.content = base64Content;
         requestPayload.isBase64 = true;
       } else if (isDocx) {
-        console.log(`[Client Phase 1/4] Fetching DOCX file blob from: ${fileData.url}`);
+        setExtractionStatusText(`Extracting text from Word document...`);
         const response = await fetch(fileData.url, { signal: controller.signal });
         const arrayBuffer = await response.arrayBuffer();
         fileFetchTime = Date.now() - fetchStart;
         
         const convertStart = Date.now();
-        console.log(`[Client Phase 2/4] Extracting text from DOCX...`);
         const result = await mammoth.extractRawText({ arrayBuffer });
         const textContent = result.value;
         fileConversionTime = Date.now() - convertStart;
-        console.log(`[Client Phase 2/4 Completed] Extracted DOCX text in ${fileConversionTime}ms. Size: ${(textContent.length / 1024).toFixed(2)} KB`);
         
         requestPayload.content = textContent;
         requestPayload.isBase64 = false;
       } else {
-        // Fetch and read as text (including .eml)
-        console.log(`[Client Phase 1/4] Fetching document as text from: ${fileData.url}`);
+        setExtractionStatusText(`Reading document text...`);
         const response = await fetch(fileData.url, { signal: controller.signal });
         fileFetchTime = Date.now() - fetchStart;
 
         const convertStart = Date.now();
         const textContent = await response.text();
         fileConversionTime = Date.now() - convertStart;
-        console.log(`[Client Phase 1 & 2 Completed] Text fetched in ${fileFetchTime}ms and read in ${fileConversionTime}ms. Size: ${(textContent.length / 1024).toFixed(2)} KB`);
 
         requestPayload.content = textContent;
         requestPayload.isBase64 = false;
       }
 
-      console.log(`[Client Phase 3/4] Dispatching extraction payload to Gemini API directly...`);
       const networkStart = Date.now();
       const userGeminiKey = localStorage.getItem('omni_user_gemini_api_key') || '';
-      const preferredModel = selectedAiModel === 'auto' ? 'gemini-3.8-flash' : selectedAiModel;
+      const preferredModel = selectedAiModel || 'auto';
 
       const data = await extractEnquiryClientSide(
         userGeminiKey,
@@ -3757,12 +3838,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         salespersons,
         controller.signal,
         preferredModel,
-        (statusText) => setExtractionStatusText(statusText)
+        (statusText) => setExtractionStatusText(statusText),
+        aiScanMode
       );
 
-      clearTimeout(timeoutId); // Successful request, clear the timeout timer!
+      clearTimeout(timeoutId);
       networkRequestTime = Date.now() - networkStart;
-      console.log(`[Client Phase 3/4 Completed] Gemini AI response received in ${networkRequestTime}ms.`);
 
       const stateStart = Date.now();
       applyExtractedData(data);
@@ -3770,31 +3851,20 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       stateUpdateTime = Date.now() - stateStart;
       const clientTotalTime = Date.now() - clientStartTime;
-      console.log(`\n=== CLIENT-SIDE PERFORMANCE REPORT ===`);
-      console.log(`- File Blob Retrieval from URL: ${fileFetchTime}ms`);
-      console.log(`- Local File Base64 Conversion: ${fileConversionTime}ms`);
-      console.log(`- Gemini API Network Request: ${networkRequestTime}ms`);
-      console.log(`- UI State Updates & Fuzzy Matching: ${stateUpdateTime}ms`);
-      console.log(`- Total Client-Side Duration: ${clientTotalTime}ms`);
-      console.log(`======================================\n`);
+      console.log(`[AI Autofill Completed] Total: ${clientTotalTime}ms (Fetch/Encode: ${fileFetchTime + fileConversionTime}ms, Gemini: ${networkRequestTime}ms, UI Sync: ${stateUpdateTime}ms)`);
 
+      const itemsCount = data.line_items ? data.line_items.length : 0;
+      const summaryToast = `AI Autofill complete in ${(clientTotalTime / 1000).toFixed(1)}s — populated "${data.company_name || 'Client'}" & ${itemsCount} item(s).`;
       if (triggerToast) {
-        const itemsCount = data.line_items ? data.line_items.length : 0;
-        triggerToast(
-          `Autofill completed successfully! Extracted company "${data.company_name || 'N/A'}" and ${itemsCount} line items in ${clientTotalTime}ms.`,
-          'success'
-        );
+        triggerToast(summaryToast, 'success');
       }
-
-      alert(
-        `Enquiry form fields extracted and autofilled successfully!\n\n` +
-        `Performance Summary:\n` +
-        `• File Retrieval & Base64: ${fileFetchTime + fileConversionTime}ms\n` +
-        `• Gemini AI Model Call: ${networkRequestTime}ms\n` +
-        `• Total Extraction Time: ${clientTotalTime}ms`
-      );
     } catch (err: any) {
       clearTimeout(timeoutId);
+      if (userStoppedExtractionRef.current) {
+        // User explicitly clicked [Stop Autofill] — exit cleanly with zero error banner
+        return;
+      }
+
       const clientTotalTime = Date.now() - clientStartTime;
       const userMessage = err?.message || 'Failed to extract content.';
       const msgLower = userMessage.toLowerCase();
@@ -3815,13 +3885,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         msgLower.includes('api key') || 
         msgLower.includes('credentials');
 
-      if (isQuotaError || isAuthError) {
-        console.warn(`[AI Extraction Notice] ${userMessage}`);
-      } else {
-        console.error(`\n=== CLIENT-SIDE EXTRACTION ERROR ===`);
-        console.error(`- Error occurred after: ${clientTotalTime}ms`);
-        console.error(`- Details:`, err);
-        console.error(`======================================\n`);
+      if (!isQuotaError && !isAuthError) {
+        console.warn(`[AI Extraction Error after ${clientTotalTime}ms]:`, err);
       }
 
       const isAbortError = err.name === 'AbortError' || 
@@ -3831,7 +3896,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       let displayMsg = userMessage;
       if (isAbortError) {
-        displayMsg = "AI extraction timed out (75 seconds limit exceeded). The Gemini model or network is experiencing high latency. Please retry or use Smart Paste.";
+        displayMsg = "AI extraction timed out (180 seconds limit exceeded). Try switching to Fast Scan (Gemini 2.5 Flash) or use Paste Excel / Text.";
       } else if (isQuotaError) {
         displayMsg = "Gemini API Quota or Prepayment Credits Depleted. Enter your personal Gemini API key below or use Smart Paste (100% offline).";
       } else if (isAuthError) {
@@ -3842,11 +3907,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       if (triggerToast) {
         triggerToast(`Autofill note: ${displayMsg}`, (isQuotaError || isAuthError) ? 'info' : 'error');
-      } else {
-        alert(displayMsg);
       }
     } finally {
       clearTimeout(timeoutId);
+      if (extractionAbortRef.current === controller) {
+        extractionAbortRef.current = null;
+      }
       setIsExtracting(false);
     }
   };
@@ -4386,6 +4452,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs z-50 flex justify-end"
       onClick={(e) => {
         if (e.target === e.currentTarget) {
+          if (isExtracting || uploading || isSubmitting) {
+            return;
+          }
+          const hasDirtyContent =
+            Boolean(companySearch.trim()) ||
+            Boolean(subject.trim()) ||
+            Boolean(remarks.trim()) ||
+            attachments.length > 0 ||
+            lineItems.some((li) => Boolean(li.item_name?.trim()) || (Number(li.unit_price) || 0) > 0);
+          if (hasDirtyContent && !isReadOnly) {
+            return;
+          }
           onClose();
         }
       }}
@@ -4962,6 +5040,17 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 })}
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
+                {isExtracting && (
+                  <button
+                    type="button"
+                    onClick={handleStopExtraction}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-bold font-sans bg-rose-600 hover:bg-rose-500 text-white border border-rose-700 flex items-center gap-1.5 transition whitespace-nowrap cursor-pointer shrink-0 shadow-xs animate-pulse"
+                    title="Immediately stop AI Autofill and keep source files attached"
+                  >
+                    <X className="w-3.5 h-3.5 shrink-0" />
+                    <span>Stop Autofill ({extractionElapsedSec}s)</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleAutoDetectClipboard}
@@ -7096,17 +7185,61 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             {isSpecsOpen && (
                               <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 space-y-3 animate-in fade-in duration-150">
                                 <div className="min-w-0">
-                                  <div className="flex items-center justify-between h-5 mb-1">
+                                  <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
                                     <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
                                       Item Description &amp; Technical Specifications
                                     </label>
+                                    <div className="flex items-center gap-1 flex-wrap">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const cur = (item.description ?? '').trim();
+                                          const next = cur
+                                            ? `${cur}\n\nMOTOR SPECIFICATIONS:-\n• `
+                                            : `MOTOR SPECIFICATIONS:-\n• `;
+                                          handleLineItemChange(index, 'description', next);
+                                        }}
+                                        className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/40 text-slate-700 hover:text-blue-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                                        title="Insert a bold uppercase sub-heading section (e.g. MOTOR SPECIFICATIONS:-)"
+                                      >
+                                        + Sub-Heading
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const cur = item.description ?? '';
+                                          const next = cur.trim()
+                                            ? `${cur.replace(/\s+$/, '')}\n• `
+                                            : `• `;
+                                          handleLineItemChange(index, 'description', next);
+                                        }}
+                                        className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/40 text-slate-700 hover:text-blue-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                                        title="Insert a bullet point line"
+                                      >
+                                        • Bullet
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const formatted = formatSlashSeparatedDescription(item.description ?? '');
+                                          if (formatted) {
+                                            handleLineItemChange(index, 'description', formatted);
+                                          }
+                                        }}
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition cursor-pointer"
+                                        title="Automatically split slash-separated (' / ') technical specs and section headings into clean multi-line blocks"
+                                      >
+                                        <Sparkles className="w-2.5 h-2.5 shrink-0" />
+                                        <span>Split &ldquo;/&rdquo; into Lines</span>
+                                      </button>
+                                    </div>
                                   </div>
-                                  <input
-                                    type="text"
-                                    placeholder="e.g. Heavy-Duty Industrial Equipment Package, 10 Bar, SS316"
+                                  <textarea
+                                    rows={Math.min(8, Math.max(3, (item.description || '').split('\n').length))}
+                                    placeholder={"e.g. Supply of Submersible Mixer for Anoxic Tank.\nMOTOR SPECIFICATIONS:-\n• Make: PYTHON\n• Origin: Poland\n• Power: 2.5 kW"}
                                     value={item.description ?? ''}
                                     onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
-                                    className="w-full bg-slate-50/70 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                                    className="w-full bg-slate-50/70 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none leading-relaxed resize-y"
                                   />
                                 </div>
 
@@ -7896,6 +8029,33 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           <span>Paste Excel / Text</span>
                         </button>
 
+                        <div className="inline-flex items-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 p-0.5 text-[11px] font-semibold">
+                          <button
+                            type="button"
+                            onClick={() => setAiScanMode('fast')}
+                            className={`px-2 py-1 rounded-md transition cursor-pointer ${
+                              aiScanMode === 'fast'
+                                ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs'
+                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                            }`}
+                            title="Fast Scan (Gemini 2.5 Flash — best for 1-3 page quotes & RFQs)"
+                          >
+                            ⚡ Fast Scan
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAiScanMode('deep')}
+                            className={`px-2 py-1 rounded-md transition cursor-pointer ${
+                              aiScanMode === 'deep'
+                                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-2xs'
+                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                            }`}
+                            title="Deep Scan (180s budget — best for multi-page BOQs & complex tables)"
+                          >
+                            🔍 Deep Scan (180s)
+                          </button>
+                        </div>
+
                         <select
                           value={selectedAiModel}
                           onChange={(e) => {
@@ -7913,6 +8073,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             </option>
                           ))}
                         </select>
+
+                        {isExtracting && (
+                          <button
+                            type="button"
+                            onClick={handleStopExtraction}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-lg shadow-xs transition cursor-pointer"
+                            title="Stop AI Autofill immediately and keep source files attached"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>Stop Autofill</span>
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -8021,23 +8193,44 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       </div>
                     )}
 
-                    {/* Dynamic AI Extraction heartbeat / status ticker */}
+                    {/* Dynamic AI Extraction heartbeat / status ticker with instant Stop button */}
                     {isExtracting && (
-                      <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl p-4 space-y-2.5 animate-pulse">
-                        <div className="flex items-center space-x-2.5">
-                          <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
-                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider font-sans">Stage 2/2: AI Extraction Running</span>
+                      <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl p-4 space-y-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center space-x-2.5">
+                            <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
+                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider font-sans">
+                              AI Document Autofill Running ({extractionElapsedSec}s / 180s max)
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleStopExtraction}
+                            className="inline-flex items-center gap-1.5 px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-lg shadow-xs transition cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>Stop Autofill</span>
+                          </button>
                         </div>
                         <div className="pl-6.5 space-y-1">
                           <p className="text-xs text-blue-700 dark:text-blue-300 font-medium font-sans">
-                            Status: <span className="text-blue-800 dark:text-blue-200 font-bold">{extractionStatusText}</span>
+                            Stage: <span className="text-blue-800 dark:text-blue-200 font-bold">{extractionStatusText || 'Scanning document with Gemini Flash...'}</span>
                           </p>
-                          <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
-                            {extractionStatusText || "Calibrating context-aware payload with automated model failover..."}
-                          </p>
+                          {extractionElapsedSec >= 45 ? (
+                            <p className="text-[11px] text-amber-700 dark:text-amber-300 font-medium font-sans">
+                              Complex scan in progress — you can keep editing Client &amp; Details above while this finishes, or click Stop Autofill anytime.
+                            </p>
+                          ) : (
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                              Source files remain safely attached even if you stop autofill early.
+                            </p>
+                          )}
                         </div>
-                        <div className="w-full bg-blue-100 dark:bg-blue-900 h-1 rounded-full overflow-hidden">
-                          <div className="bg-blue-600 h-1 rounded-full animate-pulse w-full" />
+                        <div className="w-full bg-blue-100 dark:bg-blue-900 h-1.5 rounded-full overflow-hidden">
+                          <div
+                            className="bg-blue-600 h-1.5 rounded-full transition-all duration-500"
+                            style={{ width: `${Math.min(98, Math.max(8, Math.round((extractionElapsedSec / 45) * 100)))}%` }}
+                          />
                         </div>
                       </div>
                     )}
@@ -8135,20 +8328,28 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 <span>{file.include_in_quote_annex ? 'In Quote Annex' : '+ Quote Annex'}</span>
                               </button>
 
-                              <button
-                                type="button"
-                                onClick={() => handleExtractFromAttachment(file)}
-                                disabled={isExtracting || uploading}
-                                className="flex items-center space-x-1.5 px-2.5 py-1 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-300 rounded-lg transition text-[10px] font-sans font-medium border border-blue-200 dark:border-blue-800 disabled:opacity-50 cursor-pointer"
-                                title="AI Document Autofill: Extracts client company, line items, and attributes using Gemini AI"
-                              >
-                                {isExtracting ? (
-                                  <Loader2 className="w-3 h-3 animate-spin text-blue-600" />
-                                ) : (
+                              {isExtracting ? (
+                                <button
+                                  type="button"
+                                  onClick={handleStopExtraction}
+                                  className="flex items-center space-x-1.5 px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg transition text-[10px] font-sans font-bold border border-rose-700 cursor-pointer"
+                                  title="Stop AI Autofill immediately and keep this file attached"
+                                >
+                                  <X className="w-3 h-3" />
+                                  <span>Stop ({extractionElapsedSec}s)</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleExtractFromAttachment(file)}
+                                  disabled={uploading}
+                                  className="flex items-center space-x-1.5 px-2.5 py-1 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-300 rounded-lg transition text-[10px] font-sans font-medium border border-blue-200 dark:border-blue-800 disabled:opacity-50 cursor-pointer"
+                                  title="AI Document Autofill: Extracts client company, line items, and attributes using Gemini AI"
+                                >
                                   <Sparkles className="w-3 h-3 text-blue-500 fill-blue-500" />
-                                )}
-                                <span>{isExtracting ? 'Extracting...' : 'Autofill Form'}</span>
-                              </button>
+                                  <span>Autofill Form</span>
+                                </button>
+                              )}
 
                               <button
                                 type="button"

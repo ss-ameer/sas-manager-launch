@@ -1331,7 +1331,7 @@ export type QuotationSignatureStyle = 'script' | 'line' | 'line_only' | 'image';
 export type QuotationLogoPosition = 'left' | 'center' | 'right';
 export type QuotationHeaderLayout = 'split' | 'centered_banner' | 'modern_compact' | 'centered' | 'minimal';
 export type QuotationTableDensity = 'compact' | 'comfortable' | 'standard' | 'spacious';
-export type QuotationTableFontScale = 'compact' | 'standard' | 'prominent';
+export type QuotationTableFontScale = 'inherit' | 'compact' | 'small' | 'standard' | 'medium' | 'prominent' | 'large';
 export type QuotationFontSizeScale = 'compact' | 'standard' | 'comfortable' | 'large';
 export type QuotationPageMode = 'auto' | '1-page' | '2-page';
 
@@ -1899,6 +1899,19 @@ export interface QuotationFooterConfig {
   >;
   visibleSignatoryLines?: Record<string, boolean>;
   elementStyles?: Record<string, QuotationTextFormatStyle>;
+  // Executive Side-by-Side Dual & Single Signatory Per-Column Controls
+  signatoryColumnGap?: 'compact' | 'standard' | 'wide';
+  primaryOpeningLine?: string;
+  primaryClosingSalutation?: string;
+  primaryPhonePrefix?: string;
+  primaryEmailPrefix?: string;
+  primaryShowStampOrSignature?: boolean;
+  secondaryOpeningLine?: string;
+  secondaryClosingSalutation?: string;
+  secondaryPhonePrefix?: string;
+  secondaryEmailPrefix?: string;
+  secondaryShowStampOrSignature?: boolean;
+  secondarySignatureImageUrl?: string;
 }
 
 export interface QuotationRecipientConfig {
@@ -2007,6 +2020,7 @@ export interface QuotationBlockConfig {
   // Universal Custom Block Engine (Phase 4)
   zone?: 'pre_table' | 'post_table'; // Default: 'post_table'
   allowPageSplit?: boolean; // Default: false; true for long cover letters/clauses
+  showContainerHeader?: boolean; // Explicit toggle to show/hide outer block container header on A4 document
   borderStyleOverride?: 'inherit' | 'framed' | 'tinted' | 'left_accent' | 'minimal';
   pieces?: QuotationBlockPiece[];
   elementStyles?: Record<string, QuotationTextFormatStyle>;
@@ -2119,6 +2133,13 @@ export interface QuotationSignatory {
   designation?: string;
   signature_url?: string;
   date?: string;
+  opening_line?: string;
+  closing_salutation?: string;
+  phone_prefix?: string;
+  phone?: string;
+  email_prefix?: string;
+  email?: string;
+  show_stamp_or_signature?: boolean;
 }
 
 export type CommercialDocumentType =

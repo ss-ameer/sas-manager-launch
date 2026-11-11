@@ -2288,7 +2288,13 @@ export default function EnquiryDetail({
                 : undefined
           }))
         : undefined;
-    const bomRollup = clonedSubComponents ? recalculateCompositeItemTotals(clonedSubComponents, 1) : null;
+    const bomRollup = clonedSubComponents
+      ? recalculateCompositeItemTotals(clonedSubComponents, 1, unitPrice, costPrice)
+      : null;
+    const resolvedUnitPrice =
+      bomRollup && bomRollup.unitSellingPrice > 0 ? bomRollup.unitSellingPrice : unitPrice;
+    const resolvedCostPrice =
+      bomRollup && bomRollup.unitCostPrice > 0 ? bomRollup.unitCostPrice : costPrice;
 
     const newItem: LineItem = {
       id: `li_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -2300,9 +2306,9 @@ export default function EnquiryDetail({
       description: compileDescriptionWithSpecs(p.name || '', p.description || '', p.attributes || []) || p.description || p.name || '',
       quantity: 1,
       unit: p.unit || (p.is_composite_set ? 'SET' : 'Nos'),
-      unit_price: bomRollup ? bomRollup.unitSellingPrice : unitPrice,
-      cost_price: bomRollup ? bomRollup.unitCostPrice : costPrice,
-      total_price: bomRollup ? bomRollup.totalSellingPrice : unitPrice,
+      unit_price: resolvedUnitPrice,
+      cost_price: resolvedCostPrice,
+      total_price: resolvedUnitPrice,
       brand_make: p.brand_make || undefined,
       model_part_no: p.model_part_no || undefined,
       country_of_origin: p.country_of_origin || undefined,
@@ -5701,29 +5707,25 @@ export default function EnquiryDetail({
                                       unit_price: 0,
                                       total_price: 0,
                                       line_total: 0,
-                                      is_included_accessory: false
+                                      is_included_accessory: true
                                     }
                                   ];
-                                  const totals = recalculateCompositeItemTotals(seed, Number(item.quantity) || 1);
                                   setDraftLineItems((prev) => {
                                     const next = [...prev];
                                     next[idx] = {
                                       ...next[idx],
                                       is_composite_set: true,
                                       sub_components: seed,
-                                      package_pricing_mode: item.package_pricing_mode || 'itemized',
-                                      cost_price: totals.cost_price,
-                                      unit_price: totals.unit_price,
-                                      total_price: totals.total_price
+                                      package_pricing_mode: 'lump_sum'
                                     };
                                     return next;
                                   });
                                 }}
                                 className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 transition"
-                                title="Convert this item into a multi-component BOM Kit / Assembly"
+                                title="Add included items or accessories under this item without changing the main price"
                               >
                                 <Boxes className="w-3 h-3 shrink-0" />
-                                <span>Convert to BOM Kit</span>
+                                <span>+ Included Items</span>
                               </button>
                             )}
 
@@ -6098,7 +6100,7 @@ export default function EnquiryDetail({
                             <CompositePackageEditor
                               isCompositeSet={true}
                               subComponents={item.sub_components || []}
-                              packagePricingMode={item.package_pricing_mode || 'itemized'}
+                              packagePricingMode={item.package_pricing_mode || 'lump_sum'}
                               optionScopeNotes={item.option_scope_notes || ''}
                               parentQuantity={item.quantity || 1}
                               currency={(currentEnquiry.currency as string) || 'USD'}
@@ -6106,9 +6108,20 @@ export default function EnquiryDetail({
                               onChange={(patch) => {
                                 setDraftLineItems((prev) => {
                                   const next = [...prev];
+                                  const cur = next[idx];
+                                  const nextUnitPrice =
+                                    patch.unit_price !== undefined && patch.unit_price > 0
+                                      ? patch.unit_price
+                                      : cur.unit_price;
+                                  const nextTotalPrice =
+                                    patch.total_price !== undefined && patch.total_price > 0
+                                      ? patch.total_price
+                                      : Math.round((Number(cur.quantity) || 1) * (Number(nextUnitPrice) || 0) * 100) / 100;
                                   next[idx] = {
-                                    ...next[idx],
-                                    ...patch
+                                    ...cur,
+                                    ...patch,
+                                    unit_price: nextUnitPrice,
+                                    total_price: nextTotalPrice
                                   };
                                   return next;
                                 });
@@ -6398,7 +6411,7 @@ export default function EnquiryDetail({
                                 <div className="pt-2 border-t border-slate-200/80 space-y-2">
                                   <div className="flex items-center justify-between gap-2 flex-wrap">
                                     <span className="text-[10px] font-mono font-bold text-indigo-700 uppercase tracking-wider">
-                                      Multi-Component Set / BOM Breakdown ({item.sub_components.length} items • Mode: {item.package_pricing_mode === 'lump_sum' ? 'Single Package Lump-Sum' : 'Itemized Component Prices'})
+                                      Included Items &amp; Package Contents ({item.sub_components.length} {item.sub_components.length === 1 ? 'item' : 'items'})
                                     </span>
                                   </div>
                                   <div className="overflow-x-auto rounded-lg border border-slate-200">
@@ -6406,7 +6419,7 @@ export default function EnquiryDetail({
                                       <thead>
                                         <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-mono uppercase text-slate-500">
                                           <th className="py-1.5 px-2 w-10 text-center">#</th>
-                                          <th className="py-1.5 px-2">Component Specification &amp; Remark</th>
+                                          <th className="py-1.5 px-2">Included Item / Sub-Component</th>
                                           <th className="py-1.5 px-2 w-16 text-center">Qty</th>
                                           <th className="py-1.5 px-2 w-16 text-center">UOM</th>
                                           <th className="py-1.5 px-2 w-28 text-right">Unit Price</th>
@@ -6414,43 +6427,46 @@ export default function EnquiryDetail({
                                         </tr>
                                       </thead>
                                       <tbody className="divide-y divide-slate-100">
-                                        {item.sub_components.map((sub, sIdx) => (
-                                          <tr key={sub.id || sIdx} className={sub.is_included_accessory ? 'bg-slate-50/60 text-slate-600' : 'bg-white'}>
-                                            <td className="py-1.5 px-2 text-center font-mono text-[11px] text-slate-400">
-                                              {idx + 1}.{sIdx + 1}
-                                            </td>
-                                            <td className="py-1.5 px-2">
-                                              <div className="font-medium text-slate-800">{sub.item_name}</div>
-                                              {sub.remark && (
-                                                <div className="text-[11px] font-bold text-slate-600">
-                                                  Remark: {sub.remark}
-                                                </div>
-                                              )}
-                                            </td>
-                                            <td className="py-1.5 px-2 text-center font-mono font-bold text-slate-800">
-                                              {sub.quantity}
-                                            </td>
-                                            <td className="py-1.5 px-2 text-center font-mono text-slate-600 uppercase">
-                                              {sub.unit || 'NOS'}
-                                            </td>
-                                            <td className="py-1.5 px-2 text-right font-mono text-slate-700">
-                                              {sub.is_included_accessory ? '—' : formatCurrency(sub.unit_price)}
-                                            </td>
-                                            <td className="py-1.5 px-2 text-right font-mono font-bold text-slate-900">
-                                              {sub.is_included_accessory ? (
-                                                <span className="text-[10px] font-semibold text-emerald-700">Included</span>
-                                              ) : (
-                                                formatCurrency(sub.total_price)
-                                              )}
-                                            </td>
-                                          </tr>
-                                        ))}
+                                        {item.sub_components.map((sub, sIdx) => {
+                                          const isIncludedSub = Boolean(sub.is_included_accessory) || !(Number(sub.unit_price) > 0);
+                                          return (
+                                            <tr key={sub.id || sIdx} className={isIncludedSub ? 'bg-slate-50/60 text-slate-600' : 'bg-white'}>
+                                              <td className="py-1.5 px-2 text-center font-mono text-[11px] text-slate-400">
+                                                {idx + 1}.{sIdx + 1}
+                                              </td>
+                                              <td className="py-1.5 px-2">
+                                                <div className="font-medium text-slate-800">{sub.item_name}</div>
+                                                {sub.remark && (
+                                                  <div className="text-[11px] font-bold text-slate-600">
+                                                    Remark: {sub.remark}
+                                                  </div>
+                                                )}
+                                              </td>
+                                              <td className="py-1.5 px-2 text-center font-mono font-bold text-slate-800">
+                                                {sub.quantity}
+                                              </td>
+                                              <td className="py-1.5 px-2 text-center font-mono text-slate-600 uppercase">
+                                                {sub.unit || 'NOS'}
+                                              </td>
+                                              <td className="py-1.5 px-2 text-right font-mono text-slate-700">
+                                                {isIncludedSub ? '—' : formatCurrency(sub.unit_price)}
+                                              </td>
+                                              <td className="py-1.5 px-2 text-right font-mono font-bold text-slate-900">
+                                                {isIncludedSub ? (
+                                                  <span className="text-[10px] font-semibold text-emerald-700">Included</span>
+                                                ) : (
+                                                  formatCurrency(sub.total_price)
+                                                )}
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
                                       </tbody>
                                     </table>
                                   </div>
                                   {item.option_scope_notes && (
                                     <div className="p-2.5 rounded-lg bg-indigo-50/50 border border-indigo-100 text-xs text-slate-700 whitespace-pre-line">
-                                      <span className="font-bold text-indigo-950 block mb-0.5">Option Technical Scope Notes:</span>
+                                      <span className="font-bold text-indigo-950 block mb-0.5">Package / Scope Note:</span>
                                       {item.option_scope_notes}
                                     </div>
                                   )}

@@ -555,6 +555,7 @@ export default function CompanyEditModal({
       className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-[120] flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-150"
       onClick={(e) => {
         e.stopPropagation();
+        if (isSaving || canonicalName.trim()) return;
         onClose();
       }}
     >

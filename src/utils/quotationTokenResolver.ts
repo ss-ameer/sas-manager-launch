@@ -748,11 +748,11 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
   const rawIssueDate = q.created_at || (enq as any)?.created_at || '';
   const quoteDateStr = formatReadableDate(rawIssueDate);
 
+  const vDays = Number(q.validity_days ?? prof.default_validity_days ?? 30);
   let validUntilStr = formatReadableDate(q.valid_until);
-  if (!validUntilStr && rawIssueDate) {
-    const base = new Date(rawIssueDate);
-    const vDays = Number(q.validity_days ?? prof.default_validity_days ?? 30);
-    if (!isNaN(base.getTime()) && Number.isFinite(vDays)) {
+  if ((!validUntilStr || (quoteDateStr && validUntilStr === quoteDateStr && vDays > 0)) && (rawIssueDate || q.valid_until)) {
+    const base = new Date(rawIssueDate || q.valid_until || Date.now());
+    if (!isNaN(base.getTime()) && Number.isFinite(vDays) && vDays > 0) {
       base.setDate(base.getDate() + vDays);
       validUntilStr = formatReadableDate(base.toISOString());
     }
