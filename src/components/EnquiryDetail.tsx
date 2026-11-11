@@ -2255,6 +2255,15 @@ export default function EnquiryDetail({
         item.total_price = Number((q * p).toFixed(2));
       } else if (field === 'cost_price') {
         item.cost_price = val === '' || val === null || val === undefined ? undefined : (Number(val) || 0);
+      } else if (field === 'lead_time_note' || (field as string) === 'delivery_time' || (field as string) === 'lead_time') {
+        const strVal = String(val ?? '');
+        item.lead_time_note = strVal;
+        (item as any).delivery_time = strVal;
+        (item as any).lead_time = strVal;
+        item.availability = strVal;
+        if (!item.specifications) item.specifications = {};
+        item.specifications['Delivery'] = strVal;
+        item.specifications['Lead Time'] = strVal;
       } else {
         (item as any)[field] = val;
       }

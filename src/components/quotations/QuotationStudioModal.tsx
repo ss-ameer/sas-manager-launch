@@ -113,6 +113,7 @@ import {
   ZoomOut,
   RotateCcw,
   RotateCw,
+  RefreshCw,
   CheckCircle2,
   Send,
   Save,
@@ -976,7 +977,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
   // Presets and loading states
   const [presets, setPresets] = useState<QuotationPreset[]>([]);
-  const [selectedPresetId, setSelectedPresetId] = useState<string>(initialPresetId || '');
+  const [selectedPresetId, setSelectedPresetId] = useState<string>(
+    initialPresetId || (editingQuotation as any)?.preset_id || (editingQuotation as any)?.presentation_preset?.id || ''
+  );
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
   // Active Quotation Revision & Lifecycle Status State
@@ -3083,17 +3086,38 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       .then((loadedPresets) => {
         if (!isMounted) return;
         setPresets(loadedPresets);
+        const effectiveDocType =
+          documentType || editingQuotation?.document_type || initialDocumentType || 'quotation';
+        const defaultPresetForDoc =
+          loadedPresets.find(
+            (p) =>
+              QuotationRepository.inferPresetDocumentType(p) === effectiveDocType && p.is_default
+          ) ||
+          loadedPresets.find((p) => p.is_default) ||
+          loadedPresets[0];
+
         if (initialPresetId && loadedPresets.some((p) => p.id === initialPresetId)) {
           setSelectedPresetId(initialPresetId);
-        } else if (loadedPresets.length > 0 && !editingQuotation) {
-          const defaultPreset =
-            loadedPresets.find((p) => p.is_default) || loadedPresets[0];
-          applyPreset(defaultPreset);
-        } else if (loadedPresets.length > 0 && isEffectiveSandbox && !selectedPresetId) {
-          const defaultPreset =
-            loadedPresets.find((p) => p.is_default) || loadedPresets[0];
-          if (defaultPreset?.id) {
-            setSelectedPresetId(defaultPreset.id);
+          const matched = loadedPresets.find((p) => p.id === initialPresetId);
+          if (matched && !editingQuotation) applyPreset(matched);
+        } else if (
+          editingQuotation?.preset_id &&
+          loadedPresets.some((p) => p.id === editingQuotation.preset_id)
+        ) {
+          setSelectedPresetId(editingQuotation.preset_id);
+          const matched = loadedPresets.find((p) => p.id === editingQuotation.preset_id);
+          if (matched) applyPreset(matched);
+        } else if (
+          editingQuotation?.presentation_preset?.id &&
+          loadedPresets.some((p) => p.id === editingQuotation.presentation_preset?.id)
+        ) {
+          setSelectedPresetId(editingQuotation.presentation_preset.id);
+          const matched = loadedPresets.find((p) => p.id === editingQuotation.presentation_preset.id);
+          if (matched) applyPreset(matched);
+        } else if (defaultPresetForDoc) {
+          setSelectedPresetId(defaultPresetForDoc.id);
+          if (!editingQuotation) {
+            applyPreset(defaultPresetForDoc);
           }
         }
       })
@@ -3822,16 +3846,36 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     if (customStudioLineItems !== null) {
       baseItems = customStudioLineItems;
     } else if (sourceQuotation?.line_items && sourceQuotation.line_items.length > 0) {
-      baseItems = sourceQuotation.line_items.map((item) => {
+      baseItems = sourceQuotation.line_items.map((item, idx) => {
+        const matchingEnquiryItem =
+          (item.id && enquiry?.line_items?.find((e) => e.id === item.id)) ||
+          enquiry?.line_items?.[idx] ||
+          (item.product_id && enquiry?.line_items?.find((e) => e.product_id === item.product_id));
+        const liveEnquiryDelivery =
+          (matchingEnquiryItem as any)?.lead_time_note ||
+          (matchingEnquiryItem as any)?.delivery_time ||
+          (matchingEnquiryItem as any)?.lead_time ||
+          matchingEnquiryItem?.availability ||
+          (matchingEnquiryItem as any)?.specifications?.['Delivery'] ||
+          (matchingEnquiryItem as any)?.specifications?.['Lead Time'];
+        const effectiveItem =
+          liveEnquiryDelivery && liveEnquiryDelivery.trim()
+            ? {
+                ...item,
+                availability: liveEnquiryDelivery.trim(),
+                lead_time_note: liveEnquiryDelivery.trim()
+              }
+            : item;
+
         const { cleanDescription, extractedSpecsAttrs } =
-          extractLineItemAttributesAndCleanDescription(item);
+          extractLineItemAttributesAndCleanDescription(effectiveItem);
         if (extractedSpecsAttrs.length > 0) {
-          const existingAttrs = Array.isArray(item.attributes) ? item.attributes : [];
+          const existingAttrs = Array.isArray(effectiveItem.attributes) ? effectiveItem.attributes : [];
           const isRealDiffuserOrPump =
-            item.item_name?.toLowerCase().includes('diffuser') ||
-            item.item_name?.toLowerCase().includes('jackson') ||
-            item.item_name?.toLowerCase().includes('dosing pump') ||
-            item.item_name?.toLowerCase().includes('item one');
+            effectiveItem.item_name?.toLowerCase().includes('diffuser') ||
+            effectiveItem.item_name?.toLowerCase().includes('jackson') ||
+            effectiveItem.item_name?.toLowerCase().includes('dosing pump') ||
+            effectiveItem.item_name?.toLowerCase().includes('item one');
           const filteredExisting = existingAttrs.filter((a) => {
             if (isRealDiffuserOrPump) return true;
             return !(
@@ -3851,12 +3895,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             }
           });
           return {
-            ...item,
+            ...effectiveItem,
             description: cleanDescription,
             attributes: mergedAttrs
           };
         }
-        return item;
+        return effectiveItem;
       });
     } else {
       const rawItems: LineItem[] = enquiry?.line_items || [];
@@ -3944,7 +3988,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             model_part_no: modelAttr || undefined,
             country_of_origin: originAttr || undefined,
             hs_code: li.hs_code || undefined,
-            availability: li.lead_time_note || 'Ex-Stock / Standard',
+            availability:
+              (li as any).lead_time_note ||
+              (li as any).delivery_time ||
+              (li as any).lead_time ||
+              (li as any).availability ||
+              (li as any).specifications?.['Delivery'] ||
+              (li as any).specifications?.['Lead Time'] ||
+              'Ex-Stock / Standard',
             is_optional: isOptionalFromOption,
             option: optLabel || undefined,
             option_group: optLabel || undefined,
@@ -4040,8 +4091,30 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           }))
         : undefined;
 
+      const matchingEnquiryItem =
+        (item.id && enquiry?.line_items?.find((e) => e.id === item.id)) ||
+        enquiry?.line_items?.[idx] ||
+        (item.product_id && enquiry?.line_items?.find((e) => e.product_id === item.product_id));
+      const freshDelivery =
+        (matchingEnquiryItem as any)?.lead_time_note ||
+        (matchingEnquiryItem as any)?.delivery_time ||
+        (matchingEnquiryItem as any)?.lead_time ||
+        matchingEnquiryItem?.availability ||
+        (matchingEnquiryItem as any)?.specifications?.['Delivery'] ||
+        (matchingEnquiryItem as any)?.specifications?.['Lead Time'];
+      const effectiveAvailability =
+        compOverride.availability ??
+        compOverride.delivery_time ??
+        (freshDelivery && String(freshDelivery).trim()
+          ? String(freshDelivery).trim()
+          : (item.availability || matchedCatalogProduct?.default_availability || 'Ex-Stock / Standard'));
+
       return {
         ...item,
+        availability: effectiveAvailability,
+        delivery_time: effectiveAvailability,
+        lead_time: effectiveAvailability,
+        lead_time_note: effectiveAvailability,
         product_id: effectiveProductId || matchedCatalogProduct?.id,
         sku: item.sku || matchedCatalogProduct?.sku,
         brand_make: item.brand_make || matchedCatalogProduct?.brand_make,
@@ -4400,6 +4473,92 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           : prev
       );
     }
+  };
+
+  const handleSyncFromEnquiryForm = () => {
+    if (!enquiry?.line_items || enquiry.line_items.length === 0) {
+      triggerToast?.('No line items found on the source enquiry to sync.', 'info');
+      return;
+    }
+    const freshStudioItems: QuotationLineItem[] = enquiry.line_items.map((li, idx) => {
+      const qty = Number(li.quantity) || 1;
+      const uPrice = Number(li.unit_price) || 0;
+      const tPrice =
+        li.total_price !== undefined
+          ? QuotationRepository.roundCurrency(Number(li.total_price) || 0)
+          : QuotationRepository.roundCurrency(qty * uPrice);
+      const parsedLegacy = parseLineItemTitleAndSpec(li.item_name, li.description);
+      const resolvedTitle =
+        (li.item_name && li.item_name.trim()) ||
+        parsedLegacy.title ||
+        (li.product_type && li.product_type !== 'Custom' ? li.product_type : `Item ${idx + 1}`);
+      const resolvedRawDesc =
+        !li.item_name && parsedLegacy.wasSplit ? parsedLegacy.spec : li.description || '';
+      const { cleanDescription, extractedSpecsAttrs } =
+        extractLineItemAttributesAndCleanDescription({
+          item_name: resolvedTitle,
+          description: resolvedRawDesc,
+          quantity: qty,
+          unit: li.unit || 'pcs',
+          unit_price: uPrice,
+          total_price: tPrice
+        });
+      const deliveryVal =
+        (li as any).lead_time_note ||
+        (li as any).delivery_time ||
+        (li as any).lead_time ||
+        (li as any).availability ||
+        (li as any).specifications?.['Delivery'] ||
+        (li as any).specifications?.['Lead Time'] ||
+        'Ex-Stock / Standard';
+      const optLabel = (li.option || (li as any).option_designation || '').trim();
+      const isOptionalFromOption =
+        Boolean((li as any).is_optional) ||
+        optLabel === 'Optional / Add-On' ||
+        optLabel === 'Option B' ||
+        optLabel === 'Option C' ||
+        /^option\s+[b-z]/i.test(optLabel);
+
+      return {
+        id: li.id || `item_${idx}`,
+        product_id: li.product_id,
+        sku: li.sku,
+        item_name: resolvedTitle,
+        description: cleanDescription,
+        quantity: qty,
+        unit: li.unit || 'pcs',
+        unit_price: uPrice,
+        cost_price: li.cost_price,
+        total_price: tPrice,
+        brand_make: li.brand_make || undefined,
+        model_part_no: li.model_part_no || undefined,
+        country_of_origin: li.country_of_origin || undefined,
+        hs_code: li.hs_code || undefined,
+        availability: deliveryVal,
+        delivery_time: deliveryVal,
+        lead_time: deliveryVal,
+        lead_time_note: deliveryVal,
+        is_optional: isOptionalFromOption,
+        option: optLabel || undefined,
+        option_group: optLabel || undefined,
+        option_scope_notes: li.option_scope_notes || undefined,
+        is_composite_set: li.is_composite_set,
+        sub_components: li.sub_components,
+        package_pricing_mode: li.package_pricing_mode,
+        attributes: Array.isArray(li.attributes) && li.attributes.length > 0 ? li.attributes : extractedSpecsAttrs,
+        image_url: li.image_url,
+        secondary_image_url: li.secondary_image_url,
+        image_caption: li.image_caption,
+        secondary_image_caption: li.secondary_image_caption,
+        image_adjustments: li.image_adjustments,
+        datasheet_attachment: li.datasheet_attachment,
+        include_datasheet_in_quote: li.include_datasheet_in_quote !== false
+      };
+    });
+
+    setCustomStudioLineItems(freshStudioItems);
+    setItemCompositeOverrides({});
+    triggerToast?.(`Synchronized ${freshStudioItems.length} line items & delivery terms from Enquiry Form!`, 'success');
   };
 
   // Choice B1 Price-Restore Memory for switching into/out of Unpriced Submittal / DO Mode
@@ -5532,7 +5691,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       auto_paginate_items: autoPaginateItems,
       created_at: editingQuotation?.created_at || new Date().toISOString(),
       valid_until: validUntilDate,
-      currency: (enquiry.currency as string) || activeBankAccount?.currency || 'AED'
+      currency: (enquiry.currency as string) || activeBankAccount?.currency || 'AED',
+      preset_id: selectedPresetId || undefined,
+      presentation_preset: presets.find((p) => p.id === selectedPresetId) || undefined
     };
   }, [
     editingQuotation,
@@ -5603,7 +5764,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     receiptMetadata,
     paymentVoucherMetadata,
     vendorReturnMetadata,
-    enquiryRevisions
+    enquiryRevisions,
+    selectedPresetId,
+    presets
   ]);
 
   // Smart '@' Token Resolution Context & Map
@@ -6264,7 +6427,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         created_at: editingQuotation?.created_at || new Date().toISOString(),
         validity_days: validityDays,
         valid_until: liveQuotation.valid_until,
-        currency: liveQuotation.currency
+        currency: liveQuotation.currency,
+        preset_id: selectedPresetId || undefined,
+        presentation_preset: selectedPreset || undefined
       };
 
       const saved = await QuotationRepository.saveQuotation(payload);
@@ -7335,45 +7500,35 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     }}
                     className="w-full text-xs font-medium rounded-lg border border-slate-300 p-2 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   >
-                    <option value="">
-                      Standard{' '}
-                      {documentType === 'delivery_note'
-                        ? 'Delivery Note'
-                        : documentType === 'purchase_order'
-                        ? 'Purchase Order'
-                        : documentType === 'receipt'
-                        ? 'Payment Receipt'
-                        : documentType === 'payment_voucher'
-                        ? 'Payment Voucher'
-                        : documentType === 'material_return_note'
-                        ? 'Material Return'
-                        : documentType === 'debit_note'
-                        ? 'Debit Note'
-                        : 'Quotation'}{' '}
-                      Template
-                    </option>
-                    {filteredPresetsForDocType.map((p) => {
-                      const pType = p.document_type || 'quotation';
-                      const docTag =
-                        pType === 'delivery_note'
-                          ? 'DO'
-                          : pType === 'purchase_order'
-                          ? 'PO'
-                          : pType === 'receipt'
-                          ? 'REC'
-                          : pType === 'payment_voucher'
-                          ? 'PV'
-                          : pType === 'material_return_note' || pType === 'material_return'
-                          ? 'MRN'
-                          : pType === 'debit_note'
-                          ? 'DN'
-                          : 'QT';
-                      return (
-                        <option key={p.id} value={p.id}>
-                          [{docTag}] {p.preset_name}{p.is_default ? ' (★ Default)' : ''}
-                        </option>
-                      );
-                    })}
+                    <option value="">Workspace Default Profile (Built-in)</option>
+                    {[...filteredPresetsForDocType]
+                      .sort((a, b) => {
+                        if (a.is_default && !b.is_default) return -1;
+                        if (!a.is_default && b.is_default) return 1;
+                        return a.preset_name.localeCompare(b.preset_name);
+                      })
+                      .map((p) => {
+                        const pType = p.document_type || 'quotation';
+                        const docTag =
+                          pType === 'delivery_note'
+                            ? 'DO'
+                            : pType === 'purchase_order'
+                            ? 'PO'
+                            : pType === 'receipt'
+                            ? 'REC'
+                            : pType === 'payment_voucher'
+                            ? 'PV'
+                            : pType === 'material_return_note' || pType === 'material_return'
+                            ? 'MRN'
+                            : pType === 'debit_note'
+                            ? 'DN'
+                            : 'QT';
+                        return (
+                          <option key={p.id} value={p.id}>
+                            [{docTag}] {p.preset_name}{p.is_default ? ' (★ Default)' : ''}
+                          </option>
+                        );
+                      })}
                   </select>
                 </div>
 
@@ -10650,31 +10805,44 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       id="studio-line-items-editor"
                       className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-3"
                     >
-                      <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
                         <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                           <Package className="w-3.5 h-3.5 text-indigo-600" />
                           Document Line Items ({quotationLineItems.length})
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const currentList = customStudioLineItems ?? quotationLineItems;
-                            const nextItem: QuotationLineItem = {
-                              id: `st_li_${Date.now()}_${currentList.length + 1}`,
-                              item_name: '',
-                              description: '',
-                              quantity: 1,
-                              qty_ordered: 1,
-                              unit: 'Nos',
-                              unit_price: 0,
-                              total_price: 0
-                            };
-                            setCustomStudioLineItems([...currentList, nextItem]);
-                          }}
-                          className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] cursor-pointer"
-                        >
-                          + Add Line Item
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {enquiry?.line_items && enquiry.line_items.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={handleSyncFromEnquiryForm}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 font-bold text-[11px] cursor-pointer transition shadow-2xs"
+                              title="Pull updated line items, delivery times, and pricing directly from the Enquiry Form"
+                            >
+                              <RefreshCw className="w-3 h-3 text-emerald-600" />
+                              <span>↻ Sync Items from Enquiry Form</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const currentList = customStudioLineItems ?? quotationLineItems;
+                              const nextItem: QuotationLineItem = {
+                                id: `st_li_${Date.now()}_${currentList.length + 1}`,
+                                item_name: '',
+                                description: '',
+                                quantity: 1,
+                                qty_ordered: 1,
+                                unit: 'Nos',
+                                unit_price: 0,
+                                total_price: 0
+                              };
+                              setCustomStudioLineItems([...currentList, nextItem]);
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] cursor-pointer"
+                          >
+                            + Add Line Item
+                          </button>
+                        </div>
                       </div>
 
                       {quotationLineItems.length === 0 ? (
@@ -15507,6 +15675,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
+                      {enquiry?.line_items && enquiry.line_items.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleSyncFromEnquiryForm}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition cursor-pointer"
+                          title="Pull updated line items, delivery times, and pricing directly from the Enquiry Form"
+                        >
+                          <RefreshCw className="w-3 h-3 text-emerald-600" />
+                          <span>↻ Sync Items</span>
+                        </button>
+                      )}
                       {focusedItemIndex !== null && (
                         <button
                           type="button"

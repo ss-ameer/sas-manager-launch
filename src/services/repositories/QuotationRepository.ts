@@ -348,6 +348,7 @@ export class QuotationRepository {
       workspace_id: wsId,
       workspaceId: wsId,
       document_type: docType,
+      preset_id: data.preset_id || data.presentation_preset?.id || undefined,
       formatted_quote_ref: formattedRef,
       quote_number: resolvedQuoteNumber,
       subject: resolvedSubject,

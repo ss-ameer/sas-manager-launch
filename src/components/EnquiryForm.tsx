@@ -22,6 +22,7 @@ import { writeBatch, doc, updateDoc } from 'firebase/firestore';
 import { safeAddDoc, safeUpdateDoc, uploadAttachmentWithProgress } from '../firebase';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
+import { QuotationRepository } from '../services/repositories/QuotationRepository';
 import { previewNextEnquirySequence, claimNextEnquirySequence, syncSequenceHighWaterMark, getWorkspaceSequenceCounters, getSequencePeriodKey, formatPattern, patternRequiresCompanyCode, patternRequiresCountryCode } from '../services/enquirySequences';
 import { BRAND_CONFIG } from '../config';
 import DuplicateMatchModal from './DuplicateMatchModal';
@@ -2470,6 +2471,26 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       item.product_type = val;
       const existingFilled = (item.attributes || []).filter((a) => (a.key && a.key.trim() !== '') || (a.value && a.value.trim() !== ''));
       item.attributes = existingFilled;
+    } else if (field === 'lead_time_note' || (field as string) === 'delivery_time' || (field as string) === 'lead_time') {
+      const strVal = String(val ?? '');
+      item.lead_time_note = strVal;
+      item.delivery_time = strVal;
+      item.lead_time = strVal;
+      item.availability = strVal;
+      if (!item.specifications) {
+        item.specifications = {};
+      }
+      item.specifications['Delivery'] = strVal;
+      item.specifications['Lead Time'] = strVal;
+      if (Array.isArray(item.attributes)) {
+        const found = item.attributes.find((a) => {
+          const k = (a.key || '').trim().toLowerCase();
+          return k === 'delivery' || k === 'lead time' || k === 'availability';
+        });
+        if (found) {
+          found.value = strVal;
+        }
+      }
     } else {
       item[field] = val as any;
     }
@@ -4068,10 +4089,30 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             .map((a) => ({ key: normalizeAttributeKey(a.key.trim()), value: a.value.trim() }))
             .filter((a) => a.key !== '' && a.value !== '');
       const optDes = ((item as any).option_designation || item.option || 'Default / Included').trim();
+      const resolvedDelivery = isServiceOrFee
+        ? ''
+        : (
+            item.lead_time_note ||
+            item.delivery_time ||
+            item.lead_time ||
+            item.availability ||
+            (item.specifications as any)?.['Delivery'] ||
+            (item.specifications as any)?.['Lead Time'] ||
+            ''
+          );
+      const updatedSpecs = { ...(item.specifications || {}) };
+      if (resolvedDelivery) {
+        updatedSpecs['Delivery'] = resolvedDelivery;
+        updatedSpecs['Lead Time'] = resolvedDelivery;
+      }
       return {
         ...item,
         product_id: isServiceOrFee ? undefined : item.product_id,
-        lead_time_note: isServiceOrFee ? '' : (item.lead_time_note || ''),
+        lead_time_note: resolvedDelivery,
+        delivery_time: resolvedDelivery,
+        lead_time: resolvedDelivery,
+        availability: resolvedDelivery,
+        specifications: updatedSpecs,
         option: optDes,
         option_designation: optDes,
         attributes: cleanAttr,
@@ -4256,6 +4297,59 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           await EnquiryRepository.save(updatedDoc, activeWorkspace?.id);
         } catch (repoErr) {
           console.warn('Failed to save updated enquiry to EnquiryRepository:', repoErr);
+        }
+
+        // Keep active Draft quotation line items synchronized with Enquiry Form edits
+        try {
+          const wsId = activeWorkspace?.id || 'ws_default';
+          const relatedQuotes = await QuotationRepository.getQuotationsForEnquiry(enquiryToEdit.id, wsId);
+          const activeDraftQuote = relatedQuotes.find((q) => q.status === 'Draft' && !q.is_deleted);
+          if (activeDraftQuote && activeDraftQuote.id) {
+            const updatedQuoteLineItems = cleanLineItems.map((li, idx) => {
+              const existingQuoteItem = activeDraftQuote.line_items?.[idx];
+              const qty = Number(li.quantity) || 1;
+              const uPrice = Number(li.unit_price) || 0;
+              const tPrice =
+                li.total_price !== undefined
+                  ? QuotationRepository.roundCurrency(Number(li.total_price) || 0)
+                  : QuotationRepository.roundCurrency(qty * uPrice);
+              const deliveryVal =
+                li.lead_time_note ||
+                li.delivery_time ||
+                li.lead_time ||
+                li.availability ||
+                (li.specifications as any)?.['Delivery'] ||
+                (li.specifications as any)?.['Lead Time'] ||
+                'Ex-Stock / Standard';
+              return {
+                ...(existingQuoteItem || {}),
+                id: existingQuoteItem?.id || li.id || `item_${idx}`,
+                item_name: li.item_name || existingQuoteItem?.item_name || `Item ${idx + 1}`,
+                description: li.description || existingQuoteItem?.description || '',
+                quantity: qty,
+                unit: li.unit || existingQuoteItem?.unit || 'pcs',
+                unit_price: uPrice,
+                cost_price: li.cost_price,
+                total_price: tPrice,
+                availability: deliveryVal,
+                product_id: li.product_id,
+                sku: li.sku,
+                brand_make: li.brand_make || existingQuoteItem?.brand_make,
+                model_part_no: li.model_part_no || existingQuoteItem?.model_part_no,
+                country_of_origin: li.country_of_origin || existingQuoteItem?.country_of_origin,
+                attributes:
+                  Array.isArray(li.attributes) && li.attributes.length > 0
+                    ? li.attributes
+                    : existingQuoteItem?.attributes
+              };
+            });
+            await QuotationRepository.updateQuotation(activeDraftQuote.id, {
+              line_items: updatedQuoteLineItems,
+              updated_at: new Date().toISOString()
+            });
+          }
+        } catch (quoteSyncErr) {
+          console.warn('Could not auto-sync draft quotation line items from EnquiryForm:', quoteSyncErr);
         }
 
         try {
@@ -7381,13 +7475,33 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                                 value={attr.value ?? ''}
                                                 placeholder="Value (e.g. 10m3 / SS316)"
                                                 onChange={(e) => {
+                                                  const val = e.target.value;
                                                   const updated = [...lineItems];
                                                   const attrList = [...(updated[index].attributes || [])];
                                                   attrList[attrIdx] = {
                                                     ...attrList[attrIdx],
-                                                    value: e.target.value
+                                                    value: val
                                                   };
-                                                  updated[index] = { ...updated[index], attributes: attrList };
+                                                  const currentKey = (attrList[attrIdx]?.key || '').trim().toLowerCase();
+                                                  const isDeliveryKey = currentKey === 'delivery' || currentKey === 'lead time' || currentKey === 'availability';
+                                                  const targetItem = {
+                                                    ...updated[index],
+                                                    attributes: attrList,
+                                                    ...(isDeliveryKey
+                                                      ? {
+                                                          lead_time_note: val,
+                                                          delivery_time: val,
+                                                          lead_time: val,
+                                                          availability: val,
+                                                          specifications: {
+                                                            ...(updated[index].specifications || {}),
+                                                            Delivery: val,
+                                                            'Lead Time': val
+                                                          }
+                                                        }
+                                                      : {})
+                                                  };
+                                                  updated[index] = targetItem;
                                                   setLineItems(updated);
                                                 }}
                                                 className="flex-1 min-w-0 bg-transparent border-0 focus:ring-0 px-1.5 py-1 text-xs text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none"

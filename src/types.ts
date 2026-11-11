@@ -2578,6 +2578,7 @@ export interface Quotation extends SoftDeleteFields {
   project_id?: string;
   project_number?: string;
   document_type?: CommercialDocumentType;
+  preset_id?: string;
   delivery_metadata?: DeliveryNoteMetadata;
   purchase_order_metadata?: PurchaseOrderMetadata;
   receipt_metadata?: ReceiptVoucherMetadata;
