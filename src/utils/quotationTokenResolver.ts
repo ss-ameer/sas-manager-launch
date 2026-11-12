@@ -4,7 +4,9 @@ import {
   Quotation,
   WorkspaceDocumentProfile,
   BankAccountProfile,
-  DocumentProfileBankAccount
+  DocumentProfileBankAccount,
+  Company,
+  Contact
 } from '../types';
 import { amountToWords } from './numberToWords';
 
@@ -117,6 +119,12 @@ export const QUOTATION_AT_TAGS: QuotationAtTagDefinition[] = [
     structuralSyncTarget: 'offer.quote_date'
   },
   {
+    key: 'issue_date',
+    tag: '@issue_date',
+    label: 'Issue Date (Alias)',
+    category: 'Dates'
+  },
+  {
     key: 'valid_until',
     tag: '@valid_until',
     label: 'Valid Until Date',
@@ -124,9 +132,27 @@ export const QUOTATION_AT_TAGS: QuotationAtTagDefinition[] = [
     structuralSyncTarget: 'offer.valid_until'
   },
   {
+    key: 'validity_days',
+    tag: '@validity_days',
+    label: 'Validity Days (e.g. 30 Days)',
+    category: 'Dates'
+  },
+  {
     key: 'enquiry_date',
     tag: '@enquiry_date',
-    label: 'Enquiry Date',
+    label: 'Enquiry Received Date',
+    category: 'Dates'
+  },
+  {
+    key: 'received_date',
+    tag: '@received_date',
+    label: 'Received Date (Alias)',
+    category: 'Dates'
+  },
+  {
+    key: 'logged_date',
+    tag: '@logged_date',
+    label: 'Enquiry Logged Date',
     category: 'Dates'
   },
   {
@@ -139,6 +165,12 @@ export const QUOTATION_AT_TAGS: QuotationAtTagDefinition[] = [
     key: 'followup_date',
     tag: '@followup_date',
     label: 'Next Follow-Up Date',
+    category: 'Dates'
+  },
+  {
+    key: 'next_followup',
+    tag: '@next_followup',
+    label: 'Next Follow-Up (Alias)',
     category: 'Dates'
   },
 
@@ -156,6 +188,12 @@ export const QUOTATION_AT_TAGS: QuotationAtTagDefinition[] = [
     label: 'Attention / Contact Person',
     category: 'Client & Project',
     structuralSyncTarget: 'recipient.contact_person'
+  },
+  {
+    key: 'contact_designation',
+    tag: '@contact_designation',
+    label: 'Contact Designation / Role',
+    category: 'Client & Project'
   },
   {
     key: 'client_trn',
@@ -184,6 +222,18 @@ export const QUOTATION_AT_TAGS: QuotationAtTagDefinition[] = [
     label: 'Customer Address',
     category: 'Client & Project',
     structuralSyncTarget: 'recipient.address'
+  },
+  {
+    key: 'client_city',
+    tag: '@client_city',
+    label: 'Customer City',
+    category: 'Client & Project'
+  },
+  {
+    key: 'client_country',
+    tag: '@client_country',
+    label: 'Customer Country',
+    category: 'Client & Project'
   },
   {
     key: 'project_location',
@@ -328,11 +378,29 @@ export const QUOTATION_AT_TAGS: QuotationAtTagDefinition[] = [
     category: 'Commercial, Bank & Totals'
   },
   {
+    key: 'delivery_period',
+    tag: '@delivery_period',
+    label: 'Delivery Period',
+    category: 'Commercial, Bank & Totals'
+  },
+  {
     key: 'quote_validity',
     tag: '@quote_validity',
     label: 'Offer Validity Period',
     category: 'Commercial, Bank & Totals',
     structuralSyncTarget: 'terms.validity'
+  },
+  {
+    key: 'vat_mode',
+    tag: '@vat_mode',
+    label: 'VAT / Tax Mode',
+    category: 'Commercial, Bank & Totals'
+  },
+  {
+    key: 'remarks',
+    tag: '@remarks',
+    label: 'Commercial Remarks / Notes',
+    category: 'Commercial, Bank & Totals'
   },
   {
     key: 'warranty_period',
@@ -423,6 +491,12 @@ export const QUOTATION_AT_TAGS: QuotationAtTagDefinition[] = [
     label: 'Quotation Subject / Scope Summary',
     category: 'Commercial, Bank & Totals',
     structuralSyncTarget: 'subject.banner'
+  },
+  {
+    key: 'subject',
+    tag: '@subject',
+    label: 'Subject (Alias)',
+    category: 'Our Company & Quote'
   },
 
   // 5. Delivery Note, Purchase Order & Payment Receipt Tags
@@ -622,15 +696,40 @@ const TOKEN_ALIAS_MAP: Record<string, string> = {
   company_name: 'client_name',
   client_company: 'client_name',
   customer_name: 'client_name',
+  entity_name: 'client_name',
   attention: 'contact_person',
+  attn: 'contact_person',
   contact_person_name: 'contact_person',
+  contact_name: 'contact_person',
+  concerned_person: 'contact_person',
+  contact_designation: 'contact_designation',
+  designation: 'contact_designation',
+  contact_role: 'contact_designation',
+  contact_title: 'contact_designation',
   customer_trn: 'client_trn',
+  trn: 'client_trn',
+  tax_registration_no: 'client_trn',
+  vat_no: 'client_trn',
   customer_phone: 'client_phone',
+  contact_phone: 'client_phone',
+  phone: 'client_phone',
+  mobile: 'client_phone',
   customer_email: 'client_email',
+  contact_email: 'client_email',
+  email: 'client_email',
   customer_address: 'client_address',
+  address: 'client_address',
+  registered_address: 'client_address',
+  city: 'client_city',
+  client_city: 'client_city',
+  country: 'client_country',
+  client_country: 'client_country',
   customer_reference_code: 'customer_ref',
+  rfq_ref: 'customer_ref',
+  rfq_no: 'customer_ref',
   quote_ref_no: 'quote_ref',
   formatted_quote_ref: 'quote_ref',
+  quote_number: 'quote_ref',
   quote_short_ref: 'quote_short_ref',
   short_ref: 'quote_short_ref',
   quote_short: 'quote_short_ref',
@@ -638,16 +737,27 @@ const TOKEN_ALIAS_MAP: Record<string, string> = {
   brand: 'company_brand',
   brand_name: 'company_brand',
   client_code: 'client_code',
+  company_code: 'client_code',
+  client_short_code: 'client_code',
   customer_code: 'client_code',
   revision_number: 'revision_no',
   validity_days: 'quote_validity',
   validity: 'quote_validity',
+  offer_validity: 'quote_validity',
   created_at: 'quote_date',
   issue_date: 'quote_date',
-  logged_date: 'enquiry_date',
+  date_issued: 'quote_date',
+  received_date: 'enquiry_date',
+  date_received: 'enquiry_date',
+  rfq_date: 'enquiry_date',
+  logged_date: 'logged_date',
+  next_followup: 'followup_date',
   next_followup_date: 'followup_date',
+  follow_up_date: 'followup_date',
   prepared_by: 'sales_person',
   sales_rep: 'sales_person',
+  sales_representative: 'sales_person',
+  salesperson: 'sales_person',
   assigned_to: 'sales_person',
   primary_signatory_name: 'signatory_name',
   primary_signatory_title: 'signatory_role',
@@ -655,6 +765,12 @@ const TOKEN_ALIAS_MAP: Record<string, string> = {
   tax_amount: 'vat_amount',
   vat: 'vat_amount',
   vat_rate: 'tax_rate',
+  vat_mode: 'vat_mode',
+  tax_mode: 'vat_mode',
+  remarks: 'remarks',
+  custom_notes: 'remarks',
+  commercial_remarks: 'remarks',
+  notes: 'remarks',
   lead_time: 'delivery_lead_time',
   delivery_period: 'delivery_lead_time',
   delivery_time: 'delivery_lead_time',
@@ -669,6 +785,7 @@ const TOKEN_ALIAS_MAP: Record<string, string> = {
   account_number: 'account_no',
   swift_code: 'swift',
   subject: 'scope_summary',
+  quote_subject: 'scope_summary',
   do_ref: 'delivery_ref',
   vehicle_plate_no: 'vehicle_no',
   delivery_address: 'site_address',
@@ -687,6 +804,10 @@ const WHITELISTED_TOKEN_KEYS = new Set<string>([
   ...Object.keys(TOKEN_ALIAS_MAP)
 ]);
 
+const SORTED_WHITELISTED_KEYS = Array.from(WHITELISTED_TOKEN_KEYS).sort(
+  (a, b) => b.length - a.length
+);
+
 export function normalizeCanonicalTagKey(rawKey: string): string {
   const lower = String(rawKey || '').trim().toLowerCase();
   return TOKEN_ALIAS_MAP[lower] || lower;
@@ -697,10 +818,47 @@ export function isWhitelistedAtTag(rawKey: string): boolean {
   return WHITELISTED_TOKEN_KEYS.has(lower);
 }
 
+/**
+ * Splits a greedy identifier matched after `@` (e.g. `quote_short_ref_` in `@quote_short_ref_@company_brand`
+ * or `quote_short_ref_Proposal`) into `{ matchedKey, remainder }` if it matches or starts with a valid @tag.
+ */
+export function splitKnownAtToken(
+  rawIdent: string
+): { matchedKey: string; remainder: string } | null {
+  if (!rawIdent) return null;
+  const lower = rawIdent.toLowerCase();
+  if (WHITELISTED_TOKEN_KEYS.has(lower)) {
+    return { matchedKey: rawIdent, remainder: '' };
+  }
+  // 1. Strip trailing underscores (e.g. "quote_short_ref_" right before "@company_brand" or whitespace)
+  const strippedTrailing = rawIdent.replace(/_+$/, '');
+  if (strippedTrailing && strippedTrailing.length < rawIdent.length) {
+    if (WHITELISTED_TOKEN_KEYS.has(strippedTrailing.toLowerCase())) {
+      return {
+        matchedKey: strippedTrailing,
+        remainder: rawIdent.slice(strippedTrailing.length)
+      };
+    }
+  }
+  // 2. Match longest whitelisted token followed by '_' (e.g. "@quote_short_ref_Proposal")
+  for (const key of SORTED_WHITELISTED_KEYS) {
+    if (lower.startsWith(`${key}_`)) {
+      return {
+        matchedKey: rawIdent.slice(0, key.length),
+        remainder: rawIdent.slice(key.length)
+      };
+    }
+  }
+  return null;
+}
+
 export interface QuotationTokenContext {
   quotation?: Partial<Quotation> | null;
   enquiry?: Partial<Enquiry> | null;
   profile?: Partial<WorkspaceDocumentProfile> | null;
+  company?: Partial<Company> | null;
+  contact?: Partial<Contact> | null;
+  workspaceName?: string | null;
   omittedFields?: Record<string, boolean> | null;
   activeBank?: Partial<BankAccountProfile & DocumentProfileBankAccount> | null;
   amountInWordsText?: string;
@@ -710,7 +868,7 @@ export interface QuotationTokenContext {
 function formatReadableDate(isoOrDateStr?: string | null): string {
   if (!isoOrDateStr) return '';
   const trimmed = String(isoOrDateStr).trim();
-  if (!trimmed) return '';
+  if (!trimmed || trimmed.startsWith('@') || trimmed.startsWith('{{')) return '';
   const d = new Date(trimmed);
   if (isNaN(d.getTime())) return trimmed;
   return d.toLocaleDateString('en-GB', {
@@ -731,11 +889,26 @@ function formatAmount(num?: number | string | null): string {
 }
 
 /**
+ * Returns a clean string only if `val` does NOT contain unresolved `@tag` or `{{tag}}` tokens,
+ * preventing self-referential loops when a field override itself is set to e.g. `@client_phone`.
+ * Real email addresses like `info@aventura.ae` (where `@` is preceded by alphanumeric) are preserved.
+ */
+function nonTagValue(val?: any): string {
+  if (val === undefined || val === null) return '';
+  const str = String(val).trim();
+  if (!str || str === '—' || str.toLowerCase() === 'not registered') return '';
+  if (str.startsWith('@') || str.startsWith('{{')) return '';
+  if (/(?:^|[\s(\[{"'‘“_\-/.,:;])@[a-zA-Z_][a-zA-Z0-9_]*/.test(str)) return '';
+  if (/\{\{\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\}\}/.test(str)) return '';
+  return str;
+}
+
+/**
  * Combines City and Country cleanly without dangling commas or redundant duplicates like "Dubai, Dubai".
  */
 export function combineCityCountry(city?: string | null, country?: string | null): string {
-  const cCity = (city || '').trim().replace(/^[,•\s]+|[,•\s]+$/g, '');
-  const cCountry = (country || '').trim().replace(/^[,•\s]+|[,•\s]+$/g, '');
+  const cCity = nonTagValue(city).replace(/^[,•\s]+|[,•\s]+$/g, '');
+  const cCountry = nonTagValue(country).replace(/^[,•\s]+|[,•\s]+$/g, '');
   if (cCity && cCountry) {
     if (cCity.toLowerCase() === cCountry.toLowerCase()) return cCity;
     if (cCity.toLowerCase().includes(cCountry.toLowerCase())) return cCity;
@@ -785,13 +958,12 @@ export function isFieldOmitted(
 }
 
 /**
- * Builds the complete dictionary of canonical @tag keys -> raw resolved string values
- * (before applying omission or '—' fallback).
+ * Builds the complete dictionary of canonical @tag keys -> raw resolved string values.
  *
  * Snapshot-First Resolution Rule:
- * - Always reads from `quotation.client_snapshot`, `quotation.sender_snapshot`, `quotation.applied_bank_account`,
+ * - Always reads non-tag values from `quotation.client_snapshot`, `quotation.sender_snapshot`, `quotation.applied_bank_account`,
  *   and `quotation.*` fields first.
- * - Falls back to live `enquiry` / `profile` ONLY when the quotation is in 'Draft' (not frozen).
+ * - Falls back to live `enquiry`, `company`, `contact`, and `profile` when the quotation is in 'Draft' (not frozen).
  */
 export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Record<string, string> {
   const safeCtx = (ctx || {}) as QuotationTokenContext;
@@ -803,18 +975,27 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
   const frozen = isQuotationSnapshotFrozen(q);
   const enq = frozen ? ({} as Partial<Enquiry>) : safeCtx.enquiry || {};
   const prof = frozen ? ({} as Partial<WorkspaceDocumentProfile>) : safeCtx.profile || {};
+  const comp = frozen ? ({} as Partial<Company>) : safeCtx.company || {};
+  const cont = frozen ? ({} as Partial<Contact>) : safeCtx.contact || {};
 
   const clientSnap = q.client_snapshot || ({} as any);
   const senderSnap = q.sender_snapshot || ({} as any);
 
   // Dates
-  const rawIssueDate = q.issue_date || q.created_at || (enq as any)?.created_at || '';
+  const rawIssueDate =
+    nonTagValue(q.issue_date) ||
+    nonTagValue(q.created_at) ||
+    nonTagValue((enq as any)?.created_at) ||
+    '';
   const quoteDateStr = formatReadableDate(rawIssueDate);
 
-  const vDays = Number(q.validity_days ?? prof.default_validity_days ?? 30);
-  let validUntilStr = formatReadableDate(q.valid_until);
-  if ((!validUntilStr || (quoteDateStr && validUntilStr === quoteDateStr && vDays > 0)) && (rawIssueDate || q.valid_until)) {
-    const base = new Date(rawIssueDate || q.valid_until || Date.now());
+  const vDays = Number(q.validity_days ?? enq.validity_days ?? prof.default_validity_days ?? 30);
+  let validUntilStr = formatReadableDate(nonTagValue(q.valid_until));
+  if (
+    (!validUntilStr || (quoteDateStr && validUntilStr === quoteDateStr && vDays > 0)) &&
+    (rawIssueDate || nonTagValue(q.valid_until))
+  ) {
+    const base = new Date(rawIssueDate || nonTagValue(q.valid_until) || Date.now());
     if (!isNaN(base.getTime()) && Number.isFinite(vDays) && vDays > 0) {
       base.setDate(base.getDate() + vDays);
       validUntilStr = formatReadableDate(base.toISOString());
@@ -822,93 +1003,205 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
   }
 
   const enquiryDateStr = formatReadableDate(
-    (clientSnap as any)?.enquiry_date || enq.enquiry_date || enq.logged_date || ''
+    nonTagValue((clientSnap as any)?.enquiry_date) ||
+      nonTagValue((enq as any)?.received_date) ||
+      nonTagValue((enq as any)?.date_received) ||
+      nonTagValue(enq.enquiry_date) ||
+      nonTagValue(enq.logged_date) ||
+      nonTagValue((enq as any)?.created_at) ||
+      ''
+  );
+  const loggedDateStr = formatReadableDate(
+    nonTagValue(enq.logged_date) ||
+      nonTagValue(enq.enquiry_date) ||
+      nonTagValue((enq as any)?.received_date) ||
+      nonTagValue((enq as any)?.created_at) ||
+      ''
   );
   const projectedOrderDateStr = formatReadableDate(
-    (clientSnap as any)?.projected_order_date || enq.projected_order_date || ''
+    nonTagValue((clientSnap as any)?.projected_order_date) ||
+      nonTagValue(enq.projected_order_date) ||
+      ''
   );
   const followupDateStr = formatReadableDate(
-    (clientSnap as any)?.next_followup_date || enq.next_followup_date || ''
+    nonTagValue((clientSnap as any)?.next_followup_date) ||
+      nonTagValue(enq.next_followup_date) ||
+      nonTagValue((enq as any)?.followup_date) ||
+      nonTagValue((enq as any)?.nextFollowUpAt) ||
+      nonTagValue(comp.next_followup_at) ||
+      nonTagValue(comp.nextFollowUpAt) ||
+      ''
   );
 
   // Client & Project
   const clientName =
-    clientSnap.entity_name ||
-    (!frozen ? enq.company_name || enq.client_company || '' : '') ||
+    nonTagValue(clientSnap.entity_name) ||
+    (!frozen
+      ? nonTagValue(enq.company_name) ||
+        nonTagValue(enq.client_company) ||
+        nonTagValue(comp.display_name) ||
+        nonTagValue(comp.canonical_name) ||
+        nonTagValue(comp.name) ||
+        ''
+      : '') ||
     '';
 
   const contactPerson =
-    q.client_contact_person ||
-    clientSnap.client_contact_person ||
-    clientSnap.contact_person ||
-    (!frozen ? enq.contact_person_name || '' : '') ||
+    nonTagValue(q.client_contact_person) ||
+    nonTagValue(clientSnap.client_contact_person) ||
+    nonTagValue(clientSnap.contact_person) ||
+    (!frozen
+      ? nonTagValue(enq.contact_person_name) ||
+        nonTagValue((enq as any)?.contact_name) ||
+        nonTagValue(enq.concerned_person) ||
+        nonTagValue(cont.full_name) ||
+        nonTagValue(cont.name) ||
+        ''
+      : '') ||
+    '';
+
+  const contactDesignation =
+    nonTagValue((clientSnap as any)?.contact_designation) ||
+    (!frozen
+      ? nonTagValue((enq as any)?.contact_designation) ||
+        nonTagValue((enq as any)?.designation) ||
+        nonTagValue(cont.designation) ||
+        nonTagValue(cont.role) ||
+        ''
+      : '') ||
     '';
 
   const clientTrn =
-    q.client_trn ||
-    clientSnap.client_trn ||
-    clientSnap.trn ||
-    (!frozen ? (enq as any)?.client_trn || (enq as any)?.trn || '' : '') ||
+    nonTagValue(q.client_trn) ||
+    nonTagValue(clientSnap.client_trn) ||
+    nonTagValue(clientSnap.trn) ||
+    (!frozen
+      ? nonTagValue((enq as any)?.client_trn) ||
+        nonTagValue((enq as any)?.trn) ||
+        nonTagValue((enq as any)?.tax_registration_no) ||
+        nonTagValue(comp.trn) ||
+        nonTagValue(comp.tax_registration_no) ||
+        ''
+      : '') ||
     '';
+
+  const firstCompPhone =
+    Array.isArray(comp.general_phones) && comp.general_phones.length > 0
+      ? comp.general_phones[0]?.value
+      : Array.isArray(comp.phones) && comp.phones.length > 0
+      ? (comp.phones[0] as any)?.value || (comp.phones[0] as any)?.number
+      : '';
+  const firstContPhone =
+    Array.isArray(cont.phones) && cont.phones.length > 0
+      ? (cont.phones[0] as any)?.value || (cont.phones[0] as any)?.number
+      : '';
 
   const clientPhone =
-    q.client_phone ||
-    clientSnap.client_phone ||
-    clientSnap.phone ||
-    (!frozen ? (enq as any)?.contact_phone || (enq as any)?.phone || '' : '') ||
+    nonTagValue(q.client_phone) ||
+    nonTagValue(clientSnap.client_phone) ||
+    nonTagValue(clientSnap.phone) ||
+    (!frozen
+      ? nonTagValue((enq as any)?.contact_phone) ||
+        nonTagValue((enq as any)?.phone) ||
+        nonTagValue((enq as any)?.client_phone) ||
+        nonTagValue(cont.mobile) ||
+        nonTagValue(cont.phone) ||
+        nonTagValue(cont.landline) ||
+        nonTagValue(firstContPhone) ||
+        nonTagValue(comp.phone) ||
+        nonTagValue(comp.general_phone) ||
+        nonTagValue(firstCompPhone) ||
+        ''
+      : '') ||
     '';
+
+  const firstCompEmail =
+    Array.isArray(comp.general_emails) && comp.general_emails.length > 0
+      ? comp.general_emails[0]?.value
+      : Array.isArray(comp.emails) && comp.emails.length > 0
+      ? (comp.emails[0] as any)?.value || (comp.emails[0] as any)?.email
+      : '';
+  const firstContEmail =
+    Array.isArray(cont.emails) && cont.emails.length > 0
+      ? (cont.emails[0] as any)?.value || (cont.emails[0] as any)?.email
+      : '';
 
   const clientEmail =
-    q.client_email ||
-    clientSnap.client_email ||
-    clientSnap.email ||
-    (!frozen ? (enq as any)?.contact_email || (enq as any)?.email || '' : '') ||
+    nonTagValue(q.client_email) ||
+    nonTagValue(clientSnap.client_email) ||
+    nonTagValue(clientSnap.email) ||
+    (!frozen
+      ? nonTagValue((enq as any)?.contact_email) ||
+        nonTagValue((enq as any)?.email) ||
+        nonTagValue((enq as any)?.client_email) ||
+        nonTagValue(cont.email) ||
+        nonTagValue(firstContEmail) ||
+        nonTagValue(comp.email) ||
+        nonTagValue(comp.general_email) ||
+        nonTagValue(firstCompEmail) ||
+        ''
+      : '') ||
     '';
 
-  const rawCity = (clientSnap as any)?.city || (enq as any)?.city || '';
-  const rawCountry = (clientSnap as any)?.country || (enq as any)?.country || '';
+  const rawCity =
+    nonTagValue((clientSnap as any)?.city) ||
+    (!frozen ? nonTagValue((enq as any)?.city) || nonTagValue(comp.city) : '') ||
+    '';
+  const rawCountry =
+    nonTagValue((clientSnap as any)?.country) ||
+    (!frozen ? nonTagValue((enq as any)?.country) || nonTagValue(comp.country) : '') ||
+    '';
   const combinedCityCountry = combineCityCountry(rawCity, rawCountry);
 
-  const rawAddressCandidate =
-    q.client_address ||
-    clientSnap.client_address ||
-    clientSnap.address ||
-    (!frozen ? (enq as any)?.client_address || (enq as any)?.address || enq.project_location : '') ||
-    '';
   const cleanAddressCandidate =
-    rawAddressCandidate && !rawAddressCandidate.trim().startsWith('@')
-      ? rawAddressCandidate.trim()
-      : '';
+    nonTagValue(q.client_address) ||
+    nonTagValue(clientSnap.client_address) ||
+    nonTagValue(clientSnap.address) ||
+    (!frozen
+      ? nonTagValue((enq as any)?.client_address) ||
+        nonTagValue((enq as any)?.address) ||
+        nonTagValue(comp.address) ||
+        nonTagValue(enq.project_location)
+      : '') ||
+    '';
 
   const clientAddress = cleanAddressCandidate || combinedCityCountry || '';
 
   const projectLocation =
-    (clientSnap as any)?.project_location ||
-    (!frozen ? enq.project_location || '' : '') ||
+    nonTagValue((clientSnap as any)?.project_location) ||
+    (!frozen ? nonTagValue(enq.project_location) : '') ||
     clientAddress ||
     '';
 
   const projectNumber =
-    (clientSnap as any)?.project_number ||
-    (!frozen ? enq.project_number || '' : '') ||
+    nonTagValue((clientSnap as any)?.project_number) ||
+    (!frozen ? nonTagValue(enq.project_number) : '') ||
     '';
 
   const projectName =
-    (clientSnap as any)?.project_name ||
-    (!frozen ? (enq as any)?.project_name || (enq as any)?.project_title || '' : '') ||
-    q.subject ||
-    (!frozen ? enq.subject || '' : '') ||
+    nonTagValue((clientSnap as any)?.project_name) ||
+    (!frozen
+      ? nonTagValue((enq as any)?.project_name) || nonTagValue((enq as any)?.project_title)
+      : '') ||
+    nonTagValue(q.subject) ||
+    (!frozen ? nonTagValue(enq.subject) : '') ||
     '';
 
   const customerRef =
-    (clientSnap as any)?.customer_reference_code ||
-    (!frozen ? enq.customer_reference_code || '' : '') ||
+    nonTagValue((clientSnap as any)?.customer_reference_code) ||
+    (!frozen ? nonTagValue(enq.customer_reference_code) : '') ||
     '';
 
   const rawEnquiryRef =
-    (clientSnap as any)?.enquiry_ref ||
-    (!frozen ? enq.quote_ref_no || enq.customer_reference_code || (enq.sn ? `ENQ-${String(enq.sn).padStart(4, '0')}` : '') || enq.id || '' : '') ||
-    q.quote_number ||
+    nonTagValue((clientSnap as any)?.enquiry_ref) ||
+    (!frozen
+      ? nonTagValue(enq.quote_ref_no) ||
+        nonTagValue(enq.customer_reference_code) ||
+        (enq.sn ? `ENQ-${String(enq.sn).padStart(4, '0')}` : '') ||
+        nonTagValue(enq.id) ||
+        ''
+      : '') ||
+    nonTagValue(q.quote_number) ||
     '';
   const enquiryRef = formatCleanDocumentEnquiryRef(
     rawEnquiryRef,
@@ -921,7 +1214,7 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
   );
 
   // Our Company & Quote
-  const quoteRef = q.formatted_quote_ref || q.quote_number || '';
+  const quoteRef = nonTagValue(q.formatted_quote_ref) || nonTagValue(q.quote_number) || '';
   const revisionNo =
     typeof q.revision_number === 'number' ? `R${q.revision_number}` : 'R1';
 
@@ -932,26 +1225,51 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
   quoteShortRef = quoteShortRef.trim();
 
   const ourCompany =
-    q.companyNameOverride ||
-    q.header_config?.companyNameOverride ||
-    senderSnap.entity_name ||
-    (!frozen ? prof.legal_entity_name || '' : '') ||
+    nonTagValue(q.companyNameOverride) ||
+    nonTagValue(q.header_config?.companyNameOverride) ||
+    (nonTagValue(senderSnap.entity_name) !== 'Commercial Entity LLC'
+      ? nonTagValue(senderSnap.entity_name)
+      : '') ||
+    (!frozen
+      ? nonTagValue(prof.legal_entity_name) || nonTagValue((prof as any)?.company_name) || ''
+      : '') ||
+    nonTagValue(senderSnap.entity_name) ||
     '';
 
+  const quotePrefixBrand =
+    quoteRef.includes('/') && !/^(?:QT|DO|PO|REC|PV|MRN|DN)-/i.test(quoteRef.split('/')[0] || '')
+      ? quoteRef.split('/')[0].trim()
+      : '';
+
   const rawBrandCandidate =
-    q.companyNameOverride ||
-    prof.profile_name ||
-    prof.legal_entity_name ||
+    nonTagValue(q.companyNameOverride) ||
+    nonTagValue(q.header_config?.companyNameOverride) ||
+    nonTagValue(prof.profile_name) ||
+    nonTagValue(prof.legal_entity_name) ||
+    nonTagValue((prof as any)?.company_name) ||
+    (nonTagValue(senderSnap.entity_name) &&
+    nonTagValue(senderSnap.entity_name) !== 'Commercial Entity LLC'
+      ? nonTagValue(senderSnap.entity_name)
+      : '') ||
+    quotePrefixBrand ||
+    nonTagValue(safeCtx.workspaceName) ||
     'AVENTURA';
+
   const companyBrand =
     rawBrandCandidate
-      .replace(/\s*\(?(?:FZE|LLC|L\.L\.C|PJSC|W\.L\.L|EST|COMPONENTS)\)?.*$/i, '')
-      .trim() || rawBrandCandidate.split(' ')[0] || 'AVENTURA';
+      .replace(
+        /\s*\(?(?:FZE|FZC|LLC|L\.L\.C\.?|PJSC|W\.L\.L\.?|EST\.?|COMPONENTS|GENERAL\s+TRADING|TRADING|CO\.?)\)?.*$/i,
+        ''
+      )
+      .trim() ||
+    rawBrandCandidate.split(' ')[0] ||
+    'AVENTURA';
 
   let clientCode =
-    (enq as any)?.client_code ||
-    (enq as any)?.company_code ||
-    (enq as any)?.client_short_code ||
+    nonTagValue((enq as any)?.client_code) ||
+    nonTagValue((enq as any)?.company_code) ||
+    nonTagValue((enq as any)?.client_short_code) ||
+    (!frozen ? nonTagValue(comp.company_code) : '') ||
     '';
   if (!clientCode && quoteRef.includes('/')) {
     const parts = quoteRef.split('/').filter(Boolean);
@@ -969,65 +1287,72 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
   }
 
   const ourTrn =
-    senderSnap.trn ||
-    (!frozen ? prof.trn || '' : '') ||
+    nonTagValue(senderSnap.trn) ||
+    (!frozen ? nonTagValue(prof.trn) || '' : '') ||
     '';
 
   const ourPhone =
-    senderSnap.phone ||
-    (!frozen ? prof.phone || '' : '') ||
+    nonTagValue(senderSnap.phone) ||
+    (!frozen ? nonTagValue(prof.phone) || '' : '') ||
     '';
 
   const ourEmail =
-    senderSnap.email ||
-    (!frozen ? prof.email || '' : '') ||
+    nonTagValue(senderSnap.email) ||
+    (!frozen ? nonTagValue(prof.email) || '' : '') ||
     '';
 
   const ourAddress =
-    senderSnap.address ||
+    nonTagValue(senderSnap.address) ||
     (!frozen
       ? [prof.address_line_1, prof.address_line_2, prof.city, prof.country]
+          .map((p) => nonTagValue(p))
           .filter(Boolean)
           .join(', ')
       : '') ||
     '';
 
   const salesPerson =
-    q.prepared_by ||
-    senderSnap.contact_person ||
-    (!frozen ? enq.sales_person || enq.assigned_to || '' : '') ||
+    nonTagValue(q.prepared_by) ||
+    nonTagValue(senderSnap.contact_person) ||
+    (!frozen
+      ? nonTagValue(enq.sales_representative) ||
+        nonTagValue(enq.sales_person) ||
+        nonTagValue(enq.salesperson) ||
+        nonTagValue(enq.assigned_to) ||
+        ''
+      : '') ||
     '';
 
   const signatoryName =
-    q.primary_signatory_name ||
-    q.signatories?.[0]?.name ||
+    nonTagValue(q.primary_signatory_name) ||
+    nonTagValue(q.signatories?.[0]?.name) ||
     salesPerson ||
     '';
 
   const signatoryRole =
-    q.primary_signatory_title ||
-    q.signatories?.[0]?.designation ||
+    nonTagValue(q.primary_signatory_title) ||
+    nonTagValue(q.signatories?.[0]?.designation) ||
     '';
 
   // Commercial, Bank & Totals
   const priceBasis =
-    q.price_basis ||
-    (!frozen ? enq.price_basis || prof.default_price_basis || '' : '') ||
+    nonTagValue(q.price_basis) ||
+    (!frozen ? nonTagValue(enq.price_basis) || nonTagValue(prof.default_price_basis) || '' : '') ||
     '';
 
   const paymentTerms =
-    q.payment_terms ||
-    (!frozen ? enq.payment_terms || '' : '') ||
-    q.applied_terms ||
-    (!frozen ? prof.default_payment_terms || '' : '') ||
+    nonTagValue(q.payment_terms) ||
+    (!frozen ? nonTagValue(enq.payment_terms) || '' : '') ||
+    nonTagValue(q.applied_terms) ||
+    (!frozen ? nonTagValue(prof.default_payment_terms) || '' : '') ||
     '';
 
   const lineItems = Array.isArray(q.line_items) ? q.line_items : [];
   const firstLeadTime =
-    q.delivery_period ||
-    (!frozen ? enq.delivery_period || '' : '') ||
+    nonTagValue(q.delivery_period) ||
+    (!frozen ? nonTagValue(enq.delivery_period) || '' : '') ||
     lineItems
-      .map((it) => String(it?.availability || (it as any)?.delivery_lead_time || '').trim())
+      .map((it) => nonTagValue(it?.availability || (it as any)?.delivery_lead_time))
       .find(Boolean) ||
     '';
 
@@ -1038,6 +1363,29 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
       ? `${validityDaysNum} Days`
       : '';
 
+  const effectiveTaxMode = q.tax_mode || (!frozen ? enq.tax_mode : undefined) || 'taxes_extra';
+  const taxRateNum = Number(q.tax_rate_percent ?? (!frozen ? prof.default_tax_rate : 5) ?? 5);
+  const vatModeStr =
+    effectiveTaxMode === 'tax_exempt'
+      ? 'Zero-Rated / Tax Exempt (0%)'
+      : effectiveTaxMode === 'vat_excluded_extra'
+      ? `VAT Excluded (${taxRateNum}% Extra as Applicable)`
+      : effectiveTaxMode === 'vat_hidden'
+      ? 'VAT Hidden'
+      : effectiveTaxMode === 'tax_calculated'
+      ? `VAT Inclusive (${taxRateNum}%)`
+      : `${taxRateNum}% Standard VAT`;
+
+  const remarksVal =
+    nonTagValue(q.custom_notes) ||
+    (!frozen
+      ? nonTagValue((enq as any)?.commercial_remarks) ||
+        nonTagValue((enq as any)?.custom_notes) ||
+        nonTagValue(enq.remarks) ||
+        ''
+      : '') ||
+    '';
+
   const termsBlock = Array.isArray(q.layout_blocks)
     ? q.layout_blocks.find((b) => b.id === 'terms' || b.type === 'terms')
     : undefined;
@@ -1045,7 +1393,7 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
     /warranty/i.test(String(r.label || ''))
   );
   const warrantyPeriod =
-    warrantyCustomRow?.value || '12 Months Standard Manufacturer Warranty';
+    nonTagValue(warrantyCustomRow?.value) || '12 Months Standard Manufacturer Warranty';
 
   const currency =
     q.receipt_metadata?.currency || q.currency || (!frozen ? enq.currency : '') || 'AED';
@@ -1056,10 +1404,7 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
   const freightAmount = `${currency} ${formatAmount(q.freight_amount)}`;
   const vatAmount = `${currency} ${formatAmount(rawTaxAmount)}`;
   const grandTotal = `${currency} ${formatAmount(rawGrandTotal)}`;
-  const taxRateStr =
-    q.tax_mode === 'tax_exempt'
-      ? '0%'
-      : `${Number(q.tax_rate_percent ?? (!frozen ? prof.default_tax_rate : 5) ?? 5)}%`;
+  const taxRateStr = effectiveTaxMode === 'tax_exempt' ? '0%' : `${taxRateNum}%`;
 
   const docType = q.document_type || 'quotation';
   const delMeta = q.delivery_metadata || {};
@@ -1097,51 +1442,60 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
       : null) ||
     {};
 
-  const bankName = bankSnap.bankName || bankSnap.bank_name || '';
+  const bankName = nonTagValue(bankSnap.bankName) || nonTagValue(bankSnap.bank_name) || '';
   const accountName =
-    bankSnap.beneficiaryName ||
-    bankSnap.beneficiary_name ||
-    bankSnap.account_name ||
+    nonTagValue(bankSnap.beneficiaryName) ||
+    nonTagValue(bankSnap.beneficiary_name) ||
+    nonTagValue(bankSnap.account_name) ||
     ourCompany ||
     '';
-  const accountNo = bankSnap.accountNumber || bankSnap.account_number || '';
-  const iban = bankSnap.iban || '';
-  const swift = bankSnap.swiftCode || bankSnap.swift_code || bankSnap.swift || '';
-  const branchVal = bankSnap.branchName || bankSnap.branch_address || bankSnap.branch || '';
+  const accountNo = nonTagValue(bankSnap.accountNumber) || nonTagValue(bankSnap.account_number) || '';
+  const iban = nonTagValue(bankSnap.iban) || '';
+  const swift =
+    nonTagValue(bankSnap.swiftCode) ||
+    nonTagValue(bankSnap.swift_code) ||
+    nonTagValue(bankSnap.swift) ||
+    '';
+  const branchVal =
+    nonTagValue(bankSnap.branchName) ||
+    nonTagValue(bankSnap.branch_address) ||
+    nonTagValue(bankSnap.branch) ||
+    '';
 
   const itemCount = String(
     lineItems.filter((it) => !(it as any)?.is_section_header).length
   );
   const scopeSummary =
-    q.subject || (!frozen ? enq.subject || '' : '') || '';
+    nonTagValue(q.subject) || (!frozen ? nonTagValue(enq.subject) || '' : '') || '';
 
   // Delivery Note tokens
-  const deliveryRef = delMeta.delivery_ref || (docType === 'delivery_note' ? quoteRef : '');
-  const deliveryDate = formatReadableDate(delMeta.delivery_date || rawIssueDate);
-  const vehicleNo = delMeta.vehicle_plate_no || '';
-  const driverName = delMeta.driver_name || '';
+  const deliveryRef =
+    nonTagValue(delMeta.delivery_ref) || (docType === 'delivery_note' ? quoteRef : '');
+  const deliveryDate = formatReadableDate(nonTagValue(delMeta.delivery_date) || rawIssueDate);
+  const vehicleNo = nonTagValue(delMeta.vehicle_plate_no) || '';
+  const driverName = nonTagValue(delMeta.driver_name) || '';
   const siteAddress =
-    delMeta.delivery_address ||
-    poMeta.shipping_address ||
+    nonTagValue(delMeta.delivery_address) ||
+    nonTagValue(poMeta.shipping_address) ||
     projectLocation ||
     clientAddress ||
     '';
   const customerPo =
-    delMeta.customer_po_no ||
+    nonTagValue(delMeta.customer_po_no) ||
     customerRef ||
     '';
 
   // Purchase Order tokens
   const poRef =
-    poMeta.po_ref ||
-    pvMeta.linked_po_ref ||
-    retMeta.original_po_ref ||
+    nonTagValue(poMeta.po_ref) ||
+    nonTagValue(pvMeta.linked_po_ref) ||
+    nonTagValue(retMeta.original_po_ref) ||
     (docType === 'purchase_order' ? quoteRef : '');
-  const poDate = formatReadableDate(poMeta.po_date || rawIssueDate);
+  const poDate = formatReadableDate(nonTagValue(poMeta.po_date) || rawIssueDate);
   const supplierName =
-    poMeta.supplier_name ||
-    pvMeta.paid_to_vendor_name ||
-    retMeta.vendor_name ||
+    nonTagValue(poMeta.supplier_name) ||
+    nonTagValue(pvMeta.paid_to_vendor_name) ||
+    nonTagValue(retMeta.vendor_name) ||
     (docType === 'purchase_order' ||
     docType === 'payment_voucher' ||
     docType === 'material_return_note' ||
@@ -1149,21 +1503,24 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
       ? clientName
       : '');
   const supplierTaxId =
-    poMeta.supplier_tax_id ||
-    poMeta.supplier_trn ||
-    pvMeta.vendor_trn ||
-    retMeta.vendor_trn ||
+    nonTagValue(poMeta.supplier_tax_id) ||
+    nonTagValue(poMeta.supplier_trn) ||
+    nonTagValue(pvMeta.vendor_trn) ||
+    nonTagValue(retMeta.vendor_trn) ||
     (docType === 'purchase_order' ? clientTrn : '');
-  const incotermsVal = poMeta.incoterms || priceBasis || '';
+  const incotermsVal = nonTagValue(poMeta.incoterms) || priceBasis || '';
 
   // Receipt Voucher & Outbound Payment Voucher tokens
-  const receiptRef = recMeta.receipt_ref || (docType === 'receipt' ? quoteRef : '');
+  const receiptRef =
+    nonTagValue(recMeta.receipt_ref) || (docType === 'receipt' ? quoteRef : '');
   const paymentModeVal =
-    (docType === 'payment_voucher' ? pvMeta.payment_method : recMeta.payment_method) || '';
+    nonTagValue(docType === 'payment_voucher' ? pvMeta.payment_method : recMeta.payment_method) || '';
   const bankRefVal =
-    (docType === 'payment_voucher'
-      ? pvMeta.bank_txn_ref || pvMeta.cheque_no
-      : recMeta.bank_txn_ref || recMeta.cheque_no) || '';
+    nonTagValue(
+      docType === 'payment_voucher'
+        ? pvMeta.bank_txn_ref || pvMeta.cheque_no
+        : recMeta.bank_txn_ref || recMeta.cheque_no
+    ) || '';
   const amountPaidRaw =
     docType === 'payment_voucher'
       ? pvMeta.amount_paid ?? (pvAllocSum > 0 ? pvAllocSum : q.grand_total)
@@ -1195,45 +1552,57 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
   const balanceDueVal = `${currency} ${formatAmount(computedBalance)}`;
 
   // Payment Voucher, Beneficiary Bank & Vendor Return tokens
-  const pvRefVal = pvMeta.pv_ref || (docType === 'payment_voucher' ? quoteRef : '');
-  const pvDateVal = formatReadableDate(pvMeta.pv_date || rawIssueDate);
+  const pvRefVal =
+    nonTagValue(pvMeta.pv_ref) || (docType === 'payment_voucher' ? quoteRef : '');
+  const pvDateVal = formatReadableDate(nonTagValue(pvMeta.pv_date) || rawIssueDate);
   const benBankSnap =
     pvMeta.beneficiary_bank_details ||
     poMeta.beneficiary_bank_details ||
     {};
   const beneficiaryNameVal =
-    benBankSnap.beneficiary_name ||
-    pvMeta.paid_to_vendor_name ||
-    poMeta.supplier_name ||
+    nonTagValue(benBankSnap.beneficiary_name) ||
+    nonTagValue(pvMeta.paid_to_vendor_name) ||
+    nonTagValue(poMeta.supplier_name) ||
     accountName ||
     '';
-  const beneficiaryBankVal = benBankSnap.bank_name || bankName || '';
-  const beneficiaryIbanVal = benBankSnap.iban || iban || '';
-  const beneficiarySwiftVal = benBankSnap.swift_code || swift || '';
+  const beneficiaryBankVal = nonTagValue(benBankSnap.bank_name) || bankName || '';
+  const beneficiaryIbanVal = nonTagValue(benBankSnap.iban) || iban || '';
+  const beneficiarySwiftVal = nonTagValue(benBankSnap.swift_code) || swift || '';
   const vendorInvoiceNoVal =
-    pvMeta.vendor_invoice_no ||
-    retMeta.vendor_invoice_no ||
+    nonTagValue(pvMeta.vendor_invoice_no) ||
+    nonTagValue(retMeta.vendor_invoice_no) ||
     (Array.isArray(pvMeta.allocations) && pvMeta.allocations.length > 0
-      ? pvMeta.allocations.map((a) => a.vendor_invoice_no).filter(Boolean).join(', ')
+      ? pvMeta.allocations.map((a) => nonTagValue(a.vendor_invoice_no)).filter(Boolean).join(', ')
       : '');
-  const mrnRefVal = retMeta.return_ref || (docType === 'material_return_note' ? quoteRef : '');
-  const dnRefVal = retMeta.return_ref || (docType === 'debit_note' ? quoteRef : '');
-  const returnReasonVal = retMeta.return_reason || '';
-  const originalPoRefVal = retMeta.original_po_ref || pvMeta.linked_po_ref || poRef || '';
+  const mrnRefVal =
+    nonTagValue(retMeta.return_ref) || (docType === 'material_return_note' ? quoteRef : '');
+  const dnRefVal =
+    nonTagValue(retMeta.return_ref) || (docType === 'debit_note' ? quoteRef : '');
+  const returnReasonVal = nonTagValue(retMeta.return_reason) || '';
+  const originalPoRefVal =
+    nonTagValue(retMeta.original_po_ref) || nonTagValue(pvMeta.linked_po_ref) || poRef || '';
 
   const builtMap: Record<string, string> = {
     quote_date: String(quoteDateStr || '').trim(),
+    issue_date: String(quoteDateStr || '').trim(),
     valid_until: String(validUntilStr || '').trim(),
+    validity_days: String(quoteValidity || '').trim(),
     enquiry_date: String(enquiryDateStr || '').trim(),
+    received_date: String(enquiryDateStr || '').trim(),
+    logged_date: String(loggedDateStr || enquiryDateStr || '').trim(),
     projected_order_date: String(projectedOrderDateStr || '').trim(),
     followup_date: String(followupDateStr || '').trim(),
+    next_followup: String(followupDateStr || '').trim(),
 
     client_name: String(clientName || '').trim(),
     contact_person: String(contactPerson || '').trim(),
+    contact_designation: String(contactDesignation || '').trim(),
     client_trn: String(clientTrn || '').trim(),
     client_phone: String(clientPhone || '').trim(),
     client_email: String(clientEmail || '').trim(),
     client_address: String(clientAddress || '').trim(),
+    client_city: String(rawCity || '').trim(),
+    client_country: String(rawCountry || '').trim(),
     client_code: String(clientCode || '').trim(),
     project_location: String(projectLocation || '').trim(),
     project_number: String(projectNumber || '').trim(),
@@ -1260,6 +1629,8 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
     delivery_lead_time: String(firstLeadTime || '').trim(),
     delivery_period: String(firstLeadTime || '').trim(),
     quote_validity: String(quoteValidity || '').trim(),
+    vat_mode: String(vatModeStr || '').trim(),
+    remarks: String(remarksVal || '').trim(),
     warranty_period: String(warrantyPeriod || '').trim(),
     currency: String(currency || '').trim(),
     subtotal: String(subtotal || '').trim(),
@@ -1276,6 +1647,7 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
     branch: String(branchVal || '').trim(),
     item_count: String(itemCount || '').trim(),
     scope_summary: String(scopeSummary || '').trim(),
+    subject: String(scopeSummary || '').trim(),
 
     delivery_ref: String(deliveryRef || '').trim(),
     delivery_date: String(deliveryDate || '').trim(),
@@ -1321,7 +1693,7 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
 }
 
 /**
- * Resolves a single canonical tag key with Choice A2 ('—' fallback when empty or omitted).
+ * Resolves a single canonical tag key.
  */
 export function resolveSingleTagValue(
   rawKey: string,
@@ -1342,61 +1714,78 @@ export function resolveSingleTagValue(
 }
 
 /**
- * Email-safe regex for @token matching:
- * Matches `(prefix)@([a-zA-Z_][a-zA-Z0-9_]*)` where `prefix` is start of string,
- * whitespace, or opening punctuation `([{"'`.
- * Never matches when preceded by alphanumeric, `.`, `_`, or `-` (protecting emails like sales@aventura.ae).
- * Also avoids matching if immediately followed by `@` or domain-like `.com`/`.ae` if someone typed `@aventura.ae`?
- * Note: `@client_name.` at the end of a sentence SHOULD match `@client_name` followed by a period!
+ * Direct `@identifier` candidate matcher (no consuming prefix group!),
+ * allowing chained tokens like `@quote_short_ref_@company_brand` to be matched consecutively.
+ * Inside callbacks, we inspect `prevChar = fullStr[offset - 1]` to ensure we never touch email addresses.
  */
-const AT_TOKEN_REGEX = /(^|[\s(\[{"'‘“])@([a-zA-Z_][a-zA-Z0-9_]*)/g;
+const RAW_AT_CANDIDATE_REGEX = /@([a-zA-Z_][a-zA-Z0-9_]*)/g;
 const MUSTACHE_TOKEN_REGEX = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g;
 
 /**
  * Resolves all whitelisted `@tag` and `{{tag}}` tokens in `text`.
- * - Empty or omitted whitelisted tags resolve to `'—'` (Choice A2).
+ * - Supports chained and underscore-delimited tokens like `@quote_short_ref_@company_brand`.
+ * - Empty or omitted whitelisted tags resolve to `options?.emptyFallback ?? ''` (default `''`),
+ *   so empty tags never leave literal `@tag` text or spurious `'—'` placeholders on the document.
  * - Email addresses (`sales@aventura.ae`, `info@client_name.com`) are never touched.
  * - Unknown `@typos` are left intact so they can be highlighted in preview and flagged before print.
  */
 export function resolveQuotationTokens(
   text: string | undefined | null,
-  ctx?: QuotationTokenContext | null
+  ctx?: QuotationTokenContext | null,
+  options?: { emptyFallback?: string }
 ): string {
   if (!text) return '';
   const raw = String(text);
   if (!raw.includes('@') && !raw.includes('{{')) return raw;
 
+  const emptyFallback = options?.emptyFallback ?? '';
   const safeCtx = (ctx || {}) as QuotationTokenContext;
   const map = safeCtx._cachedTokenMap || buildQuotationTokenMap(safeCtx);
   const omitted = safeCtx.omittedFields ?? safeCtx.quotation?.omitted_fields;
 
   // 1. Resolve {{tag_name}} aliases
   let output = raw.replace(MUSTACHE_TOKEN_REGEX, (fullMatch, tokenName: string) => {
-    if (!isWhitelistedAtTag(tokenName)) return fullMatch;
-    const canonical = normalizeCanonicalTagKey(tokenName);
-    if (isFieldOmitted(canonical, omitted)) return '—';
+    const split = splitKnownAtToken(tokenName);
+    if (!split) return fullMatch;
+    const canonical = normalizeCanonicalTagKey(split.matchedKey);
+    if (isFieldOmitted(canonical, omitted)) return `${emptyFallback}${split.remainder}`;
     const val = map[canonical];
-    return val && String(val).trim() !== '' ? String(val).trim() : '—';
+    const resolved = val && String(val).trim() !== '' ? String(val).trim() : emptyFallback;
+    return `${resolved}${split.remainder}`;
   });
 
-  // 2. Resolve @tag_name tokens (email-safe)
+  // 2. Resolve @tag_name tokens (email-safe + chained underscore support)
   output = output.replace(
-    AT_TOKEN_REGEX,
-    (fullMatch, prefix: string, tokenName: string) => {
-      if (!isWhitelistedAtTag(tokenName)) {
+    RAW_AT_CANDIDATE_REGEX,
+    (fullMatch, rawIdent: string, offset: number, fullStr: string) => {
+      const prevChar = offset > 0 ? fullStr[offset - 1] : '';
+      // Never match when preceded by alphanumeric (protects email addresses like sales@aventura.ae)
+      if (prevChar && /[a-zA-Z0-9]/.test(prevChar)) {
+        return fullMatch;
+      }
+
+      const split = splitKnownAtToken(rawIdent);
+      if (!split) {
         return fullMatch; // Leave unknown @typo intact
       }
-      const canonical = normalizeCanonicalTagKey(tokenName);
+
+      const canonical = normalizeCanonicalTagKey(split.matchedKey);
       if (isFieldOmitted(canonical, omitted)) {
-        // Special case for client address: omit cleanly without printing em-dash
-        return canonical === 'client_address' ? prefix : `${prefix}—`;
+        return canonical === 'client_address'
+          ? split.remainder
+          : `${emptyFallback}${split.remainder}`;
       }
+
       const val = map[canonical];
-      if (canonical === 'client_address' && (!val || String(val).trim() === '' || String(val).trim().startsWith('@'))) {
-        return prefix;
+      if (
+        canonical === 'client_address' &&
+        (!val || String(val).trim() === '' || String(val).trim().startsWith('@'))
+      ) {
+        return split.remainder;
       }
-      const resolved = val && String(val).trim() !== '' ? String(val).trim() : '—';
-      return `${prefix}${resolved}`;
+
+      const resolved = val && String(val).trim() !== '' ? String(val).trim() : emptyFallback;
+      return `${resolved}${split.remainder}`;
     }
   );
 
@@ -1417,16 +1806,29 @@ export function resolvePdfFilename(
     (pattern || '').trim() ||
     '@quote_short_ref_@company_brand Proposal for @subject. @client_code';
 
-  // 1. Resolve @tags
+  // 1. Resolve @tags (including underscore-chained tags like @quote_short_ref_@company_brand)
   let resolved = rawPattern.replace(
-    AT_TOKEN_REGEX,
-    (_fullMatch, prefix: string, tokenName: string) => {
-      const canonical = normalizeCanonicalTagKey(tokenName);
-      const val = map[canonical];
-      if (val !== undefined && val !== null && String(val).trim() !== '' && String(val).trim() !== '—') {
-        return `${prefix}${String(val).trim()}`;
+    RAW_AT_CANDIDATE_REGEX,
+    (fullMatch, rawIdent: string, offset: number, fullStr: string) => {
+      const prevChar = offset > 0 ? fullStr[offset - 1] : '';
+      if (prevChar && /[a-zA-Z0-9]/.test(prevChar)) {
+        return fullMatch;
       }
-      return prefix;
+      const split = splitKnownAtToken(rawIdent);
+      if (!split) {
+        return '';
+      }
+      const canonical = normalizeCanonicalTagKey(split.matchedKey);
+      const val = map[canonical];
+      if (
+        val !== undefined &&
+        val !== null &&
+        String(val).trim() !== '' &&
+        String(val).trim() !== '—'
+      ) {
+        return `${String(val).trim()}${split.remainder}`;
+      }
+      return split.remainder;
     }
   );
 
@@ -1434,12 +1836,19 @@ export function resolvePdfFilename(
   resolved = resolved.replace(
     MUSTACHE_TOKEN_REGEX,
     (_fullMatch, tokenName: string) => {
-      const canonical = normalizeCanonicalTagKey(tokenName);
+      const split = splitKnownAtToken(tokenName);
+      const canonical = normalizeCanonicalTagKey(split ? split.matchedKey : tokenName);
+      const remainder = split ? split.remainder : '';
       const val = map[canonical];
-      if (val !== undefined && val !== null && String(val).trim() !== '' && String(val).trim() !== '—') {
-        return String(val).trim();
+      if (
+        val !== undefined &&
+        val !== null &&
+        String(val).trim() !== '' &&
+        String(val).trim() !== '—'
+      ) {
+        return `${String(val).trim()}${remainder}`;
       }
-      return '';
+      return remainder;
     }
   );
 
@@ -1460,7 +1869,7 @@ export function resolvePdfFilename(
 }
 
 /**
- * Finds all unrecognized `@tokens` in a single string (ignoring valid whitelisted tags and emails).
+ * Finds all unrecognized `@tokens` in a single string (ignoring valid whitelisted tags, chained tags, and emails).
  */
 export function findUnknownAtTokens(text: string | undefined | null): string[] {
   if (!text) return [];
@@ -1468,12 +1877,26 @@ export function findUnknownAtTokens(text: string | undefined | null): string[] {
   if (!raw.includes('@')) return [];
 
   const found: string[] = [];
-  const regex = new RegExp(AT_TOKEN_REGEX.source, 'g');
+  const regex = new RegExp(RAW_AT_CANDIDATE_REGEX.source, 'g');
   let match: RegExpExecArray | null;
   while ((match = regex.exec(raw)) !== null) {
-    const tokenName = match[2];
-    if (tokenName && !isWhitelistedAtTag(tokenName)) {
-      const tagWithAt = `@${tokenName}`;
+    const rawIdent = match[1];
+    const offset = match.index;
+    const prevChar = offset > 0 ? raw[offset - 1] : '';
+    const afterStr = raw.slice(offset + match[0].length);
+
+    // Skip if preceded by alphanumeric (email local part like sales@aventura.ae)
+    if (prevChar && /[a-zA-Z0-9]/.test(prevChar)) {
+      continue;
+    }
+    // Skip if followed immediately by domain TLD like .com / .ae when preceded by email punctuation
+    if (prevChar && /[._+-]/.test(prevChar) && /^\.[a-zA-Z]{2,}\b/.test(afterStr)) {
+      continue;
+    }
+
+    if (rawIdent && !splitKnownAtToken(rawIdent)) {
+      const cleanUnknown = rawIdent.replace(/_+$/, '') || rawIdent;
+      const tagWithAt = `@${cleanUnknown}`;
       if (!found.includes(tagWithAt)) {
         found.push(tagWithAt);
       }
@@ -1499,12 +1922,38 @@ export function findUnknownAtTokensInQuotation(
     }
   };
 
+  addFromText(quotation.pdf_filename_pattern, 'PDF Export Filename Preset');
   addFromText(quotation.subject, 'Quotation Subject');
+  addFromText(quotation.client_snapshot?.entity_name, 'Client Name');
+  addFromText(quotation.client_contact_person, 'Attention To (Contact Person)');
+  addFromText(quotation.client_address, 'Client Registered Address');
+  addFromText(quotation.client_trn, 'Client TRN');
+  addFromText(quotation.client_phone, 'Client Phone');
+  addFromText(quotation.client_email, 'Client Email');
   addFromText(quotation.price_basis, 'Price Basis');
+  addFromText(quotation.delivery_period, 'Delivery Period');
   addFromText(quotation.payment_terms, 'Payment Terms');
   addFromText(quotation.custom_notes, 'Terms & Clauses / Cover Note');
   addFromText(quotation.footer_config?.forAndOnBehalfText, 'Signatory Header');
   addFromText(quotation.footer_config?.customDisclaimer, 'Footer Disclaimer');
+
+  if (Array.isArray(quotation.recipient_config?.recipientFieldRows)) {
+    quotation.recipient_config!.recipientFieldRows!.forEach((row) => {
+      if (row.enabled !== false) {
+        addFromText(row.label, 'Recipient Card Custom Row');
+        addFromText(row.value, 'Recipient Card Custom Row');
+      }
+    });
+  }
+
+  if (Array.isArray(quotation.recipient_config?.offerFieldRows)) {
+    quotation.recipient_config!.offerFieldRows!.forEach((row) => {
+      if (row.enabled !== false) {
+        addFromText(row.label, 'Offer Card Custom Row');
+        addFromText(row.value, 'Offer Card Custom Row');
+      }
+    });
+  }
 
   if (Array.isArray(quotation.footer_config?.customFooterPills)) {
     quotation.footer_config!.customFooterPills!.forEach((pill) =>
@@ -1560,30 +2009,35 @@ export function findUnknownAtTokensInQuotation(
  */
 export function renderResolvedQuotationText(
   text: string | undefined | null,
-  ctx: QuotationTokenContext
+  ctx: QuotationTokenContext,
+  options?: { emptyFallback?: string }
 ): React.ReactNode {
   if (!text) return '';
-  const resolved = resolveQuotationTokens(text, ctx);
+  const resolved = resolveQuotationTokens(text, ctx, options);
   const unknowns = findUnknownAtTokens(resolved);
   if (unknowns.length === 0) {
     return resolved;
   }
 
-  // Split resolved text around unknown @tokens while preserving prefixes
+  // Split resolved text around unknown @tokens
   const parts: React.ReactNode[] = [];
-  const regex = new RegExp(AT_TOKEN_REGEX.source, 'g');
+  const regex = new RegExp(RAW_AT_CANDIDATE_REGEX.source, 'g');
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   let keyCounter = 0;
 
   while ((match = regex.exec(resolved)) !== null) {
     const fullMatch = match[0];
-    const prefix = match[1] || '';
-    const tokenName = match[2];
+    const rawIdent = match[1];
     const matchStart = match.index;
+    const prevChar = matchStart > 0 ? resolved[matchStart - 1] : '';
 
-    if (!isWhitelistedAtTag(tokenName)) {
-      const beforeText = resolved.slice(lastIndex, matchStart) + prefix;
+    if (prevChar && /[a-zA-Z0-9]/.test(prevChar)) {
+      continue;
+    }
+
+    if (!splitKnownAtToken(rawIdent)) {
+      const beforeText = resolved.slice(lastIndex, matchStart);
       if (beforeText) {
         parts.push(beforeText);
       }
@@ -1592,11 +2046,11 @@ export function renderResolvedQuotationText(
           'span',
           {
             key: `unknown_at_${keyCounter++}`,
-            title: `Unknown @tag "@${tokenName}". Click to fix or pick a valid @tag.`,
+            title: `Unknown @tag "@${rawIdent}". Click to fix or pick a valid @tag.`,
             className:
               'inline-flex items-center px-1 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-300 font-mono text-[0.92em] font-semibold print:bg-transparent print:border-none print:text-inherit print:p-0'
           },
-          `@${tokenName}`
+          `@${rawIdent}`
         )
       );
       lastIndex = matchStart + fullMatch.length;
@@ -1613,8 +2067,6 @@ export function renderResolvedQuotationText(
 /**
  * Determines whether a custom row in Terms, Financials, Remittance, or Acceptance
  * should be hidden on the document.
- * By default (Choice A2), empty or omitted tags render '—' and the row stays visible.
- * If `row.hideIfEmpty === true` and the resolved value is empty or '—', the row hides cleanly.
  */
 export function shouldHideCustomRow(
   row: { value?: string; enabled?: boolean; hideIfEmpty?: boolean },
@@ -1625,3 +2077,4 @@ export function shouldHideCustomRow(
   const resolved = resolveQuotationTokens(row.value, ctx).trim();
   return resolved === '' || resolved === '—';
 }
+

@@ -14,7 +14,8 @@ const CATEGORY_ORDER: QuotationAtTagCategory[] = [
   'Dates',
   'Client & Project',
   'Our Company & Quote',
-  'Commercial, Bank & Totals'
+  'Commercial, Bank & Totals',
+  'Delivery, PO & Receipt'
 ];
 
 interface TriggerState {
@@ -29,8 +30,8 @@ function detectAtTrigger(text: string, selectionStart: number | null): TriggerSt
     return { isOpen: false, query: '', triggerIndex: -1, cursorIndex: 0 };
   }
   const beforeCursor = text.slice(0, selectionStart);
-  // Look backwards from cursor for the nearest '@' that is at index 0 or preceded by whitespace or opening punctuation
-  const match = /(?:^|[\s(\[{"'‘“])@([a-zA-Z0-9_]*)$/.exec(beforeCursor);
+  // Look backwards from cursor for the nearest '@' that is at index 0 or preceded by whitespace, opening punctuation, or separator (_ - / . , : ;)
+  const match = /(?:^|[\s(\[{"'‘“_\-/.,:;])@([a-zA-Z0-9_]*)$/.exec(beforeCursor);
   if (!match) {
     return { isOpen: false, query: '', triggerIndex: -1, cursorIndex: selectionStart };
   }

@@ -6225,6 +6225,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     clientNameOverride,
     clientAddressOverride,
     clientTrnOverride,
+    clientPhoneOverride,
+    clientEmailOverride,
+    pdfFilenamePattern,
     preparedBy,
     quotationSubject,
     pageMode,
@@ -6268,10 +6271,37 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           )
         : Number(liveQuotation.grand_total || 0);
 
+    const targetCompanyName = String(
+      enquiry.company_name || (enquiry as any).client_company || ''
+    )
+      .trim()
+      .toLowerCase();
+    const matchedCompany =
+      workspaceCompanies.find(
+        (c) =>
+          (enquiry.company_id && c.id === enquiry.company_id) ||
+          (targetCompanyName && String(c.name || '').trim().toLowerCase() === targetCompanyName)
+      ) || null;
+
+    const targetContactName = String(
+      enquiry.contact_person_name || (enquiry as any).concerned_person || ''
+    )
+      .trim()
+      .toLowerCase();
+    const matchedContact =
+      workspaceContacts.find(
+        (c) =>
+          (enquiry.contact_id && c.id === enquiry.contact_id) ||
+          (targetContactName && String(c.name || '').trim().toLowerCase() === targetContactName)
+      ) || null;
+
     return {
       quotation: liveQuotation,
       enquiry,
       profile: activeProfile,
+      company: matchedCompany,
+      contact: matchedContact,
+      workspaceName: activeWorkspace?.name || undefined,
       omittedFields,
       activeBank: activeBankAccount || undefined,
       amountInWordsText: amountToWords(
@@ -6279,7 +6309,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         liveQuotation.currency || 'AED'
       )
     };
-  }, [liveQuotation, enquiry, activeProfile, omittedFields, activeBankAccount]);
+  }, [
+    liveQuotation,
+    enquiry,
+    activeProfile,
+    workspaceCompanies,
+    workspaceContacts,
+    activeWorkspace?.name,
+    omittedFields,
+    activeBankAccount
+  ]);
 
   const studioTokenMap = useMemo(
     () => buildQuotationTokenMap(studioTokenContext),
@@ -6302,7 +6341,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       if (sync === 'recipient.contact_person') {
         setRecipientConfig((prev) => ({ ...prev, showAttention: willBeVisible }));
       } else if (sync === 'recipient.trn') {
-        setRecipientConfig((prev) => ({ ...prev, showCustomerTrn: willBeVisible }));
+        setRecipientConfig((prev) => ({
+          ...prev,
+          showCustomerTrn: willBeVisible,
+          showTrn: willBeVisible
+        }));
       } else if (sync === 'offer.enquiry_ref') {
         setRecipientConfig((prev) => ({ ...prev, showEnquiryRef: willBeVisible }));
       } else if (sync === 'offer.valid_until') {
@@ -12753,21 +12796,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   const isStaleDraftDate =
                     (quotationStatus || 'Draft') === 'Draft' &&
                     Boolean(quotationIssueDate && quotationIssueDate < todayStr);
-                  const unresolvedTagMatches = [
-                    quotationSubject,
-                    customNotes,
-                    priceBasis,
-                    paymentTerms,
-                    deliveryPeriod || ''
-                  ]
-                    .join(' ')
-                    .match(/@[a-z_]+/gi);
-                  const unresolvedTags = unresolvedTagMatches
-                    ? Array.from(new Set(unresolvedTagMatches)).filter((tag) => {
-                        const resolved = resolveQuotationTokens(tag, studioTokenContext).trim();
-                        return !resolved || resolved === tag;
-                      })
-                    : [];
+                  const unresolvedTags = Array.from(
+                    new Set(findUnknownAtTokensInQuotation(liveQuotation).map((w) => w.token))
+                  );
 
                   const totalIssues =
                     zeroPriceItems.length +
@@ -14298,11 +14329,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             </label>
                             <input
                               type="checkbox"
-                              checked={recipientConfig.showTrn !== false}
+                              checked={recipientConfig.showTrn !== false && recipientConfig.showCustomerTrn !== false}
                               onChange={(e) =>
                                 setRecipientConfig((prev) => ({
                                   ...prev,
-                                  showTrn: e.target.checked
+                                  showTrn: e.target.checked,
+                                  showCustomerTrn: e.target.checked
                                 }))
                               }
                               className="rounded border-slate-300 text-blue-600 cursor-pointer"

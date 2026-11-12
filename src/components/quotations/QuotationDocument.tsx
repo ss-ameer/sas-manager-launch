@@ -3268,23 +3268,103 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     .filter(Boolean)
     .map((s) => String(s).trim().toLowerCase());
 
-  const resolvedSalesRep =
+  const omittedFields = quotation.omitted_fields || {};
+
+  const tokenContext = React.useMemo<QuotationTokenContext>(() => {
+    const docType = quotation.document_type || 'quotation';
+    const pvAllocSum = Array.isArray(quotation.payment_voucher_metadata?.allocated_bills)
+      ? quotation.payment_voucher_metadata!.allocated_bills!.reduce(
+          (sum, b) => sum + (Number(b.paid_this_voucher) || 0),
+          0
+        )
+      : 0;
+    const resolvedGrandTotal =
+      quotation?.financial_totals?.grand_total ?? quotation?.grand_total ?? 0;
+    const effectiveWordsAmount =
+      docType === 'receipt'
+        ? Number(quotation.receipt_metadata?.amount_received ?? resolvedGrandTotal)
+        : docType === 'payment_voucher'
+        ? Number(
+            quotation.payment_voucher_metadata?.amount_paid ||
+              pvAllocSum ||
+              resolvedGrandTotal
+          )
+        : Number(resolvedGrandTotal);
+
+    return {
+      quotation,
+      enquiry,
+      profile,
+      omittedFields: quotation.omitted_fields,
+      activeBank: resolvedBank || undefined,
+      amountInWordsText: amountToWords(effectiveWordsAmount, currency)
+    };
+  }, [quotation, enquiry, profile, resolvedBank, currency]);
+
+  const rawSalesRepCandidate =
     rawPreparedBy &&
     resolvedEnquirySalesRep &&
     loggedInNamesLower.includes(rawPreparedBy.toLowerCase()) &&
     !loggedInNamesLower.includes(resolvedEnquirySalesRep.toLowerCase())
       ? resolvedEnquirySalesRep
-      : rawPreparedBy || resolvedEnquirySalesRep || user?.displayName;
+      : rawPreparedBy || resolvedEnquirySalesRep || user?.displayName || '';
+  const resolvedSalesRep = resolveQuotationTokens(rawSalesRepCandidate, tokenContext).trim() || rawSalesRepCandidate;
 
-  // Resolved B2B Client Details
-  const clientEntityName = quotation.client_snapshot?.entity_name || 'Client Name / Unspecified';
-  const clientContactPerson =
+  const cleanResolvedRecipientField = (
+    rawVal?: string | null,
+    fieldKind?: 'trn' | 'phone' | 'email' | 'address' | 'contact' | 'entity'
+  ): string => {
+    if (!rawVal) return '';
+    let resolved = resolveQuotationTokens(String(rawVal), tokenContext).trim();
+    if (!resolved || resolved === '—' || resolved.toLowerCase() === 'not registered') {
+      return '';
+    }
+    if (fieldKind === 'trn') {
+      resolved = resolved
+        .replace(/^(?:tax\s*id\s*\/?\s*trn|trn|vat\s*no\.?|tax\s*id)\s*[:\-–—]?\s*/i, '')
+        .trim();
+    } else if (fieldKind === 'contact') {
+      resolved = resolved.replace(/^(?:attn|attention(?:\s+to)?)\s*[:\-–—]?\s*/i, '').trim();
+    } else if (fieldKind === 'phone') {
+      resolved = resolved.replace(/^(?:tel|phone|mob|mobile)\s*[:\-–—]?\s*/i, '').trim();
+    } else if (fieldKind === 'email') {
+      resolved = resolved.replace(/^(?:email|e-mail)\s*[:\-–—]?\s*/i, '').trim();
+    }
+    // Strip any remaining unresolved @tag tokens (while keeping valid email addresses intact)
+    resolved = resolved
+      .replace(/(?:^|[\s(\[{"'‘“_\-/.,:;])@[a-zA-Z_][a-zA-Z0-9_]*/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (
+      !resolved ||
+      resolved === '—' ||
+      resolved.toLowerCase() === 'not registered' ||
+      /^[,•\-:;.\s]+$/.test(resolved)
+    ) {
+      return '';
+    }
+    return resolved;
+  };
+
+  // Resolved B2B Client Details (with universal @tag resolution & empty auto-hide cleaning)
+  const rawClientEntityName =
+    quotation.client_snapshot?.entity_name ||
+    enquiry?.company_name ||
+    enquiry?.client_company ||
+    'Client Name / Unspecified';
+  const clientEntityName =
+    cleanResolvedRecipientField(rawClientEntityName, 'entity') || 'Client Name / Unspecified';
+
+  const rawClientContactPerson =
     quotation.client_contact_person ||
     quotation.client_snapshot?.client_contact_person ||
     quotation.client_snapshot?.contact_person ||
     enquiry?.contact_person_name ||
     (enquiry as any)?.contact_name ||
-    enquiry?.concerned_person;
+    enquiry?.concerned_person ||
+    '';
+  const clientContactPerson = cleanResolvedRecipientField(rawClientContactPerson, 'contact');
+
   const rawCity =
     quotation.client_snapshot?.city ||
     (enquiry as any)?.city ||
@@ -3293,23 +3373,45 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     quotation.client_snapshot?.country ||
     (enquiry as any)?.country ||
     '';
-  const combinedCityCountry = combineCityCountry(rawCity, rawCountry);
+  const combinedCityCountry = combineCityCountry(
+    resolveQuotationTokens(rawCity, tokenContext),
+    resolveQuotationTokens(rawCountry, tokenContext)
+  );
 
   const rawClientAddress =
     quotation.client_address ||
     quotation.client_snapshot?.client_address ||
     quotation.client_snapshot?.address ||
     '';
+  const resolvedRawAddress = cleanResolvedRecipientField(rawClientAddress, 'address');
+  const clientAddress = resolvedRawAddress || combinedCityCountry || '';
 
-  const cleanRawAddress =
-    rawClientAddress && !rawClientAddress.trim().startsWith('@') && rawClientAddress.trim() !== '—'
-      ? rawClientAddress.trim()
-      : '';
+  const rawClientTrn =
+    quotation.client_trn ||
+    quotation.client_snapshot?.client_trn ||
+    quotation.client_snapshot?.trn ||
+    (enquiry as any)?.client_trn ||
+    (enquiry as any)?.trn ||
+    '';
+  const clientTrn = cleanResolvedRecipientField(rawClientTrn, 'trn');
 
-  const clientAddress = cleanRawAddress || combinedCityCountry || '';
-  const clientTrn = quotation.client_trn || quotation.client_snapshot?.client_trn || quotation.client_snapshot?.trn;
-  const clientPhone = quotation.client_phone || quotation.client_snapshot?.client_phone || quotation.client_snapshot?.phone;
-  const clientEmail = quotation.client_email || quotation.client_snapshot?.client_email || quotation.client_snapshot?.email;
+  const rawClientPhone =
+    quotation.client_phone ||
+    quotation.client_snapshot?.client_phone ||
+    quotation.client_snapshot?.phone ||
+    (enquiry as any)?.contact_phone ||
+    (enquiry as any)?.phone ||
+    '';
+  const clientPhone = cleanResolvedRecipientField(rawClientPhone, 'phone');
+
+  const rawClientEmail =
+    quotation.client_email ||
+    quotation.client_snapshot?.client_email ||
+    quotation.client_snapshot?.email ||
+    (enquiry as any)?.contact_email ||
+    (enquiry as any)?.email ||
+    '';
+  const clientEmail = cleanResolvedRecipientField(rawClientEmail, 'email');
 
   // Resolved Signatories for executive signatory block
   const resolvedSignatories = React.useMemo(() => {
@@ -3334,10 +3436,13 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     };
 
     const rawPName = expandRepNameOrInitials(
-      signatoryName ||
-        quotation.primary_signatory_name ||
-        quotation.signatories?.[0]?.name ||
-        (quotation as any)?.presentation_preset?.primary_signatory_name
+      resolveQuotationTokens(
+        signatoryName ||
+          quotation.primary_signatory_name ||
+          quotation.signatories?.[0]?.name ||
+          (quotation as any)?.presentation_preset?.primary_signatory_name,
+        tokenContext
+      )
     );
 
     let pName = rawPName;
@@ -3363,11 +3468,13 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     }
 
     const pTitle =
-      signatoryTitle ||
-      quotation.primary_signatory_title ||
-      quotation.signatories?.[0]?.designation ||
-      profile?.primary_signatory_title ||
-      'Authorized Representative';
+      resolveQuotationTokens(
+        signatoryTitle ||
+          quotation.primary_signatory_title ||
+          quotation.signatories?.[0]?.designation ||
+          profile?.primary_signatory_title,
+        tokenContext
+      ).trim() || 'Authorized Representative';
     const sig0 = quotation.signatories?.[0];
     const pUrl = sig0?.signature_url;
 
@@ -3390,15 +3497,19 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     if (signatoryType === 'dual') {
       const sig1 = quotation.signatories?.[1];
       const sName =
-        quotation.secondary_signatory_name ||
-        sig1?.name ||
-        profile?.secondary_signatory_name ||
-        'Authorized Director';
+        resolveQuotationTokens(
+          quotation.secondary_signatory_name ||
+            sig1?.name ||
+            profile?.secondary_signatory_name,
+          tokenContext
+        ).trim() || 'Authorized Director';
       const sTitle =
-        quotation.secondary_signatory_title ||
-        sig1?.designation ||
-        profile?.secondary_signatory_title ||
-        'Commercial Approver';
+        resolveQuotationTokens(
+          quotation.secondary_signatory_title ||
+            sig1?.designation ||
+            profile?.secondary_signatory_title,
+          tokenContext
+        ).trim() || 'Commercial Approver';
       const sUrl = sig1?.signature_url || resolvedFooterConfig.secondarySignatureImageUrl;
       list.push({
         name: sName,
@@ -3439,41 +3550,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     profile?.secondary_signatory_name,
     profile?.secondary_signatory_title,
     senderEntityName,
-    signatoryType
+    signatoryType,
+    tokenContext
   ]);
-
-  const omittedFields = quotation.omitted_fields || {};
-
-  const tokenContext = React.useMemo<QuotationTokenContext>(() => {
-    const docType = quotation.document_type || 'quotation';
-    const pvAllocSum = Array.isArray(quotation.payment_voucher_metadata?.allocated_bills)
-      ? quotation.payment_voucher_metadata!.allocated_bills!.reduce(
-          (sum, b) => sum + (Number(b.paid_this_voucher) || 0),
-          0
-        )
-      : 0;
-    const resolvedGrandTotal =
-      quotation?.financial_totals?.grand_total ?? quotation?.grand_total ?? 0;
-    const effectiveWordsAmount =
-      docType === 'receipt'
-        ? Number(quotation.receipt_metadata?.amount_received ?? resolvedGrandTotal)
-        : docType === 'payment_voucher'
-        ? Number(
-            quotation.payment_voucher_metadata?.amount_paid ||
-              pvAllocSum ||
-              resolvedGrandTotal
-          )
-        : Number(resolvedGrandTotal);
-
-    return {
-      quotation,
-      enquiry,
-      profile,
-      omittedFields: quotation.omitted_fields,
-      activeBank: resolvedBank || undefined,
-      amountInWordsText: amountToWords(effectiveWordsAmount, currency)
-    };
-  }, [quotation, enquiry, profile, resolvedBank, currency]);
 
   // Compact corporate running header rendered on Page 2+ (continuation sheets)
   const renderCompactRunningHeader = (pageNumber = 2, total = 2, extraClass = '') => {
@@ -5708,16 +5787,20 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           'Email:'
         ).trim();
 
-        const sigPhone =
+        const sigPhone = resolveQuotationTokens(
           sig.phone ||
-          (sIdx === 0
-            ? resolvedFooterConfig.signatoryPhone || senderPhone || ''
-            : resolvedFooterConfig.secondarySignatoryPhone || '');
-        const sigEmail =
+            (sIdx === 0
+              ? resolvedFooterConfig.signatoryPhone || senderPhone || ''
+              : resolvedFooterConfig.secondarySignatoryPhone || ''),
+          tokenContext
+        ).trim();
+        const sigEmail = resolveQuotationTokens(
           sig.email ||
-          (sIdx === 0
-            ? resolvedFooterConfig.signatoryEmail || senderEmail || user?.email || ''
-            : resolvedFooterConfig.secondarySignatoryEmail || '');
+            (sIdx === 0
+              ? resolvedFooterConfig.signatoryEmail || senderEmail || user?.email || ''
+              : resolvedFooterConfig.secondarySignatoryEmail || ''),
+          tokenContext
+        ).trim();
 
         const applicableCustomLines = customLines.filter((line) => {
           if (!line.value && !line.label) return false;
@@ -5744,6 +5827,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               >
                 <EditableCanvasText
                   value={sig.name}
+                  renderedDisplay={renderResolvedQuotationText(sig.name, tokenContext)}
                   fieldKey={nameFieldKey}
                   canEdit={canEditCanvasInline && isSignatoryBlockSelected}
                   onCommit={onInlineFieldEdit}
@@ -5761,6 +5845,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               >
                 <EditableCanvasText
                   value={sig.title}
+                  renderedDisplay={renderResolvedQuotationText(sig.title, tokenContext)}
                   fieldKey={titleFieldKey}
                   canEdit={canEditCanvasInline && isSignatoryBlockSelected}
                   onCommit={onInlineFieldEdit}
@@ -5785,7 +5870,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 {contactFormat !== 'plain' && (
                   <span className="text-slate-700 font-semibold">{formattedPrefix}</span>
                 )}
-                <span>{sigPhone}</span>
+                <span>{renderResolvedQuotationText(sigPhone, tokenContext)}</span>
               </p>
             );
           }
@@ -8552,11 +8637,14 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             </span>
           )}
           {field.label ? (
-            <span className="text-slate-500 font-medium mr-1">{field.label}</span>
+            <span className="text-slate-500 font-medium mr-1">
+              {renderResolvedQuotationText(field.label, tokenContext)}
+            </span>
           ) : null}
           <span className={field.id === 'trn' ? 'font-mono text-slate-800' : 'text-slate-700'}>
             <EditableCanvasText
               value={field.resolvedValue}
+              renderedDisplay={renderResolvedQuotationText(field.resolvedValue, tokenContext)}
               fieldKey={`header_field:${field.id}`}
               canEdit={canEditCanvasInline && isHeaderSelected && !isContinuationRepeat}
               onCommit={onInlineFieldEdit}
@@ -8883,7 +8971,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
     const showAttention =
       resolvedRecipientConfig.showAttention !== false &&
-      !isFieldOmitted('contact_person', omittedFields);
+      !isFieldOmitted('contact_person', omittedFields) &&
+      Boolean(clientContactPerson);
     const showSalesRep =
       resolvedRecipientConfig.showSalesRep !== false &&
       !isFieldOmitted('sales_person', omittedFields);
@@ -8895,7 +8984,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       !isFieldOmitted('enquiry_ref', omittedFields);
     const showClientTrn =
       resolvedRecipientConfig.showCustomerTrn !== false &&
-      !isFieldOmitted('client_trn', omittedFields);
+      resolvedRecipientConfig.showTrn !== false &&
+      !isFieldOmitted('client_trn', omittedFields) &&
+      Boolean(clientTrn);
     const showClientAddress =
       resolvedRecipientConfig.showAddress !== false &&
       !isFieldOmitted('client_address', omittedFields) &&
@@ -8996,7 +9087,11 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     const recipientContactFmt = getElemFmt('recipient_contact');
 
     const customRecipientRows = Array.isArray(resolvedRecipientConfig.recipientFieldRows)
-      ? resolvedRecipientConfig.recipientFieldRows.filter((r) => r.enabled !== false)
+      ? resolvedRecipientConfig.recipientFieldRows.filter((r) => {
+          if (r.enabled === false) return false;
+          const resolvedVal = cleanResolvedRecipientField(r.value);
+          return Boolean(resolvedVal);
+        })
       : [];
 
     const renderRecipientCard = () => (
@@ -9044,7 +9139,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     style={recipientNameFmt.style}
                   >
                     <EditableCanvasText
-                      value={clientEntityName}
+                      value={rawClientEntityName}
+                      renderedDisplay={clientEntityName}
                       fieldKey="client_name"
                       canEdit={canEditCanvasInline && isRecipientSelected}
                       onCommit={onInlineFieldEdit}
@@ -9060,7 +9156,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     • Attn:{' '}
                     <span className="text-slate-900 font-semibold">
                       <EditableCanvasText
-                        value={clientContactPerson || 'Procurement / Commercial Dept.'}
+                        value={rawClientContactPerson || clientContactPerson}
+                        renderedDisplay={clientContactPerson}
                         fieldKey="client_contact_person"
                         canEdit={canEditCanvasInline && isRecipientSelected}
                         onCommit={onInlineFieldEdit}
@@ -9075,7 +9172,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     style={recipientAddrFmt.style}
                   >
                     <EditableCanvasText
-                      value={clientAddress}
+                      value={rawClientAddress || clientAddress}
+                      renderedDisplay={clientAddress}
                       fieldKey="client_address"
                       canEdit={canEditCanvasInline && isRecipientSelected}
                       onCommit={onInlineFieldEdit}
@@ -9088,7 +9186,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     <p key={row.id} className={`${typoScale.body} text-slate-700 mt-0.5 whitespace-pre-line ${rowFmt.className}`} style={rowFmt.style}>
                       {row.label ? <span className="font-semibold text-slate-600">{renderResolvedQuotationText(row.label, tokenContext)}: </span> : null}
                       <span className={row.valueBold ? 'font-bold text-slate-900' : ''}>
-                        {renderResolvedQuotationText(row.value, tokenContext)}
+                        {cleanResolvedRecipientField(row.value)}
                       </span>
                     </p>
                   );
@@ -9105,7 +9203,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                       TRN:{' '}
                       <span className="text-slate-700 font-mono">
                         <EditableCanvasText
-                          value={clientTrn || 'Not Registered'}
+                          value={rawClientTrn || clientTrn}
+                          renderedDisplay={clientTrn}
                           fieldKey="client_trn"
                           canEdit={canEditCanvasInline && isRecipientSelected}
                           onCommit={onInlineFieldEdit}
@@ -9146,7 +9245,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   style={recipientNameFmt.style}
                 >
                   <EditableCanvasText
-                    value={clientEntityName}
+                    value={rawClientEntityName}
+                    renderedDisplay={clientEntityName}
                     fieldKey="client_name"
                     canEdit={canEditCanvasInline && isRecipientSelected}
                     onCommit={onInlineFieldEdit}
@@ -9162,7 +9262,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   Attn:{' '}
                   <span className="text-slate-900 font-semibold">
                     <EditableCanvasText
-                      value={clientContactPerson || 'Procurement / Commercial Dept.'}
+                      value={rawClientContactPerson || clientContactPerson}
+                      renderedDisplay={clientContactPerson}
                       fieldKey="client_contact_person"
                       canEdit={canEditCanvasInline && isRecipientSelected}
                       onCommit={onInlineFieldEdit}
@@ -9177,7 +9278,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   style={recipientAddrFmt.style}
                 >
                   <EditableCanvasText
-                    value={clientAddress}
+                    value={rawClientAddress || clientAddress}
+                    renderedDisplay={clientAddress}
                     fieldKey="client_address"
                     canEdit={canEditCanvasInline && isRecipientSelected}
                     onCommit={onInlineFieldEdit}
@@ -9190,7 +9292,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   <p key={row.id} className={`${typoScale.body} text-slate-700 mt-0.5 whitespace-pre-line ${rowFmt.className}`} style={rowFmt.style}>
                     {row.label ? <span className="font-semibold text-slate-600">{renderResolvedQuotationText(row.label, tokenContext)}: </span> : null}
                     <span className={row.valueBold ? 'font-bold text-slate-900' : ''}>
-                      {renderResolvedQuotationText(row.value, tokenContext)}
+                      {cleanResolvedRecipientField(row.value)}
                     </span>
                   </p>
                 );
@@ -9208,7 +9310,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                       TRN:{' '}
                       <span className="text-slate-700">
                         <EditableCanvasText
-                          value={clientTrn || 'Not Registered'}
+                          value={rawClientTrn || clientTrn}
+                          renderedDisplay={clientTrn}
                           fieldKey="client_trn"
                           canEdit={canEditCanvasInline && isRecipientSelected}
                           onCommit={onInlineFieldEdit}
@@ -9240,20 +9343,28 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     const showRevBadge =
       resolvedRecipientConfig.showRevisionBadge !== false &&
       resolvedRecipientConfig.revisionSuffixMode !== 'hidden';
-    const revBadgeText =
+    const revBadgeText = resolveQuotationTokens(
       (resolvedRecipientConfig.revisionBadgeTextOverride || '').trim() ||
-      `Rev ${quotation.revision_number || 1}`;
+        `Rev ${quotation.revision_number || 1}`,
+      tokenContext
+    );
     const showStatusRow = resolvedRecipientConfig.showOfferStatus !== false;
-    const offerStatusText =
+    const offerStatusText = resolveQuotationTokens(
       (resolvedRecipientConfig.statusTextOverride || '').trim() ||
-      String(quotation.status || 'Draft').toUpperCase();
+        String(quotation.status || 'Draft').toUpperCase(),
+      tokenContext
+    );
     const offerGridLayout = resolvedRecipientConfig.offerGridLayout || 'grid_2col';
 
     const offerHeadingFmt = getElemFmt('offer_heading');
     const offerRefFmt = getElemFmt('offer_quote_ref');
     const offerMetaGridFmt = getElemFmt('offer_meta_grid');
     const customOfferRows = Array.isArray(resolvedRecipientConfig.offerFieldRows)
-      ? resolvedRecipientConfig.offerFieldRows.filter((r) => r.enabled !== false)
+      ? resolvedRecipientConfig.offerFieldRows.filter((r) => {
+          if (r.enabled === false) return false;
+          const resolvedVal = resolveQuotationTokens(r.value, tokenContext).trim();
+          return Boolean(resolvedVal && resolvedVal !== '—');
+        })
       : [];
 
     const getOfferCardRefFontClass = (refStr?: string) => {
@@ -9265,7 +9376,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     };
 
     const renderOfferCard = () => {
-      const activeOfferRefStr = quotation.formatted_quote_ref || quotation.quote_number || '';
+      const rawOfferRefStr = quotation.formatted_quote_ref || quotation.quote_number || '';
+      const activeOfferRefStr = resolveQuotationTokens(rawOfferRefStr, tokenContext) || rawOfferRefStr;
       return (
       <div
         key="offer_card"
@@ -9310,7 +9422,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   style={offerRefFmt.style}
                 >
                   <EditableCanvasText
-                    value={activeOfferRefStr}
+                    value={rawOfferRefStr}
+                    renderedDisplay={activeOfferRefStr}
                     fieldKey="quote_ref"
                     canEdit={canEditCanvasInline && isQuoteMetaSelected}
                     onCommit={onInlineFieldEdit}
@@ -9346,7 +9459,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared By</span>
                   <span className="font-semibold text-slate-800 truncate block">
                     <EditableCanvasText
-                      value={resolvedSalesRep}
+                      value={rawSalesRepCandidate}
+                      renderedDisplay={resolvedSalesRep}
                       fieldKey="prepared_by"
                       canEdit={canEditCanvasInline && isQuoteMetaSelected}
                       onCommit={onInlineFieldEdit}
@@ -9400,7 +9514,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 >
                   <div className={`${getOfferCardRefFontClass(activeOfferRefStr)} font-mono font-bold text-slate-900`}>
                     <EditableCanvasText
-                      value={activeOfferRefStr}
+                      value={rawOfferRefStr}
+                      renderedDisplay={activeOfferRefStr}
                       fieldKey="quote_ref"
                       canEdit={canEditCanvasInline && isQuoteMetaSelected}
                       onCommit={onInlineFieldEdit}
@@ -9429,7 +9544,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     <span className={`text-slate-400 ${typoScale.sub} uppercase`}>Prepared By</span>
                     <span className="font-semibold text-slate-800">
                       <EditableCanvasText
-                        value={resolvedSalesRep}
+                        value={rawSalesRepCandidate}
+                        renderedDisplay={resolvedSalesRep}
                         fieldKey="prepared_by"
                         canEdit={canEditCanvasInline && isQuoteMetaSelected}
                         onCommit={onInlineFieldEdit}
@@ -9508,7 +9624,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     <span className={`text-slate-400 ${typoScale.sub} uppercase block`}>Prepared By</span>
                     <span className="font-semibold text-slate-800 truncate block">
                       <EditableCanvasText
-                        value={resolvedSalesRep}
+                        value={rawSalesRepCandidate}
+                        renderedDisplay={resolvedSalesRep}
                         fieldKey="prepared_by"
                         canEdit={canEditCanvasInline && isQuoteMetaSelected}
                         onCommit={onInlineFieldEdit}
