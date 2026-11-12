@@ -12732,7 +12732,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           }
           .quotation-page-sheet {
             width: 210mm !important;
-            min-height: 294mm !important;
+            height: 296.5mm !important;
+            min-height: 296.5mm !important;
+            max-height: 296.5mm !important;
+            overflow: hidden !important;
             display: flex !important;
             flex-direction: column !important;
             justify-content: space-between !important;
@@ -12747,14 +12750,18 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             background: #ffffff !important;
             page-break-after: always !important;
             break-after: page !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
           }
           .quotation-page-sheet.quotation-full-bleed-sheet {
             padding: 0 !important;
-            min-height: 297mm !important;
-            height: 297mm !important;
+            min-height: 296.5mm !important;
+            height: 296.5mm !important;
+            max-height: 296.5mm !important;
             overflow: hidden !important;
           }
           .quotation-page-sheet:last-child,
+          .quotation-page-sheet:last-of-type,
           .quotation-page-sheet.quotation-last-sheet {
             page-break-after: auto !important;
             break-after: auto !important;
@@ -12789,31 +12796,38 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             --tw-ring-shadow: none !important;
             --tw-ring-offset-shadow: none !important;
           }
-          body, #root, .quotation-modal-container {
-            width: 100% !important;
-            max-width: none !important;
+          html, body, #root, .quotation-modal-container {
+            width: 210mm !important;
+            max-width: 210mm !important;
             margin: 0 !important;
             padding: 0 !important;
+            gap: 0 !important;
+            border: none !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
+          #quotation-print-portal,
           #quotation-printable-document,
           .quotation-document-container {
-            width: 100% !important;
-            min-width: 100% !important;
-            max-width: 100% !important;
-            margin: 0 auto !important;
+            width: 210mm !important;
+            min-width: 210mm !important;
+            max-width: 210mm !important;
+            margin: 0 !important;
             padding: 0 !important;
+            gap: 0 !important;
+            border: none !important;
             position: static !important;
             background: #ffffff !important;
             box-sizing: border-box !important;
+            display: block !important;
           }
           .preview-canvas-wrapper {
             transform: none !important;
-            width: 100% !important;
-            max-width: none !important;
+            width: 210mm !important;
+            max-width: 210mm !important;
             margin: 0 !important;
             padding: 0 !important;
+            gap: 0 !important;
           }
           .quotation-client-offer-grid {
             break-inside: avoid !important;
@@ -12892,7 +12906,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               isFullBleed
                 ? 'quotation-full-bleed-sheet p-0 print:p-0 overflow-hidden h-[297mm]'
                 : 'p-[14mm] print:px-[14mm] print:pt-[10mm] print:pb-[8mm]'
-            } relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 ${documentFontClass} box-border flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:break-after-page print:min-h-[294mm]`}
+            } relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 ${documentFontClass} box-border flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:break-after-page print:h-[296.5mm] print:min-h-[296.5mm] print:max-h-[296.5mm] print:overflow-hidden`}
             style={{ boxSizing: 'border-box' }}
           >
             {isFullBleed ? (
@@ -12985,9 +12999,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               }}
               className={`quotation-page-sheet quotation-page-${sheet.sheetNumber} relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 ${documentFontClass} box-border p-[14mm] flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 print:px-[14mm] print:pt-[10mm] print:pb-[8mm] ${
                 isVeryLastDocumentSheet
-                  ? 'quotation-last-sheet print:break-after-avoid'
+                  ? 'quotation-last-sheet print:break-after-auto'
                   : 'print:break-after-page'
-              } print:min-h-[294mm]`}
+              } print:h-[296.5mm] print:min-h-[296.5mm] print:max-h-[296.5mm] print:overflow-hidden`}
               style={{ boxSizing: 'border-box' }}
             >
               {/* Top Accent Stripe */}
@@ -13110,9 +13124,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 : 'p-[14mm] print:px-[14mm] print:pt-[10mm] print:pb-[8mm]'
             } relative w-[210mm] min-w-[210mm] max-w-[210mm] min-h-[297mm] bg-white text-slate-800 shadow-xl border border-slate-200/80 ${documentFontClass} box-border flex flex-col justify-between mx-auto mb-8 print:shadow-none print:border-none print:m-0 print:mb-0 ${
               isLastAnnexSheet
-                ? 'quotation-last-sheet print:break-after-avoid'
+                ? 'quotation-last-sheet print:break-after-auto'
                 : 'print:break-after-page'
-            } print:min-h-[294mm]`}
+            } print:h-[296.5mm] print:min-h-[296.5mm] print:max-h-[296.5mm] print:overflow-hidden`}
             style={{ boxSizing: 'border-box' }}
           >
             {isFullBleed ? (

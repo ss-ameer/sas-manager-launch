@@ -2926,10 +2926,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   rawOpt.toLowerCase().includes('add-on') ||
                   /option\s+[b-z]/i.test(rawOpt);
                 const deliveryNote =
+                  (li.lead_time_note && li.lead_time_note !== 'Ex-Stock / Standard' ? li.lead_time_note : '') ||
+                  ((li as any).delivery_time && (li as any).delivery_time !== 'Ex-Stock / Standard' ? (li as any).delivery_time : '') ||
+                  ((li as any).lead_time && (li as any).lead_time !== 'Ex-Stock / Standard' ? (li as any).lead_time : '') ||
+                  ((li as any).availability && (li as any).availability !== 'Ex-Stock / Standard' ? (li as any).availability : '') ||
+                  (prevIt?.availability && prevIt.availability !== 'Ex-Stock / Standard' ? prevIt.availability : '') ||
+                  enquiry.delivery_period ||
                   li.lead_time_note ||
-                  (li as any).delivery_time ||
-                  (li as any).lead_time ||
-                  (li as any).availability ||
                   prevIt?.availability ||
                   'Ex-Stock / Standard';
                 return {
@@ -3063,12 +3066,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               rawOpt.toLowerCase().includes('add-on') ||
               /option\s+[b-z]/i.test(rawOpt);
             const deliveryNote =
-              li.lead_time_note ||
-              (li as any).delivery_time ||
-              (li as any).lead_time ||
-              (li as any).availability ||
+              (li.lead_time_note && li.lead_time_note !== 'Ex-Stock / Standard' ? li.lead_time_note : '') ||
+              ((li as any).delivery_time && (li as any).delivery_time !== 'Ex-Stock / Standard' ? (li as any).delivery_time : '') ||
+              ((li as any).lead_time && (li as any).lead_time !== 'Ex-Stock / Standard' ? (li as any).lead_time : '') ||
+              ((li as any).availability && (li as any).availability !== 'Ex-Stock / Standard' ? (li as any).availability : '') ||
               (li as any).specifications?.['Delivery'] ||
               (li as any).specifications?.['Lead Time'] ||
+              enquiry.delivery_period ||
+              li.lead_time_note ||
               'Ex-Stock / Standard';
             return {
               id: li.id || `item_${idx + 1}`,
@@ -3216,9 +3221,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
   // Zoom / Preview scale controls
   const [zoomScale, setZoomScale] = useState<number>(0.85);
+  const [isFitModeActive, setIsFitModeActive] = useState<boolean>(false);
   const previewScrollRef = useRef<HTMLDivElement | null>(null);
 
   const handleFitPage = useCallback(() => {
+    setIsFitModeActive(true);
     if (previewScrollRef.current) {
       const containerWidth = previewScrollRef.current.clientWidth;
       const containerHeight = previewScrollRef.current.clientHeight;
@@ -3253,21 +3260,29 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     const computeAutoScale = () => {
       if (!previewScrollRef.current) return;
       const containerWidth = previewScrollRef.current.clientWidth;
+      const containerHeight = previewScrollRef.current.clientHeight;
       if (containerWidth <= 0) return;
-      const availableWidth = Math.max(240, containerWidth - 40);
+      const availableWidth = Math.max(240, containerWidth - 48);
       const maxHorizontalScale = Number(Math.min(1.0, Math.max(0.40, availableWidth / 794)).toFixed(2));
+      if (isFitModeActive && containerHeight > 0) {
+        const availableHeight = Math.max(320, containerHeight - 48);
+        const heightScale = availableHeight / 1123;
+        const fitScale = Math.min(1.0, Math.max(0.45, Number(Math.min(maxHorizontalScale, heightScale).toFixed(2))));
+        setZoomScale(fitScale);
+        return;
+      }
       setZoomScale((prev) => {
         if (prev > maxHorizontalScale) {
           return maxHorizontalScale;
         }
-        if ((!isLeftDrawerOpen || !isRightDrawerOpen) && prev < 0.85 && maxHorizontalScale >= 0.72) {
+        if ((!isLeftDrawerOpen || !isRightDrawerOpen) && prev < Math.min(0.85, maxHorizontalScale)) {
           return Math.min(0.85, maxHorizontalScale);
         }
         return prev;
       });
     };
 
-    const timer = window.setTimeout(computeAutoScale, 40);
+    const timer = window.setTimeout(computeAutoScale, 30);
     let observer: ResizeObserver | null = null;
     if (previewScrollRef.current && typeof ResizeObserver !== 'undefined') {
       observer = new ResizeObserver(() => {
@@ -3279,7 +3294,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       window.clearTimeout(timer);
       if (observer) observer.disconnect();
     };
-  }, [isLeftDrawerOpen, isRightDrawerOpen]);
+  }, [isLeftDrawerOpen, isRightDrawerOpen, isFitModeActive]);
 
   // Collapsible accordions
   const [isLayoutOpen, setIsLayoutOpen] = useState<boolean>(true);
@@ -4452,12 +4467,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             country_of_origin: originAttr || undefined,
             hs_code: li.hs_code || undefined,
             availability:
-              (li as any).lead_time_note ||
-              (li as any).delivery_time ||
-              (li as any).lead_time ||
-              (li as any).availability ||
+              ((li as any).lead_time_note && (li as any).lead_time_note !== 'Ex-Stock / Standard' ? (li as any).lead_time_note : '') ||
+              ((li as any).delivery_time && (li as any).delivery_time !== 'Ex-Stock / Standard' ? (li as any).delivery_time : '') ||
+              ((li as any).lead_time && (li as any).lead_time !== 'Ex-Stock / Standard' ? (li as any).lead_time : '') ||
+              ((li as any).availability && (li as any).availability !== 'Ex-Stock / Standard' ? (li as any).availability : '') ||
               (li as any).specifications?.['Delivery'] ||
               (li as any).specifications?.['Lead Time'] ||
+              enquiry.delivery_period ||
+              (li as any).lead_time_note ||
+              (li as any).availability ||
               'Ex-Stock / Standard',
             is_optional: isOptionalFromOption,
             option: optLabel || undefined,
@@ -4565,12 +4583,29 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         matchingEnquiryItem?.availability ||
         (matchingEnquiryItem as any)?.specifications?.['Delivery'] ||
         (matchingEnquiryItem as any)?.specifications?.['Lead Time'];
+      const nonDefaultFreshDelivery =
+        freshDelivery && String(freshDelivery).trim() && String(freshDelivery).trim() !== 'Ex-Stock / Standard'
+          ? String(freshDelivery).trim()
+          : '';
+      const nonDefaultItemAvailability =
+        item.availability && String(item.availability).trim() && String(item.availability).trim() !== 'Ex-Stock / Standard'
+          ? String(item.availability).trim()
+          : '';
       const effectiveAvailability =
         compOverride.availability ??
         compOverride.delivery_time ??
-        (freshDelivery && String(freshDelivery).trim()
-          ? String(freshDelivery).trim()
-          : (item.availability || matchedCatalogProduct?.default_availability || 'Ex-Stock / Standard'));
+        (nonDefaultFreshDelivery ||
+          nonDefaultItemAvailability ||
+          matchedCatalogProduct?.default_availability ||
+          (deliveryPeriod && deliveryPeriod.trim() && deliveryPeriod.trim() !== 'As mentioned against each item'
+            ? deliveryPeriod.trim()
+            : '') ||
+          (enquiry?.delivery_period && enquiry.delivery_period.trim() && enquiry.delivery_period.trim() !== 'As mentioned against each item'
+            ? enquiry.delivery_period.trim()
+            : '') ||
+          (freshDelivery ? String(freshDelivery).trim() : '') ||
+          item.availability ||
+          'Ex-Stock / Standard');
 
       return {
         ...item,
@@ -4967,12 +5002,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           total_price: tPrice
         });
       const deliveryVal =
-        (li as any).lead_time_note ||
-        (li as any).delivery_time ||
-        (li as any).lead_time ||
-        (li as any).availability ||
+        ((li as any).lead_time_note && (li as any).lead_time_note !== 'Ex-Stock / Standard' ? (li as any).lead_time_note : '') ||
+        ((li as any).delivery_time && (li as any).delivery_time !== 'Ex-Stock / Standard' ? (li as any).delivery_time : '') ||
+        ((li as any).lead_time && (li as any).lead_time !== 'Ex-Stock / Standard' ? (li as any).lead_time : '') ||
+        ((li as any).availability && (li as any).availability !== 'Ex-Stock / Standard' ? (li as any).availability : '') ||
         (li as any).specifications?.['Delivery'] ||
         (li as any).specifications?.['Lead Time'] ||
+        enquiry.delivery_period ||
+        (li as any).lead_time_note ||
+        (li as any).availability ||
         'Ex-Stock / Standard';
       const optLabel = (li.option || (li as any).option_designation || '').trim();
       const isOptionalFromOption =
@@ -9149,7 +9187,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       />
 
                                       <div
-                                        className="flex items-center gap-1.5 truncate cursor-pointer flex-1"
+                                        className="flex items-center gap-1.5 min-w-0 cursor-pointer flex-1"
                                         onClick={() => handleInspectBlock(block.id)}
                                       >
                                         <Icon
@@ -9161,18 +9199,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                               : 'text-indigo-600'
                                           }`}
                                         />
-                                        <div className="min-w-0">
-                                          <div className="flex items-center gap-1">
-                                            <p className="font-semibold text-slate-800 text-xs truncate">
-                                              {meta.label}
-                                            </p>
-                                            {isCustomLego && (
-                                              <span className="px-1 py-0.2 rounded bg-indigo-100 text-indigo-700 font-mono text-[8.5px] font-bold shrink-0">
-                                                LEGO
-                                              </span>
-                                            )}
-                                          </div>
-                                          <div className="flex items-center gap-1 text-[9.5px] text-slate-400 font-mono mt-0.5">
+                                        <div className="min-w-0 flex-1">
+                                          <p className="font-semibold text-slate-800 text-xs truncate">
+                                            {meta.label}
+                                          </p>
+                                          <div className="flex items-center gap-1 text-[9.5px] text-slate-400 font-mono mt-0.5 truncate">
                                             <span className="font-semibold text-indigo-600">
                                               ⬆️ Above Table
                                             </span>
@@ -9180,6 +9211,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                             <span className="capitalize">
                                               {block.placement || 'full'}
                                             </span>
+                                            {isCustomLego && (
+                                              <>
+                                                <span>•</span>
+                                                <span className="text-indigo-600 font-bold">LEGO</span>
+                                              </>
+                                            )}
                                           </div>
                                         </div>
                                       </div>
@@ -9190,7 +9227,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         <button
                                           type="button"
                                           onClick={() => handleDeleteBlock(block.id)}
-                                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition cursor-pointer"
+                                          className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition cursor-pointer"
                                           title={`Delete ${meta.label}`}
                                         >
                                           <Trash2 className="w-3.5 h-3.5" />
@@ -9199,14 +9236,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       <button
                                         type="button"
                                         onClick={() => handleInspectBlock(block.id)}
-                                        className={`px-2.5 py-1 rounded-lg text-[10.5px] font-medium transition flex items-center gap-1 shrink-0 cursor-pointer ${
+                                        className={`px-2 py-1 rounded-lg text-[10px] font-medium transition flex items-center gap-1 shrink-0 cursor-pointer ${
                                           isInspected
                                             ? 'bg-blue-600 text-white shadow-2xs font-semibold'
                                             : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                                         }`}
                                       >
-                                        <Settings2 className="w-3 h-3" />
-                                        <span>{isInspected ? 'Inspecting' : 'Inspect'}</span>
+                                        <Settings2 className="w-3 h-3 shrink-0" />
+                                        <span>{isInspected ? 'Active' : 'Inspect'}</span>
                                       </button>
                                     </div>
                                   </div>
@@ -9239,12 +9276,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             </span>
                           </div>
                         </div>
-                        <span className={`text-[10.5px] px-2 py-0.5 rounded-md font-medium transition ${
+                        <span className={`text-[10px] px-2 py-0.5 rounded-md font-medium transition shrink-0 ${
                           selectedSection === 'items_table'
                             ? 'bg-blue-600 text-white'
                             : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                         }`}>
-                          {selectedSection === 'items_table' ? 'Inspecting' : 'Inspect'}
+                          {selectedSection === 'items_table' ? 'Active' : 'Inspect'}
                         </span>
                       </div>
                     </div>
@@ -9261,11 +9298,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           );
                         return (
                           <>
-                            <div className="flex items-center justify-between">
-                              <span className="text-[10px] font-mono uppercase tracking-wider font-bold text-slate-400">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-mono uppercase tracking-wider font-bold text-slate-400 truncate">
                                 Below-Table Sections (Closing &amp; Signatures)
                               </span>
-                              <span className="text-[10px] font-mono text-slate-500">
+                              <span className="text-[10px] font-mono text-slate-500 shrink-0 whitespace-nowrap">
                                 {
                                   postTableEntries.filter(
                                     ({ block }) =>
@@ -9301,7 +9338,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 return (
                                   <div
                                     key={block.id}
-                                    className={`border rounded-xl px-2.5 py-2 transition-all flex items-center justify-between gap-2 ${
+                                    className={`border rounded-xl px-2 py-1.5 transition-all flex items-center justify-between gap-1.5 ${
                                       isInspected
                                         ? 'bg-blue-50/80 border-blue-400 shadow-xs ring-1 ring-blue-400/50'
                                         : block.enabled !== false && block.is_visible !== false
@@ -9315,7 +9352,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         : 'bg-slate-50/60 border-slate-200/60 opacity-60'
                                     }`}
                                   >
-                                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                       <div className="flex flex-col gap-0.5 shrink-0">
                                         <button
                                           type="button"
@@ -9354,7 +9391,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       />
 
                                       <div
-                                        className="flex items-center gap-1.5 truncate cursor-pointer flex-1"
+                                        className="flex items-center gap-1.5 min-w-0 cursor-pointer flex-1"
                                         onClick={() => handleInspectBlock(block.id)}
                                       >
                                         <Icon
@@ -9366,18 +9403,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                               : 'text-slate-500'
                                           }`}
                                         />
-                                        <div className="min-w-0">
-                                          <div className="flex items-center gap-1">
-                                            <p className="font-semibold text-slate-800 text-xs truncate">
-                                              {meta.label}
-                                            </p>
-                                            {isCustomLego && (
-                                              <span className="px-1 py-0.2 rounded bg-indigo-100 text-indigo-700 font-mono text-[8.5px] font-bold shrink-0">
-                                                LEGO
-                                              </span>
-                                            )}
-                                          </div>
-                                          <div className="flex items-center gap-1 text-[9.5px] text-slate-400 font-mono mt-0.5">
+                                        <div className="min-w-0 flex-1">
+                                          <p className="font-semibold text-slate-800 text-xs truncate">
+                                            {meta.label}
+                                          </p>
+                                          <div className="flex items-center gap-1 text-[9.5px] text-slate-400 font-mono mt-0.5 truncate">
                                             {blockType === 'page_break' ? (
                                               <>
                                                 <span className="text-amber-700 font-semibold">
@@ -9412,7 +9442,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                                 {isCustomLego && (
                                                   <>
                                                     <span>•</span>
-                                                    <span>{(block.pieces || []).length} pcs</span>
+                                                    <span className="text-indigo-600 font-semibold">
+                                                      LEGO ({(block.pieces || []).length})
+                                                    </span>
                                                   </>
                                                 )}
                                               </>
@@ -9427,7 +9459,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         <button
                                           type="button"
                                           onClick={() => handleDeleteBlock(block.id)}
-                                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition cursor-pointer"
+                                          className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition cursor-pointer"
                                           title={`Delete ${meta.label}`}
                                         >
                                           <Trash2 className="w-3.5 h-3.5" />
@@ -9436,14 +9468,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       <button
                                         type="button"
                                         onClick={() => handleInspectBlock(block.id)}
-                                        className={`px-2.5 py-1 rounded-lg text-[10.5px] font-medium transition flex items-center gap-1 shrink-0 cursor-pointer ${
+                                        className={`px-2 py-1 rounded-lg text-[10px] font-medium transition flex items-center gap-1 shrink-0 cursor-pointer ${
                                           isInspected
                                             ? 'bg-blue-600 text-white shadow-2xs font-semibold'
                                             : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                                         }`}
                                       >
-                                        <Settings2 className="w-3 h-3" />
-                                        <span>{isInspected ? 'Inspecting' : 'Inspect'}</span>
+                                        <Settings2 className="w-3 h-3 shrink-0" />
+                                        <span>{isInspected ? 'Active' : 'Inspect'}</span>
                                       </button>
                                     </div>
                                   </div>
@@ -9459,14 +9491,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         <button
                           type="button"
                           onClick={() => setShowAddBlockPicker((prev) => !prev)}
-                          className="w-full py-2 px-3 rounded-xl border border-indigo-300 bg-indigo-50/80 hover:bg-indigo-100/80 text-indigo-900 font-bold text-xs flex items-center justify-between transition cursor-pointer shadow-2xs"
+                          className="w-full py-2 px-2.5 rounded-xl border border-indigo-300 bg-indigo-50/80 hover:bg-indigo-100/80 text-indigo-900 font-bold text-xs flex items-center justify-between gap-1.5 transition cursor-pointer shadow-2xs"
                         >
-                          <span className="flex items-center gap-1.5">
-                            <Plus className="w-3.5 h-3.5 text-indigo-600" />
-                            <span>+ Add Custom / Library Block</span>
+                          <span className="flex items-center gap-1.5 min-w-0 truncate">
+                            <Plus className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                            <span className="truncate">Add Custom / Library Block</span>
                           </span>
-                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-200/70 text-indigo-800">
-                            11 Lego Pieces • My Blocks
+                          <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-indigo-200/70 text-indigo-800 shrink-0 whitespace-nowrap">
+                            11 Lego • Library
                           </span>
                         </button>
 
@@ -12685,24 +12717,26 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           {/* Center Column: Live A4 Document Preview */}
           <div className="flex-1 min-w-0 bg-slate-200/80 flex flex-col overflow-hidden print:bg-transparent print:overflow-visible print:w-full print:block">
             {/* Preview Toolbar */}
-            <div className="px-4 py-2 bg-slate-100 border-b border-slate-300/80 flex items-center justify-between text-xs text-slate-600 shrink-0 print:hidden flex-wrap gap-2">
-              <div className="flex items-center space-x-2">
-                <span className="font-semibold text-slate-700">Live Preview:</span>
-                <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded border border-slate-300 text-slate-600">
+            <div className="px-3 py-1.5 bg-slate-100 border-b border-slate-300/80 flex items-center justify-between gap-2 text-xs text-slate-600 shrink-0 print:hidden min-w-0">
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="font-semibold text-slate-700 hidden xl:inline">Live Preview:</span>
+                <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded border border-slate-300 text-slate-600 whitespace-nowrap">
                   A4 210mm × 297mm
                 </span>
-                <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
+                <span className="text-[10px] text-slate-400 font-mono hidden 2xl:inline whitespace-nowrap">
                   • 1:1 Physical Geometry
                 </span>
               </div>
 
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center gap-1.5 min-w-0 flex-1 justify-end">
                 {/* Scale Dropdown: 50%, 75%, 85%, 100%, Fit Page */}
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-slate-500 font-medium hidden md:inline">Scale:</span>
+                <div className="flex items-center gap-1 shrink-0">
+                  <span className="text-[11px] text-slate-500 font-medium hidden lg:inline">Scale:</span>
                   <select
                     value={
-                      [0.5, 0.75, 0.85, 1.0].includes(Number(zoomScale.toFixed(2)))
+                      isFitModeActive
+                        ? 'fit'
+                        : [0.5, 0.75, 0.85, 1.0].includes(Number(zoomScale.toFixed(2)))
                         ? String(zoomScale.toFixed(2))
                         : 'custom'
                     }
@@ -12711,6 +12745,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       if (val === 'fit') {
                         handleFitPage();
                       } else if (val !== 'custom') {
+                        setIsFitModeActive(false);
                         setZoomScale(parseFloat(val));
                       }
                     }}
@@ -12718,10 +12753,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   >
                     <option value="0.50">50%</option>
                     <option value="0.75">75%</option>
-                    <option value="0.85">85% (Default)</option>
-                    <option value="1.00">100% (Actual Size)</option>
+                    <option value="0.85">85%</option>
+                    <option value="1.00">100%</option>
                     <option value="fit">Fit Page</option>
-                    {![0.5, 0.75, 0.85, 1.0].includes(Number(zoomScale.toFixed(2))) && (
+                    {!isFitModeActive && ![0.5, 0.75, 0.85, 1.0].includes(Number(zoomScale.toFixed(2))) && (
                       <option value="custom">{Math.round(zoomScale * 100)}%</option>
                     )}
                   </select>
@@ -12730,8 +12765,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 {/* Zoom Out */}
                 <button
                   type="button"
-                  onClick={() => setZoomScale((prev) => Math.max(0.4, Number((prev - 0.1).toFixed(2))))}
-                  className="p-1.5 hover:bg-white rounded-lg border border-slate-300/60 text-slate-700 transition cursor-pointer"
+                  onClick={() => {
+                    setIsFitModeActive(false);
+                    setZoomScale((prev) => Math.max(0.4, Number((prev - 0.1).toFixed(2))));
+                  }}
+                  className="p-1.5 hover:bg-white rounded-lg border border-slate-300/60 text-slate-700 transition cursor-pointer shrink-0"
                   title="Zoom Out"
                 >
                   <ZoomOut className="w-3.5 h-3.5" />
@@ -12739,8 +12777,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 {/* Reset Zoom */}
                 <button
                   type="button"
-                  onClick={() => setZoomScale(0.85)}
-                  className="p-1.5 hover:bg-white rounded-lg border border-slate-300/60 text-slate-700 transition cursor-pointer"
+                  onClick={() => {
+                    setIsFitModeActive(false);
+                    setZoomScale(0.85);
+                  }}
+                  className="p-1.5 hover:bg-white rounded-lg border border-slate-300/60 text-slate-700 transition cursor-pointer shrink-0"
                   title="Reset Zoom (85%)"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
@@ -12748,8 +12789,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 {/* Zoom In */}
                 <button
                   type="button"
-                  onClick={() => setZoomScale((prev) => Math.min(1.4, Number((prev + 0.1).toFixed(2))))}
-                  className="p-1.5 hover:bg-white rounded-lg border border-slate-300/60 text-slate-700 transition cursor-pointer"
+                  onClick={() => {
+                    setIsFitModeActive(false);
+                    setZoomScale((prev) => Math.min(1.4, Number((prev + 0.1).toFixed(2))));
+                  }}
+                  className="p-1.5 hover:bg-white rounded-lg border border-slate-300/60 text-slate-700 transition cursor-pointer shrink-0"
                   title="Zoom In"
                 >
                   <ZoomIn className="w-3.5 h-3.5" />
@@ -12758,169 +12802,172 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 <button
                   type="button"
                   onClick={handleFitPage}
-                  className="px-2 py-1 bg-white hover:bg-slate-50 border border-slate-300/80 rounded-lg text-slate-700 font-medium text-xs transition cursor-pointer hidden sm:flex items-center gap-1 whitespace-nowrap"
+                  className="px-2 py-1 bg-white hover:bg-slate-50 border border-slate-300/80 rounded-lg text-slate-700 font-medium text-xs transition cursor-pointer hidden sm:flex items-center gap-1 whitespace-nowrap shrink-0"
                   title="Fit to Available Canvas Width & Height"
                 >
                   <span>Fit Page</span>
                 </button>
-                {/* Live PDF Filename Bar */}
+                {/* Live PDF Filename Bar (shrinks gracefully when both sidebars are open) */}
                 <div
                   onClick={() => setActiveLeftTab('structure')}
-                  className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-blue-50 border border-slate-300 rounded-lg text-slate-700 text-xs transition cursor-pointer max-w-[260px] xl:max-w-[340px] shadow-2xs group"
+                  className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-blue-50 border border-slate-300 rounded-lg text-slate-700 text-xs transition cursor-pointer min-w-0 flex-1 max-w-[220px] xl:max-w-[340px] shadow-2xs group"
                   title={`PDF Filename: ${resolvedPdfFilename}.pdf (Click to configure preset pattern)`}
                 >
                   <FileText className="w-3.5 h-3.5 text-blue-600 shrink-0 group-hover:scale-110 transition-transform" />
-                  <span className="font-mono text-[11px] truncate text-slate-700 select-all font-medium">
+                  <span className="font-mono text-[11px] truncate min-w-0 flex-1 text-slate-700 select-all font-medium">
                     {resolvedPdfFilename}.pdf
                   </span>
                 </div>
 
-                {/* Pre-Flight Check Pill */}
-                {(() => {
-                  const todayStr = new Date().toISOString().split('T')[0];
-                  const isUnpricedMode =
-                    documentType === 'delivery_note' ||
-                    documentType === 'material_return_note' ||
-                    visibleColumns.unit_price === false ||
-                    visibleColumns.showUnitPrice === false;
-                  const zeroPriceItems = isUnpricedMode
-                    ? []
-                    : quotationLineItems
-                        .map((it, idx) => ({ it, idx }))
-                        .filter(
-                          ({ it }) =>
-                            !it.is_optional &&
-                            !it.hide_row_price &&
-                            Number(it.unit_price || 0) <= 0
-                        );
-                  const isStaleDraftDate =
-                    (quotationStatus || 'Draft') === 'Draft' &&
-                    Boolean(quotationIssueDate && quotationIssueDate < todayStr);
-                  const unresolvedTags = Array.from(
-                    new Set(findUnknownAtTokensInQuotation(liveQuotation).map((w) => w.token))
-                  );
+                {/* Right-Pinned Pre-Flight & Print Controls (never clip off-screen) */}
+                <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                  {/* Pre-Flight Check Pill */}
+                  {(() => {
+                    const todayStr = new Date().toISOString().split('T')[0];
+                    const isUnpricedMode =
+                      documentType === 'delivery_note' ||
+                      documentType === 'material_return_note' ||
+                      visibleColumns.unit_price === false ||
+                      visibleColumns.showUnitPrice === false;
+                    const zeroPriceItems = isUnpricedMode
+                      ? []
+                      : quotationLineItems
+                          .map((it, idx) => ({ it, idx }))
+                          .filter(
+                            ({ it }) =>
+                              !it.is_optional &&
+                              !it.hide_row_price &&
+                              Number(it.unit_price || 0) <= 0
+                          );
+                    const isStaleDraftDate =
+                      (quotationStatus || 'Draft') === 'Draft' &&
+                      Boolean(quotationIssueDate && quotationIssueDate < todayStr);
+                    const unresolvedTags = Array.from(
+                      new Set(findUnknownAtTokensInQuotation(liveQuotation).map((w) => w.token))
+                    );
 
-                  const totalIssues =
-                    zeroPriceItems.length +
-                    (isStaleDraftDate ? 1 : 0) +
-                    (unresolvedTags.length > 0 ? 1 : 0);
+                    const totalIssues =
+                      zeroPriceItems.length +
+                      (isStaleDraftDate ? 1 : 0) +
+                      (unresolvedTags.length > 0 ? 1 : 0);
 
-                  if (totalIssues === 0) {
+                    if (totalIssues === 0) {
+                      return (
+                        <div
+                          className="hidden sm:inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-semibold whitespace-nowrap shrink-0"
+                          title="Pre-Flight Check Passed: All items priced, current date, and all @tags resolved"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>Ready to Print</span>
+                        </div>
+                      );
+                    }
+
                     return (
-                      <div
-                        className="hidden md:inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-semibold whitespace-nowrap"
-                        title="Pre-Flight Check Passed: All items priced, current date, and all @tags resolved"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span>Ready to Print</span>
+                      <div className="relative shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setShowPreFlightPopover((prev) => !prev)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-800 text-[11px] font-bold transition cursor-pointer whitespace-nowrap shadow-2xs"
+                          title="Click to review Pre-Flight checks before printing"
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>
+                            {totalIssues} Pre-Flight Check{totalIssues > 1 ? 's' : ''}
+                          </span>
+                        </button>
+                        {showPreFlightPopover && (
+                          <div className="absolute right-0 mt-1.5 w-80 bg-white border border-slate-200 rounded-xl shadow-xl p-3 z-50 space-y-2.5 text-left">
+                            <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                                Pre-Flight Document Checks
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setShowPreFlightPopover(false)}
+                                className="text-slate-400 hover:text-slate-600 text-xs font-bold px-1"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                            {isStaleDraftDate && (
+                              <div className="p-2 rounded-lg bg-amber-50/80 border border-amber-200 flex items-center justify-between gap-2">
+                                <div className="text-[11px] text-amber-900">
+                                  <span className="font-bold block">Draft Date is {quotationIssueDate}</span>
+                                  <span className="text-[10px] text-amber-700">Update to today ({todayStr})?</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setQuotationIssueDate(todayStr);
+                                    setShowPreFlightPopover(false);
+                                  }}
+                                  className="px-2 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold shrink-0 cursor-pointer"
+                                >
+                                  Set to Today
+                                </button>
+                              </div>
+                            )}
+                            {zeroPriceItems.length > 0 && (
+                              <div className="p-2 rounded-lg bg-amber-50/80 border border-amber-200 space-y-1.5">
+                                <div className="text-[11px] font-bold text-amber-900">
+                                  {zeroPriceItems.length} Item{zeroPriceItems.length > 1 ? 's' : ''} with 0.00 Rate:
+                                </div>
+                                <div className="flex flex-wrap gap-1">
+                                  {zeroPriceItems.slice(0, 5).map(({ it, idx }) => (
+                                    <button
+                                      key={it.id || idx}
+                                      type="button"
+                                      onClick={() => {
+                                        handleCanvasSelectSection('items_table', `item:${idx}`);
+                                        setShowPreFlightPopover(false);
+                                      }}
+                                      className="px-2 py-0.5 rounded bg-white hover:bg-amber-100 border border-amber-300 text-amber-900 text-[10px] font-semibold cursor-pointer"
+                                    >
+                                      Inspect Item #{idx + 1}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {unresolvedTags.length > 0 && (
+                              <div className="p-2 rounded-lg bg-amber-50/80 border border-amber-200 flex items-center justify-between gap-2">
+                                <div className="text-[11px] text-amber-900">
+                                  <span className="font-bold block">Unknown @Tag(s)</span>
+                                  <span className="text-[10px] font-mono text-amber-700">
+                                    {unresolvedTags.join(', ')}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveLeftTab('deal');
+                                    setShowPreFlightPopover(false);
+                                  }}
+                                  className="px-2 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold shrink-0 cursor-pointer"
+                                >
+                                  Edit Deal Data
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
-                  }
+                  })()}
 
-                  return (
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={() => setShowPreFlightPopover((prev) => !prev)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-800 text-[11px] font-bold transition cursor-pointer whitespace-nowrap shadow-2xs"
-                        title="Click to review Pre-Flight checks before printing"
-                      >
-                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span>
-                          {totalIssues} Pre-Flight Check{totalIssues > 1 ? 's' : ''}
-                        </span>
-                      </button>
-                      {showPreFlightPopover && (
-                        <div className="absolute right-0 mt-1.5 w-80 bg-white border border-slate-200 rounded-xl shadow-xl p-3 z-50 space-y-2.5 text-left">
-                          <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                            <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                              Pre-Flight Document Checks
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setShowPreFlightPopover(false)}
-                              className="text-slate-400 hover:text-slate-600 text-xs font-bold px-1"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                          {isStaleDraftDate && (
-                            <div className="p-2 rounded-lg bg-amber-50/80 border border-amber-200 flex items-center justify-between gap-2">
-                              <div className="text-[11px] text-amber-900">
-                                <span className="font-bold block">Draft Date is {quotationIssueDate}</span>
-                                <span className="text-[10px] text-amber-700">Update to today ({todayStr})?</span>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setQuotationIssueDate(todayStr);
-                                  setShowPreFlightPopover(false);
-                                }}
-                                className="px-2 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold shrink-0 cursor-pointer"
-                              >
-                                Set to Today
-                              </button>
-                            </div>
-                          )}
-                          {zeroPriceItems.length > 0 && (
-                            <div className="p-2 rounded-lg bg-amber-50/80 border border-amber-200 space-y-1.5">
-                              <div className="text-[11px] font-bold text-amber-900">
-                                {zeroPriceItems.length} Item{zeroPriceItems.length > 1 ? 's' : ''} with 0.00 Rate:
-                              </div>
-                              <div className="flex flex-wrap gap-1">
-                                {zeroPriceItems.slice(0, 5).map(({ it, idx }) => (
-                                  <button
-                                    key={it.id || idx}
-                                    type="button"
-                                    onClick={() => {
-                                      handleCanvasSelectSection('items_table', `item:${idx}`);
-                                      setShowPreFlightPopover(false);
-                                    }}
-                                    className="px-2 py-0.5 rounded bg-white hover:bg-amber-100 border border-amber-300 text-amber-900 text-[10px] font-semibold cursor-pointer"
-                                  >
-                                    Inspect Item #{idx + 1}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          {unresolvedTags.length > 0 && (
-                            <div className="p-2 rounded-lg bg-amber-50/80 border border-amber-200 flex items-center justify-between gap-2">
-                              <div className="text-[11px] text-amber-900">
-                                <span className="font-bold block">Empty @Tag Value(s)</span>
-                                <span className="text-[10px] font-mono text-amber-700">
-                                  {unresolvedTags.join(', ')}
-                                </span>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setActiveLeftTab('deal');
-                                  setShowPreFlightPopover(false);
-                                }}
-                                className="px-2 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold shrink-0 cursor-pointer"
-                              >
-                                Edit Deal Data
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                {/* Print Document */}
-                <button
-                  type="button"
-                  onClick={handleRequestPrint}
-                  className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-xs flex items-center gap-1.5 transition ml-1 shadow-2xs cursor-pointer whitespace-nowrap"
-                  title={`Print or Save as PDF (${resolvedPdfFilename}.pdf)`}
-                >
-                  <Printer className="w-3.5 h-3.5 text-white" />
-                  <span>Print Document</span>
-                </button>
+                  {/* Print Document */}
+                  <button
+                    type="button"
+                    onClick={handleRequestPrint}
+                    className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-xs flex items-center gap-1.5 transition shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+                    title={`Print or Save as PDF (${resolvedPdfFilename}.pdf)`}
+                  >
+                    <Printer className="w-3.5 h-3.5 text-white shrink-0" />
+                    <span>Print Document</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -27906,6 +27953,20 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       {/* Scoped Print Portal Styles */}
       <style>{`
         @media print {
+          @page {
+            size: A4 portrait;
+            margin: 0 !important;
+          }
+          html, body {
+            width: 210mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            gap: 0 !important;
+            background: #ffffff !important;
+          }
+          body > *:not(#quotation-print-portal) {
+            display: none !important;
+          }
           #root {
             display: none !important;
           }
@@ -27915,9 +27976,27 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             width: 210mm !important;
             min-width: 210mm !important;
             max-width: 210mm !important;
-            margin: 0 auto !important;
+            margin: 0 !important;
             padding: 0 !important;
+            gap: 0 !important;
+            border: none !important;
             background: #ffffff !important;
+          }
+          #quotation-print-portal .quotation-page-sheet {
+            width: 210mm !important;
+            height: 296.5mm !important;
+            min-height: 296.5mm !important;
+            max-height: 296.5mm !important;
+            overflow: hidden !important;
+            margin: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+          }
+          #quotation-print-portal .quotation-page-sheet:last-child,
+          #quotation-print-portal .quotation-page-sheet:last-of-type,
+          #quotation-print-portal .quotation-page-sheet.quotation-last-sheet {
+            page-break-after: auto !important;
+            break-after: auto !important;
           }
         }
       `}</style>

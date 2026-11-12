@@ -2077,16 +2077,32 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       setProjectLocation(enquiryToEdit.project_location || '');
       setEnquirySource(e_src_fallback(enquiryToEdit.enquiry_source));
 
+      const dedupeRemarkLines = (raw?: string) => {
+        if (!raw) return '';
+        const seen = new Set<string>();
+        return raw
+          .split(/\r?\n/)
+          .filter((line) => {
+            const trimmed = line.trim();
+            if (!trimmed) return true;
+            const key = trimmed.toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .join('\n');
+      };
+
       if (isClaimingGap || enquiryToEdit.status === 'Gap / Reserved' || enquiryToEdit.status === 'GAP / RESERVED') {
         setStatus('Active');
         if (enquiryToEdit.remarks?.startsWith('[Reserved Gap]') || enquiryToEdit.remarks?.includes('missing record')) {
           setRemarks('');
         } else {
-          setRemarks(enquiryToEdit.remarks || '');
+          setRemarks(dedupeRemarkLines(enquiryToEdit.remarks));
         }
       } else {
         setStatus(normalizeEnquiryStatus(enquiryToEdit.status) as EnquiryStatus);
-        setRemarks(enquiryToEdit.remarks || '');
+        setRemarks(dedupeRemarkLines(enquiryToEdit.remarks));
       }
 
       setPastedSourceText(enquiryToEdit.raw_source_text || null);
@@ -2149,8 +2165,16 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               cleanedSubs = cleanedSubs.slice(1);
             }
           }
+          const hasCustomEnquiryDelivery =
+            Boolean(enquiryToEdit.delivery_period?.trim()) &&
+            enquiryToEdit.delivery_period?.trim() !== 'Ex-Stock / Standard';
+          const normalizedLeadTime =
+            hasCustomEnquiryDelivery && item.lead_time_note?.trim() === 'Ex-Stock / Standard'
+              ? ''
+              : item.lead_time_note;
           return {
             ...item,
+            lead_time_note: normalizedLeadTime,
             ...(cleanedSubs ? { sub_components: cleanedSubs } : {}),
             option: item.option || (item as any).option_designation || 'Default / Included',
             attributes: item.attributes || []
@@ -3097,7 +3121,19 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       }
     }
     if (data.remarks) {
-      setRemarks(prev => prev ? prev + '\n' + data.remarks : data.remarks);
+      setRemarks((prev) => {
+        const incomingLines = String(data.remarks)
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean);
+        if (!prev || !prev.trim()) return incomingLines.join('\n');
+        const existingLines = prev.split(/\r?\n/).map((l) => l.trim());
+        const existingLower = new Set(existingLines.map((l) => l.toLowerCase()));
+        const newUniqueLines = incomingLines.filter(
+          (line) => !existingLower.has(line.toLowerCase())
+        );
+        return newUniqueLines.length > 0 ? `${prev.trim()}\n${newUniqueLines.join('\n')}` : prev;
+      });
     }
 
     // Process custom project specifications / attributes if present
@@ -4343,13 +4379,15 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   ? QuotationRepository.roundCurrency(Number(li.total_price) || 0)
                   : QuotationRepository.roundCurrency(qty * uPrice);
               const deliveryVal =
-                li.lead_time_note ||
-                (li as any).delivery_time ||
-                (li as any).lead_time ||
-                (li as any).availability ||
+                (li.lead_time_note && li.lead_time_note !== 'Ex-Stock / Standard' ? li.lead_time_note : '') ||
+                ((li as any).delivery_time && (li as any).delivery_time !== 'Ex-Stock / Standard' ? (li as any).delivery_time : '') ||
+                ((li as any).lead_time && (li as any).lead_time !== 'Ex-Stock / Standard' ? (li as any).lead_time : '') ||
+                ((li as any).availability && (li as any).availability !== 'Ex-Stock / Standard' ? (li as any).availability : '') ||
                 (li.specifications as any)?.['Delivery'] ||
                 (li.specifications as any)?.['Lead Time'] ||
+                (deliveryPeriod && deliveryPeriod.trim() ? deliveryPeriod.trim() : '') ||
                 existingQuoteItem?.availability ||
+                li.lead_time_note ||
                 'Ex-Stock / Standard';
               return {
                 ...(existingQuoteItem || {}),
@@ -6383,7 +6421,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                         <div
                           id="field-country"
-                          className="pt-3 border-t border-slate-200/70 dark:border-slate-700/70 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"
+                          className={`pt-3 border-t border-slate-200/70 dark:border-slate-700/70 grid grid-cols-1 sm:grid-cols-2 ${
+                            isPreviewActive ? 'xl:grid-cols-2' : 'lg:grid-cols-4'
+                          } gap-3`}
                         >
                           <div>
                             <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Country</MarqueeLabel>
@@ -6975,8 +7015,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               {/* Selling Unit Price + Live Line Total Pill */}
                               <div className="col-span-4 sm:col-span-3 min-w-0">
                                 <div className="flex items-center justify-between gap-1 h-5 mb-1 min-w-0">
-                                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap truncate">
-                                    Selling ({formCurrency})
+                                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                    Rate ({formCurrency})
                                   </label>
                                   <span
                                     onClick={() => disclosure.toggleLinePanel(index, 'cost')}
@@ -7081,8 +7121,12 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 <Plus className={`w-2.5 h-2.5 transition-transform ${isScopeOpen ? 'rotate-45 text-blue-600' : 'text-slate-400'}`} />
                                 <span>Category &amp; Scope</span>
                                 <span className="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono text-slate-600 dark:text-slate-300">
-                                  {item.product_type || 'General'} · {shortOpt}
-                                  {item.lead_time_note ? ` · ${item.lead_time_note}` : ''}
+                                  {item.product_type || 'General'} · {shortOpt} ·{' '}
+                                  {item.lead_time_note &&
+                                  item.lead_time_note.trim() &&
+                                  item.lead_time_note.trim() !== 'Ex-Stock / Standard'
+                                    ? item.lead_time_note.trim()
+                                    : deliveryPeriod?.trim() || item.lead_time_note?.trim() || 'Standard'}
                                 </span>
                               </button>
 
@@ -7866,9 +7910,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs font-mono tabular-nums">
+                  <div
+                    className={`grid grid-cols-1 sm:grid-cols-2 ${
+                      isPreviewActive ? 'xl:grid-cols-2' : 'lg:grid-cols-4'
+                    } gap-2.5 text-xs font-mono tabular-nums`}
+                  >
                     <div className="bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3 py-2 flex flex-col justify-between">
-                      <span className="text-[10px] text-slate-400 uppercase block truncate">Total Cost</span>
+                      <span className="text-[10px] text-slate-400 uppercase block leading-tight">Total Cost</span>
                       <span className="font-semibold text-slate-700 dark:text-slate-200 mt-0.5">
                         {hasAnyCost
                           ? `${formCurrency} ${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -7877,8 +7925,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     </div>
 
                     <div className={`bg-slate-50/80 dark:bg-slate-800/50 border ${isLumpSum ? 'border-blue-400 dark:border-blue-600 ring-2 ring-blue-500/15' : 'border-slate-200/80 dark:border-slate-700/80'} rounded-xl px-3 py-2 flex flex-col justify-between ${getHighlightClasses('value')}`}>
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-semibold block truncate">
-                        Net Proposal Total (Excl. VAT)
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-semibold block leading-tight">
+                        Net Total (Excl. VAT)
                       </span>
                       {isLumpSum ? (
                         <div className="flex items-center gap-1 mt-0.5">
@@ -7906,14 +7954,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     </div>
 
                     <div className="bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3 py-2 flex flex-col justify-between">
-                      <span className="text-[10px] text-slate-400 uppercase block truncate">5% VAT</span>
+                      <span className="text-[10px] text-slate-400 uppercase block leading-tight">5% VAT</span>
                       <span className="font-semibold text-slate-700 dark:text-slate-200 mt-0.5">
                         {formCurrency} {vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                     </div>
 
                     <div className="bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200/80 dark:border-blue-800 rounded-xl px-3 py-2 flex flex-col justify-between">
-                      <span className="text-[10px] text-blue-600 dark:text-blue-400 uppercase font-bold block truncate">Grand Total (Incl. VAT)</span>
+                      <span className="text-[10px] text-blue-600 dark:text-blue-400 uppercase font-bold block leading-tight">Grand Total (Incl. VAT)</span>
                       <span className="font-bold text-blue-700 dark:text-blue-300 mt-0.5">
                         {formCurrency} {grandTotalInclVat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
@@ -8074,7 +8122,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                       {/* Structured Quotation Commercial Terms Grid */}
                       <div className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 space-y-3">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        <div
+                          className={`grid grid-cols-1 sm:grid-cols-2 ${
+                            isPreviewActive ? 'xl:grid-cols-2' : 'lg:grid-cols-4'
+                          } gap-3`}
+                        >
                           {/* 1. Offer Validity (Days) + Valid Until Preview */}
                           <div>
                             <div className="flex items-center justify-between mb-1">

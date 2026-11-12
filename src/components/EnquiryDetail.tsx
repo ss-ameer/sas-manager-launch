@@ -876,8 +876,20 @@ export default function EnquiryDetail({
         model_part_no: li.model_part_no,
         country_of_origin: li.country_of_origin,
         hs_code: li.hs_code,
-        availability: li.lead_time_note || (li as any).availability || 'Ex-Stock / Standard',
-        lead_time_note: li.lead_time_note || (li as any).availability || 'Ex-Stock / Standard',
+        availability:
+          (li.lead_time_note && li.lead_time_note !== 'Ex-Stock / Standard' ? li.lead_time_note : '') ||
+          ((li as any).availability && (li as any).availability !== 'Ex-Stock / Standard' ? (li as any).availability : '') ||
+          currentEnquiry.delivery_period ||
+          li.lead_time_note ||
+          (li as any).availability ||
+          'Ex-Stock / Standard',
+        lead_time_note:
+          (li.lead_time_note && li.lead_time_note !== 'Ex-Stock / Standard' ? li.lead_time_note : '') ||
+          ((li as any).availability && (li as any).availability !== 'Ex-Stock / Standard' ? (li as any).availability : '') ||
+          currentEnquiry.delivery_period ||
+          li.lead_time_note ||
+          (li as any).availability ||
+          'Ex-Stock / Standard',
         option: rawOpt || undefined,
         option_group: rawOpt && rawOpt !== 'Default / Included' && rawOpt !== 'Baseline / All' ? rawOpt : undefined,
         is_optional: isOptionalOrAlt,
@@ -2840,7 +2852,11 @@ export default function EnquiryDetail({
           model_part_no: li.model_part_no,
           country_of_origin: li.country_of_origin,
           hs_code: li.hs_code,
-          availability: li.lead_time_note || 'Ex-Stock / Standard',
+          availability:
+            (li.lead_time_note && li.lead_time_note !== 'Ex-Stock / Standard' ? li.lead_time_note : '') ||
+            currentEnquiry.delivery_period ||
+            li.lead_time_note ||
+            'Ex-Stock / Standard',
           quantity: Number(li.quantity) || 1,
           unit: li.unit || 'Nos',
           unit_price: Number(li.unit_price) || 0,
@@ -3037,11 +3053,15 @@ export default function EnquiryDetail({
           country_of_origin:
             it.country_of_origin || matchingEnqItem?.country_of_origin || matchingProd?.country_of_origin,
           availability:
+            (it.availability && it.availability !== 'Ex-Stock / Standard' ? it.availability : '') ||
+            (it.lead_time_note && it.lead_time_note !== 'Ex-Stock / Standard' ? it.lead_time_note : '') ||
+            (matchingEnqItem?.lead_time_note && matchingEnqItem.lead_time_note !== 'Ex-Stock / Standard' ? matchingEnqItem.lead_time_note : '') ||
+            ((matchingEnqItem as any)?.availability && (matchingEnqItem as any).availability !== 'Ex-Stock / Standard' ? (matchingEnqItem as any).availability : '') ||
+            matchingProd?.default_availability ||
+            rehydrated.delivery_period ||
+            currentEnquiry.delivery_period ||
             it.availability ||
             it.lead_time_note ||
-            matchingEnqItem?.lead_time_note ||
-            (matchingEnqItem as any)?.availability ||
-            matchingProd?.default_availability ||
             'Ex-Stock / Standard'
         };
       });
@@ -8675,6 +8695,20 @@ export default function EnquiryDetail({
       {viewingQuotation && (
         <style>{`
           @media print {
+            @page {
+              size: A4 portrait;
+              margin: 0 !important;
+            }
+            html, body {
+              width: 210mm !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              gap: 0 !important;
+              background: #ffffff !important;
+            }
+            body > *:not(#quotation-print-portal) {
+              display: none !important;
+            }
             #root {
               display: none !important;
             }
@@ -8684,9 +8718,27 @@ export default function EnquiryDetail({
               width: 210mm !important;
               min-width: 210mm !important;
               max-width: 210mm !important;
-              margin: 0 auto !important;
+              margin: 0 !important;
               padding: 0 !important;
+              gap: 0 !important;
+              border: none !important;
               background: #ffffff !important;
+            }
+            #quotation-print-portal .quotation-page-sheet {
+              width: 210mm !important;
+              height: 296.5mm !important;
+              min-height: 296.5mm !important;
+              max-height: 296.5mm !important;
+              overflow: hidden !important;
+              margin: 0 !important;
+              border: none !important;
+              box-shadow: none !important;
+            }
+            #quotation-print-portal .quotation-page-sheet:last-child,
+            #quotation-print-portal .quotation-page-sheet:last-of-type,
+            #quotation-print-portal .quotation-page-sheet.quotation-last-sheet {
+              page-break-after: auto !important;
+              break-after: auto !important;
             }
           }
         `}</style>

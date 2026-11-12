@@ -50,24 +50,30 @@ input, select, textarea {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 10mm;
+    margin: 0 !important;
   }
 
-  /* 1. Unclip ancestors so layout flows naturally into the print engine */
+  /* 1. Unclip outer app ancestors so layout flows naturally into the print engine without breaking bounded A4 quotation sheets */
   html,
   body,
   #root,
   #root > div,
   main,
-  .fixed,
-  .overflow-hidden,
-  .overflow-y-auto,
-  .overflow-auto {
+  .fixed:not(:where(#quotation-print-portal *, #quotation-printable-document *, .quotation-page-sheet, .quotation-page-sheet *)),
+  .overflow-hidden:not(:where(#quotation-print-portal *, #quotation-printable-document *, .quotation-page-sheet, .quotation-page-sheet *)),
+  .overflow-y-auto:not(:where(#quotation-print-portal *, #quotation-printable-document *, .quotation-page-sheet, .quotation-page-sheet *)),
+  .overflow-auto:not(:where(#quotation-print-portal *, #quotation-printable-document *, .quotation-page-sheet, .quotation-page-sheet *)) {
     height: auto !important;
     min-height: 0 !important;
     overflow: visible !important;
     max-height: none !important;
     background: #ffffff !important;
+  }
+
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
   }
 
   /* 2. Prevent mid-row and mid-signature page splits across all printable documents & tables */
