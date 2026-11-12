@@ -51,7 +51,8 @@ import {
   isFieldOmitted,
   formatCleanDocumentEnquiryRef,
   isSyntheticInternalId,
-  combineCityCountry
+  combineCityCountry,
+  isQuotationSnapshotFrozen
 } from '../../utils/quotationTokenResolver';
 import { QuotationRepository } from '../../services/repositories/QuotationRepository';
 import { rasterizePdfToPageImages } from '../../services/attachmentStorage';
@@ -4505,11 +4506,33 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       const vis = blockConfig?.visibleFields || {};
       const labels = blockConfig?.fieldLabels || {};
       const rowOpts = blockConfig?.fieldRowOptions || {};
-      const priceBasis = quotation.price_basis?.trim();
-      const paymentTerms = quotation.payment_terms?.trim();
+      const isFrozen = isQuotationSnapshotFrozen(quotation);
+      const priceBasis = (
+        quotation.price_basis ||
+        (!isFrozen ? enquiry?.price_basis : '') ||
+        ''
+      ).trim() || undefined;
+      const deliveryPeriod = (
+        quotation.delivery_period ||
+        (!isFrozen ? enquiry?.delivery_period : '') ||
+        ''
+      ).trim() || undefined;
+      const paymentTerms = (
+        quotation.payment_terms ||
+        (!isFrozen ? enquiry?.payment_terms : '') ||
+        ''
+      ).trim() || undefined;
+      const validityDaysVal =
+        typeof quotation.validity_days === 'number' && quotation.validity_days > 0
+          ? quotation.validity_days
+          : !isFrozen && typeof enquiry?.validity_days === 'number' && enquiry.validity_days > 0
+          ? enquiry.validity_days
+          : undefined;
       const validityText =
         quotation.valid_until && quotation.valid_until.trim() !== ''
           ? `Valid until ${formatDate(quotation.valid_until)}`
+          : validityDaysVal
+          ? `${validityDaysVal} Days`
           : undefined;
 
       const rawCustomNotes =
@@ -4525,35 +4548,51 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         const filtered = lines.filter((line) => {
           const trimmed = line.trim();
           const lower = trimmed.toLowerCase();
+          const cleanLower = lower.replace(/^[•\-*0-9.)\s]+/, '').trim();
           if (!trimmed) return false;
           if (priceBasis) {
             if (
-              lower.startsWith('price basis:') ||
-              lower.startsWith('price basis -') ||
-              lower.startsWith('price basis')
+              cleanLower.startsWith('price basis:') ||
+              cleanLower.startsWith('price basis -') ||
+              cleanLower.startsWith('price basis')
             )
               return false;
-            if (lower === priceBasis.toLowerCase()) return false;
+            if (cleanLower === priceBasis.toLowerCase()) return false;
+          }
+          if (deliveryPeriod) {
+            if (
+              cleanLower.startsWith('delivery period:') ||
+              cleanLower.startsWith('delivery period -') ||
+              cleanLower.startsWith('delivery time:') ||
+              cleanLower.startsWith('delivery terms:') ||
+              cleanLower.startsWith('delivery:') ||
+              cleanLower.startsWith('delivery -') ||
+              cleanLower.startsWith('lead time:') ||
+              cleanLower.startsWith('lead time -')
+            )
+              return false;
+            if (cleanLower === deliveryPeriod.toLowerCase()) return false;
           }
           if (paymentTerms) {
             if (
-              lower.startsWith('payment terms:') ||
-              lower.startsWith('payment terms -') ||
-              lower.startsWith('payment:') ||
-              lower.startsWith('payment -')
+              cleanLower.startsWith('payment terms:') ||
+              cleanLower.startsWith('payment terms -') ||
+              cleanLower.startsWith('payment:') ||
+              cleanLower.startsWith('payment -')
             )
               return false;
-            if (lower === paymentTerms.toLowerCase()) return false;
+            if (cleanLower === paymentTerms.toLowerCase()) return false;
           }
           if (validityText || quotation.valid_until) {
             if (
-              lower.startsWith('validity:') ||
-              lower.startsWith('validity -') ||
-              lower.startsWith('valid until:') ||
-              lower.startsWith('valid until')
+              cleanLower.startsWith('validity:') ||
+              cleanLower.startsWith('validity -') ||
+              cleanLower.startsWith('offer validity:') ||
+              cleanLower.startsWith('valid until:') ||
+              cleanLower.startsWith('valid until')
             )
               return false;
-            }
+          }
           return true;
         });
         const cleaned = filtered.join('\n').trim();
@@ -4581,6 +4620,29 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 fullWidth: rowOpts.price_basis?.fullWidth,
                 isBold: rowOpts.price_basis?.isBold,
                 isHighlight: rowOpts.price_basis?.isHighlight
+              }
+            : null,
+        delivery_period:
+          vis.delivery_period !== false &&
+          !isFieldOmitted('delivery_lead_time', omittedFields) &&
+          !isFieldOmitted('delivery_period', omittedFields) &&
+          deliveryPeriod
+            ? {
+                key: 'delivery_period',
+                label: (labels.delivery_period || 'Delivery Period').replace(/:$/, ''),
+                value: (
+                  <EditableCanvasText
+                    value={deliveryPeriod}
+                    renderedDisplay={renderResolvedQuotationText(deliveryPeriod, tokenContext)}
+                    fieldKey="delivery_period"
+                    canEdit={canEditCanvasInline && isTermsBlockSelected}
+                    onCommit={onInlineFieldEdit}
+                  />
+                ),
+                breakAfter: rowOpts.delivery_period?.breakAfter,
+                fullWidth: rowOpts.delivery_period?.fullWidth,
+                isBold: rowOpts.delivery_period?.isBold,
+                isHighlight: rowOpts.delivery_period?.isHighlight
               }
             : null,
         payment_terms:
@@ -4623,14 +4685,36 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
       const customRowsList = blockConfig?.customRows || [];
       customRowsList.forEach((cr) => {
+        const cleanLbl = resolveQuotationTokens(cr.label || '', tokenContext)
+          .replace(/:$/, '')
+          .trim()
+          .toLowerCase();
+        const isPriceBasisRow = /^(?:price\s*basis|incoterms?)$/i.test(cleanLbl);
+        const isDeliveryRow = /^(?:delivery(?:\s*period|\s*time|\s*schedule|\s*terms|\s*lead\s*time)?|lead\s*time)$/i.test(cleanLbl);
+        const isPaymentRow = /^(?:payment(?:\s*terms)?|terms\s*of\s*payment)$/i.test(cleanLbl);
+        const isValidityRow = /^(?:(?:offer\s*|quote\s*)?validity(?:\s*period)?|valid\s*until)$/i.test(cleanLbl);
+
+        // If a built-in row already renders this exact commercial term, suppress duplicate static customRow
+        if (isPriceBasisRow && unifiedRowMap.price_basis) return;
+        if (isDeliveryRow && unifiedRowMap.delivery_period) return;
+        if (isPaymentRow && unifiedRowMap.payment_terms) return;
+        if (isValidityRow && unifiedRowMap.validity) return;
+
+        const dynamicValue =
+          (isPriceBasisRow && priceBasis) ||
+          (isDeliveryRow && deliveryPeriod) ||
+          (isPaymentRow && paymentTerms) ||
+          (isValidityRow && validityText) ||
+          cr.value;
+
         const shouldHide =
           shouldHideCustomRow(cr, tokenContext) ||
-          (cr.emptyBehavior === 'hide' && (!cr.value || !resolveQuotationTokens(cr.value, tokenContext).trim()));
-        if (!shouldHide && cr.enabled !== false && (cr.label || cr.value)) {
+          (cr.emptyBehavior === 'hide' && (!dynamicValue || !resolveQuotationTokens(dynamicValue, tokenContext).trim()));
+        if (!shouldHide && cr.enabled !== false && (cr.label || dynamicValue)) {
           unifiedRowMap[cr.id] = {
             key: cr.id,
             label: resolveQuotationTokens(cr.label || 'Term', tokenContext).replace(/:$/, ''),
-            value: renderResolvedQuotationText(cr.value, tokenContext),
+            value: renderResolvedQuotationText(dynamicValue, tokenContext),
             breakAfter: cr.breakAfter,
             fullWidth: cr.fullWidth,
             isBold: cr.isBold,
@@ -4639,15 +4723,24 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         }
       });
 
-      const defaultBuiltInOrder = ['price_basis', 'payment_terms', 'validity'];
+      const defaultBuiltInOrder = ['price_basis', 'delivery_period', 'payment_terms', 'validity'];
       const allAvailableKeys = [
         ...defaultBuiltInOrder,
         ...customRowsList.map((r) => r.id)
       ];
-      const rawOrder =
+      const savedOrder =
         blockConfig?.fieldOrder && blockConfig.fieldOrder.length > 0
-          ? blockConfig.fieldOrder
-          : allAvailableKeys;
+          ? [...blockConfig.fieldOrder]
+          : null;
+      if (savedOrder && !savedOrder.includes('delivery_period')) {
+        const pbIdx = savedOrder.indexOf('price_basis');
+        if (pbIdx !== -1) {
+          savedOrder.splice(pbIdx + 1, 0, 'delivery_period');
+        } else {
+          savedOrder.unshift('delivery_period');
+        }
+      }
+      const rawOrder = savedOrder || allAvailableKeys;
       const unifiedOrder = [
         ...rawOrder.filter((k) => allAvailableKeys.includes(k)),
         ...allAvailableKeys.filter((k) => !rawOrder.includes(k))
@@ -6248,9 +6341,27 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       }
 
       if (piece.type === 'field_rows') {
+        const isFrozen = isQuotationSnapshotFrozen(quotation);
+        const livePriceBasis = (quotation.price_basis || (!isFrozen ? enquiry?.price_basis : '') || '').trim();
+        const liveDeliveryPeriod = (quotation.delivery_period || (!isFrozen ? enquiry?.delivery_period : '') || '').trim();
+        const livePaymentTerms = (quotation.payment_terms || (!isFrozen ? enquiry?.payment_terms : '') || '').trim();
+        const resolveFieldRowRawValue = (r: { label?: string; value?: string }) => {
+          const cleanLbl = resolveQuotationTokens(r.label || '', tokenContext)
+            .replace(/:$/, '')
+            .trim()
+            .toLowerCase();
+          if (/^(?:price\s*basis|incoterms?)$/i.test(cleanLbl) && livePriceBasis) return livePriceBasis;
+          if (/^(?:delivery(?:\s*period|\s*time|\s*schedule|\s*terms|\s*lead\s*time)?|lead\s*time)$/i.test(cleanLbl) && liveDeliveryPeriod) {
+            return liveDeliveryPeriod;
+          }
+          if (/^(?:payment(?:\s*terms)?|terms\s*of\s*payment)$/i.test(cleanLbl) && livePaymentTerms) {
+            return livePaymentTerms;
+          }
+          return r.value || '';
+        };
         const activeRows = (piece.fieldRows || []).filter((r) => {
           if (r.enabled === false) return false;
-          const resolvedVal = resolveQuotationTokens(r.value || '', tokenContext).trim();
+          const resolvedVal = resolveQuotationTokens(resolveFieldRowRawValue(r), tokenContext).trim();
           const isEmptyOrDash = !resolvedVal || resolvedVal === '—';
           if (r.hideIfEmpty && isEmptyOrDash) return false;
           return true;
@@ -6264,8 +6375,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           return (
             <div key={piece.id} className="grid grid-cols-2 border border-slate-200 rounded overflow-hidden text-[var(--block-base)]">
               {activeRows.map((r, rIdx) => {
-                const resolvedVal = resolveQuotationTokens(r.value || '', tokenContext).trim();
-                const displayVal = resolvedVal ? renderFormattedInlineSegment(r.value) : '—';
+                const rawValToUse = resolveFieldRowRawValue(r);
+                const resolvedVal = resolveQuotationTokens(rawValToUse, tokenContext).trim();
+                const displayVal = resolvedVal ? renderFormattedInlineSegment(rawValToUse) : '—';
                 return (
                   <div
                     key={r.id || rIdx}
@@ -6292,8 +6404,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         return (
           <div key={piece.id} className={`${containerCls} ${fmt.className}`} style={fmt.style}>
             {activeRows.map((r, rIdx) => {
-              const resolvedVal = resolveQuotationTokens(r.value || '', tokenContext).trim();
-              const displayVal = resolvedVal ? renderFormattedInlineSegment(r.value) : '—';
+              const rawValToUse = resolveFieldRowRawValue(r);
+              const resolvedVal = resolveQuotationTokens(rawValToUse, tokenContext).trim();
+              const displayVal = resolvedVal ? renderFormattedInlineSegment(rawValToUse) : '—';
               return (
                 <div
                   key={r.id || rIdx}

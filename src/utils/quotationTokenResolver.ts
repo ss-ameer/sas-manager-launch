@@ -656,6 +656,9 @@ const TOKEN_ALIAS_MAP: Record<string, string> = {
   vat: 'vat_amount',
   vat_rate: 'tax_rate',
   lead_time: 'delivery_lead_time',
+  delivery_period: 'delivery_lead_time',
+  delivery_time: 'delivery_lead_time',
+  delivery: 'delivery_lead_time',
   freight: 'freight_amount',
   bank_iban: 'iban',
   branch_name: 'branch',
@@ -1009,22 +1012,27 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
   // Commercial, Bank & Totals
   const priceBasis =
     q.price_basis ||
-    (!frozen ? prof.default_price_basis || '' : '') ||
+    (!frozen ? enq.price_basis || prof.default_price_basis || '' : '') ||
     '';
 
   const paymentTerms =
     q.payment_terms ||
+    (!frozen ? enq.payment_terms || '' : '') ||
     q.applied_terms ||
     (!frozen ? prof.default_payment_terms || '' : '') ||
     '';
 
   const lineItems = Array.isArray(q.line_items) ? q.line_items : [];
   const firstLeadTime =
+    q.delivery_period ||
+    (!frozen ? enq.delivery_period || '' : '') ||
     lineItems
       .map((it) => String(it?.availability || (it as any)?.delivery_lead_time || '').trim())
-      .find(Boolean) || '';
+      .find(Boolean) ||
+    '';
 
-  const validityDaysNum = q.validity_days ?? (!frozen ? prof.default_validity_days : undefined);
+  const validityDaysNum =
+    q.validity_days ?? (!frozen ? enq.validity_days ?? prof.default_validity_days : undefined);
   const quoteValidity =
     validityDaysNum !== undefined && validityDaysNum !== null
       ? `${validityDaysNum} Days`
@@ -1250,6 +1258,7 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
     price_basis: String(priceBasis || '').trim(),
     payment_terms: String(paymentTerms || '').trim(),
     delivery_lead_time: String(firstLeadTime || '').trim(),
+    delivery_period: String(firstLeadTime || '').trim(),
     quote_validity: String(quoteValidity || '').trim(),
     warranty_period: String(warrantyPeriod || '').trim(),
     currency: String(currency || '').trim(),

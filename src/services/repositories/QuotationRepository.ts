@@ -1140,11 +1140,11 @@ export class QuotationRepository {
       if (rev.status === 'Rejected' || rev.status === 'Declined') {
         return { ...rev };
       }
-      // If activeQuote is in the list, only supersede earlier revisions (or any other non-active revision in the chain)
+      // Only supersede strictly earlier revision numbers (never mark a same-revision or higher-revision record as Superseded)
       if (
         typeof activeRevNum === 'number' &&
         typeof rev.revision_number === 'number' &&
-        rev.revision_number > activeRevNum
+        rev.revision_number >= activeRevNum
       ) {
         return { ...rev };
       }
@@ -2244,8 +2244,52 @@ export class QuotationRepository {
     const resolvedTax = Number(quotation.tax_amount ?? (quotation as any).financial_totals?.tax_amount ?? 0) || 0;
     const resolvedSubject = quotation.subject || (quotation as any).quotation_subject || '';
 
+    // Prevent duplicate commercial quotations with the same (enquiry_id, revision_number)
+    // If a quotation for the same enquiry_id + revision_number already exists in local store or workspace cache,
+    // reuse its canonical ID (and clean up any stale Superseded twin of the same revision).
+    let canonicalId = quotation.id!;
+    const duplicateTwinIdsToPurge = new Set<string>();
+    let existingLocalList: Quotation[] = [];
+    try {
+      existingLocalList = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
+      if (docType === 'quotation' && quotation.enquiry_id) {
+        const targetRevNum = quotation.revision_number || 1;
+        const sameRevMatches = existingLocalList.filter(
+          (q) =>
+            !q.is_deleted &&
+            (q.document_type || 'quotation') === 'quotation' &&
+            q.enquiry_id === quotation.enquiry_id &&
+            (q.revision_number || 1) === targetRevNum
+        );
+        if (sameRevMatches.length > 0) {
+          const exactMatch = sameRevMatches.find((q) => q.id === canonicalId);
+          const preferredCanonical =
+            exactMatch ||
+            sameRevMatches.find((q) => q.status !== 'Superseded') ||
+            sameRevMatches[0];
+          if (preferredCanonical?.id) {
+            canonicalId = preferredCanonical.id;
+          }
+          sameRevMatches.forEach((q) => {
+            if (q.id && q.id !== canonicalId) {
+              duplicateTwinIdsToPurge.add(q.id);
+            }
+          });
+        }
+      }
+    } catch (_) {}
+
+    const resolvedStatus =
+      docType === 'quotation' &&
+      quotation.status === 'Superseded' &&
+      duplicateTwinIdsToPurge.size > 0
+        ? 'Draft'
+        : quotation.status;
+
     const toSave: Quotation = this.sanitizePayloadForFirestoreLimit({
       ...quotation,
+      id: canonicalId,
+      status: resolvedStatus,
       workspace_id: wsId,
       workspaceId: wsId,
       subject: resolvedSubject,
@@ -2275,13 +2319,38 @@ export class QuotationRepository {
 
     try {
       await safeSetDoc('quotations', toSave.id!, toSave);
+      for (const twinId of duplicateTwinIdsToPurge) {
+        try {
+          await safeSetDoc('quotations', twinId, {
+            id: twinId,
+            workspace_id: wsId,
+            enquiry_id: quotation.enquiry_id,
+            is_deleted: true,
+            deleted_at: now
+          } as any);
+        } catch (_) {}
+      }
     } catch (_) {}
 
     try {
-      const existing = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
-      const updated = existing.filter((q) => q.id !== toSave.id).concat(toSave);
+      const existing = existingLocalList.length > 0
+        ? existingLocalList
+        : (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
+      const updated = existing
+        .filter((q) => q.id !== toSave.id && !duplicateTwinIdsToPurge.has(q.id || ''))
+        .concat(toSave);
       await saveToLocalStore(this.QUOTATIONS_STORE, updated);
     } catch (_) {}
+
+    this.enquiryQuotesCache.clear();
+    const cachedWs = this.workspaceCache.get(wsId);
+    if (cachedWs) {
+      const nextWsData = cachedWs.data
+        .filter((q) => q.id !== toSave.id && !duplicateTwinIdsToPurge.has(q.id || ''))
+        .concat(toSave)
+        .sort((a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0));
+      this.workspaceCache.set(wsId, { data: nextWsData, fetchedAt: Date.now() });
+    }
 
     this.notifyWorkspaceSubscribers(wsId);
     return toSave;

@@ -783,6 +783,8 @@ export default function EnquiryDetail({
     };
   }, [currentEnquiry?.workspace_id, activeWorkspaceId]);
 
+  const [loadedQuotationsEnquiryId, setLoadedQuotationsEnquiryId] = useState<string | null>(null);
+
   // Load Quotations & Supplier Bills for this enquiry
   useEffect(() => {
     let isMounted = true;
@@ -792,10 +794,14 @@ export default function EnquiryDetail({
         .then((quotes) => {
           if (isMounted) {
             setQuotations(quotes);
+            setLoadedQuotationsEnquiryId(currentEnquiry.id);
           }
         })
         .catch((err) => {
           console.warn('[EnquiryDetail] Failed fetching quotations:', err);
+          if (isMounted) {
+            setLoadedQuotationsEnquiryId(currentEnquiry.id);
+          }
         });
       ProcurementRepository.getWorkspaceSupplierBills(wsId)
         .then((bills) => {
@@ -1045,7 +1051,34 @@ export default function EnquiryDetail({
         };
       });
 
-    const savedQuoteDocs = activeSaved.filter((q) => (q.document_type || 'quotation') === 'quotation');
+    // Deduplicate commercial quotations that share the same revision_number on the same enquiry
+    // (e.g., if a previous race created both R1 (Superseded) and R1 (Draft), keep the active/non-Superseded record)
+    const dedupedActiveSaved: Quotation[] = [];
+    const seenQuoteByRevKey = new Map<string, number>();
+    activeSaved.forEach((doc) => {
+      const isCommercialQuote = (doc.document_type || 'quotation') === 'quotation';
+      if (!isCommercialQuote) {
+        dedupedActiveSaved.push(doc);
+        return;
+      }
+      const revKey = `${doc.enquiry_id || currentEnquiry.id || ''}__R${doc.revision_number || 1}`;
+      const existingIdx = seenQuoteByRevKey.get(revKey);
+      if (existingIdx === undefined) {
+        seenQuoteByRevKey.set(revKey, dedupedActiveSaved.length);
+        dedupedActiveSaved.push(doc);
+      } else {
+        const prev = dedupedActiveSaved[existingIdx];
+        const prevIsSuperseded = prev.status === 'Superseded';
+        const currIsSuperseded = doc.status === 'Superseded';
+        const prevTime = new Date((prev as any).updatedAt || prev.created_at || 0).getTime();
+        const currTime = new Date((doc as any).updatedAt || doc.created_at || 0).getTime();
+        if ((prevIsSuperseded && !currIsSuperseded) || (prevIsSuperseded === currIsSuperseded && currTime >= prevTime)) {
+          dedupedActiveSaved[existingIdx] = doc;
+        }
+      }
+    });
+
+    const savedQuoteDocs = dedupedActiveSaved.filter((q) => (q.document_type || 'quotation') === 'quotation');
 
     // Collect linked enquiry records (root + any legacy cloned revisions)
     const rootId = currentEnquiry.parent_id || currentEnquiry.id;
@@ -1080,7 +1113,7 @@ export default function EnquiryDetail({
       }
     });
 
-    const combined = [...activeSaved, ...synthesizedQuotes];
+    const combined = [...dedupedActiveSaved, ...synthesizedQuotes];
     return combined.sort((a, b) => {
       if (a.status === 'Approved' && b.status !== 'Approved') return -1;
       if (b.status === 'Approved' && a.status !== 'Approved') return 1;
@@ -1106,27 +1139,39 @@ export default function EnquiryDetail({
     user
   ]);
 
+  const resolvePrimarySavedQuotation = () => {
+    return (
+      unifiedHubDocuments.find(
+        (q) =>
+          (q.document_type || 'quotation') === 'quotation' &&
+          !(q as any)._isBaselineEnquiryProposal &&
+          q.status === 'Draft'
+      ) ||
+      unifiedHubDocuments.find(
+        (q) =>
+          (q.document_type || 'quotation') === 'quotation' &&
+          !(q as any)._isBaselineEnquiryProposal &&
+          q.status !== 'Superseded'
+      ) ||
+      unifiedHubDocuments.find(
+        (q) =>
+          (q.document_type || 'quotation') === 'quotation' &&
+          !(q as any)._isBaselineEnquiryProposal
+      ) ||
+      null
+    );
+  };
+
   // Auto-open Quotation Studio when triggered via [⚡ Save & Open Studio] from EnquiryForm
+  // Wait until QuotationRepository.getQuotationsForEnquiry has resolved for currentEnquiry.id so existing R1 is bound
   useEffect(() => {
-    if (autoOpenStudio) {
-      const targetQuote =
-        unifiedHubDocuments.find(
-          (q) =>
-            (q.document_type || 'quotation') === 'quotation' &&
-            !(q as any)._isBaselineEnquiryProposal &&
-            q.status === 'Draft'
-        ) ||
-        unifiedHubDocuments.find(
-          (q) =>
-            (q.document_type || 'quotation') === 'quotation' &&
-            !(q as any)._isBaselineEnquiryProposal
-        ) ||
-        null;
+    if (autoOpenStudio && (!currentEnquiry?.id || loadedQuotationsEnquiryId === currentEnquiry.id)) {
+      const targetQuote = resolvePrimarySavedQuotation();
       setEditingQuotation(targetQuote);
       setIsQuotationStudioOpen(true);
       onAutoOpenStudioConsumed?.();
     }
-  }, [autoOpenStudio, unifiedHubDocuments, onAutoOpenStudioConsumed]);
+  }, [autoOpenStudio, loadedQuotationsEnquiryId, currentEnquiry?.id, unifiedHubDocuments, onAutoOpenStudioConsumed]);
 
   // Derived sorted quotations: pin approved quotation at top, then sort descending by creation / revision
   const sortedQuotations = unifiedHubDocuments;
@@ -3761,7 +3806,10 @@ export default function EnquiryDetail({
               {/* 1. Primary Studio Button: [ Document Studio ] with count badge */}
               <button
                 type="button"
-                onClick={() => setIsQuotationStudioOpen(true)}
+                onClick={() => {
+                  setEditingQuotation(resolvePrimarySavedQuotation());
+                  setIsQuotationStudioOpen(true);
+                }}
                 className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
                 title="Open Document Studio to generate or customize Quotations, Delivery Notes, POs, Receipts & Vouchers"
               >
@@ -4582,7 +4630,7 @@ export default function EnquiryDetail({
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          setEditingQuotation(isBaselineVirtual ? null : q);
+                                          setEditingQuotation(isBaselineVirtual ? resolvePrimarySavedQuotation() : q);
                                           setIsQuotationStudioOpen(true);
                                         }}
                                         className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
@@ -4665,7 +4713,7 @@ export default function EnquiryDetail({
                     <button
                       type="button"
                       onClick={() => {
-                        setEditingQuotation(null);
+                        setEditingQuotation(resolvePrimarySavedQuotation());
                         setIsQuotationStudioOpen(true);
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition cursor-pointer"
@@ -7416,7 +7464,7 @@ export default function EnquiryDetail({
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    setEditingQuotation(isBaselineVirtual ? null : q);
+                                    setEditingQuotation(isBaselineVirtual ? resolvePrimarySavedQuotation() : q);
                                     setIsQuotationStudioOpen(true);
                                   }}
                                   className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-semibold transition cursor-pointer"

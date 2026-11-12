@@ -107,7 +107,8 @@ import {
   findUnknownAtTokensInQuotation,
   resolveQuotationTokens,
   resolvePdfFilename,
-  combineCityCountry
+  combineCityCountry,
+  isQuotationSnapshotFrozen
 } from '../../utils/quotationTokenResolver';
 import { formatSlashSeparatedDescription } from '../../utils/compositeBomUtils';
 import {
@@ -1082,7 +1083,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     editingQuotation?.freight_amount ?? 0
   );
   const [taxMode, setTaxMode] = useState<QuotationTaxMode>(
-    editingQuotation?.tax_mode ?? 'taxes_extra'
+    editingQuotation?.tax_mode || enquiry?.tax_mode || 'taxes_extra'
   );
   const [taxRatePercent, setTaxRatePercent] = useState<number>(
     editingQuotation?.tax_rate_percent ?? 5
@@ -2034,18 +2035,18 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     return raw.slice(0, 10);
   });
   const [priceBasis, setPriceBasis] = useState<string>(() => {
-    if (editingQuotation?.price_basis != null) return editingQuotation.price_basis;
-    if (enquiry?.price_basis) return enquiry.price_basis;
+    if (editingQuotation?.price_basis?.trim()) return editingQuotation.price_basis;
+    if (enquiry?.price_basis?.trim()) return enquiry.price_basis;
     return 'Ex-Works / Delivered Site';
   });
   const [deliveryPeriod, setDeliveryPeriod] = useState<string>(() => {
-    if (editingQuotation?.delivery_period != null) return editingQuotation.delivery_period;
-    if (enquiry?.delivery_period) return enquiry.delivery_period;
+    if (editingQuotation?.delivery_period?.trim()) return editingQuotation.delivery_period;
+    if (enquiry?.delivery_period?.trim()) return enquiry.delivery_period;
     return '';
   });
   const [paymentTerms, setPaymentTerms] = useState<string>(() => {
-    if (editingQuotation?.payment_terms != null) return editingQuotation.payment_terms;
-    if (enquiry?.payment_terms) return enquiry.payment_terms;
+    if (editingQuotation?.payment_terms?.trim()) return editingQuotation.payment_terms;
+    if (enquiry?.payment_terms?.trim()) return enquiry.payment_terms;
     return '100% Advance against PI / Approved Credit';
   });
   const [validityDays, setValidityDays] = useState<number>(() => {
@@ -2598,15 +2599,87 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setStockDeductedForDoc(Boolean(hydrated.vendorReturnMetadata?.stock_deducted));
       setVisibleColumns(hydrated.visibleColumns);
       setFreightAmount(hydrated.freightAmount);
-      setTaxMode(targetQuote?.tax_mode || enquiry?.tax_mode || hydrated.taxMode);
+      const isFrozenQuote = isQuotationSnapshotFrozen(targetQuote);
+      const isBaselineQuote =
+        !targetQuote || Boolean((targetQuote as any)._isBaselineEnquiryProposal);
+      const isDraftOrBaseline =
+        !isFrozenQuote && (isBaselineQuote || (targetQuote?.status || 'Draft') === 'Draft');
+
+      const isGenericPriceBasis = (val?: string) => {
+        if (!val || !val.trim()) return true;
+        const clean = val.trim();
+        return (
+          /^(?:ex-works(?:\s+warehouse)?|ex-works\s*\/\s*delivered\s+site)$/i.test(clean) ||
+          clean === defaultPreset?.default_price_basis ||
+          clean === profile?.default_price_basis
+        );
+      };
+      const isGenericPaymentTerms = (val?: string) => {
+        if (!val || !val.trim()) return true;
+        const clean = val.trim();
+        return (
+          /^(?:100%\s*advance(?:\s*\/\s*as\s+agreed|\s+against\s+pi\s*\/\s*approved\s+credit)?)$/i.test(clean) ||
+          clean === defaultPreset?.default_payment_terms ||
+          clean === profile?.default_payment_terms
+        );
+      };
+
+      const resolvedTaxMode: QuotationTaxMode = isDraftOrBaseline
+        ? enquiry?.tax_mode && enquiry.tax_mode !== 'taxes_extra'
+          ? enquiry.tax_mode
+          : !isBaselineQuote &&
+            targetQuote?.tax_mode &&
+            targetQuote.tax_mode !== defaultPreset?.default_tax_mode
+          ? targetQuote.tax_mode
+          : enquiry?.tax_mode || targetQuote?.tax_mode || hydrated.taxMode
+        : targetQuote?.tax_mode || enquiry?.tax_mode || hydrated.taxMode;
+
+      const resolvedPriceBasis =
+        isDraftOrBaseline &&
+        enquiry?.price_basis?.trim() &&
+        (isBaselineQuote || isGenericPriceBasis(targetQuote?.price_basis))
+          ? enquiry.price_basis.trim()
+          : targetQuote?.price_basis?.trim() ||
+            enquiry?.price_basis?.trim() ||
+            hydrated.priceBasis;
+
+      const resolvedDeliveryPeriod =
+        isDraftOrBaseline && enquiry?.delivery_period?.trim()
+          ? enquiry.delivery_period.trim()
+          : targetQuote?.delivery_period?.trim() ||
+            enquiry?.delivery_period?.trim() ||
+            '';
+
+      const resolvedPaymentTerms =
+        isDraftOrBaseline &&
+        enquiry?.payment_terms?.trim() &&
+        (isBaselineQuote || isGenericPaymentTerms(targetQuote?.payment_terms))
+          ? enquiry.payment_terms.trim()
+          : targetQuote?.payment_terms?.trim() ||
+            enquiry?.payment_terms?.trim() ||
+            hydrated.paymentTerms;
+
+      setTaxMode(resolvedTaxMode);
       setTaxRatePercent(hydrated.taxRatePercent);
-      setPriceBasis(targetQuote?.price_basis || enquiry?.price_basis || hydrated.priceBasis);
-      setDeliveryPeriod(targetQuote?.delivery_period || enquiry?.delivery_period || '');
-      setPaymentTerms(targetQuote?.payment_terms || enquiry?.payment_terms || hydrated.paymentTerms);
-      if (typeof targetQuote?.validity_days === 'number' && targetQuote.validity_days > 0) {
+      setPriceBasis(resolvedPriceBasis);
+      setDeliveryPeriod(resolvedDeliveryPeriod);
+      setPaymentTerms(resolvedPaymentTerms);
+      if (
+        isDraftOrBaseline &&
+        typeof enquiry?.validity_days === 'number' &&
+        enquiry.validity_days > 0 &&
+        (isBaselineQuote ||
+          !targetQuote?.validity_days ||
+          targetQuote.validity_days === defaultPreset?.default_validity_days ||
+          targetQuote.validity_days === profile?.default_validity_days)
+      ) {
+        setValidityDays(enquiry.validity_days);
+      } else if (typeof targetQuote?.validity_days === 'number' && targetQuote.validity_days > 0) {
         setValidityDays(targetQuote.validity_days);
       } else if (typeof enquiry?.validity_days === 'number' && enquiry.validity_days > 0) {
         setValidityDays(enquiry.validity_days);
+      } else {
+        setValidityDays(hydrated.validityDays || 30);
       }
       setTableDensity(hydrated.tableDensity);
       setFontSizeScale(hydrated.fontSizeScale);
@@ -3068,6 +3141,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   }, [editingQuotation?.id, enquiry?.id, enquiry?.updatedAt]);
 
   // Load revision chain for the current enquiry so the In-Studio Revision History Switcher is populated
+  // and auto-bind to existing R1 Draft if Studio opened before quotations finished loading
   useEffect(() => {
     let isMounted = true;
     if (enquiry?.id && activeWorkspaceId) {
@@ -3075,11 +3149,59 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         .then((loaded) => {
           if (!isMounted) return;
           const merged = [...loaded];
-          if (editingQuotation?.id && !merged.some((q) => q.id === editingQuotation.id)) {
+          if (
+            editingQuotation?.id &&
+            !(editingQuotation as any)._isBaselineEnquiryProposal &&
+            !merged.some((q) => q.id === editingQuotation.id)
+          ) {
             merged.push(editingQuotation);
           }
-          merged.sort((a, b) => (a.revision_number || 1) - (b.revision_number || 1));
-          setEnquiryRevisions(merged);
+          // Deduplicate any twin records sharing the same revision_number for commercial quotations
+          const byRev = new Map<number, Quotation>();
+          const auxDocs: Quotation[] = [];
+          for (const q of merged) {
+            if ((q.document_type || 'quotation') !== 'quotation') {
+              auxDocs.push(q);
+              continue;
+            }
+            const revNum = q.revision_number || 1;
+            const prev = byRev.get(revNum);
+            if (!prev) {
+              byRev.set(revNum, q);
+            } else {
+              const prevIsSuperseded = prev.status === 'Superseded';
+              const currIsSuperseded = q.status === 'Superseded';
+              if (prevIsSuperseded && !currIsSuperseded) {
+                byRev.set(revNum, q);
+              }
+            }
+          }
+          const cleanChain = [...Array.from(byRev.values()), ...auxDocs].sort(
+            (a, b) => (a.revision_number || 1) - (b.revision_number || 1)
+          );
+          setEnquiryRevisions(cleanChain);
+
+          // If Studio was opened without a concrete saved quotation (or with a virtual baseline proposal)
+          // while an existing commercial quotation already exists on this enquiry, bind to it in-place
+          const isUnboundQuoteStudio =
+            (!editingQuotation || Boolean((editingQuotation as any)._isBaselineEnquiryProposal)) &&
+            (!activeQuotationId ||
+              activeQuotationId === 'preview_draft' ||
+              activeQuotationId.startsWith('baseline_')) &&
+            (initialDocumentType || 'quotation') === 'quotation';
+
+          if (isUnboundQuoteStudio) {
+            const quoteRevs = Array.from(byRev.values()).sort(
+              (a, b) => (b.revision_number || 1) - (a.revision_number || 1)
+            );
+            const targetExisting =
+              quoteRevs.find((q) => (q.status || 'Draft') === 'Draft') ||
+              quoteRevs.find((q) => q.status !== 'Superseded' && q.status !== 'Declined') ||
+              quoteRevs[0];
+            if (targetExisting) {
+              hydrateStudioFromQuotation(targetExisting);
+            }
+          }
         })
         .catch(() => {});
     } else if (editingQuotation) {
@@ -3365,6 +3487,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           loadedPresets.find((p) => p.is_default) ||
           loadedPresets[0];
 
+        const hasSavedCustomLayout =
+          Boolean(editingQuotation && !(editingQuotation as any)._isBaselineEnquiryProposal) &&
+          Array.isArray(editingQuotation?.layout_blocks) &&
+          editingQuotation!.layout_blocks!.length > 0;
+
         if (initialPresetId && loadedPresets.some((p) => p.id === initialPresetId)) {
           setSelectedPresetId(initialPresetId);
           const matched = loadedPresets.find((p) => p.id === initialPresetId);
@@ -3375,14 +3502,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         ) {
           setSelectedPresetId(editingQuotation.preset_id);
           const matched = loadedPresets.find((p) => p.id === editingQuotation.preset_id);
-          if (matched) applyPreset(matched);
+          if (matched && !hasSavedCustomLayout) applyPreset(matched);
         } else if (
           editingQuotation?.presentation_preset?.id &&
           loadedPresets.some((p) => p.id === editingQuotation.presentation_preset?.id)
         ) {
           setSelectedPresetId(editingQuotation.presentation_preset.id);
           const matched = loadedPresets.find((p) => p.id === editingQuotation.presentation_preset.id);
-          if (matched) applyPreset(matched);
+          if (matched && !hasSavedCustomLayout) applyPreset(matched);
         } else if (defaultPresetForDoc) {
           setSelectedPresetId(defaultPresetForDoc.id);
           const isUnstyledOrBaseline =
@@ -3859,10 +3986,37 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         setAmountInWordsEnabled(hydrated.visibleColumns.showAmountInWords);
       }
     }
-    if (preset.default_tax_mode) setTaxMode(preset.default_tax_mode);
-    if (preset.default_price_basis) setPriceBasis(preset.default_price_basis);
-    if (preset.default_payment_terms) setPaymentTerms(preset.default_payment_terms);
-    if (preset.default_validity_days) setValidityDays(preset.default_validity_days);
+    const activeQuote = activeSourceQuotation || editingQuotation;
+    const isBaselineQuote =
+      !activeQuote || Boolean((activeQuote as any)._isBaselineEnquiryProposal);
+    const hasExplicitTaxMode = Boolean(
+      (!isBaselineQuote && activeQuote?.tax_mode) || enquiry?.tax_mode
+    );
+    const hasExplicitPriceBasis = Boolean(
+      (!isBaselineQuote && activeQuote?.price_basis?.trim()) || enquiry?.price_basis?.trim()
+    );
+    const hasExplicitPaymentTerms = Boolean(
+      (!isBaselineQuote && activeQuote?.payment_terms?.trim()) || enquiry?.payment_terms?.trim()
+    );
+    const hasExplicitValidityDays = Boolean(
+      (!isBaselineQuote &&
+        typeof activeQuote?.validity_days === 'number' &&
+        activeQuote.validity_days > 0) ||
+        (typeof enquiry?.validity_days === 'number' && enquiry.validity_days > 0)
+    );
+
+    if (!hasExplicitTaxMode && preset.default_tax_mode) {
+      setTaxMode(preset.default_tax_mode);
+    }
+    if (!hasExplicitPriceBasis && preset.default_price_basis) {
+      setPriceBasis(preset.default_price_basis);
+    }
+    if (!hasExplicitPaymentTerms && preset.default_payment_terms) {
+      setPaymentTerms(preset.default_payment_terms);
+    }
+    if (!hasExplicitValidityDays && preset.default_validity_days) {
+      setValidityDays(preset.default_validity_days);
+    }
     if (preset.pdf_filename_pattern) setPdfFilenamePattern(preset.pdf_filename_pattern);
     if (preset.signatory_mode) {
       setSignatoryMode(preset.signatory_mode);
@@ -3898,7 +4052,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     if (preset.secondary_signatory_title) setSecondarySignatoryTitle(preset.secondary_signatory_title);
     if (preset.company_seal_url !== undefined) setCompanySealUrl(preset.company_seal_url || '');
     if (preset.signature_image_url !== undefined) setSignatureImageUrl(preset.signature_image_url || '');
-    if (preset.notes_template !== undefined) setCustomNotes(preset.notes_template || '');
+    const hasExplicitCustomNotes = Boolean(!isBaselineQuote && activeQuote?.custom_notes?.trim());
+    if (!hasExplicitCustomNotes && preset.notes_template !== undefined) {
+      setCustomNotes(preset.notes_template || '');
+    }
     if (preset.header_layout) setHeaderLayout(preset.header_layout);
     if (preset.table_density) setTableDensity(preset.table_density);
     if (preset.table_font_scale) setTableFontScale(preset.table_font_scale);
@@ -6306,6 +6463,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           break;
         case 'price_basis':
           setPriceBasis(nextValue);
+          break;
+        case 'delivery_period':
+          setDeliveryPeriod(nextValue);
           break;
         case 'payment_terms':
           setPaymentTerms(nextValue);
@@ -20721,7 +20881,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         const baseOrder =
                                           selectedBlock.fieldOrder && selectedBlock.fieldOrder.length > 0
                                             ? selectedBlock.fieldOrder
-                                            : ['price_basis', 'payment_terms', 'validity', ...customArr.map((r) => r.id)];
+                                            : ['price_basis', 'delivery_period', 'payment_terms', 'validity', ...customArr.map((r) => r.id)];
                                         handleUpdateBlockConfig('terms', {
                                           customRows: [...customArr, nextRow],
                                           fieldOrder: [...baseOrder, newId]
@@ -20740,7 +20900,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     const rowOpts = selectedBlock.fieldRowOptions || {};
                                     const customRows = selectedBlock.customRows || [];
                                     const customMap = new Map(customRows.map((r) => [r.id, r]));
-                                    const builtInKeys = ['price_basis', 'payment_terms', 'validity'];
+                                    const builtInKeys = ['price_basis', 'delivery_period', 'payment_terms', 'validity'];
                                     const allAvailableKeys = [
                                       ...builtInKeys,
                                       ...customRows.map((r) => r.id)
@@ -20778,6 +20938,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         defaultLabel: 'Price Basis:',
                                         value: priceBasis,
                                         onChange: (val) => setPriceBasis(val)
+                                      },
+                                      delivery_period: {
+                                        defaultLabel: 'Delivery Period:',
+                                        value: deliveryPeriod,
+                                        onChange: (val) => setDeliveryPeriod(val)
                                       },
                                       payment_terms: {
                                         defaultLabel: 'Payment Terms:',
