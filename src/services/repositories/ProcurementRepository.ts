@@ -53,6 +53,7 @@ export class ProcurementRepository {
   private static workspaceListeners = new Map<string, Set<() => void>>();
   private static workspaceSubscribers = new Map<string, Set<(bills: SupplierBill[]) => void>>();
   private static activeSnapshotUnsubs = new Map<string, () => void>();
+  private static isPaused = false;
   private static workspaceCache = new Map<string, { data: SupplierBill[]; fetchedAt: number }>();
 
   private static normalizeBill(b: SupplierBill): SupplierBill {
@@ -950,9 +951,9 @@ export class ProcurementRepository {
     const cached = this.workspaceCache.get(wsId);
     if (cached) {
       callback([...cached.data]);
-    } else if (!isQuotaSaver && db) {
+    } else if (this.isPaused || (!isQuotaSaver && db)) {
       const localBills = this.readNormalizedLocalWorkspaceBills(wsId);
-      if (localBills.length > 0) {
+      if (this.isPaused || localBills.length > 0) {
         callback(localBills);
       }
     } else {
@@ -973,7 +974,7 @@ export class ProcurementRepository {
       }
     }
 
-    if (!isQuotaSaver && db && !this.activeSnapshotUnsubs.has(wsId)) {
+    if (!isQuotaSaver && !this.isPaused && db && !this.activeSnapshotUnsubs.has(wsId)) {
       try {
         const q = query(
           collection(db, SUPPLIER_BILLS_COLLECTION),
@@ -1077,11 +1078,23 @@ export class ProcurementRepository {
     return this.subscribe(workspaceId, callback);
   }
 
+  static subscribeToSupplierBills(
+    workspaceId: string,
+    callback: (bills: SupplierBill[]) => void
+  ): () => void {
+    return this.subscribe(workspaceId, callback);
+  }
+
+  static isSubscriptionsPaused(): boolean {
+    return this.isPaused;
+  }
+
   /**
    * Pauses all active Firestore onSnapshot listeners when tab is idle or sync is paused.
    * Preserves in-memory caches and registered subscriber callbacks.
    */
   static pauseSubscriptions(): void {
+    this.isPaused = true;
     for (const [wsId, unsub] of this.activeSnapshotUnsubs.entries()) {
       try {
         unsub();
@@ -1094,6 +1107,7 @@ export class ProcurementRepository {
    * Resumes Firestore onSnapshot listeners when sync is turned back on or tab becomes active.
    */
   static resumeSubscriptions(workspaceId: string): void {
+    this.isPaused = false;
     const wsId = workspaceId || 'ws_default';
     const subs = this.workspaceSubscribers.get(wsId);
     if (!subs || subs.size === 0) return;

@@ -887,6 +887,7 @@ interface EnquiryFormProps {
   units?: string[];
   enquiryToEdit?: Enquiry | null;
   onClose: () => void;
+  onSaveAndOpenStudio?: (savedEnquiry: Enquiry) => void;
   user: any;
   nextSn: number;
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
@@ -914,6 +915,7 @@ export default function EnquiryForm({
   units = [],
   enquiryToEdit,
   onClose,
+  onSaveAndOpenStudio,
   user,
   nextSn,
   triggerToast,
@@ -1089,9 +1091,9 @@ export default function EnquiryForm({
 
   // Submit and form sequence states
   const [shiftExistingOnCollision, setShiftExistingOnCollision] = useState<boolean>(false);
-  const [submitMode, setSubmitMode] = useState<'close' | 'another'>('close');
-  const submitModeRef = React.useRef<'close' | 'another'>('close');
-  const updateSubmitMode = (mode: 'close' | 'another') => {
+  const [submitMode, setSubmitMode] = useState<'close' | 'another' | 'open_studio'>('close');
+  const submitModeRef = React.useRef<'close' | 'another' | 'open_studio'>('close');
+  const updateSubmitMode = (mode: 'close' | 'another' | 'open_studio') => {
     setSubmitMode(mode);
     submitModeRef.current = mode;
   };
@@ -4444,7 +4446,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             'success'
           );
         }
-        onClose();
+        if (submitModeRef.current === 'open_studio' && onSaveAndOpenStudio) {
+          onSaveAndOpenStudio(updatedDoc);
+        } else {
+          onClose();
+        }
       } else {
         let finalQuoteRef = (quoteRefNo || '').trim();
         let finalSn = targetSn;
@@ -4540,6 +4546,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         }
         if (submitModeRef.current === 'another') {
           resetForm(Number(finalSn) + 1);
+        } else if (submitModeRef.current === 'open_studio' && onSaveAndOpenStudio) {
+          onSaveAndOpenStudio(newDoc);
         } else {
           onClose();
         }
@@ -8764,8 +8772,28 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       onClick={() => updateSubmitMode('another')}
                       className="h-9 px-4 border border-blue-200 dark:border-blue-800 bg-blue-50/70 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 disabled:opacity-50 text-blue-700 dark:text-blue-300 font-semibold rounded-lg text-xs inline-flex items-center justify-center gap-1.5 transition shadow-2xs cursor-pointer whitespace-nowrap w-full sm:w-auto"
                     >
-                      {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                      <span>{isSubmitting ? 'Saving...' : 'Register & Add Another'}</span>
+                      {isSubmitting && submitMode === 'another' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>{isSubmitting && submitMode === 'another' ? 'Saving...' : 'Register & Add Another'}</span>
+                    </button>
+                  )}
+                  {onSaveAndOpenStudio && (
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      onClick={() => updateSubmitMode('open_studio')}
+                      className="h-9 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold rounded-lg text-xs inline-flex items-center justify-center gap-1.5 transition shadow-sm cursor-pointer whitespace-nowrap w-full sm:w-auto"
+                      title="Save Enquiry and immediately open Quotation Studio"
+                    >
+                      {isSubmitting && submitMode === 'open_studio' ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <span className="text-xs leading-none">⚡</span>
+                      )}
+                      <span>
+                        {isSubmitting && submitMode === 'open_studio'
+                          ? 'Opening Studio...'
+                          : 'Save & Open Studio'}
+                      </span>
                     </button>
                   )}
                   <button
@@ -8774,13 +8802,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     onClick={() => updateSubmitMode('close')}
                     className="h-9 px-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold rounded-lg text-xs inline-flex items-center justify-center gap-1.5 transition shadow-sm cursor-pointer whitespace-nowrap w-full sm:w-auto"
                   >
-                    {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    {isSubmitting && submitMode === 'close' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                     <span>
                       {enquiryToEdit
-                        ? isSubmitting
+                        ? isSubmitting && submitMode === 'close'
                           ? 'Saving Changes...'
                           : 'Save Changes'
-                        : isSubmitting
+                        : isSubmitting && submitMode === 'close'
                         ? 'Registering...'
                         : 'Register & Close'}
                     </span>

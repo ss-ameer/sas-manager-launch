@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db, safeSetDoc } from '../firebase';
+import { safeGetDoc, safeSetDoc } from '../firebase';
 import { IndustryTaxonomySector } from '../types';
 import { SYSTEM_INDUSTRY_TAXONOMY } from '../utils/defaults';
 
 const STORAGE_KEY = 'omni_industry_taxonomy';
 
-// In-memory cache & subscriber registry for singleton live synchronization
+// In-memory cache & subscriber registry for singleton synchronization
 let cachedSectors: IndustryTaxonomySector[] = (() => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -24,7 +23,7 @@ let cachedSectors: IndustryTaxonomySector[] = (() => {
 
 type SubscriberCallback = (sectors: IndustryTaxonomySector[]) => void;
 const subscribers = new Set<SubscriberCallback>();
-let unsubscribeFirestore: (() => void) | null = null;
+let hasFetchedSessionTaxonomy = false;
 let activeListenerCount = 0;
 
 export function notifyTaxonomySubscribers(newSectors: IndustryTaxonomySector[]) {
@@ -48,38 +47,28 @@ function notifySubscribers(newSectors: IndustryTaxonomySector[]) {
 }
 
 function startFirestoreListener() {
-  if (unsubscribeFirestore) return;
+  if (hasFetchedSessionTaxonomy) return;
+  hasFetchedSessionTaxonomy = true;
 
-  try {
-    unsubscribeFirestore = onSnapshot(
-      doc(db, 'settings', 'industry_taxonomy'),
-      (snapshot) => {
-        if (snapshot.exists()) {
-          const data = snapshot.data();
-          if (data && Array.isArray(data.sectors) && data.sectors.length > 0) {
-            notifySubscribers(data.sectors);
-          }
+  const isQuotaSaver =
+    typeof window !== 'undefined' &&
+    window.localStorage?.getItem('sas_quota_saver_mode') === 'true';
+  if (isQuotaSaver) return;
+
+  safeGetDoc('settings', 'industry_taxonomy')
+    .then((snapshot) => {
+      if (snapshot && snapshot.exists()) {
+        const data = snapshot.data();
+        if (data && Array.isArray(data.sectors) && data.sectors.length > 0) {
+          notifySubscribers(data.sectors);
         }
-      },
-      (err) => {
-        console.warn('[useIndustryTaxonomy] Firestore listener error, keeping cached sectors:', err);
       }
-    );
-  } catch (err) {
-    console.warn('[useIndustryTaxonomy] Could not start snapshot listener:', err);
-  }
+    })
+    .catch((err) => {
+      console.warn('[useIndustryTaxonomy] One-time fetch notice, keeping cached sectors:', err);
+    });
 }
 
-function stopFirestoreListener() {
-  if (activeListenerCount <= 0 && unsubscribeFirestore) {
-    try {
-      unsubscribeFirestore();
-    } catch (e) {
-      // ignore
-    }
-    unsubscribeFirestore = null;
-  }
-}
 
 /**
  * Persists a new GBP sub-type directly to Firestore settings/industry_taxonomy

@@ -149,6 +149,8 @@ interface EnquiryDetailProps {
   }) => void;
   onInitiateActivity?: (options: InitiateActivityOptions) => void;
   onStockUpdated?: () => void;
+  autoOpenStudio?: boolean;
+  onAutoOpenStudioConsumed?: () => void;
 }
 
 export default function EnquiryDetail({
@@ -177,7 +179,9 @@ export default function EnquiryDetail({
   onOpenActivityDrawer,
   onInitiateActivity,
   onStockUpdated,
-  triggerToast
+  triggerToast,
+  autoOpenStudio,
+  onAutoOpenStudioConsumed
 }: EnquiryDetailProps) {
   const { openEditCompany, openEditContact } = useEntityEdit();
   const launcher = useActivityLauncher();
@@ -251,6 +255,9 @@ export default function EnquiryDetail({
   const [workspaceSupplierBills, setWorkspaceSupplierBills] = useState<SupplierBill[]>([]);
   const [isQuotationStudioOpen, setIsQuotationStudioOpen] = useState<boolean>(false);
   const [viewingQuotation, setViewingQuotation] = useState<Quotation | null>(null);
+  const [showBulkApplyPopover, setShowBulkApplyPopover] = useState<boolean>(false);
+  const [bulkDeliveryInput, setBulkDeliveryInput] = useState<string>('');
+  const [bulkOriginInput, setBulkOriginInput] = useState<string>('');
 
   // On-demand rehydration of IndexedDB blobs (logo, seal, signatures, line item media, flyer annexes) for viewing & quick-printing
   useEffect(() => {
@@ -691,7 +698,8 @@ export default function EnquiryDetail({
           (activeQuotes.length > 0 ? activeQuotes[0] : null);
 
         if (fallbackActive) {
-          const newTotal = Number(fallbackActive.grand_total || 0);
+          const rawSub = Number(fallbackActive.subtotal ?? fallbackActive.grand_total ?? 0);
+          const newTotal = fallbackActive.currency === 'USD' ? Math.round(rawSub * 3.6725 * 100) / 100 : rawSub;
           const newRef = fallbackActive.formatted_quote_ref;
           setCurrentEnquiry((prev) => (prev ? { ...prev, value_aed: newTotal, quote_ref_no: newRef } : prev));
           if (onUpdateEnquiry) {
@@ -973,8 +981,70 @@ export default function EnquiryDetail({
 
   // Unified Commercial Documents Hub list: merges saved formal documents (QT, DO, PO, REC, PV, MRN, DN)
   // with the baseline proposal (and any linked enquiry revisions) so the Hub is never split or empty.
+  // Also overlays live currentEnquiry fields on any active Draft quotation so there is zero stale flash after EnquiryForm edits.
   const unifiedHubDocuments = useMemo(() => {
-    const activeSaved = quotations.filter((q) => !q.is_deleted);
+    const resolvedSpName =
+      resolveSalespersonName(currentEnquiry, salespersons) || user?.full_name || user?.username || '';
+    const liveEnqItems =
+      Array.isArray(currentEnquiry.line_items) && currentEnquiry.line_items.length > 0
+        ? buildBaseLineItemsFromSource(null, currentEnquiry)
+        : null;
+
+    const activeSaved = quotations
+      .filter((q) => !q.is_deleted)
+      .map((q) => {
+        const isDraftClientQuote =
+          (q.document_type || 'quotation') === 'quotation' &&
+          String(q.status || 'Draft').toLowerCase() === 'draft' &&
+          (!q.enquiry_id || q.enquiry_id === currentEnquiry.id);
+        if (!isDraftClientQuote) return q;
+
+        const mergedItems = liveEnqItems
+          ? liveEnqItems.map((li, idx) => {
+              const existingQi =
+                (li.id && q.line_items?.find((old) => old.id === li.id)) || q.line_items?.[idx];
+              return {
+                ...(existingQi || {}),
+                ...li,
+                id: existingQi?.id || li.id || `item_${idx + 1}`
+              };
+            })
+          : q.line_items;
+
+        const effectiveTaxMode = currentEnquiry.tax_mode || q.tax_mode || 'taxes_extra';
+        const calc =
+          Array.isArray(mergedItems) && mergedItems.length > 0
+            ? QuotationRepository.calculateTotals(
+                mergedItems,
+                q.freight_amount || 0,
+                effectiveTaxMode,
+                q.tax_rate_percent ?? 5
+              )
+            : null;
+
+        return {
+          ...q,
+          line_items: mergedItems,
+          subject: currentEnquiry.subject || q.subject,
+          prepared_by: resolvedSpName || q.prepared_by,
+          price_basis: currentEnquiry.price_basis || q.price_basis,
+          delivery_period: currentEnquiry.delivery_period || q.delivery_period,
+          payment_terms: currentEnquiry.payment_terms || q.payment_terms,
+          validity_days:
+            Number(currentEnquiry.validity_days) > 0
+              ? Number(currentEnquiry.validity_days)
+              : q.validity_days,
+          tax_mode: effectiveTaxMode,
+          ...(calc
+            ? {
+                subtotal: calc.subtotal,
+                tax_amount: calc.tax_amount,
+                grand_total: calc.grand_total
+              }
+            : {})
+        };
+      });
+
     const savedQuoteDocs = activeSaved.filter((q) => (q.document_type || 'quotation') === 'quotation');
 
     // Collect linked enquiry records (root + any legacy cloned revisions)
@@ -1029,11 +1099,34 @@ export default function EnquiryDetail({
     enquiries,
     companies,
     contacts,
+    salespersons,
     documentProfile,
     activeWorkspace,
     activeWorkspaceId,
     user
   ]);
+
+  // Auto-open Quotation Studio when triggered via [⚡ Save & Open Studio] from EnquiryForm
+  useEffect(() => {
+    if (autoOpenStudio) {
+      const targetQuote =
+        unifiedHubDocuments.find(
+          (q) =>
+            (q.document_type || 'quotation') === 'quotation' &&
+            !(q as any)._isBaselineEnquiryProposal &&
+            q.status === 'Draft'
+        ) ||
+        unifiedHubDocuments.find(
+          (q) =>
+            (q.document_type || 'quotation') === 'quotation' &&
+            !(q as any)._isBaselineEnquiryProposal
+        ) ||
+        null;
+      setEditingQuotation(targetQuote);
+      setIsQuotationStudioOpen(true);
+      onAutoOpenStudioConsumed?.();
+    }
+  }, [autoOpenStudio, unifiedHubDocuments, onAutoOpenStudioConsumed]);
 
   // Derived sorted quotations: pin approved quotation at top, then sort descending by creation / revision
   const sortedQuotations = unifiedHubDocuments;
@@ -2586,6 +2679,99 @@ export default function EnquiryDetail({
     }
   };
 
+  // Bulk apply Delivery / Lead Time or Country of Origin across all line items in 1 click
+  const handleBulkApplyFieldToLineItems = async (
+    field: 'delivery' | 'origin',
+    rawValue: string
+  ) => {
+    const val = rawValue.trim();
+    if (!val) return;
+    const baseSource = isInlineEditingItems ? draftLineItems : (currentEnquiry.line_items || []);
+    if (baseSource.length === 0) return;
+
+    const updatedItems: LineItem[] = baseSource.map((item) => {
+      if (field === 'delivery') {
+        return {
+          ...item,
+          lead_time_note: val,
+          delivery_time: val,
+          lead_time: val,
+          availability: val,
+          specifications: {
+            ...(item.specifications || {}),
+            Delivery: val,
+            'Lead Time': val
+          }
+        };
+      }
+      return {
+        ...item,
+        country_of_origin: val
+      };
+    });
+
+    setDraftLineItems(updatedItems);
+    setShowBulkApplyPopover(false);
+
+    if (isInlineEditingItems) {
+      triggerToast?.(
+        `Applied ${field === 'delivery' ? 'Delivery' : 'Origin'} "${val}" to all ${updatedItems.length} draft items. Click Save Items to persist.`,
+        'info'
+      );
+      return;
+    }
+
+    const updatedEnq: Enquiry = {
+      ...currentEnquiry,
+      line_items: updatedItems,
+      updatedAt: new Date().toISOString()
+    };
+    setCurrentEnquiry(updatedEnq);
+    if (onUpdateEnquiry) onUpdateEnquiry(updatedEnq);
+    if (setEnquiries) {
+      setEnquiries((prev) => prev.map((e) => (e.id === updatedEnq.id ? updatedEnq : e)));
+    }
+
+    if (currentEnquiry.id) {
+      try {
+        await safeUpdateDoc('enquiries', currentEnquiry.id, {
+          line_items: stripCatalogRedundantLineItemMedia(updatedItems, products),
+          updatedAt: updatedEnq.updatedAt
+        });
+        await EnquiryRepository.save(updatedEnq, activeWorkspace?.id);
+        // Also update any active Draft quotations for this enquiry
+        const draftQuotes = quotations.filter(
+          (q) =>
+            !q.is_deleted &&
+            String(q.status || 'Draft').toLowerCase() === 'draft' &&
+            (q.document_type || 'quotation') === 'quotation'
+        );
+        for (const dq of draftQuotes) {
+          if (!dq.id) continue;
+          const nextQItems = (dq.line_items || []).map((qi) =>
+            field === 'delivery'
+              ? { ...qi, availability: val, lead_time_note: val }
+              : { ...qi, country_of_origin: val }
+          );
+          await QuotationRepository.updateQuotation(dq.id, {
+            line_items: nextQItems,
+            updated_at: new Date().toISOString()
+          });
+          setQuotations((prev) =>
+            prev.map((q) => (q.id === dq.id ? { ...q, line_items: nextQItems } : q))
+          );
+        }
+      } catch (err) {
+        console.warn('[EnquiryDetail] Bulk apply persist notice:', err);
+      }
+    }
+
+    triggerToast?.(
+      `Applied ${field === 'delivery' ? 'Delivery / Lead Time' : 'Country of Origin'} "${val}" to all ${updatedItems.length} items!`,
+      'success'
+    );
+  };
+
   // Sync updated Enquiry Line Items into an active Draft Quotation or fork a new Revision (R2 / R(N+1))
   const handleSyncLineItemsToQuote = async (mode: 'sync_draft' | 'new_revision') => {
     if (quotations.length === 0) return;
@@ -3876,20 +4062,28 @@ export default function EnquiryDetail({
                 </div>
                 <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col justify-between">
                   {(() => {
-                    const activeQ = quotations.find((q) => q.status === 'Approved') || quotations.find((q) => q.status === 'Sent') || quotations[0];
+                    const stdQuotes = unifiedHubDocuments.filter(
+                      (q) => (q.document_type || 'quotation') === 'quotation' && !q.is_deleted
+                    );
+                    const activeQ =
+                      stdQuotes.find((q) => q.status === 'Approved') ||
+                      stdQuotes.find((q) => q.status === 'Sent') ||
+                      stdQuotes[0];
                     const hasLineItems = (currentEnquiry.line_items || []).length > 0;
                     const isUSD = currentEnquiry.currency === 'USD';
+                    const effectiveTaxMode = activeQ?.tax_mode || currentEnquiry.tax_mode || 'taxes_extra';
+                    const isNoVat = effectiveTaxMode === 'no_vat';
                     const subtotalAed = activeQ
                       ? (activeQ.currency === 'USD' ? Number(activeQ.subtotal || 0) * 3.6725 : Number(activeQ.subtotal || 0))
                       : hasLineItems && !currentEnquiry.is_lump_sum
                       ? (isUSD ? optionAnalysis.baselineTotal * 3.6725 : optionAnalysis.baselineTotal)
                       : Number(currentEnquiry.value_aed || 0);
-                    const vatAed = activeQ
+                    const vatAed = isNoVat
+                      ? 0
+                      : activeQ && activeQ.tax_amount !== undefined && effectiveTaxMode !== 'taxes_extra'
                       ? (activeQ.currency === 'USD' ? Number(activeQ.tax_amount || 0) * 3.6725 : Number(activeQ.tax_amount || 0))
                       : Math.round(subtotalAed * 0.05 * 100) / 100;
-                    const grandTotalAed = activeQ
-                      ? (activeQ.currency === 'USD' ? Number(activeQ.grand_total || 0) * 3.6725 : Number(activeQ.grand_total || 0))
-                      : subtotalAed + vatAed;
+                    const grandTotalAed = isNoVat ? subtotalAed : subtotalAed + vatAed;
 
                     return (
                       <>
@@ -3903,18 +4097,20 @@ export default function EnquiryDetail({
                             </span>
                           )}
                         </div>
-                        <div className="mt-1.5 flex items-baseline justify-between gap-2 flex-wrap">
-                          <div>
-                            <span className="text-[10px] font-mono text-slate-400 block">Subtotal (Excl. VAT)</span>
-                            <span className="text-sm font-bold font-mono tabular-nums text-slate-800">
+                        <div className="mt-1.5 flex flex-col gap-1">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-[10px] font-mono text-slate-500">Subtotal (Excl. VAT)</span>
+                            <span className="text-base font-bold font-mono tabular-nums text-slate-900">
                               {formatCurrency(subtotalAed)}
                             </span>
                           </div>
-                          <div className="text-right">
-                            <span className="text-[10px] font-mono text-slate-400 block">
-                              Grand Total (+5% VAT: {formatCurrency(vatAed)})
+                          <div className="flex items-baseline justify-between gap-2 pt-1 border-t border-slate-200/70">
+                            <span className="text-[10px] font-mono text-slate-500">
+                              {isNoVat
+                                ? 'Grand Total (VAT Excluded / 0% VAT)'
+                                : `Grand Total (Incl. 5% VAT: ${formatCurrency(vatAed)})`}
                             </span>
-                            <span className="text-base font-bold font-mono tabular-nums text-blue-600">
+                            <span className="text-xs font-bold font-mono tabular-nums text-blue-600">
                               {formatCurrency(grandTotalAed)}
                             </span>
                           </div>
@@ -5507,6 +5703,112 @@ export default function EnquiryDetail({
                           <Plus className="w-3.5 h-3.5" />
                           <span>Custom Item</span>
                         </button>
+                        {(isInlineEditingItems ? draftLineItems : (currentEnquiry.line_items || [])).length > 0 && (
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={() => setShowBulkApplyPopover((prev) => !prev)}
+                              className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+                              title="Bulk apply Delivery / Lead Time or Country of Origin across all line items"
+                            >
+                              <span>⚡ Bulk Apply to All Items ▾</span>
+                            </button>
+                            {showBulkApplyPopover && (
+                              <div className="absolute right-0 mt-1.5 w-80 bg-white border border-slate-200 rounded-xl shadow-xl p-3 z-40 space-y-3 text-left">
+                                <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                                  <span className="text-[11px] font-bold text-slate-800">
+                                    ⚡ Bulk Apply to All Line Items
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowBulkApplyPopover(false)}
+                                    className="text-slate-400 hover:text-slate-600 text-xs font-bold px-1"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                                <div className="space-y-1.5">
+                                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block">
+                                    Set Delivery / Lead Time for All
+                                  </label>
+                                  <div className="flex flex-wrap gap-1">
+                                    {[
+                                      'LIMITED STOCK AVAILABLE. Subject to prior sales.',
+                                      'Ex-Stock',
+                                      '2–3 Weeks',
+                                      '4–6 Weeks',
+                                      '6–8 Weeks'
+                                    ].map((chip) => (
+                                      <button
+                                        key={chip}
+                                        type="button"
+                                        onClick={() => handleBulkApplyFieldToLineItems('delivery', chip)}
+                                        className="px-2 py-1 rounded bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 border border-slate-200 text-[10px] font-medium transition cursor-pointer text-left"
+                                      >
+                                        {chip}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  <div className="flex gap-1.5 pt-1">
+                                    <input
+                                      type="text"
+                                      value={bulkDeliveryInput}
+                                      onChange={(e) => setBulkDeliveryInput(e.target.value)}
+                                      placeholder="Custom delivery note..."
+                                      className="flex-1 px-2 py-1 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-500"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        handleBulkApplyFieldToLineItems('delivery', bulkDeliveryInput);
+                                        setBulkDeliveryInput('');
+                                      }}
+                                      className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold cursor-pointer"
+                                    >
+                                      Apply
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="space-y-1.5 border-t border-slate-100 pt-2">
+                                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block">
+                                    Set Country of Origin for All
+                                  </label>
+                                  <div className="flex flex-wrap gap-1">
+                                    {['USA', 'Germany / EU', 'Italy', 'UAE', 'UK', 'China'].map((originChip) => (
+                                      <button
+                                        key={originChip}
+                                        type="button"
+                                        onClick={() => handleBulkApplyFieldToLineItems('origin', originChip)}
+                                        className="px-2 py-1 rounded bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 border border-slate-200 text-[10px] font-medium transition cursor-pointer"
+                                      >
+                                        {originChip}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  <div className="flex gap-1.5 pt-1">
+                                    <input
+                                      type="text"
+                                      value={bulkOriginInput}
+                                      onChange={(e) => setBulkOriginInput(e.target.value)}
+                                      placeholder="Custom origin..."
+                                      className="flex-1 px-2 py-1 text-xs border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-500"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        handleBulkApplyFieldToLineItems('origin', bulkOriginInput);
+                                        setBulkOriginInput('');
+                                      }}
+                                      className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold cursor-pointer"
+                                    >
+                                      Apply
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                         {isInlineEditingItems ? (
                           <>
                             <button
@@ -7648,31 +7950,42 @@ export default function EnquiryDetail({
             onEnquirySync={(syncPayload) => {
               const sanitizedRef = QuotationRepository.sanitizeCanonicalQuoteRef(syncPayload.latest_quote_ref);
               if (!sanitizedRef) return;
-              setCurrentEnquiry((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      active_quotation_id: syncPayload.active_quotation_id,
-                      latest_quote_ref: sanitizedRef,
-                      quote_ref_no: sanitizedRef,
-                      quoted_amount: syncPayload.quoted_amount,
-                      value_aed: syncPayload.quoted_amount,
-                      quotation_status: syncPayload.quotation_status,
-                      latest_revision_number: syncPayload.latest_revision_number
-                    }
-                  : prev
-              );
+              const hydratedSyncedItems =
+                Array.isArray(syncPayload.line_items) && syncPayload.line_items.length > 0
+                  ? rehydrateLineItemsFromCatalog(syncPayload.line_items, products)
+                  : undefined;
+
+              const buildPatchedEnquiry = (base: Enquiry): Enquiry => ({
+                ...base,
+                active_quotation_id: syncPayload.active_quotation_id,
+                latest_quote_ref: sanitizedRef,
+                quote_ref_no: sanitizedRef,
+                quoted_amount: syncPayload.quoted_amount,
+                value_aed: syncPayload.quoted_amount,
+                quotation_status: syncPayload.quotation_status,
+                latest_revision_number: syncPayload.latest_revision_number,
+                ...(hydratedSyncedItems ? { line_items: hydratedSyncedItems } : {}),
+                ...(syncPayload.subject ? { subject: syncPayload.subject } : {}),
+                ...(syncPayload.validity_days !== undefined ? { validity_days: syncPayload.validity_days } : {}),
+                ...(syncPayload.valid_until ? { valid_until: syncPayload.valid_until } : {}),
+                ...(syncPayload.price_basis ? { price_basis: syncPayload.price_basis } : {}),
+                ...(syncPayload.delivery_period ? { delivery_period: syncPayload.delivery_period } : {}),
+                ...(syncPayload.payment_terms ? { payment_terms: syncPayload.payment_terms } : {}),
+                ...(syncPayload.tax_mode ? { tax_mode: syncPayload.tax_mode } : {})
+              });
+
+              if (hydratedSyncedItems) {
+                setDraftLineItems(hydratedSyncedItems);
+              }
+              setCurrentEnquiry((prev) => (prev ? buildPatchedEnquiry(prev) : prev));
+              const patchedCurrent = buildPatchedEnquiry(currentEnquiry);
               if (onUpdateEnquiry) {
-                onUpdateEnquiry({
-                  ...currentEnquiry,
-                  active_quotation_id: syncPayload.active_quotation_id,
-                  latest_quote_ref: sanitizedRef,
-                  quote_ref_no: sanitizedRef,
-                  quoted_amount: syncPayload.quoted_amount,
-                  value_aed: syncPayload.quoted_amount,
-                  quotation_status: syncPayload.quotation_status,
-                  latest_revision_number: syncPayload.latest_revision_number
-                });
+                onUpdateEnquiry(patchedCurrent);
+              }
+              if (setEnquiries) {
+                setEnquiries((prev) =>
+                  prev.map((e) => (e.id === patchedCurrent.id ? patchedCurrent : e))
+                );
               }
             }}
             onQuotationCreated={async (newQuote) => {
@@ -7689,13 +8002,21 @@ export default function EnquiryDetail({
                 return combined;
               });
 
-              // Deal Value Sync: Only sync new quotation total and reference to enquiry for standard Quotations
-              if (isStandardQuotation && newQuote.grand_total !== undefined && currentEnquiry?.id) {
+              // Deal Value & Bi-Directional Line Item / Commercial Sync for standard Quotations
+              if (isStandardQuotation && currentEnquiry?.id) {
                 const syncPayload = QuotationRepository.buildEnquiryQuotationSyncPayload(newQuote);
                 const newTotal = syncPayload.quoted_amount;
                 const newRef = QuotationRepository.sanitizeCanonicalQuoteRef(newQuote.formatted_quote_ref);
+                const hydratedSyncedItems =
+                  Array.isArray(syncPayload.line_items) && syncPayload.line_items.length > 0
+                    ? rehydrateLineItemsFromCatalog(syncPayload.line_items, products)
+                    : undefined;
                 try {
-                  await safeUpdateDoc('enquiries', currentEnquiry.id, {
+                  if (hydratedSyncedItems) {
+                    setDraftLineItems(hydratedSyncedItems);
+                  }
+                  const buildPatched = (base: Enquiry): Enquiry => ({
+                    ...base,
                     value_aed: newTotal,
                     quoted_amount: newTotal,
                     quote_ref_no: newRef,
@@ -7703,33 +8024,22 @@ export default function EnquiryDetail({
                     active_quotation_id: newQuote.id,
                     quotation_status: newQuote.status || 'Draft',
                     latest_revision_number: newQuote.revision_number ?? 1,
-                    updated_at: new Date().toISOString()
+                    ...(hydratedSyncedItems ? { line_items: hydratedSyncedItems } : {}),
+                    ...(syncPayload.subject ? { subject: syncPayload.subject } : {}),
+                    ...(syncPayload.validity_days !== undefined ? { validity_days: syncPayload.validity_days } : {}),
+                    ...(syncPayload.valid_until ? { valid_until: syncPayload.valid_until } : {}),
+                    ...(syncPayload.price_basis ? { price_basis: syncPayload.price_basis } : {}),
+                    ...(syncPayload.delivery_period ? { delivery_period: syncPayload.delivery_period } : {}),
+                    ...(syncPayload.payment_terms ? { payment_terms: syncPayload.payment_terms } : {}),
+                    ...(syncPayload.tax_mode ? { tax_mode: syncPayload.tax_mode } : {})
                   });
-                  setCurrentEnquiry((prev) =>
-                    prev
-                      ? {
-                          ...prev,
-                          value_aed: newTotal,
-                          quoted_amount: newTotal,
-                          quote_ref_no: newRef,
-                          latest_quote_ref: newRef,
-                          active_quotation_id: newQuote.id,
-                          quotation_status: newQuote.status || 'Draft',
-                          latest_revision_number: newQuote.revision_number ?? 1
-                        }
-                      : prev
-                  );
+                  setCurrentEnquiry((prev) => (prev ? buildPatched(prev) : prev));
+                  const nextEnq = buildPatched(currentEnquiry);
                   if (onUpdateEnquiry) {
-                    onUpdateEnquiry({
-                      ...currentEnquiry,
-                      value_aed: newTotal,
-                      quoted_amount: newTotal,
-                      quote_ref_no: newRef,
-                      latest_quote_ref: newRef,
-                      active_quotation_id: newQuote.id,
-                      quotation_status: newQuote.status || 'Draft',
-                      latest_revision_number: newQuote.revision_number ?? 1
-                    });
+                    onUpdateEnquiry(nextEnq);
+                  }
+                  if (setEnquiries) {
+                    setEnquiries((prev) => prev.map((e) => (e.id === nextEnq.id ? nextEnq : e)));
                   }
                 } catch (valErr) {
                   console.warn('[EnquiryDetail] Failed updating enquiry deal value from quotation:', valErr);

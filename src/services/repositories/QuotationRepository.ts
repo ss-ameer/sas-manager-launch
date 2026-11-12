@@ -43,6 +43,7 @@ export class QuotationRepository {
   private static workspaceListeners = new Map<string, Set<() => void>>();
   private static workspaceSubscribers = new Map<string, Set<(quotations: Quotation[]) => void>>();
   private static activeSnapshotUnsubs = new Map<string, () => void>();
+  private static isPaused = false;
   private static workspaceCache = new Map<string, { data: Quotation[]; fetchedAt: number }>();
   private static profileCache = new Map<string, { data: WorkspaceDocumentProfile | null; fetchedAt: number }>();
   private static presetsCache = new Map<string, { data: QuotationPreset[]; fetchedAt: number }>();
@@ -1155,38 +1156,126 @@ export class QuotationRepository {
 
   /**
    * Builds a deterministic Enquiry pipeline sync payload from a Quotation,
-   * accurately computing quoted_amount (excluding optional line items).
+   * accurately computing net subtotal (Excl. VAT) in AED as the canonical deal value (`value_aed` / `quoted_amount`)
+   * and mapping line items and commercial terms for bi-directional sync back to the parent Enquiry.
    */
   public static buildEnquiryQuotationSyncPayload(
     quotation: Quotation
   ): EnquiryQuotationSyncPayload {
-    const calculatedGrandTotal =
-      Array.isArray(quotation.line_items) && quotation.line_items.length > 0
-        ? this.calculateTotals(
-            quotation.line_items,
-            quotation.freight_amount || 0,
-            quotation.tax_mode || 'taxes_extra',
-            quotation.tax_rate_percent ?? 5
-          ).grand_total
-        : Number(quotation.grand_total) || 0;
+    const hasItems = Array.isArray(quotation.line_items) && quotation.line_items.length > 0;
+    const calcTotals = hasItems
+      ? this.calculateTotals(
+          quotation.line_items,
+          quotation.freight_amount || 0,
+          quotation.tax_mode || 'taxes_extra',
+          quotation.tax_rate_percent ?? 5
+        )
+      : null;
+
+    const rawSubtotal = calcTotals
+      ? calcTotals.subtotal
+      : Number(quotation.subtotal ?? quotation.grand_total ?? 0);
+    const rawGrandTotal = calcTotals
+      ? calcTotals.grand_total
+      : Number(quotation.grand_total ?? quotation.subtotal ?? 0);
+
+    const isUSD = quotation.currency === 'USD';
+    const subtotalAed = this.roundCurrency(isUSD ? rawSubtotal * 3.6725 : rawSubtotal);
+    const grandTotalAed = this.roundCurrency(isUSD ? rawGrandTotal * 3.6725 : rawGrandTotal);
 
     const canonicalRef = this.sanitizeCanonicalQuoteRef(
       quotation.formatted_quote_ref || quotation.quote_number || ''
     );
 
+    const mappedEnquiryLineItems = hasItems
+      ? quotation.line_items.map((qi, idx) => {
+          const qty = Number(qi.quantity) || 1;
+          const uPrice = Number(qi.unit_price) || 0;
+          const tPrice =
+            qi.total_price !== undefined
+              ? this.roundCurrency(Number(qi.total_price) || 0)
+              : qi.line_total !== undefined
+              ? this.roundCurrency(Number(qi.line_total) || 0)
+              : this.roundCurrency(qty * uPrice);
+          const deliveryVal =
+            (qi as any).lead_time_note ||
+            qi.availability ||
+            (qi as any).delivery_time ||
+            (qi as any).lead_time ||
+            'Ex-Stock / Standard';
+          const optGroup =
+            qi.option ||
+            qi.option_group ||
+            (qi.is_optional ? 'Optional / Add-On' : 'Default / Included');
+          return {
+            id: qi.id || `item_${idx + 1}`,
+            product_id: qi.product_id,
+            sku: qi.sku,
+            product_type: (qi as any).product_type || ('Other' as any),
+            item_name: qi.item_name || `Item #${idx + 1}`,
+            description: qi.description || '',
+            quantity: qty,
+            unit: (qi.unit as any) || 'Nos',
+            unit_price: uPrice,
+            cost_price: qi.cost_price,
+            total_price: tPrice,
+            brand_make: qi.brand_make,
+            model_part_no: qi.model_part_no,
+            country_of_origin: qi.country_of_origin,
+            hs_code: qi.hs_code,
+            lead_time_note: deliveryVal,
+            delivery_time: deliveryVal,
+            lead_time: deliveryVal,
+            availability: deliveryVal,
+            specifications: {
+              ...((qi as any).specifications || {}),
+              ...(deliveryVal ? { Delivery: deliveryVal, 'Lead Time': deliveryVal } : {})
+            },
+            option: optGroup,
+            option_designation: optGroup,
+            option_scope_notes: qi.option_scope_notes,
+            attributes: Array.isArray(qi.attributes) ? qi.attributes : [],
+            image_url: qi.image_url,
+            secondary_image_url: qi.secondary_image_url,
+            image_caption: qi.image_caption,
+            secondary_image_caption: qi.secondary_image_caption,
+            image_adjustments: qi.image_adjustments,
+            image_display_override: qi.image_display_override,
+            image_size_override: qi.image_size_override,
+            image_aspect_override: qi.image_aspect_override,
+            datasheet_attachment: qi.datasheet_attachment,
+            include_datasheet_in_quote: qi.include_datasheet_in_quote !== false,
+            is_composite_set: qi.is_composite_set,
+            sub_components: qi.sub_components,
+            package_pricing_mode: qi.package_pricing_mode
+          };
+        })
+      : undefined;
+
     return {
       active_quotation_id: quotation.id || '',
       latest_quote_ref: canonicalRef,
-      quoted_amount: calculatedGrandTotal,
+      quoted_amount: subtotalAed,
+      subtotal_aed: subtotalAed,
+      grand_total_aed: grandTotalAed,
       quotation_status: quotation.status || 'Draft',
       latest_revision_number:
-        typeof quotation.revision_number === 'number' ? quotation.revision_number : 1
+        typeof quotation.revision_number === 'number' ? quotation.revision_number : 1,
+      line_items: mappedEnquiryLineItems,
+      subject: quotation.subject || quotation.quotation_subject || undefined,
+      validity_days: typeof quotation.validity_days === 'number' ? quotation.validity_days : undefined,
+      valid_until: quotation.valid_until || undefined,
+      price_basis: quotation.price_basis || undefined,
+      delivery_period: quotation.delivery_period || undefined,
+      payment_terms: quotation.payment_terms || undefined,
+      tax_mode: quotation.tax_mode || undefined,
+      prepared_by: quotation.prepared_by || undefined
     };
   }
 
   /**
    * Synchronizes superseded status across previous revisions for the enquiry and updates
-   * the parent Enquiry record with the latest quotation sync payload.
+   * the parent Enquiry record with the latest quotation sync payload (including line items and commercial terms).
    */
   public static async syncQuotationRevisionAndEnquiry(
     quotation: Quotation
@@ -1235,29 +1324,43 @@ export class QuotationRepository {
       } catch (_) {}
 
       try {
-        const localEnquiries = (await getFromLocalStore<any>('enquiries')) || [];
-        const existingEnquiry = localEnquiries.find((e: any) => e.id === quotation.enquiry_id);
-        const isUnchanged =
-          existingEnquiry &&
-          existingEnquiry.active_quotation_id === syncPayload.active_quotation_id &&
-          existingEnquiry.latest_quote_ref === syncPayload.latest_quote_ref &&
-          Number(existingEnquiry.quoted_amount ?? 0) === Number(syncPayload.quoted_amount ?? 0) &&
-          existingEnquiry.quotation_status === syncPayload.quotation_status &&
-          Number(existingEnquiry.latest_revision_number ?? 0) ===
-            Number(syncPayload.latest_revision_number ?? 0);
+        const enquiryUpdatePayload: Record<string, any> = {
+          active_quotation_id: syncPayload.active_quotation_id,
+          latest_quote_ref: syncPayload.latest_quote_ref,
+          quote_ref_no: syncPayload.latest_quote_ref,
+          quoted_amount: syncPayload.quoted_amount,
+          value_aed: syncPayload.quoted_amount,
+          quotation_status: syncPayload.quotation_status,
+          latest_revision_number: syncPayload.latest_revision_number,
+          ...(Array.isArray(syncPayload.line_items) && syncPayload.line_items.length > 0
+            ? { line_items: syncPayload.line_items }
+            : {}),
+          ...(syncPayload.subject ? { subject: syncPayload.subject } : {}),
+          ...(syncPayload.validity_days !== undefined ? { validity_days: syncPayload.validity_days } : {}),
+          ...(syncPayload.valid_until ? { valid_until: syncPayload.valid_until } : {}),
+          ...(syncPayload.price_basis ? { price_basis: syncPayload.price_basis } : {}),
+          ...(syncPayload.delivery_period ? { delivery_period: syncPayload.delivery_period } : {}),
+          ...(syncPayload.payment_terms ? { payment_terms: syncPayload.payment_terms } : {}),
+          ...(syncPayload.tax_mode ? { tax_mode: syncPayload.tax_mode } : {}),
+          updated_at: now,
+          updatedAt: now
+        };
 
-        if (!isUnchanged) {
-          await safeUpdateDoc('enquiries', quotation.enquiry_id, {
-            active_quotation_id: syncPayload.active_quotation_id,
-            latest_quote_ref: syncPayload.latest_quote_ref,
-            quote_ref_no: syncPayload.latest_quote_ref,
-            quoted_amount: syncPayload.quoted_amount,
-            value_aed: syncPayload.quoted_amount,
-            quotation_status: syncPayload.quotation_status,
-            latest_revision_number: syncPayload.latest_revision_number,
-            updated_at: now
-          });
-        }
+        await safeUpdateDoc(
+          'enquiries',
+          quotation.enquiry_id,
+          this.sanitizePayloadForFirestoreLimit(enquiryUpdatePayload, 48000)
+        );
+
+        try {
+          const localEnquiries = (await getFromLocalStore<any>('enquiries')) || [];
+          if (localEnquiries.length > 0) {
+            const updatedLocal = localEnquiries.map((e: any) =>
+              e.id === quotation.enquiry_id ? { ...e, ...enquiryUpdatePayload } : e
+            );
+            await saveToLocalStore('enquiries', updatedLocal);
+          }
+        } catch (_) {}
       } catch (_) {}
     }
 
@@ -1800,8 +1903,11 @@ export class QuotationRepository {
         }
 
         if (fallbackActiveQuote) {
+          const fbSub = Number(fallbackActiveQuote.subtotal ?? fallbackActiveQuote.grand_total ?? 0);
+          const fbSubAed = this.roundCurrency(fallbackActiveQuote.currency === 'USD' ? fbSub * 3.6725 : fbSub);
           await safeUpdateDoc('enquiries', existing.enquiry_id, {
-            value_aed: Number(fallbackActiveQuote.grand_total || 0),
+            value_aed: fbSubAed,
+            quoted_amount: fbSubAed,
             quote_ref_no: fallbackActiveQuote.formatted_quote_ref,
             updated_at: now
           });
@@ -1939,8 +2045,11 @@ export class QuotationRepository {
 
     if (isClientQuotation && existing.enquiry_id) {
       try {
+        const restSub = Number(existing.subtotal ?? existing.grand_total ?? 0);
+        const restSubAed = this.roundCurrency(existing.currency === 'USD' ? restSub * 3.6725 : restSub);
         await safeUpdateDoc('enquiries', existing.enquiry_id, {
-          value_aed: Number(existing.grand_total || 0),
+          value_aed: restSubAed,
+          quoted_amount: restSubAed,
           quote_ref_no: existing.formatted_quote_ref,
           updated_at: now
         });
@@ -2334,14 +2443,14 @@ export class QuotationRepository {
       typeof window !== 'undefined' &&
       window.localStorage?.getItem('sas_quota_saver_mode') === 'true';
 
-    // Deliver immediate initial paint from memory cache or IndexedDB without firing an extra getDocs when onSnapshot is active
+    // Deliver immediate initial paint from memory cache or IndexedDB without firing an extra getDocs when onSnapshot is active or paused
     const cached = this.workspaceCache.get(wsId);
     if (cached) {
       callback([...cached.data]);
-    } else if (!isQuotaSaver && db) {
+    } else if (this.isPaused || (!isQuotaSaver && db)) {
       this.readLocalWorkspaceQuotations(wsId)
         .then((localList) => {
-          if (active && !this.workspaceCache.has(wsId) && localList.length > 0) {
+          if (active && !this.workspaceCache.has(wsId) && (this.isPaused || localList.length > 0)) {
             callback(localList);
           }
         })
@@ -2364,7 +2473,7 @@ export class QuotationRepository {
       }
     }
 
-    if (!isQuotaSaver && db && !this.activeSnapshotUnsubs.has(wsId)) {
+    if (!isQuotaSaver && !this.isPaused && db && !this.activeSnapshotUnsubs.has(wsId)) {
       try {
         const q = query(collection(db, 'quotations'), where('workspace_id', '==', wsId));
         const unsub = onSnapshot(
@@ -2481,11 +2590,23 @@ export class QuotationRepository {
     return this.subscribe(workspaceId, callback);
   }
 
+  public static subscribeToWorkspaceQuotations(
+    workspaceId: string,
+    callback: (quotations: Quotation[]) => void
+  ): () => void {
+    return this.subscribe(workspaceId, callback);
+  }
+
+  public static isSubscriptionsPaused(): boolean {
+    return this.isPaused;
+  }
+
   /**
    * Pauses all active Firestore onSnapshot listeners when tab is idle or sync is paused.
    * Preserves in-memory caches and registered subscriber callbacks.
    */
   public static pauseSubscriptions(): void {
+    this.isPaused = true;
     for (const [wsId, unsub] of this.activeSnapshotUnsubs.entries()) {
       try {
         unsub();
@@ -2498,6 +2619,7 @@ export class QuotationRepository {
    * Resumes Firestore onSnapshot listeners when sync is turned back on or tab becomes active.
    */
   public static resumeSubscriptions(workspaceId: string): void {
+    this.isPaused = false;
     const wsId = workspaceId || 'ws_default';
     const subs = this.workspaceSubscribers.get(wsId);
     if (!subs || subs.size === 0) return;

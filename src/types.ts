@@ -887,6 +887,11 @@ export interface Enquiry extends SoftDeleteFields {
   updatedByUsername?: string;
   parent_id?: string | null; // Real link to original enquiry for revision tracking
   revision_number?: number; // Revision number: 0 for original, 1 for Rev-1, 2 for Rev-2, etc.
+  active_quotation_id?: string;
+  latest_quote_ref?: string;
+  quoted_amount?: number;
+  quotation_status?: string;
+  latest_revision_number?: number;
   statusUpdatedAt?: string;
   statusUpdatedBy?: string;
   sentAt?: string;
@@ -2779,9 +2784,21 @@ export interface EnquiryQuotationSyncPayload {
   active_quotation_id: string;
   latest_quote_ref: string;
   quoted_amount: number;
+  subtotal_aed?: number;
+  grand_total_aed?: number;
   quotation_status: QuotationStatus | string;
   latest_revision_number: number;
+  line_items?: LineItem[];
+  subject?: string;
+  validity_days?: number;
+  valid_until?: string;
+  price_basis?: string;
+  delivery_period?: string;
+  payment_terms?: string;
+  tax_mode?: QuotationTaxMode;
+  prepared_by?: string;
 }
+
 
 
 

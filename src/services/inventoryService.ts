@@ -736,31 +736,120 @@ export async function fetchStockMovements(workspaceId: string): Promise<StockMov
   }
 }
 
+const stockMovementsCache = new Map<string, StockMovement[]>();
+const stockMovementsSubscribers = new Map<string, Set<(movements: StockMovement[]) => void>>();
+const stockMovementsUnsubs = new Map<string, () => void>();
+let isStockMovementsPaused = false;
+
+export function pauseStockMovementsSubscriptions(): void {
+  isStockMovementsPaused = true;
+  for (const [, unsub] of stockMovementsUnsubs.entries()) {
+    try {
+      unsub();
+    } catch (_) {}
+  }
+  stockMovementsUnsubs.clear();
+}
+
+export function resumeStockMovementsSubscriptions(workspaceId: string): void {
+  isStockMovementsPaused = false;
+  const wsId = workspaceId || 'ws_default';
+  const subs = stockMovementsSubscribers.get(wsId);
+  if (!subs || subs.size === 0) return;
+  if (stockMovementsUnsubs.has(wsId)) return;
+
+  const cached = stockMovementsCache.get(wsId);
+  if (cached) {
+    subs.forEach((cb) => {
+      try {
+        cb([...cached]);
+      } catch (_) {}
+    });
+  }
+
+  const unsubHolder = subscribeStockMovements(wsId, () => {});
+  unsubHolder();
+}
+
 /**
- * Subscribes to realtime updates of stock movements for the given workspace.
+ * Subscribes to realtime updates of stock movements for the given workspace,
+ * respecting quota-saver mode, idle pause state, and sharing a single listener per workspaceId.
  */
 export function subscribeStockMovements(
   workspaceId: string,
   callback: (movements: StockMovement[]) => void
 ): () => void {
-  try {
-    const coll = collection(db, 'stock_movements');
-    const q = query(coll, where('workspace_id', '==', workspaceId));
-    return onSnapshot(
-      q,
-      (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as StockMovement));
-        list.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
-        callback(list);
-      },
-      (err) => {
-        console.warn('[subscribeStockMovements] listener error:', err);
-      }
-    );
-  } catch (err) {
-    console.warn('[subscribeStockMovements] setup error:', err);
-    return () => {};
+  const wsId = workspaceId || 'ws_default';
+  if (!stockMovementsSubscribers.has(wsId)) {
+    stockMovementsSubscribers.set(wsId, new Set());
   }
+  const subs = stockMovementsSubscribers.get(wsId)!;
+  subs.add(callback);
+
+  const cached = stockMovementsCache.get(wsId);
+  if (cached) {
+    callback([...cached]);
+  }
+
+  const isQuotaSaver =
+    typeof window !== 'undefined' &&
+    window.localStorage?.getItem('sas_quota_saver_mode') === 'true';
+
+  if (isQuotaSaver || isStockMovementsPaused) {
+    if (!cached && !isStockMovementsPaused) {
+      fetchStockMovements(wsId)
+        .then((list) => {
+          stockMovementsCache.set(wsId, list);
+          callback(list);
+        })
+        .catch(() => {});
+    }
+    return () => {
+      subs.delete(callback);
+    };
+  }
+
+  if (!stockMovementsUnsubs.has(wsId)) {
+    try {
+      const coll = collection(db, 'stock_movements');
+      const q = query(coll, where('workspace_id', '==', wsId));
+      const unsub = onSnapshot(
+        q,
+        (snap) => {
+          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as StockMovement));
+          list.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+          stockMovementsCache.set(wsId, list);
+          const currentSubs = stockMovementsSubscribers.get(wsId);
+          if (currentSubs) {
+            currentSubs.forEach((cb) => {
+              try {
+                cb([...list]);
+              } catch (_) {}
+            });
+          }
+        },
+        (err) => {
+          console.warn('[subscribeStockMovements] listener error:', err);
+        }
+      );
+      stockMovementsUnsubs.set(wsId, unsub);
+    } catch (err) {
+      console.warn('[subscribeStockMovements] setup error:', err);
+    }
+  }
+
+  return () => {
+    subs.delete(callback);
+    if (subs.size === 0) {
+      const existingUnsub = stockMovementsUnsubs.get(wsId);
+      if (existingUnsub) {
+        try {
+          existingUnsub();
+        } catch (_) {}
+        stockMovementsUnsubs.delete(wsId);
+      }
+    }
+  };
 }
 
 async function getProductLiveOrLocal(productId: string): Promise<Product | null> {

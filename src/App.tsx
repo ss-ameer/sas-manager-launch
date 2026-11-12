@@ -42,7 +42,7 @@ import { CompanyRepository } from './services/repositories/CompanyRepository';
 import { CallLogRepository } from './services/repositories/CallLogRepository';
 import { MetadataRepository } from './services/repositories/MetadataRepository';
 import { WorkspaceRepository } from './services/repositories/WorkspaceRepository';
-import { releaseEnquiryStock } from './services/inventoryService';
+import { releaseEnquiryStock, pauseStockMovementsSubscriptions, resumeStockMovementsSubscriptions } from './services/inventoryService';
 import { healWorkspaceCounters } from './services/enquirySequences';
 import { ShieldCheck, HelpCircle, CheckCircle2, AlertCircle, Info, X, User, Clock, Menu } from 'lucide-react';
 import { BRAND_CONFIG } from './config';
@@ -312,14 +312,16 @@ export default function App() {
     };
   }, [realtimeSyncEnabled]);
 
-  // Synchronize QuotationRepository and ProcurementRepository singleton listeners with realtimeSyncEnabled
+  // Synchronize QuotationRepository, ProcurementRepository, and StockMovements singleton listeners with realtimeSyncEnabled
   useEffect(() => {
     if (!realtimeSyncEnabled) {
       QuotationRepository.pauseSubscriptions();
       ProcurementRepository.pauseSubscriptions();
+      pauseStockMovementsSubscriptions();
     } else if (activeWorkspaceId) {
       QuotationRepository.resumeSubscriptions(activeWorkspaceId);
       ProcurementRepository.resumeSubscriptions(activeWorkspaceId);
+      resumeStockMovementsSubscriptions(activeWorkspaceId);
     }
   }, [realtimeSyncEnabled, activeWorkspaceId]);
 
@@ -342,6 +344,7 @@ export default function App() {
 
   // Drawer & Form Overlay states
   const [selectedEnquiryId, setSelectedEnquiryId] = useState<string | null>(null);
+  const [autoOpenStudioForEnquiryId, setAutoOpenStudioForEnquiryId] = useState<string | null>(null);
   const [selected360CompanyId, setSelected360CompanyId] = useState<string | null>(null);
   const [showEnquiryForm, setShowEnquiryForm] = useState(false);
   const [enquiryToEdit, setEnquiryToEdit] = useState<Enquiry | null>(null);
@@ -1739,25 +1742,33 @@ export default function App() {
       setEnquiries(getLocalCache<Enquiry[]>('omni_enquiries', INITIAL_ENQUIRIES).map((e) => normalizeEnquiry(e, currentWsId)));
     });
 
-    // Invites
-    refs.invites = onSnapshot(collection(db, 'invites'), (snap) => {
-      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Invite));
-      setInvites(list);
-      setLocalCache('omni_invites', list);
-    }, (error) => {
-      console.warn("Invites snapshot listener error (Quota/Offline):", error);
-      setInvites(getLocalCache('omni_invites', []));
-    });
+    // Invites — One-time fetch per workspace boot (rarely-changed static collection)
+    safeGetDocs('invites')
+      .then((snap) => {
+        if (snap) {
+          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Invite));
+          setInvites(list);
+          setLocalCache('omni_invites', list);
+        }
+      })
+      .catch((error) => {
+        console.warn("Invites fetch notice (Quota/Offline):", error);
+        setInvites(getLocalCache('omni_invites', []));
+      });
 
-    // Salespersons
-    refs.salespersons = onSnapshot(collection(db, 'salespersons'), (snap) => {
-      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Salesperson));
-      setSalespersons(list);
-      setLocalCache('omni_salespersons', list);
-    }, (error) => {
-      console.warn("Salespersons snapshot listener error (Quota/Offline):", error);
-      setSalespersons(getLocalCache('omni_salespersons', INITIAL_SALESPERSONS));
-    });
+    // Salespersons — One-time fetch per workspace boot (rarely-changed static collection)
+    safeGetDocs('salespersons')
+      .then((snap) => {
+        if (snap) {
+          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Salesperson));
+          setSalespersons(list);
+          setLocalCache('omni_salespersons', list);
+        }
+      })
+      .catch((error) => {
+        console.warn("Salespersons fetch notice (Quota/Offline):", error);
+        setSalespersons(getLocalCache('omni_salespersons', INITIAL_SALESPERSONS));
+      });
 
     // Projects - Partitioned by active workspace
     const prjQuery = query(collection(db, 'projects'), where('workspace_id', '==', currentWsId));
@@ -2472,6 +2483,8 @@ export default function App() {
           onInitiateActivity={initiateActivity}
           onStockUpdated={refreshProducts}
           triggerToast={triggerToast}
+          autoOpenStudio={Boolean(selectedEnquiry.id && selectedEnquiry.id === autoOpenStudioForEnquiryId)}
+          onAutoOpenStudioConsumed={() => setAutoOpenStudioForEnquiryId(null)}
         />
       )}
 
@@ -2513,6 +2526,13 @@ export default function App() {
           units={units.map(u => u.name)}
           enquiryToEdit={enquiryToEdit}
           onClose={() => setShowEnquiryForm(false)}
+          onSaveAndOpenStudio={(savedEnq) => {
+            setShowEnquiryForm(false);
+            if (savedEnq?.id) {
+              setSelectedEnquiryId(savedEnq.id);
+              setAutoOpenStudioForEnquiryId(savedEnq.id);
+            }
+          }}
           user={user}
           nextSn={nextSn}
           triggerToast={triggerToast}

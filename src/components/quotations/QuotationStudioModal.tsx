@@ -105,6 +105,7 @@ import {
   QuotationAtTagDefinition,
   buildQuotationTokenMap,
   findUnknownAtTokensInQuotation,
+  resolveQuotationTokens,
   resolvePdfFilename,
   combineCityCountry
 } from '../../utils/quotationTokenResolver';
@@ -2975,11 +2976,90 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         setItemVisibleAttributes({});
         setItemPageBreaks(initialBreaks);
         setItemCompositeOverrides({});
-        setCustomStudioLineItems(null);
+        if (Array.isArray(enquiry?.line_items) && enquiry!.line_items.length > 0) {
+          const rawNewQuoteItems: QuotationLineItem[] = enquiry!.line_items.map((li, idx) => {
+            const qty = Number(li.quantity) || 1;
+            const rate = Number(li.unit_price) || 0;
+            const tot =
+              li.total_price !== undefined
+                ? QuotationRepository.roundCurrency(Number(li.total_price) || 0)
+                : QuotationRepository.roundCurrency(qty * rate);
+            const rawOpt = String((li as any).option_designation || li.option || '').trim();
+            const isOptionalOrAlt =
+              rawOpt.toLowerCase().includes('optional') ||
+              rawOpt.toLowerCase().includes('add-on') ||
+              /option\s+[b-z]/i.test(rawOpt);
+            const deliveryNote =
+              li.lead_time_note ||
+              (li as any).delivery_time ||
+              (li as any).lead_time ||
+              (li as any).availability ||
+              (li as any).specifications?.['Delivery'] ||
+              (li as any).specifications?.['Lead Time'] ||
+              'Ex-Stock / Standard';
+            return {
+              id: li.id || `item_${idx + 1}`,
+              sn: idx + 1,
+              product_id: li.product_id,
+              sku: li.sku,
+              item_name: li.item_name || li.product_type || `Item #${idx + 1}`,
+              description: li.description || '',
+              brand_make: li.brand_make,
+              model_part_no: li.model_part_no,
+              country_of_origin: li.country_of_origin,
+              hs_code: li.hs_code,
+              availability: deliveryNote,
+              lead_time_note: deliveryNote,
+              quantity: qty,
+              unit: li.unit || 'Nos',
+              unit_price: rate,
+              cost_price: li.cost_price,
+              total_price: tot,
+              line_total: tot,
+              option: rawOpt || undefined,
+              option_group:
+                rawOpt && rawOpt !== 'Default / Included' && rawOpt !== 'Baseline / All'
+                  ? rawOpt
+                  : undefined,
+              option_scope_notes: li.option_scope_notes,
+              is_optional: isOptionalOrAlt,
+              attributes: Array.isArray(li.attributes) ? li.attributes : [],
+              image_url: li.image_url,
+              secondary_image_url: li.secondary_image_url,
+              image_caption: li.image_caption,
+              secondary_image_caption: li.secondary_image_caption,
+              image_adjustments: li.image_adjustments,
+              image_display_override: li.image_display_override,
+              image_size_override: li.image_size_override,
+              image_aspect_override: li.image_aspect_override,
+              datasheet_attachment: li.datasheet_attachment,
+              include_datasheet_in_quote: li.include_datasheet_in_quote !== false,
+              is_composite_set: li.is_composite_set,
+              sub_components: li.sub_components,
+              package_pricing_mode: li.package_pricing_mode
+            };
+          });
+          const hydratedCatalogNewItems = rehydrateLineItemsFromCatalog(
+            rawNewQuoteItems,
+            workspaceProducts
+          );
+          setCustomStudioLineItems(hydratedCatalogNewItems);
+          rehydrateDocumentBlobsFromLocal({ line_items: hydratedCatalogNewItems })
+            .then((rehydrated) => {
+              if (rehydrated?.line_items) {
+                setCustomStudioLineItems(
+                  rehydrateLineItemsFromCatalog(rehydrated.line_items, workspaceProducts)
+                );
+              }
+            })
+            .catch(() => {});
+        } else {
+          setCustomStudioLineItems(null);
+        }
         setCustomBankOverride(null);
       }
     },
-    [enquiry, profile, presets, salespersonName]
+    [enquiry, profile, presets, salespersonName, workspaceProducts]
   );
 
   // Hydrate state when editingQuotation?.id, enquiry?.id, or enquiry?.updatedAt changes
@@ -4020,6 +4100,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   >({});
   const [customStudioLineItems, setCustomStudioLineItems] = useState<QuotationLineItem[] | null>(null);
   const [expandedCompositeKey, setExpandedCompositeKey] = useState<string | null>(null);
+  const [showStudioBulkApply, setShowStudioBulkApply] = useState<boolean>(false);
+  const [studioBulkDeliveryInput, setStudioBulkDeliveryInput] = useState<string>('');
+  const [studioBulkOriginInput, setStudioBulkOriginInput] = useState<string>('');
+  const [showPreFlightPopover, setShowPreFlightPopover] = useState<boolean>(false);
 
   // Convert enquiry.line_items or editingQuotation.line_items to QuotationLineItem array
   const quotationLineItems = useMemo(() => {
@@ -12488,6 +12572,154 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   </span>
                 </div>
 
+                {/* Pre-Flight Check Pill */}
+                {(() => {
+                  const todayStr = new Date().toISOString().split('T')[0];
+                  const isUnpricedMode =
+                    documentType === 'delivery_note' ||
+                    documentType === 'material_return_note' ||
+                    visibleColumns.unit_price === false ||
+                    visibleColumns.showUnitPrice === false;
+                  const zeroPriceItems = isUnpricedMode
+                    ? []
+                    : quotationLineItems
+                        .map((it, idx) => ({ it, idx }))
+                        .filter(
+                          ({ it }) =>
+                            !it.is_optional &&
+                            !it.hide_row_price &&
+                            Number(it.unit_price || 0) <= 0
+                        );
+                  const isStaleDraftDate =
+                    (quotationStatus || 'Draft') === 'Draft' &&
+                    Boolean(quotationIssueDate && quotationIssueDate < todayStr);
+                  const unresolvedTagMatches = [
+                    quotationSubject,
+                    customNotes,
+                    priceBasis,
+                    paymentTerms,
+                    deliveryPeriod || ''
+                  ]
+                    .join(' ')
+                    .match(/@[a-z_]+/gi);
+                  const unresolvedTags = unresolvedTagMatches
+                    ? Array.from(new Set(unresolvedTagMatches)).filter((tag) => {
+                        const resolved = resolveQuotationTokens(tag, studioTokenContext).trim();
+                        return !resolved || resolved === tag;
+                      })
+                    : [];
+
+                  const totalIssues =
+                    zeroPriceItems.length +
+                    (isStaleDraftDate ? 1 : 0) +
+                    (unresolvedTags.length > 0 ? 1 : 0);
+
+                  if (totalIssues === 0) {
+                    return (
+                      <div
+                        className="hidden md:inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-semibold whitespace-nowrap"
+                        title="Pre-Flight Check Passed: All items priced, current date, and all @tags resolved"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>Ready to Print</span>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowPreFlightPopover((prev) => !prev)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-800 text-[11px] font-bold transition cursor-pointer whitespace-nowrap shadow-2xs"
+                        title="Click to review Pre-Flight checks before printing"
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span>
+                          {totalIssues} Pre-Flight Check{totalIssues > 1 ? 's' : ''}
+                        </span>
+                      </button>
+                      {showPreFlightPopover && (
+                        <div className="absolute right-0 mt-1.5 w-80 bg-white border border-slate-200 rounded-xl shadow-xl p-3 z-50 space-y-2.5 text-left">
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                            <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                              Pre-Flight Document Checks
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setShowPreFlightPopover(false)}
+                              className="text-slate-400 hover:text-slate-600 text-xs font-bold px-1"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          {isStaleDraftDate && (
+                            <div className="p-2 rounded-lg bg-amber-50/80 border border-amber-200 flex items-center justify-between gap-2">
+                              <div className="text-[11px] text-amber-900">
+                                <span className="font-bold block">Draft Date is {quotationIssueDate}</span>
+                                <span className="text-[10px] text-amber-700">Update to today ({todayStr})?</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setQuotationIssueDate(todayStr);
+                                  setShowPreFlightPopover(false);
+                                }}
+                                className="px-2 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold shrink-0 cursor-pointer"
+                              >
+                                Set to Today
+                              </button>
+                            </div>
+                          )}
+                          {zeroPriceItems.length > 0 && (
+                            <div className="p-2 rounded-lg bg-amber-50/80 border border-amber-200 space-y-1.5">
+                              <div className="text-[11px] font-bold text-amber-900">
+                                {zeroPriceItems.length} Item{zeroPriceItems.length > 1 ? 's' : ''} with 0.00 Rate:
+                              </div>
+                              <div className="flex flex-wrap gap-1">
+                                {zeroPriceItems.slice(0, 5).map(({ it, idx }) => (
+                                  <button
+                                    key={it.id || idx}
+                                    type="button"
+                                    onClick={() => {
+                                      handleCanvasSelectSection('items_table', `item:${idx}`);
+                                      setShowPreFlightPopover(false);
+                                    }}
+                                    className="px-2 py-0.5 rounded bg-white hover:bg-amber-100 border border-amber-300 text-amber-900 text-[10px] font-semibold cursor-pointer"
+                                  >
+                                    Inspect Item #{idx + 1}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {unresolvedTags.length > 0 && (
+                            <div className="p-2 rounded-lg bg-amber-50/80 border border-amber-200 flex items-center justify-between gap-2">
+                              <div className="text-[11px] text-amber-900">
+                                <span className="font-bold block">Empty @Tag Value(s)</span>
+                                <span className="text-[10px] font-mono text-amber-700">
+                                  {unresolvedTags.join(', ')}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveLeftTab('deal');
+                                  setShowPreFlightPopover(false);
+                                }}
+                                className="px-2 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold shrink-0 cursor-pointer"
+                              >
+                                Edit Deal Data
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* Print Document */}
                 <button
                   type="button"
@@ -17271,6 +17503,136 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         <span>Configure Totals, Options &amp; Price Display</span>
                         <span className="font-mono text-sm leading-none">&rarr;</span>
                       </button>
+                    </div>
+
+                    {/* Bulk Line-Item Quick-Action Bar (Set Delivery / Origin for All Items) */}
+                    <div className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/80 space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowStudioBulkApply((prev) => !prev)}
+                        className="w-full flex items-center justify-between text-xs font-bold text-slate-800 cursor-pointer"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-indigo-600">⚡</span>
+                          <span>Bulk Apply to All {quotationLineItems.length} Items</span>
+                        </span>
+                        <span className="text-[10px] font-mono text-indigo-600">
+                          {showStudioBulkApply ? 'Hide ▴' : 'Expand ▾'}
+                        </span>
+                      </button>
+                      {showStudioBulkApply && (
+                        <div className="space-y-2.5 pt-1.5 border-t border-slate-200/80">
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                              Set Delivery / Lead Time for All Items
+                            </span>
+                            <div className="flex flex-wrap gap-1">
+                              {[
+                                'LIMITED STOCK AVAILABLE. Subject to prior sales.',
+                                'Ex-Stock',
+                                '2–3 Weeks',
+                                '4–6 Weeks',
+                                '6–8 Weeks'
+                              ].map((chip) => (
+                                <button
+                                  key={chip}
+                                  type="button"
+                                  onClick={() => {
+                                    const nextList = quotationLineItems.map((it) => ({
+                                      ...it,
+                                      availability: chip,
+                                      lead_time_note: chip
+                                    }));
+                                    setCustomStudioLineItems(nextList);
+                                    triggerToast?.(`Applied Delivery "${chip}" to all ${nextList.length} items`, 'success');
+                                  }}
+                                  className="px-2 py-0.5 rounded bg-white hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 border border-slate-200 text-[10px] font-medium transition cursor-pointer text-left"
+                                >
+                                  {chip}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="flex gap-1 pt-0.5">
+                              <input
+                                type="text"
+                                value={studioBulkDeliveryInput}
+                                onChange={(e) => setStudioBulkDeliveryInput(e.target.value)}
+                                placeholder="Custom delivery for all..."
+                                className="flex-1 px-2 py-1 text-[11px] bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-500"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const val = studioBulkDeliveryInput.trim();
+                                  if (!val) return;
+                                  const nextList = quotationLineItems.map((it) => ({
+                                    ...it,
+                                    availability: val,
+                                    lead_time_note: val
+                                  }));
+                                  setCustomStudioLineItems(nextList);
+                                  setStudioBulkDeliveryInput('');
+                                  triggerToast?.(`Applied Delivery "${val}" to all ${nextList.length} items`, 'success');
+                                }}
+                                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold cursor-pointer"
+                              >
+                                Apply
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1 pt-1.5 border-t border-slate-200/60">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                              Set Country of Origin for All Items
+                            </span>
+                            <div className="flex flex-wrap gap-1">
+                              {['USA', 'Germany / EU', 'Italy', 'UAE', 'UK', 'China'].map((originChip) => (
+                                <button
+                                  key={originChip}
+                                  type="button"
+                                  onClick={() => {
+                                    const nextList = quotationLineItems.map((it) => ({
+                                      ...it,
+                                      country_of_origin: originChip
+                                    }));
+                                    setCustomStudioLineItems(nextList);
+                                    triggerToast?.(`Applied Origin "${originChip}" to all ${nextList.length} items`, 'success');
+                                  }}
+                                  className="px-2 py-0.5 rounded bg-white hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 border border-slate-200 text-[10px] font-medium transition cursor-pointer"
+                                >
+                                  {originChip}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="flex gap-1 pt-0.5">
+                              <input
+                                type="text"
+                                value={studioBulkOriginInput}
+                                onChange={(e) => setStudioBulkOriginInput(e.target.value)}
+                                placeholder="Custom origin for all..."
+                                className="flex-1 px-2 py-1 text-[11px] bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-500"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const val = studioBulkOriginInput.trim();
+                                  if (!val) return;
+                                  const nextList = quotationLineItems.map((it) => ({
+                                    ...it,
+                                    country_of_origin: val
+                                  }));
+                                  setCustomStudioLineItems(nextList);
+                                  setStudioBulkOriginInput('');
+                                  triggerToast?.(`Applied Origin "${val}" to all ${nextList.length} items`, 'success');
+                                }}
+                                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold cursor-pointer"
+                              >
+                                Apply
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* TAB: COLUMNS & TABLE TYPOGRAPHY */}
