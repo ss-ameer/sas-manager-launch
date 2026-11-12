@@ -561,7 +561,6 @@ export default function App() {
       const freshProds = await MetadataRepository.fetchProductsOnce();
       if (freshProds && freshProds.length > 0) {
         setProducts(freshProds);
-        setLocalCache('omni_products', freshProds);
       }
     } catch (err) {
       console.error('Failed to refresh products:', err);
@@ -1362,6 +1361,17 @@ export default function App() {
   // 1. Static Metadata & Dropdowns: Cached locally with 24-hour TTL (eliminates 7 continuous real-time listeners)
   const fetchMetadataAndDropdownsOnce = useCallback(async (force = false) => {
     if (!user?.uid) return;
+
+    // Always hydrate Products from MetadataRepository (reads in-memory / IndexedDB PRODUCT_STORE with 0 Firestore reads unless cold or forced)
+    try {
+      const prods = await MetadataRepository.fetchProductsOnce(undefined, force);
+      if (prods && prods.length > 0) {
+        setProducts(prods);
+      }
+    } catch (err) {
+      console.warn('Products hydration notice:', err);
+    }
+
     const TTL_MS = 24 * 60 * 60 * 1000;
     const lastFetchStr = localStorage.getItem('omni_metadata_last_fetched_at');
     const lastFetchTime = lastFetchStr ? parseInt(lastFetchStr, 10) : 0;
@@ -1372,12 +1382,6 @@ export default function App() {
     }
 
     try {
-      // Products
-      const prods = await MetadataRepository.fetchProductsOnce();
-      if (prods && prods.length > 0) {
-        setProducts(prods);
-        setLocalCache('omni_products', prods);
-      }
 
       // Enquiry Sources
       const srcSnap = await safeGetDocs('dropdown_enquiry_sources');
@@ -1742,33 +1746,52 @@ export default function App() {
       setEnquiries(getLocalCache<Enquiry[]>('omni_enquiries', INITIAL_ENQUIRIES).map((e) => normalizeEnquiry(e, currentWsId)));
     });
 
-    // Invites — One-time fetch per workspace boot (rarely-changed static collection)
-    safeGetDocs('invites')
-      .then((snap) => {
-        if (snap) {
-          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Invite));
-          setInvites(list);
-          setLocalCache('omni_invites', list);
-        }
-      })
-      .catch((error) => {
-        console.warn("Invites fetch notice (Quota/Offline):", error);
-        setInvites(getLocalCache('omni_invites', []));
-      });
+    // Invites — One-time fetch with 30-minute TTL guard (rarely-changed static collection)
+    const STATIC_TTL_MS = 30 * 60 * 1000;
+    const cachedInvites = getLocalCache<Invite[]>('omni_invites', []);
+    const lastInvitesFetch = parseInt(localStorage.getItem('omni_invites_fetched_at') || '0', 10);
+    if (cachedInvites.length > 0 && Date.now() - lastInvitesFetch < STATIC_TTL_MS) {
+      setInvites(cachedInvites);
+    } else {
+      safeGetDocs('invites')
+        .then((snap) => {
+          if (snap) {
+            const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Invite));
+            setInvites(list);
+            setLocalCache('omni_invites', list);
+            try {
+              localStorage.setItem('omni_invites_fetched_at', String(Date.now()));
+            } catch (_) {}
+          }
+        })
+        .catch((error) => {
+          console.warn("Invites fetch notice (Quota/Offline):", error);
+          setInvites(cachedInvites);
+        });
+    }
 
-    // Salespersons — One-time fetch per workspace boot (rarely-changed static collection)
-    safeGetDocs('salespersons')
-      .then((snap) => {
-        if (snap) {
-          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Salesperson));
-          setSalespersons(list);
-          setLocalCache('omni_salespersons', list);
-        }
-      })
-      .catch((error) => {
-        console.warn("Salespersons fetch notice (Quota/Offline):", error);
-        setSalespersons(getLocalCache('omni_salespersons', INITIAL_SALESPERSONS));
-      });
+    // Salespersons — One-time fetch with 30-minute TTL guard (rarely-changed static collection)
+    const cachedSalespersons = getLocalCache<Salesperson[]>('omni_salespersons', []);
+    const lastSpFetch = parseInt(localStorage.getItem('omni_salespersons_fetched_at') || '0', 10);
+    if (cachedSalespersons.length > 0 && Date.now() - lastSpFetch < STATIC_TTL_MS) {
+      setSalespersons(cachedSalespersons);
+    } else {
+      safeGetDocs('salespersons')
+        .then((snap) => {
+          if (snap) {
+            const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Salesperson));
+            setSalespersons(list);
+            setLocalCache('omni_salespersons', list);
+            try {
+              localStorage.setItem('omni_salespersons_fetched_at', String(Date.now()));
+            } catch (_) {}
+          }
+        })
+        .catch((error) => {
+          console.warn("Salespersons fetch notice (Quota/Offline):", error);
+          setSalespersons(cachedSalespersons.length > 0 ? cachedSalespersons : INITIAL_SALESPERSONS);
+        });
+    }
 
     // Projects - Partitioned by active workspace
     const prjQuery = query(collection(db, 'projects'), where('workspace_id', '==', currentWsId));

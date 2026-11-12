@@ -808,7 +808,7 @@ export default function EnquiryDetail({
     return () => {
       isMounted = false;
     };
-  }, [currentEnquiry?.id, currentEnquiry?.workspace_id, currentEnquiry?.updatedAt, enquiry?.updatedAt, activeWorkspaceId]);
+  }, [currentEnquiry?.id, currentEnquiry?.workspace_id, activeWorkspaceId]);
 
   // Enquiry Procurement & Actual Margin Rollup
   const enquiryProcurementRollup = useMemo(() => {

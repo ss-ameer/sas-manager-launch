@@ -338,25 +338,6 @@ export default function SettingsHub({
         updatedAt: new Date().toISOString()
       });
 
-      // Direct write to workspaces/{workspaceId}/system/counters to guarantee instant sync
-      try {
-        const countersRef = doc(db, 'workspaces', activeWorkspace.id, 'system', 'counters');
-        const periodKey = getSequencePeriodKey(seqResetCadence, new Date());
-        const seqBaselineNum = !isNaN(parsedSeqBaseline) ? parsedSeqBaseline : 1;
-        const snBaselineNum = !isNaN(parsedSnBaseline) ? parsedSnBaseline : 1;
-
-        await setDoc(countersRef, {
-          lastSnNumber: Math.max(0, snBaselineNum - 1),
-          sequences: {
-            [periodKey]: Math.max(0, seqBaselineNum - 1)
-          },
-          updatedAt: new Date().toISOString(),
-          updatedBy: user?.uid || 'user'
-        }, { merge: true });
-      } catch (directDocErr) {
-        console.warn('Could not directly update counters document in Firestore:', directDocErr);
-      }
-
       if (triggerToast) triggerToast('Sequence format and counter baseline saved successfully!', 'success');
     } catch (err: any) {
       console.error('Failed to save sequence settings:', err);

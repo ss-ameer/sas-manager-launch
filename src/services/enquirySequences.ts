@@ -1,9 +1,9 @@
-import { safeGetDoc, safeGetDocs, db, handleFirestoreError, OperationType } from '../firebase';
-import { where, doc, runTransaction, setDoc } from 'firebase/firestore';
+import { safeGetDoc, safeSetDoc, db, handleFirestoreError, OperationType } from '../firebase';
+import { doc, setDoc } from 'firebase/firestore';
 import { WorkspaceSequenceCounters, SequenceFormatTokens, ClaimedSequenceResult, Enquiry, SequenceResetCadence, resolveCountryCode, sanitizeCompanyCode } from '../types';
 import { getFromLocalStore } from './db';
 
-const COUNTERS_CACHE_TTL_MS = 60_000;
+const COUNTERS_CACHE_TTL_MS = 30 * 60 * 1000;
 const countersCache = new Map<string, { data: WorkspaceSequenceCounters; fetchedAt: number }>();
 const inFlightCounterPromises = new Map<string, Promise<WorkspaceSequenceCounters>>();
 
@@ -14,12 +14,37 @@ function cloneCounters(c: WorkspaceSequenceCounters): WorkspaceSequenceCounters 
   };
 }
 
+function getCachedCounters(workspaceId: string): WorkspaceSequenceCounters | null {
+  if (!workspaceId) return null;
+  const mem = countersCache.get(workspaceId);
+  if (mem) return cloneCounters(mem.data);
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const raw = window.localStorage.getItem(`sas_seq_counters_${workspaceId}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          countersCache.set(workspaceId, { data: cloneCounters(parsed), fetchedAt: Date.now() });
+          return cloneCounters(parsed);
+        }
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
 function setCachedCounters(workspaceId: string, data: WorkspaceSequenceCounters): void {
   if (!workspaceId) return;
+  const cloned = cloneCounters(data);
   countersCache.set(workspaceId, {
-    data: cloneCounters(data),
+    data: cloned,
     fetchedAt: Date.now()
   });
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(`sas_seq_counters_${workspaceId}`, JSON.stringify(cloned));
+    }
+  } catch (_) {}
 }
 
 export function patternRequiresCompanyCode(pattern?: string | null): boolean {
@@ -181,6 +206,7 @@ export async function getWorkspaceSequenceCounters(workspaceId: string): Promise
 
 /**
  * Save or seed the workspace sequence settings (Admin action).
+ * Uses direct merge write (0 BatchGetDocuments read transactions) so saving settings never fails under read quota pressure.
  */
 export async function updateWorkspaceSequenceSettings(
   workspaceId: string,
@@ -193,60 +219,44 @@ export async function updateWorkspaceSequenceSettings(
   },
   userId = 'admin'
 ): Promise<void> {
-  const docRef = getWorkspaceCountersDocRef(workspaceId);
   const now = new Date();
   const periodKey = getSequencePeriodKey(settings.resetCadence, now);
-  let committedPayload: WorkspaceSequenceCounters | null = null;
+  const currentData: WorkspaceSequenceCounters = getCachedCounters(workspaceId) || {
+    prefix: '',
+    pattern: '{PREFIX}/{MM}/{YYYY}/{SEQ}',
+    resetCadence: 'monthly',
+    lastSnNumber: 0,
+    sequences: {},
+    updatedAt: now.toISOString(),
+    updatedBy: userId
+  };
+
+  const updatedSequences = { ...(currentData.sequences || {}) };
+
+  // If a custom next sequence baseline was provided, seed it into the current period key
+  if (typeof settings.nextSeqBaseline === 'number' && !isNaN(settings.nextSeqBaseline)) {
+    updatedSequences[periodKey] = Math.max(0, settings.nextSeqBaseline - 1);
+  }
+
+  let updatedLastSn = currentData.lastSnNumber || 0;
+  if (typeof settings.nextSnBaseline === 'number' && !isNaN(settings.nextSnBaseline)) {
+    updatedLastSn = Math.max(0, settings.nextSnBaseline - 1);
+  }
+
+  const updatePayload: WorkspaceSequenceCounters = {
+    prefix: (settings.prefix || '').trim(),
+    pattern: (settings.pattern || '').trim() || '{PREFIX}/{MM}/{YYYY}/{SEQ}',
+    resetCadence: settings.resetCadence,
+    lastSnNumber: updatedLastSn,
+    sequences: updatedSequences,
+    updatedAt: now.toISOString(),
+    updatedBy: userId
+  };
+
+  setCachedCounters(workspaceId, updatePayload);
 
   try {
-    await runTransaction(db, async (transaction) => {
-      const snap = await transaction.get(docRef);
-      let currentData: WorkspaceSequenceCounters;
-
-      if (snap.exists()) {
-        currentData = snap.data() as WorkspaceSequenceCounters;
-      } else {
-        currentData = {
-          prefix: '',
-          pattern: '{PREFIX}/{MM}/{YYYY}/{SEQ}',
-          resetCadence: 'monthly',
-          lastSnNumber: 0,
-          sequences: {},
-          updatedAt: now.toISOString(),
-          updatedBy: userId
-        };
-      }
-
-      const updatedSequences = { ...(currentData.sequences || {}) };
-
-      // If a custom next sequence baseline was provided, seed it into the current period key
-      if (typeof settings.nextSeqBaseline === 'number' && !isNaN(settings.nextSeqBaseline)) {
-        // baseline is the NEXT number to be assigned, so the current counter is nextSeqBaseline - 1
-        updatedSequences[periodKey] = Math.max(0, settings.nextSeqBaseline - 1);
-      }
-
-      let updatedLastSn = currentData.lastSnNumber || 0;
-      if (typeof settings.nextSnBaseline === 'number' && !isNaN(settings.nextSnBaseline)) {
-        // next S/N to be assigned means current lastSnNumber is baseline - 1
-        updatedLastSn = Math.max(0, settings.nextSnBaseline - 1);
-      }
-
-      const updatePayload: WorkspaceSequenceCounters = {
-        prefix: (settings.prefix || '').trim(),
-        pattern: (settings.pattern || '').trim() || '{PREFIX}/{MM}/{YYYY}/{SEQ}',
-        resetCadence: settings.resetCadence,
-        lastSnNumber: updatedLastSn,
-        sequences: updatedSequences,
-        updatedAt: now.toISOString(),
-        updatedBy: userId
-      };
-
-      committedPayload = updatePayload;
-      transaction.set(docRef, updatePayload, { merge: true });
-    });
-    if (committedPayload) {
-      setCachedCounters(workspaceId, committedPayload);
-    }
+    await safeSetDoc(`workspaces/${workspaceId}/system`, 'counters', updatePayload, { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `workspaces/${workspaceId}/system/counters`);
     throw err;
@@ -623,173 +633,100 @@ export async function claimNextEnquirySequence(
     console.warn('[claimNextEnquirySequence] Could not calculate active ceilings:', err);
   }
 
-  // Pre-query highest existing S/N and check targetSn collision from Firestore enquiries if not found locally
-  try {
-    if (options?.targetSn && options.targetSn > 0 && !isTargetSnTaken) {
-      const numTarget = Number(options.targetSn);
-      const strTarget = String(options.targetSn);
+  // Cache-first atomic merge without BatchGetDocuments transaction
+  const counters = await getWorkspaceSequenceCounters(workspaceId);
 
-      // Query both workspace_id and workspaceId for both numeric and string representations of sn
-      const [snap1, snap2, snap3, snap4] = await Promise.all([
-        safeGetDocs('enquiries', where('workspace_id', '==', workspaceId), where('sn', '==', numTarget)),
-        safeGetDocs('enquiries', where('workspace_id', '==', workspaceId), where('sn', '==', strTarget)),
-        safeGetDocs('enquiries', where('workspaceId', '==', workspaceId), where('sn', '==', numTarget)),
-        safeGetDocs('enquiries', where('workspaceId', '==', workspaceId), where('sn', '==', strTarget))
-      ]);
+  const currentPeriodKey = getSequencePeriodKey(counters.resetCadence, now);
+  if (candidateEnquiries && candidateEnquiries.length > 0) {
+    const scopedCeilings = getWorkspaceActiveCeilings(
+      candidateEnquiries,
+      workspaceId,
+      counters.pattern,
+      currentPeriodKey,
+      counters.resetCadence
+    );
+    maxSn = scopedCeilings.maxSn;
+    maxSeq = scopedCeilings.maxSeq;
+  }
 
-      const allDocs = [
-        ...(snap1?.docs || []),
-        ...(snap2?.docs || []),
-        ...(snap3?.docs || []),
-        ...(snap4?.docs || [])
-      ];
+  const periodKey = currentPeriodKey;
+  const baseSeq = counters.sequences?.[periodKey] || 0;
 
-      const activeMatches = allDocs.filter((d: any) => {
-        const data = d.data();
-        if (data?.is_deleted) return false;
-        return Number(data?.sn) === numTarget;
-      });
+  // Respect the higher of configured counter baselines and active records ceiling
+  const currentMaxSn = Math.max(counters.lastSnNumber || 0, maxSn);
+  const currentMaxSeq = Math.max(baseSeq, maxSeq);
 
-      if (activeMatches.length > 0) {
-        isTargetSnTaken = true;
-      }
+  let nextSn: number;
+  if (options?.targetSn && options.targetSn > 0) {
+    if (!isTargetSnTaken) {
+      nextSn = options.targetSn;
+    } else {
+      nextSn = currentMaxSn + 1;
     }
-  } catch (err) {
-    console.warn('[claimNextEnquirySequence] Could not check targetSn collision from Firestore:', err);
+  } else {
+    nextSn = currentMaxSn + 1;
   }
+
+  let nextSeq: number;
+  if (options?.targetSeq && options.targetSeq > 0) {
+    nextSeq = options.targetSeq;
+  } else {
+    nextSeq = currentMaxSeq + 1;
+  }
+
+  let quoteRef: string;
+  if (options?.customQuoteRef && typeof options.customQuoteRef === 'string' && options.customQuoteRef.trim()) {
+    quoteRef = options.customQuoteRef.trim();
+    const parsed = parseSequenceFromQuoteRef(quoteRef, counters.pattern);
+    if (parsed && parsed >= nextSeq) {
+      nextSeq = parsed;
+    }
+  } else {
+    quoteRef = formatPattern(counters.pattern, {
+      seq: nextSeq,
+      prefix: counters.prefix,
+      date: now,
+      rep: repInitials,
+      country: options?.country,
+      countryCode: options?.countryCode,
+      companyCode: options?.companyCode
+    });
+  }
+
+  const updatedSequences = {
+    ...(counters.sequences || {}),
+    [periodKey]: nextSeq
+  };
+
+  const committedLastSn = Math.max(currentMaxSn, nextSn);
+  const updatedCounters: WorkspaceSequenceCounters = {
+    prefix: counters.prefix,
+    pattern: counters.pattern,
+    resetCadence: counters.resetCadence,
+    lastSnNumber: committedLastSn,
+    sequences: updatedSequences,
+    updatedAt: now.toISOString(),
+    updatedBy: userId
+  };
+
+  setCachedCounters(workspaceId, updatedCounters);
 
   try {
-    return await runTransaction(db, async (transaction) => {
-      const snap = await transaction.get(docRef);
-      let counters: WorkspaceSequenceCounters;
-
-      if (snap.exists()) {
-        const data = snap.data();
-        counters = {
-          prefix: data.prefix !== undefined ? data.prefix : '',
-          pattern: data.pattern || '{PREFIX}/{MM}/{YYYY}/{SEQ}',
-          resetCadence: data.resetCadence || 'monthly',
-          lastSnNumber: typeof data.lastSnNumber === 'number' ? data.lastSnNumber : 0,
-          sequences: data.sequences || {},
-          updatedAt: data.updatedAt || now.toISOString(),
-          updatedBy: data.updatedBy || userId
-        };
-      } else {
-        counters = {
-          prefix: '',
-          pattern: '{PREFIX}/{MM}/{YYYY}/{SEQ}',
-          resetCadence: 'monthly',
-          lastSnNumber: 0,
-          sequences: {},
-          updatedAt: now.toISOString(),
-          updatedBy: userId
-        };
-      }
-
-      const currentPeriodKey = getSequencePeriodKey(counters.resetCadence, now);
-      if (candidateEnquiries && candidateEnquiries.length > 0) {
-        const scopedCeilings = getWorkspaceActiveCeilings(
-          candidateEnquiries,
-          workspaceId,
-          counters.pattern,
-          currentPeriodKey,
-          counters.resetCadence
-        );
-        maxSn = scopedCeilings.maxSn;
-        maxSeq = scopedCeilings.maxSeq;
-      }
-
-      const periodKey = currentPeriodKey;
-      const baseSeq = counters.sequences?.[periodKey] || 0;
-
-      // Respect the higher of configured counter baselines and active records ceiling
-      const currentMaxSn = Math.max(counters.lastSnNumber || 0, maxSn);
-      const currentMaxSeq = Math.max(baseSeq, maxSeq);
-
-      let nextSn: number;
-      if (options?.targetSn && options.targetSn > 0) {
-        if (!isTargetSnTaken) {
-          nextSn = options.targetSn;
-        } else {
-          nextSn = currentMaxSn + 1;
-        }
-      } else {
-        nextSn = currentMaxSn + 1;
-      }
-
-      let nextSeq: number;
-      if (options?.targetSeq && options.targetSeq > 0) {
-        nextSeq = options.targetSeq;
-      } else {
-        nextSeq = currentMaxSeq + 1;
-      }
-
-      let quoteRef: string;
-      if (options?.customQuoteRef && typeof options.customQuoteRef === 'string' && options.customQuoteRef.trim()) {
-        quoteRef = options.customQuoteRef.trim();
-        const parsed = parseSequenceFromQuoteRef(quoteRef, counters.pattern);
-        if (parsed && parsed >= nextSeq) {
-          nextSeq = parsed;
-        }
-      } else {
-        quoteRef = formatPattern(counters.pattern, {
-          seq: nextSeq,
-          prefix: counters.prefix,
-          date: now,
-          rep: repInitials,
-          country: options?.country,
-          countryCode: options?.countryCode,
-          companyCode: options?.companyCode
-        });
-      }
-
-      const updatedSequences = {
-        ...(counters.sequences || {}),
-        [periodKey]: nextSeq
-      };
-
-      // Commit the new lastSnNumber and sequences[periodKey]
-      const committedLastSn = Math.max(currentMaxSn, nextSn);
-
-      transaction.set(
-        docRef,
-        {
-          prefix: counters.prefix,
-          pattern: counters.pattern,
-          resetCadence: counters.resetCadence,
-          lastSnNumber: committedLastSn,
-          sequences: updatedSequences,
-          updatedAt: now.toISOString(),
-          updatedBy: userId
-        },
-        { merge: true }
-      );
-
-      setCachedCounters(workspaceId, {
-        prefix: counters.prefix,
-        pattern: counters.pattern,
-        resetCadence: counters.resetCadence,
-        lastSnNumber: committedLastSn,
-        sequences: updatedSequences,
-        updatedAt: now.toISOString(),
-        updatedBy: userId
-      });
-
-      return {
-        sn: nextSn,
-        quoteRef,
-        sequence: nextSeq
-      };
-    });
+    await safeSetDoc(`workspaces/${workspaceId}/system`, 'counters', updatedCounters, { merge: true });
   } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, `workspaces/${workspaceId}/system/counters`);
-    throw err;
+    console.warn('[claimNextEnquirySequence] Non-blocking counter sync warning (Quota/Offline):', err);
   }
+
+  return {
+    sn: nextSn,
+    quoteRef,
+    sequence: nextSeq
+  };
 }
 
 /**
  * Protects legacy high-water marks and manual sequence inputs.
- * Atomically updates BOTH lastSnNumber and sequences[periodKey] to prevent sequence collisions.
+ * Short-circuits with 0 reads and 0 writes when existing counters already cover the S/N and sequence.
  */
 export async function syncSequenceHighWaterMark(
   workspaceId: string,
@@ -802,78 +739,68 @@ export async function syncSequenceHighWaterMark(
     return { lastSnNumber: importedSn || 0 };
   }
 
-  const docRef = getWorkspaceCountersDocRef(workspaceId);
+  const existingData = getCachedCounters(workspaceId) || {
+    prefix: '',
+    pattern: '{PREFIX}/{MM}/{YYYY}/{SEQ}',
+    resetCadence: 'monthly' as const,
+    lastSnNumber: 0,
+    sequences: {},
+    updatedAt: new Date().toISOString(),
+    updatedBy: userId
+  };
+
+  const currentLastSn = typeof existingData.lastSnNumber === 'number' ? existingData.lastSnNumber : 0;
+  const pattern = existingData.pattern || '{PREFIX}/{MM}/{YYYY}/{SEQ}';
+  const cadence: 'never' | 'monthly' | 'yearly' = existingData.resetCadence || 'monthly';
+  const prefix = existingData.prefix !== undefined ? existingData.prefix : '';
+  const sequences: Record<string, number> = existingData.sequences ? { ...existingData.sequences } : {};
+
+  const newLastSn = Math.max(currentLastSn, importedSn || 0);
+  let hasChanges = newLastSn > currentLastSn;
+
+  const periodKey = getSequencePeriodKey(cadence, date);
+  let updatedSeq = sequences[periodKey] || 0;
+
+  if (quoteRef) {
+    const parsedSeq = parseSequenceFromQuoteRef(quoteRef, pattern);
+    if (parsedSeq && parsedSeq > updatedSeq) {
+      updatedSeq = parsedSeq;
+      sequences[periodKey] = updatedSeq;
+      hasChanges = true;
+    }
+  }
+
+  // CRITICAL SHORT-CIRCUIT: 0 Firestore reads and 0 Firestore writes when high-water mark did not increase
+  if (!hasChanges) {
+    return {
+      lastSnNumber: newLastSn,
+      periodKey,
+      sequence: updatedSeq
+    };
+  }
+
+  const nowIso = new Date().toISOString();
+  const updatedPayload: WorkspaceSequenceCounters = {
+    prefix,
+    pattern,
+    resetCadence: cadence,
+    lastSnNumber: newLastSn,
+    sequences,
+    updatedAt: nowIso,
+    updatedBy: userId
+  };
+
+  setCachedCounters(workspaceId, updatedPayload);
 
   try {
-    return await runTransaction(db, async (transaction) => {
-      const snap = await transaction.get(docRef);
-      let existingData: any = {};
-      let currentLastSn = 0;
-      let pattern = '{PREFIX}/{MM}/{YYYY}/{SEQ}';
-      let cadence: 'never' | 'monthly' | 'yearly' = 'monthly';
-      let prefix = '';
-      let sequences: Record<string, number> = {};
-
-      if (snap.exists()) {
-        existingData = snap.data();
-        currentLastSn = typeof existingData.lastSnNumber === 'number' ? existingData.lastSnNumber : 0;
-        pattern = existingData.pattern || pattern;
-        cadence = existingData.resetCadence || cadence;
-        prefix = existingData.prefix !== undefined ? existingData.prefix : '';
-        sequences = existingData.sequences ? { ...existingData.sequences } : {};
-      }
-
-      const newLastSn = Math.max(currentLastSn, importedSn || 0);
-      let hasChanges = newLastSn !== currentLastSn || !snap.exists();
-
-      const periodKey = getSequencePeriodKey(cadence, date);
-      let updatedSeq = sequences[periodKey] || 0;
-
-      if (quoteRef) {
-        const parsedSeq = parseSequenceFromQuoteRef(quoteRef, pattern);
-        if (parsedSeq && parsedSeq > updatedSeq) {
-          updatedSeq = parsedSeq;
-          sequences[periodKey] = updatedSeq;
-          hasChanges = true;
-        }
-      }
-
-      const nowIso = new Date().toISOString();
-      if (hasChanges) {
-        transaction.set(
-          docRef,
-          {
-            ...existingData,
-            prefix,
-            pattern,
-            resetCadence: cadence,
-            lastSnNumber: newLastSn,
-            sequences,
-            updatedAt: nowIso,
-            updatedBy: userId
-          },
-          { merge: true }
-        );
-      }
-
-      setCachedCounters(workspaceId, {
-        prefix,
-        pattern,
-        resetCadence: cadence,
-        lastSnNumber: newLastSn,
-        sequences,
-        updatedAt: nowIso,
-        updatedBy: userId
-      });
-
-      return {
-        lastSnNumber: newLastSn,
-        periodKey,
-        sequence: updatedSeq
-      };
-    });
+    await safeSetDoc(`workspaces/${workspaceId}/system`, 'counters', updatedPayload, { merge: true });
   } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, `workspaces/${workspaceId}/system/counters`);
-    throw err;
+    console.warn('[syncSequenceHighWaterMark] Non-blocking counter sync warning (Quota/Offline):', err);
   }
+
+  return {
+    lastSnNumber: newLastSn,
+    periodKey,
+    sequence: updatedSeq
+  };
 }

@@ -1,28 +1,45 @@
 import { Product, Salesperson, Workspace, DropdownOption, AuditLog } from '../../types';
 import { syncEngine } from '../SyncEngine';
 import { getFromLocalStore, saveToLocalStore } from '../db';
-import { safeGetDocs } from '../../firebase';
+import { safeGetDocs, safeSetDoc } from '../../firebase';
 import { where } from 'firebase/firestore';
+import {
+  hasInlineBase64Payload,
+  sanitizeFirestorePayload,
+  rehydrateDocumentBlobsSync
+} from '../attachmentStorage';
+
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export class MetadataRepository {
   private static PRODUCT_STORE = 'products';
   private static PRODUCT_LS_KEY = 'omni_products';
   private static productsCache = new Map<string, { data: Product[]; fetchedAt: number }>();
 
+  private static normalizeProduct(raw: any): Product {
+    return rehydrateDocumentBlobsSync(raw) as Product;
+  }
+
   private static syncProductsToLocalStorage(products: Product[]): void {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem(this.PRODUCT_LS_KEY, JSON.stringify(products));
+        const serialized = JSON.stringify(products);
+        if (serialized.length <= 200_000) {
+          window.localStorage.setItem(this.PRODUCT_LS_KEY, serialized);
+        } else {
+          window.localStorage.removeItem(this.PRODUCT_LS_KEY);
+        }
       }
     } catch (_) {}
   }
 
   public static async syncProductListToStores(products: Product[]): Promise<void> {
-    await saveToLocalStore(this.PRODUCT_STORE, products);
-    this.syncProductsToLocalStorage(products);
-    this.productsCache.set('__all__', { data: products, fetchedAt: Date.now() });
+    const cleanDocs = (products || []).map((p) => this.normalizeProduct(p));
+    await saveToLocalStore(this.PRODUCT_STORE, cleanDocs);
+    this.syncProductsToLocalStorage(cleanDocs);
+    this.productsCache.set('__all__', { data: cleanDocs, fetchedAt: Date.now() });
     const byWs = new Map<string, Product[]>();
-    for (const p of products) {
+    for (const p of cleanDocs) {
       const ws = (p as any).workspace_id || (p as any).workspaceId;
       if (ws) {
         if (!byWs.has(ws)) byWs.set(ws, []);
@@ -34,27 +51,32 @@ export class MetadataRepository {
     });
   }
 
-  // Static Metadata - fetched once on boot, cached in memory (30 min TTL) + IndexedDB + localStorage
-  public static async fetchProductsOnce(workspaceId?: string): Promise<Product[]> {
+  // Static Metadata - fetched once on boot, cached in memory (24h TTL) + IndexedDB
+  public static async fetchProductsOnce(workspaceId?: string, force = false): Promise<Product[]> {
     const cacheKey = workspaceId || '__all__';
-    const cached = this.productsCache.get(cacheKey);
-    if (cached && Date.now() - cached.fetchedAt < 30 * 60 * 1000 && cached.data.length > 0) {
-      return [...cached.data];
-    }
-
-    // Check IndexedDB / localStorage cache before hitting Firestore if App.tsx already hydrated products
-    try {
-      const local = await getFromLocalStore<Product>(this.PRODUCT_STORE);
-      if (local && local.length > 0) {
-        const filtered = workspaceId
-          ? local.filter((p: any) => !p.workspace_id || p.workspace_id === workspaceId || p.workspaceId === workspaceId)
-          : local;
-        if (filtered.length > 0) {
-          this.productsCache.set(cacheKey, { data: filtered, fetchedAt: Date.now() });
-          return filtered;
-        }
+    if (!force) {
+      const cached = this.productsCache.get(cacheKey);
+      if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS && cached.data.length > 0) {
+        return [...cached.data];
       }
-    } catch (_) {}
+
+      // Check IndexedDB cache before hitting Firestore
+      try {
+        const local = await getFromLocalStore<Product>(this.PRODUCT_STORE);
+        if (local && local.length > 0) {
+          const normalizedLocal = local.map((p) => this.normalizeProduct(p));
+          const filtered = workspaceId
+            ? normalizedLocal.filter(
+                (p: any) => !p.workspace_id || p.workspace_id === workspaceId || p.workspaceId === workspaceId
+              )
+            : normalizedLocal;
+          if (filtered.length > 0) {
+            this.productsCache.set(cacheKey, { data: filtered, fetchedAt: Date.now() });
+            return filtered;
+          }
+        }
+      } catch (_) {}
+    }
 
     try {
       const snap = workspaceId
@@ -62,7 +84,7 @@ export class MetadataRepository {
         : await safeGetDocs('products');
       if (!snap || snap.empty) {
         const local = await getFromLocalStore<Product>(this.PRODUCT_STORE);
-        if (local && local.length > 0) return local;
+        if (local && local.length > 0) return local.map((p) => this.normalizeProduct(p));
         try {
           const raw = typeof window !== 'undefined' ? window.localStorage.getItem(this.PRODUCT_LS_KEY) : null;
           return raw ? JSON.parse(raw) : [];
@@ -70,13 +92,46 @@ export class MetadataRepository {
           return [];
         }
       }
-      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product));
+
+      const compactionFlagKey = 'sas_enterprise_4kib_compacted_products_v1';
+      const hasCompacted =
+        typeof window !== 'undefined' &&
+        window.localStorage?.getItem(compactionFlagKey) === 'true';
+      const oversizedProductsToCompact: Array<{ id: string; rawData: any }> = [];
+
+      const docs = snap.docs.map((d) => {
+        const rawData = d.data();
+        if (!hasCompacted && rawData && !rawData.is_deleted && hasInlineBase64Payload(rawData)) {
+          oversizedProductsToCompact.push({ id: d.id, rawData });
+        }
+        return this.normalizeProduct({ id: d.id, ...rawData });
+      });
+
+      if (!hasCompacted && typeof window !== 'undefined') {
+        try {
+          window.localStorage?.setItem(compactionFlagKey, 'true');
+        } catch (_) {}
+        if (oversizedProductsToCompact.length > 0) {
+          let compIdx = 0;
+          const scheduleNext = () => {
+            if (compIdx >= oversizedProductsToCompact.length) return;
+            const { id: docId, rawData } = oversizedProductsToCompact[compIdx++];
+            try {
+              const compacted = sanitizeFirestorePayload({ ...rawData, id: docId });
+              safeSetDoc('products', docId, compacted).catch(() => {});
+            } catch (_) {}
+            setTimeout(scheduleNext, 500);
+          };
+          setTimeout(scheduleNext, 500);
+        }
+      }
+
       await this.syncProductListToStores(docs);
       this.productsCache.set(cacheKey, { data: docs, fetchedAt: Date.now() });
       return docs;
     } catch (e) {
       const local = await getFromLocalStore<Product>(this.PRODUCT_STORE);
-      if (local && local.length > 0) return local;
+      if (local && local.length > 0) return local.map((p) => this.normalizeProduct(p));
       try {
         const raw = typeof window !== 'undefined' ? window.localStorage.getItem(this.PRODUCT_LS_KEY) : null;
         return raw ? JSON.parse(raw) : [];
@@ -87,18 +142,20 @@ export class MetadataRepository {
   }
 
   public static async saveProduct(product: Product): Promise<void> {
+    const sanitizedForCloud = sanitizeFirestorePayload(product);
+    const hydratedProduct = this.normalizeProduct(sanitizedForCloud);
     const current = await getFromLocalStore<Product>(this.PRODUCT_STORE);
-    const idx = current.findIndex((p) => p.id === product.id);
+    const idx = current.findIndex((p) => p.id === hydratedProduct.id);
     let updated: Product[];
     if (idx >= 0) {
       updated = [...current];
-      updated[idx] = product;
+      updated[idx] = hydratedProduct;
     } else {
-      updated = [product, ...current];
+      updated = [hydratedProduct, ...current];
     }
     await this.syncProductListToStores(updated);
-    if (product.id) {
-      await syncEngine.enqueue('products', 'set', product.id, product);
+    if (hydratedProduct.id) {
+      await syncEngine.enqueue('products', 'set', hydratedProduct.id, sanitizedForCloud);
     }
   }
 

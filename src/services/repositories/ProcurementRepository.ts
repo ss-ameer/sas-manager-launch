@@ -57,12 +57,13 @@ export class ProcurementRepository {
   private static workspaceCache = new Map<string, { data: SupplierBill[]; fetchedAt: number }>();
 
   private static normalizeBill(b: SupplierBill): SupplierBill {
+    const rehydrated = rehydrateDocumentBlobsSync(b);
     return {
-      ...b,
-      vendor_company_id: b.vendor_company_id || b.supplier_id,
-      vendor_name: b.vendor_name || b.supplier_name || 'Vendor',
-      vendor_trn: b.vendor_trn || b.supplier_trn,
-      three_way_match_status: b.three_way_match_status || b.match_status || 'no_po'
+      ...rehydrated,
+      vendor_company_id: rehydrated.vendor_company_id || rehydrated.supplier_id,
+      vendor_name: rehydrated.vendor_name || rehydrated.supplier_name || 'Vendor',
+      vendor_trn: rehydrated.vendor_trn || rehydrated.supplier_trn,
+      three_way_match_status: rehydrated.three_way_match_status || rehydrated.match_status || 'no_po'
     };
   }
 
@@ -230,33 +231,84 @@ export class ProcurementRepository {
 
   /**
    * Fetches all active (non-deleted) Supplier Bills for a workspace.
+   * Uses a 30-minute cache TTL and local-storage-first lookup to prevent redundant Firestore collection scans.
    */
   static async getWorkspaceSupplierBills(workspaceId: string): Promise<SupplierBill[]> {
     const wsId = workspaceId || 'ws_default';
+    const CACHE_TTL_MS = 30 * 60 * 1000;
     const cached = this.workspaceCache.get(wsId);
-    if (cached && Date.now() - cached.fetchedAt < 10_000) {
+    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
       return [...cached.data];
     }
 
-    const mergedMap = new Map<string, SupplierBill>();
-
-    readLocalBills()
+    const allLocal = readLocalBills();
+    const localWsBills = allLocal
       .filter((b) => !b.is_deleted && (b.workspace_id === wsId || (!b.workspace_id && wsId === 'ws_default')))
-      .forEach((b) => {
-        if (b.id) mergedMap.set(b.id, this.normalizeBill(b));
-      });
+      .map((b) => this.normalizeBill(b))
+      .sort((a, b) =>
+        (b.invoice_date || b.created_at || '').localeCompare(a.invoice_date || a.created_at || '')
+      );
+
+    const fetchedAtKey = `sas_bills_fetched_at_${wsId}`;
+    const lastFetchedStr =
+      typeof window !== 'undefined' ? window.localStorage?.getItem(fetchedAtKey) : null;
+    const lastFetchedAt = lastFetchedStr ? parseInt(lastFetchedStr, 10) : 0;
+    if (lastFetchedAt > 0 && Date.now() - lastFetchedAt < CACHE_TTL_MS) {
+      this.workspaceCache.set(wsId, { data: localWsBills, fetchedAt: Date.now() });
+      return [...localWsBills];
+    }
+
+    const mergedMap = new Map<string, SupplierBill>();
+    localWsBills.forEach((b) => {
+      if (b.id) mergedMap.set(b.id, b);
+    });
 
     try {
       const snap = await safeGetDocs(SUPPLIER_BILLS_COLLECTION, where('workspace_id', '==', wsId));
+      const oversizedBillsToCompact: Array<{ id: string; rawData: any }> = [];
+      const compactionFlagKey = `sas_enterprise_4kib_compacted_bills_v1_${wsId}`;
+      const hasCompacted =
+        typeof window !== 'undefined' &&
+        window.localStorage?.getItem(compactionFlagKey) === 'true';
+
       if (snap && !snap.empty) {
         snap.docs.forEach((d) => {
-          const data = { id: d.id, ...d.data() } as SupplierBill;
+          const rawData = d.data();
+          if (!hasCompacted && rawData && !rawData.is_deleted && hasInlineBase64Payload(rawData)) {
+            oversizedBillsToCompact.push({ id: d.id, rawData });
+          }
+          const data = { id: d.id, ...rawData } as SupplierBill;
           if (!data.is_deleted) {
             mergedMap.set(d.id, this.normalizeBill(data));
           } else {
             mergedMap.delete(d.id);
           }
         });
+      }
+
+      if (!hasCompacted && typeof window !== 'undefined') {
+        try {
+          window.localStorage?.setItem(compactionFlagKey, 'true');
+        } catch (_) {}
+        if (oversizedBillsToCompact.length > 0) {
+          let compIdx = 0;
+          const scheduleNext = () => {
+            if (compIdx >= oversizedBillsToCompact.length) return;
+            const { id: docId, rawData } = oversizedBillsToCompact[compIdx++];
+            try {
+              const compacted = sanitizeFirestorePayload({ ...rawData, id: docId });
+              safeSetDoc(SUPPLIER_BILLS_COLLECTION, docId, compacted).catch(() => {});
+            } catch (_) {}
+            setTimeout(scheduleNext, 500);
+          };
+          setTimeout(scheduleNext, 500);
+        }
+      }
+
+      if (typeof window !== 'undefined') {
+        try {
+          window.localStorage?.setItem(fetchedAtKey, String(Date.now()));
+        } catch (_) {}
       }
     } catch (err) {
       console.warn('[ProcurementRepository] Firestore query fallback to local:', err);
@@ -265,6 +317,10 @@ export class ProcurementRepository {
     const sorted = Array.from(mergedMap.values()).sort((a, b) =>
       (b.invoice_date || b.created_at || '').localeCompare(a.invoice_date || a.created_at || '')
     );
+    const otherWsLocal = allLocal.filter(
+      (lb) => lb.workspace_id && lb.workspace_id !== wsId
+    );
+    writeLocalBills([...sorted, ...otherWsLocal]);
     this.workspaceCache.set(wsId, { data: sorted, fetchedAt: Date.now() });
     return sorted;
   }
@@ -406,10 +462,14 @@ export class ProcurementRepository {
       updated_at: nowIso
     };
 
-    upsertLocalBill(fullBill);
-    await safeSetDoc(SUPPLIER_BILLS_COLLECTION, id, fullBill);
-    this.notifyWorkspaceSubscribers(fullBill.workspace_id);
-    return fullBill;
+    const sanitizedBill = sanitizeFirestorePayload(fullBill);
+    const hydratedBill = this.normalizeBill(sanitizedBill);
+    upsertLocalBill(hydratedBill);
+    const wsBills = this.readNormalizedLocalWorkspaceBills(hydratedBill.workspace_id);
+    this.workspaceCache.set(hydratedBill.workspace_id, { data: wsBills, fetchedAt: Date.now() });
+    await safeSetDoc(SUPPLIER_BILLS_COLLECTION, id, sanitizedBill);
+    this.notifyWorkspaceSubscribers(hydratedBill.workspace_id);
+    return hydratedBill;
   }
 
   /**

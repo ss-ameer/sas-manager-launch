@@ -45,6 +45,7 @@ export class QuotationRepository {
   private static activeSnapshotUnsubs = new Map<string, () => void>();
   private static isPaused = false;
   private static workspaceCache = new Map<string, { data: Quotation[]; fetchedAt: number }>();
+  private static enquiryQuotesCache = new Map<string, { data: Quotation[]; fetchedAt: number }>();
   private static profileCache = new Map<string, { data: WorkspaceDocumentProfile | null; fetchedAt: number }>();
   private static presetsCache = new Map<string, { data: QuotationPreset[]; fetchedAt: number }>();
   public static onProcurementDocLifecycleChange?: (workspaceId: string) => Promise<void>;
@@ -66,6 +67,7 @@ export class QuotationRepository {
 
   public static notifyWorkspaceSubscribers(workspaceId?: string): void {
     const wsId = workspaceId || 'ws_default';
+    this.enquiryQuotesCache.clear();
     if (wsId === '*') {
       this.workspaceCache.clear();
     } else {
@@ -91,19 +93,19 @@ export class QuotationRepository {
 
     const targetWsIds = wsId === '*' ? Array.from(this.workspaceSubscribers.keys()) : [wsId];
     for (const targetWsId of targetWsIds) {
-      const subs = this.workspaceSubscribers.get(targetWsId);
-      if (subs && subs.size > 0) {
-        this.readLocalWorkspaceQuotations(targetWsId)
-          .then((localQuotes) => {
-            this.workspaceCache.set(targetWsId, { data: localQuotes, fetchedAt: Date.now() });
+      this.readLocalWorkspaceQuotations(targetWsId)
+        .then((localQuotes) => {
+          this.workspaceCache.set(targetWsId, { data: localQuotes, fetchedAt: Date.now() });
+          const subs = this.workspaceSubscribers.get(targetWsId);
+          if (subs && subs.size > 0) {
             subs.forEach((cb) => {
               try {
                 cb(localQuotes);
               } catch (_) {}
             });
-          })
-          .catch(() => {});
-      }
+          }
+        })
+        .catch(() => {});
     }
   }
 
@@ -1453,6 +1455,7 @@ export class QuotationRepository {
       await saveToLocalStore(this.QUOTATIONS_STORE, updated);
     } catch (_) {}
 
+    this.notifyWorkspaceSubscribers(wsId);
     return newQuotation;
   }
 
@@ -1533,6 +1536,7 @@ export class QuotationRepository {
       await saveToLocalStore(this.QUOTATIONS_STORE, updated);
     } catch (_) {}
 
+    this.notifyWorkspaceSubscribers(wsId);
     return childQuotation;
   }
 
@@ -2310,16 +2314,57 @@ export class QuotationRepository {
 
   /**
    * Retrieves all quotations for a specific enquiry, strictly isolated by workspace.
+   * 100% Local/Cache-First to prevent redundant Firestore collection scans on modal/drawer opens.
    */
   public static async getQuotationsForEnquiry(
     enquiryId: string,
     workspaceId: string
   ): Promise<Quotation[]> {
     if (!enquiryId || !workspaceId) return [];
+    const wsId = workspaceId || 'ws_default';
+    const CACHE_TTL_MS = 30 * 60 * 1000;
 
+    // a) Check in-memory workspaceCache first
+    const cachedWs = this.workspaceCache.get(wsId);
+    if (cachedWs && Date.now() - cachedWs.fetchedAt < CACHE_TTL_MS) {
+      return cachedWs.data
+        .filter((q) => q.enquiry_id === enquiryId && !q.is_deleted)
+        .sort((a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0));
+    }
+
+    // b) Check in-memory enquiryQuotesCache second
+    const enqCacheKey = `${wsId}__${enquiryId}`;
+    const cachedEnq = this.enquiryQuotesCache.get(enqCacheKey);
+    if (cachedEnq && Date.now() - cachedEnq.fetchedAt < CACHE_TTL_MS) {
+      return [...cachedEnq.data];
+    }
+
+    // c) Check IndexedDB store before touching network
+    try {
+      const local = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
+      const wsLocal = local.filter((q) => {
+        const itemWsId = q.workspace_id || q.workspaceId;
+        return itemWsId === wsId && !q.is_deleted;
+      });
+      const lastFetchedStr =
+        typeof window !== 'undefined'
+          ? window.localStorage?.getItem('sas_quotes_ws_fetched_' + wsId)
+          : null;
+      const lastFetchedAt = lastFetchedStr ? parseInt(lastFetchedStr, 10) : 0;
+      const isWsRecentlyFetched = lastFetchedAt > 0 && Date.now() - lastFetchedAt < CACHE_TTL_MS;
+
+      if (wsLocal.length > 0 || isWsRecentlyFetched) {
+        const matched = wsLocal
+          .filter((q) => q.enquiry_id === enquiryId)
+          .map((q) => this.docToQuotation(q.id!, q))
+          .sort((a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0));
+        this.enquiryQuotesCache.set(enqCacheKey, { data: matched, fetchedAt: Date.now() });
+        return matched;
+      }
+    } catch (_) {}
+
+    // d) Cold cache fallback: query remote Firestore and persist to local store
     let quotes: Quotation[] = [];
-
-    // Query remote Firestore first
     try {
       const snap = await safeGetDocs(
         'quotations',
@@ -2329,30 +2374,26 @@ export class QuotationRepository {
       if (snap && !snap.empty) {
         snap.forEach((d) => {
           const item = this.docToQuotation(d.id, d.data());
-          // Strict workspace filtering checking dual fields
           const itemWsId = item.workspace_id || item.workspaceId;
-          if (itemWsId === workspaceId && !item.is_deleted) {
+          if (itemWsId === wsId && !item.is_deleted) {
             quotes.push(item);
           }
         });
       }
     } catch (_) {}
 
-    // If empty or in offline environment, fall back to local store
-    if (quotes.length === 0) {
+    if (quotes.length > 0) {
       try {
-        const local = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
-        quotes = local
-          .filter((q) => {
-            const itemWsId = q.workspace_id || q.workspaceId;
-            return q.enquiry_id === enquiryId && itemWsId === workspaceId && !q.is_deleted;
-          })
-          .map((q) => this.docToQuotation(q.id!, q));
+        const existing = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
+        const fetchedIds = new Set(quotes.map((q) => q.id));
+        const merged = existing.filter((q) => !fetchedIds.has(q.id)).concat(quotes);
+        await saveToLocalStore(this.QUOTATIONS_STORE, merged);
       } catch (_) {}
     }
 
-    // Sort descending by revision_number
-    return quotes.sort((a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0));
+    const sorted = quotes.sort((a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0));
+    this.enquiryQuotesCache.set(enqCacheKey, { data: sorted, fetchedAt: Date.now() });
+    return sorted;
   }
 
   /**
@@ -2360,10 +2401,35 @@ export class QuotationRepository {
    */
   public static async getQuotationsForWorkspace(workspaceId: string): Promise<Quotation[]> {
     const wsId = workspaceId || 'ws_default';
+    const CACHE_TTL_MS = 30 * 60 * 1000;
     const cached = this.workspaceCache.get(wsId);
-    if (cached && Date.now() - cached.fetchedAt < 10_000) {
+    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
       return [...cached.data];
     }
+
+    // Check IndexedDB store before firing Firestore getDocs
+    try {
+      const local = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
+      const localWsQuotes = local
+        .filter((raw) => {
+          const itemWsId = raw.workspace_id || raw.workspaceId;
+          return (!workspaceId || itemWsId === wsId) && !raw.is_deleted;
+        })
+        .map((raw) => this.docToQuotation(raw.id!, raw))
+        .sort((a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0));
+
+      const lastFetchedStr =
+        typeof window !== 'undefined'
+          ? window.localStorage?.getItem('sas_quotes_ws_fetched_' + wsId)
+          : null;
+      const lastFetchedAt = lastFetchedStr ? parseInt(lastFetchedStr, 10) : 0;
+      const isWsRecentlyFetched = lastFetchedAt > 0 && Date.now() - lastFetchedAt < CACHE_TTL_MS;
+
+      if (localWsQuotes.length > 0 && isWsRecentlyFetched) {
+        this.workspaceCache.set(wsId, { data: localWsQuotes, fetchedAt: Date.now() });
+        return [...localWsQuotes];
+      }
+    } catch (_) {}
 
     let quotes: Quotation[] = [];
 
@@ -2381,23 +2447,33 @@ export class QuotationRepository {
           }
         });
       }
+      if (typeof window !== 'undefined') {
+        try {
+          window.localStorage?.setItem('sas_quotes_ws_fetched_' + wsId, String(Date.now()));
+        } catch (_) {}
+      }
     } catch (_) {}
 
     // Fallback or union with IndexedDB store
     try {
       const local = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
       const remoteIds = new Set(quotes.map((q) => q.id));
+      const otherWsQuotes: Quotation[] = [];
       for (const raw of local) {
         const item = this.docToQuotation(raw.id!, raw);
         const itemWsId = item.workspace_id || item.workspaceId;
         if ((!workspaceId || itemWsId === wsId) && !item.is_deleted && !remoteIds.has(item.id)) {
           quotes.push(item);
+        } else if (workspaceId && itemWsId !== wsId) {
+          otherWsQuotes.push(item);
         }
       }
+      await saveToLocalStore(this.QUOTATIONS_STORE, [...quotes, ...otherWsQuotes]);
     } catch (_) {}
 
     const sorted = quotes.sort((a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0));
     this.workspaceCache.set(wsId, { data: sorted, fetchedAt: Date.now() });
+    this.enquiryQuotesCache.clear();
     return sorted;
   }
 
@@ -2556,6 +2632,12 @@ export class QuotationRepository {
               (a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0)
             );
             this.workspaceCache.set(wsId, { data: sorted, fetchedAt: Date.now() });
+            this.enquiryQuotesCache.clear();
+            if (typeof window !== 'undefined') {
+              try {
+                window.localStorage?.setItem('sas_quotes_ws_fetched_' + wsId, String(Date.now()));
+              } catch (_) {}
+            }
 
             const currentSubs = this.workspaceSubscribers.get(wsId);
             if (currentSubs) {
@@ -3401,7 +3483,7 @@ export class QuotationRepository {
 
   /**
    * Retrieves all quotation presets for a workspace, strictly isolated.
-   * Uses a 30-second in-memory cache to prevent redundant reads on modal opens.
+   * Uses a 30-minute in-memory cache + IndexedDB-first lookup to prevent redundant reads on modal opens.
    */
   public static async getPresets(workspaceId: string): Promise<QuotationPreset[]> {
     if (!workspaceId) return [];
@@ -3411,8 +3493,27 @@ export class QuotationRepository {
       return [...cached.data];
     }
 
+    // 1. Check IndexedDB store first (0 Firestore reads on page reload)
+    try {
+      const local = (await getFromLocalStore<QuotationPreset>(this.PRESETS_STORE)) || [];
+      const localMatches = local
+        .filter((p) => {
+          const itemWsId = p.workspace_id || p.workspaceId;
+          return itemWsId === workspaceId && !p.is_deleted;
+        })
+        .map((p) => this.docToPreset(p.id!, p));
+      if (localMatches.length > 0) {
+        const sortedLocal = localMatches.sort((a, b) =>
+          (a.preset_name || '').localeCompare(b.preset_name || '')
+        );
+        this.presetsCache.set(workspaceId, { data: sortedLocal, fetchedAt: Date.now() });
+        return [...sortedLocal];
+      }
+    } catch (_) {}
+
     let presets: QuotationPreset[] = [];
 
+    // 2. Cold fallback: query Firestore and persist to IndexedDB
     try {
       const snap = await safeGetDocs('quotation_presets', where('workspace_id', '==', workspaceId));
       if (snap && !snap.empty) {
@@ -3426,15 +3527,12 @@ export class QuotationRepository {
       }
     } catch (_) {}
 
-    if (presets.length === 0) {
+    if (presets.length > 0) {
       try {
-        const local = (await getFromLocalStore<QuotationPreset>(this.PRESETS_STORE)) || [];
-        presets = local
-          .filter((p) => {
-            const itemWsId = p.workspace_id || p.workspaceId;
-            return itemWsId === workspaceId && !p.is_deleted;
-          })
-          .map((p) => this.docToPreset(p.id!, p));
+        const existing = (await getFromLocalStore<QuotationPreset>(this.PRESETS_STORE)) || [];
+        const fetchedIds = new Set(presets.map((p) => p.id));
+        const merged = existing.filter((p) => !fetchedIds.has(p.id)).concat(presets);
+        await saveToLocalStore(this.PRESETS_STORE, merged);
       } catch (_) {}
     }
 
@@ -3471,7 +3569,7 @@ export class QuotationRepository {
 
   /**
    * Retrieves the active document profile for a workspace, strictly isolated.
-   * Uses a 30-minute in-memory cache to prevent redundant reads on modal opens.
+   * Uses a 30-minute in-memory cache + IndexedDB-first lookup to prevent redundant reads on modal opens.
    */
   public static async getWorkspaceDocumentProfile(
     workspaceId: string
@@ -3483,7 +3581,22 @@ export class QuotationRepository {
       return cached.data ? { ...cached.data } : null;
     }
 
-    // 1. Try Firestore fetch (scoped by workspace_id)
+    // 1. Check Local IndexedDB Cache first (0 Firestore reads on page reload)
+    try {
+      const local =
+        (await getFromLocalStore<WorkspaceDocumentProfile>(this.PROFILES_STORE)) || [];
+      const localMatch = local.find((p) => {
+        const itemWsId = p.workspace_id || p.workspaceId;
+        return itemWsId === workspaceId && !p.is_deleted;
+      });
+      if (localMatch) {
+        const merged = this.mergeWorkspaceDocumentProfile(null, localMatch);
+        this.profileCache.set(workspaceId, { data: merged, fetchedAt: Date.now() });
+        return merged;
+      }
+    } catch (_) {}
+
+    // 2. Cold fallback: Try Firestore fetch (scoped by workspace_id) and persist to IndexedDB
     try {
       const snap = await safeGetDocs('workspace_document_profiles', where('workspace_id', '==', workspaceId));
       if (snap && !snap.empty) {
@@ -3502,23 +3615,16 @@ export class QuotationRepository {
         });
         if (found) {
           this.profileCache.set(workspaceId, { data: found, fetchedAt: Date.now() });
+          try {
+            const existing =
+              (await getFromLocalStore<WorkspaceDocumentProfile>(this.PROFILES_STORE)) || [];
+            const updated = existing
+              .filter((p) => p.id !== (found as WorkspaceDocumentProfile).id)
+              .concat(found);
+            await saveToLocalStore(this.PROFILES_STORE, updated);
+          } catch (_) {}
           return found;
         }
-      }
-    } catch (_) {}
-
-    // 2. Fallback to Local IndexedDB Cache
-    try {
-      const local =
-        (await getFromLocalStore<WorkspaceDocumentProfile>(this.PROFILES_STORE)) || [];
-      const localMatch = local.find((p) => {
-        const itemWsId = p.workspace_id || p.workspaceId;
-        return itemWsId === workspaceId && !p.is_deleted;
-      });
-      if (localMatch) {
-        const merged = this.mergeWorkspaceDocumentProfile(null, localMatch);
-        this.profileCache.set(workspaceId, { data: merged, fetchedAt: Date.now() });
-        return merged;
       }
     } catch (_) {}
 
