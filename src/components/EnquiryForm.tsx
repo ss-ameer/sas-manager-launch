@@ -2208,9 +2208,61 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     const effectiveCountryCode = selectedComp?.country_code || '';
     const effectiveCompanyCode = selectedComp?.company_code || '';
 
-    // If editing an existing record whose quote_ref_no still contains [COMPANY_CODE] or [COUNTRY],
-    // automatically substitute the newly paired/updated company's code when not manually locked
-    if (isExistingRecord && !isGapRecord && !isQuoteRefCustom && quoteRefNo && (quoteRefNo.includes('[COMPANY_CODE]') || quoteRefNo.includes('[COUNTRY]'))) {
+    const selectedSpForRef = salespersons.find(
+      (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
+    );
+    const repInitialsForRef =
+      selectedSpForRef?.initials ||
+      (selectedSpForRef?.full_name
+        ? selectedSpForRef.full_name.slice(0, 2).toUpperCase()
+        : salesPerson
+        ? salesPerson.trim().slice(0, 3).toUpperCase()
+        : '');
+
+    const applyPrefixToExistingSeqTail = (rawRef: string): string | null => {
+      const clean = (rawRef || '').trim();
+      if (!clean || !workspaceCounters?.pattern) return null;
+      const tailMatch = clean.match(/(?:^|\/)(\d{2,6})-(\d{2})(\d{2})(\d{2,4})([A-Za-z]{0,4})((?:-R\d+|\/Rev\.\d+)?)$/i);
+      if (!tailMatch) return null;
+      const existingSeq = Number(tailMatch[1]);
+      const dd = tailMatch[2];
+      const mm = tailMatch[3];
+      const yyRaw = tailMatch[4];
+      const fullYear = yyRaw.length === 2 ? Number(`20${yyRaw}`) : Number(yyRaw);
+      const parsedDate = new Date(fullYear, Number(mm) - 1, Number(dd));
+      const fallbackParts = (enquiryDate || '').split('-');
+      const fallbackDate =
+        fallbackParts.length === 3
+          ? new Date(Number(fallbackParts[0]), Number(fallbackParts[1]) - 1, Number(fallbackParts[2]))
+          : new Date();
+      const validDate = !isNaN(parsedDate.getTime()) ? parsedDate : fallbackDate;
+      const existingTailLetters = tailMatch[5] || '';
+      const revSuffix = tailMatch[6] || '';
+
+      const formattedBase = formatPattern(workspaceCounters.pattern, {
+        seq: existingSeq,
+        prefix: workspaceCounters.prefix || '',
+        date: validDate,
+        rep: existingTailLetters || repInitialsForRef,
+        country: effectiveCountry,
+        countryCode: effectiveCountryCode,
+        companyCode: effectiveCompanyCode
+      });
+
+      const withRepTail =
+        existingTailLetters &&
+        !/\{REP\}/i.test(workspaceCounters.pattern) &&
+        !formattedBase.toUpperCase().endsWith(existingTailLetters.toUpperCase())
+          ? `${formattedBase}${existingTailLetters}`
+          : formattedBase;
+
+      return `${withRepTail}${revSuffix}`;
+    };
+
+    // If quoteRefNo (on an existing record or extracted via Smart Paste) contains unresolved [COMPANY_CODE]/[COUNTRY]
+    // OR is a bare sequence-date code like "2802-030926AA" lacking the workspace slash prefix,
+    // preserve its exact sequence/date suffix and only prepend/resolve the workspace/country/company prefix!
+    if (quoteRefNo && (!isGapRecord || hasPresetQuoteRef)) {
       let nextRef = quoteRefNo;
       if (effectiveCompanyCode && nextRef.includes('[COMPANY_CODE]')) {
         nextRef = nextRef.replace(/\[COMPANY_CODE\]/g, sanitizeCompanyCode(effectiveCompanyCode));
@@ -2218,6 +2270,16 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const resolvedCtry = resolveCountryCode(effectiveCountry, effectiveCountryCode);
       if (resolvedCtry && nextRef.includes('[COUNTRY]')) {
         nextRef = nextRef.replace(/\[COUNTRY\]/g, resolvedCtry);
+      }
+      if (
+        !nextRef.includes('/') &&
+        workspaceCounters?.pattern?.includes('/') &&
+        /^\d{2,6}-\d{6,8}[A-Za-z]{0,4}(?:-R\d+)?$/i.test(nextRef.trim())
+      ) {
+        const upgradedWithPrefix = applyPrefixToExistingSeqTail(nextRef);
+        if (upgradedWithPrefix && !upgradedWithPrefix.includes('[COMPANY_CODE]')) {
+          nextRef = upgradedWithPrefix;
+        }
       }
       if (nextRef !== quoteRefNo) {
         setQuoteRefNo(nextRef);
@@ -2449,11 +2511,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       }
 
       setPastedSourceText(enquiryToEdit.raw_source_text || null);
-      setQuoteRefNo(
-        enquiryToEdit.quote_ref_no && /\d/.test(enquiryToEdit.quote_ref_no)
-          ? enquiryToEdit.quote_ref_no
-          : ''
-      );
+      const initialEditRef =
+        enquiryToEdit.quote_ref_no &&
+        /\d/.test(enquiryToEdit.quote_ref_no) &&
+        !/^(received|details|from|for|by|subject|enquiry|quotation|item|none|null)$/i.test(
+          enquiryToEdit.quote_ref_no.trim()
+        )
+          ? enquiryToEdit.quote_ref_no.trim()
+          : '';
+      setQuoteRefNo(initialEditRef);
+      if (initialEditRef) {
+        setIsQuoteRefCustom(true);
+      }
       setProjectedOrderDate(enquiryToEdit.projected_order_date || '');
       setNextFollowupDate(enquiryToEdit.next_followup_date || '');
       const editCurrency = enquiryToEdit.currency || 'AED';
@@ -6693,7 +6762,6 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 <button
                                   type="button"
                                   onClick={async () => {
-                                    setIsQuoteRefCustom(false);
                                     const selectedSp = salespersons.find(
                                       (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
                                     );
@@ -6708,6 +6776,51 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     const parts = enquiryDate.split('-');
                                     const dateObj = parts.length === 3 ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])) : new Date();
                                     const isExisting = Boolean(enquiryToEdit && (enquiryToEdit.id || (enquiryToEdit as any)._id));
+
+                                    // Check if current quoteRefNo or enquiryToEdit.quote_ref_no already has a valid sequence-date suffix (e.g. 2802-030926AA)
+                                    const existingCandidate = (quoteRefNo || enquiryToEdit?.quote_ref_no || '').trim();
+                                    const tailMatch = existingCandidate.match(
+                                      /(?:^|\/)(\d{2,6})-(\d{2})(\d{2})(\d{2,4})([A-Za-z]{0,4})((?:-R\d+|\/Rev\.\d+)?)$/i
+                                    );
+
+                                    if (tailMatch && !isClaimingGap) {
+                                      try {
+                                        const counters = await getWorkspaceSequenceCounters(activeWorkspace.id);
+                                        setWorkspaceCounters(counters);
+                                        const existingSeq = Number(tailMatch[1]);
+                                        const dd = tailMatch[2];
+                                        const mm = tailMatch[3];
+                                        const yyRaw = tailMatch[4];
+                                        const fullYear = yyRaw.length === 2 ? Number(`20${yyRaw}`) : Number(yyRaw);
+                                        const parsedTailDate = new Date(fullYear, Number(mm) - 1, Number(dd));
+                                        const validDate = !isNaN(parsedTailDate.getTime()) ? parsedTailDate : dateObj;
+                                        const existingTailLetters = tailMatch[5] || '';
+                                        const revSuffix = tailMatch[6] || '';
+                                        const activePat = counters.pattern || '{SEQ}-{DD}{MM}{YY}';
+                                        const formattedBase = formatPattern(activePat, {
+                                          seq: existingSeq,
+                                          prefix: counters.prefix || '',
+                                          date: validDate,
+                                          rep: existingTailLetters || repInitials,
+                                          country: country || selectedComp?.country || 'UAE',
+                                          countryCode: selectedComp?.country_code || '',
+                                          companyCode: selectedComp?.company_code || ''
+                                        });
+                                        const withRepTail =
+                                          existingTailLetters &&
+                                          !/\{REP\}/i.test(activePat) &&
+                                          !formattedBase.toUpperCase().endsWith(existingTailLetters.toUpperCase())
+                                            ? `${formattedBase}${existingTailLetters}`
+                                            : formattedBase;
+                                        setQuoteRefNo(`${withRepTail}${revSuffix}`);
+                                        setIsQuoteRefCustom(true);
+                                        return;
+                                      } catch (err) {
+                                        console.warn(err);
+                                      }
+                                    }
+
+                                    setIsQuoteRefCustom(false);
                                     if (isExisting && !isClaimingGap && typeof sn === 'number' && sn > 0) {
                                       try {
                                         const counters = await getWorkspaceSequenceCounters(activeWorkspace.id);

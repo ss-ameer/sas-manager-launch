@@ -4145,47 +4145,118 @@ export default function EnquiryDetail({
     });
   }, [currentEnquiry.line_items, activeOptionTab, optionAnalysis.hasMultipleOptions]);
 
+  const handleQuickUpdateTimelineDate = async (
+    field: 'projected_order_date' | 'next_followup_date' | 'enquiry_date',
+    nextVal: string
+  ) => {
+    const enquiryId = currentEnquiry.id || (currentEnquiry as any)._id;
+    if (!enquiryId || !canEditEnquiry(user, activeWorkspace, currentEnquiry)) return;
+    const prevVal = (currentEnquiry as any)[field] || '';
+    if (prevVal === nextVal) return;
+
+    const nowIso = new Date().toISOString();
+    const patch: Partial<Enquiry> = {
+      [field]: nextVal || undefined,
+      updatedAt: nowIso
+    };
+    const updatedEnq: Enquiry = {
+      ...currentEnquiry,
+      ...patch
+    };
+
+    setCurrentEnquiry(updatedEnq);
+    if (onUpdateEnquiry) {
+      onUpdateEnquiry(updatedEnq);
+    }
+    if (setEnquiries) {
+      setEnquiries((prev) => prev.map((e) => (e.id === enquiryId ? updatedEnq : e)));
+    }
+
+    try {
+      await safeUpdateDoc('enquiries', enquiryId, patch);
+      await EnquiryRepository.save(updatedEnq, activeWorkspace?.id);
+      await recordAuditLog({
+        document_id: enquiryId,
+        entity_type: 'enquiry',
+        entity_title: `Enquiry #${currentEnquiry.sn}`,
+        action: 'update',
+        user,
+        before: { [field]: prevVal || null },
+        after: { [field]: nextVal || null },
+        changes: [
+          {
+            field,
+            old_value: prevVal || null,
+            new_value: nextVal || null
+          }
+        ]
+      });
+      const label =
+        field === 'projected_order_date'
+          ? 'Projected Order Date'
+          : field === 'next_followup_date'
+          ? 'Next Follow-up Date'
+          : 'Received Date';
+      triggerToast?.(`${label} updated to ${nextVal || 'Not Set'}`, 'success');
+    } catch (err: any) {
+      console.warn('Failed updating timeline date:', err);
+      triggerToast?.('Failed to update date: ' + (err?.message || 'Unknown error'), 'error');
+    }
+  };
+
   const handleRevert = async (log: AuditLog) => {
     const currentWsId = activeWorkspaceId || activeWorkspace?.id;
     if (!currentWsId) {
-      alert('Critical Error: Active workspace context lost. Cannot save record.');
-      throw new Error("Critical Error: Active workspace context lost. Cannot save record.");
+      triggerToast?.('Critical Error: Active workspace context lost. Cannot save record.', 'error');
+      return;
     }
-    const userRole = getUserWorkspaceRole(user, currentWsId, activeWorkspace);
-    if (user.role === 'Viewer' || userRole === 'Viewer') {
-      alert('Access Denied: Viewers do not have permission to mutate proposals or revert versions.');
+    if (!canEditEnquiry(user, activeWorkspace, currentEnquiry)) {
+      triggerToast?.('Access Denied: You do not have permission to revert this enquiry.', 'error');
       return;
     }
 
     const performRevert = async () => {
       setReverting(true);
       try {
-        // Prepare rolled-back data structure
-        const targetState = log.before || log.after; // Roll back to 'before' state of the edit
+        const targetState = log.before || log.after;
         if (!targetState) {
-          alert('No historic state found in this log.');
+          triggerToast?.('No historic state found in this log.', 'error');
           setReverting(false);
           return;
         }
 
-        // Clean out ID if it's there & force tamper-proof active workspace_id
         const { id, updatedAt, createdAt, ...rollbackData } = targetState;
+        const nowIso = new Date().toISOString();
         const finalRollbackPayload = {
           ...rollbackData,
-          workspace_id: currentWsId
+          workspace_id: currentWsId,
+          updatedAt: nowIso
         };
 
         await safeUpdateDoc('enquiries', enquiry.id!, finalRollbackPayload);
 
-        // Add rollback audit log
+        const rolledBackEnquiry: Enquiry = {
+          ...currentEnquiry,
+          ...finalRollbackPayload,
+          id: enquiry.id!
+        };
+        await EnquiryRepository.save(rolledBackEnquiry, currentWsId).catch(() => {});
+        setCurrentEnquiry(rolledBackEnquiry);
+        if (onUpdateEnquiry) {
+          onUpdateEnquiry(rolledBackEnquiry);
+        }
+        if (setEnquiries) {
+          setEnquiries((prev) => prev.map((e) => (e.id === enquiry.id ? rolledBackEnquiry : e)));
+        }
+
         const auditPayload = {
           document_id: enquiry.id!,
           entity_type: 'enquiry',
           action: 'update',
           changed_by_uid: user.uid,
           changed_by_name: user.username,
-          timestamp: new Date().toISOString(),
-          before: sanitizeAuditPayload(enquiry),
+          timestamp: nowIso,
+          before: sanitizeAuditPayload(currentEnquiry),
           after: sanitizeAuditPayload(rollbackData),
           changes: [
             {
@@ -4198,12 +4269,12 @@ export default function EnquiryDetail({
         await safeAddDoc('audit_logs', auditPayload);
 
         setRevertSuccess(true);
+        triggerToast?.(`Rolled back enquiry #${enquiry.sn} to ${new Date(log.timestamp).toLocaleString()}`, 'success');
         setTimeout(() => {
           setRevertSuccess(false);
-          window.location.reload(); // Refresh session to pull fresh data
-        }, 1500);
+        }, 2500);
       } catch (err: any) {
-        alert('Revert failed: ' + err.message);
+        triggerToast?.('Revert failed: ' + (err?.message || 'Unknown error'), 'error');
       } finally {
         setReverting(false);
       }
@@ -4254,14 +4325,500 @@ export default function EnquiryDetail({
     }
   };
 
+  const renderCommercialDocumentsHubSection = (isDedicatedTab = false) => (
+    <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-3.5">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center space-x-2">
+          <div className="w-6 h-6 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
+            <FileText className="w-3.5 h-3.5" />
+          </div>
+          <span className="text-xs font-mono text-slate-700 uppercase tracking-widest font-bold">
+            Commercial Documents Hub ({unifiedHubDocuments.length})
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {isDedicatedTab && canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
+            <button
+              type="button"
+              onClick={handleCreateRevision}
+              className="px-2.5 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1 shadow-2xs"
+              title="Create next Proposal Revision (-R2, -R3)"
+            >
+              <GitFork className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Create Revision</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => handleIssueDeliveryNote()}
+            className="px-2.5 py-1 rounded-lg bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 text-xs font-semibold flex items-center gap-1 cursor-pointer transition shadow-2xs"
+            title="Generate an unpriced Delivery Note (DO) from the active quotation or line items"
+          >
+            <Truck className="w-3.5 h-3.5" />
+            <span>Issue DO</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleOpenSupplierPoModal()}
+            className="px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-semibold flex items-center gap-1 cursor-pointer transition shadow-2xs"
+            title="Generate an Outbound Supplier PO (using cost prices) or Order Acknowledgment"
+          >
+            <Package className="w-3.5 h-3.5" />
+            <span>Issue PO</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleIssuePaymentReceipt()}
+            className="px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold flex items-center gap-1 cursor-pointer transition shadow-2xs"
+            title="Generate a Payment Receipt Voucher (REC) with automatic balance tracking"
+          >
+            <DollarSign className="w-3.5 h-3.5" />
+            <span>Issue Receipt</span>
+          </button>
+          {isDedicatedTab && (
+            <button
+              type="button"
+              onClick={() => {
+                setEditingQuotation(resolvePrimarySavedQuotation());
+                setIsQuotationStudioOpen(true);
+              }}
+              className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Open Quotation Studio</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Procurement Cost & Realized Net Margin Rollup Strip (Gated to Workspace Admins/Managers - DEF-17) */}
+      {canViewConfidentialMargins &&
+        (enquiryProcurementRollup.linkedPos.length > 0 ||
+          enquiryProcurementRollup.linkedBills.length > 0) && (
+        <div className="p-3 rounded-xl bg-white border border-indigo-200/80 shadow-2xs grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
+              Supplier POs ({enquiryProcurementRollup.linkedPos.length})
+            </span>
+            <span className="font-mono font-bold text-indigo-700">
+              AED{' '}
+              {enquiryProcurementRollup.poCommittedTotalAed.toLocaleString('en-US', {
+                minimumFractionDigits: 2
+              })}
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
+              Bills ({enquiryProcurementRollup.linkedBills.length}) / Actual Cost
+            </span>
+            <span className="font-mono font-bold text-slate-900">
+              AED{' '}
+              {enquiryProcurementRollup.netActualProcurementCostAed.toLocaleString(
+                'en-US',
+                { minimumFractionDigits: 2 }
+              )}
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
+              Debit Note Credits
+            </span>
+            <span className="font-mono font-bold text-purple-700">
+              AED{' '}
+              {enquiryProcurementRollup.debitNoteCreditsAed.toLocaleString('en-US', {
+                minimumFractionDigits: 2
+              })}
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
+              Paid Out (PVs)
+            </span>
+            <span className="font-mono font-bold text-amber-700">
+              AED{' '}
+              {enquiryProcurementRollup.totalPaidOutAed.toLocaleString('en-US', {
+                minimumFractionDigits: 2
+              })}
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
+              Realized Net Margin
+            </span>
+            <span
+              className={`font-mono font-extrabold ${
+                enquiryProcurementRollup.realizedNetMarginAed >= 0
+                  ? 'text-emerald-700'
+                  : 'text-rose-700'
+              }`}
+            >
+              AED{' '}
+              {enquiryProcurementRollup.realizedNetMarginAed.toLocaleString('en-US', {
+                minimumFractionDigits: 2
+              })}{' '}
+              ({enquiryProcurementRollup.realizedNetMarginPct}%)
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Document Type Filter Bar */}
+      {unifiedHubDocuments.length > 0 && (
+        <div className="flex items-center gap-1 flex-wrap pt-0.5">
+          {(
+            [
+              { id: 'all' as const, label: `All (${unifiedHubDocuments.length})` },
+              {
+                id: 'quotation' as const,
+                label: `Proposals & Revisions (${unifiedHubDocuments.filter((q) => (q.document_type || 'quotation') === 'quotation').length})`
+              },
+              {
+                id: 'delivery_note' as const,
+                label: `Delivery Notes (${unifiedHubDocuments.filter((q) => q.document_type === 'delivery_note').length})`
+              },
+              {
+                id: 'purchase_order' as const,
+                label: `Purchase Orders (${unifiedHubDocuments.filter((q) => q.document_type === 'purchase_order').length})`
+              },
+              {
+                id: 'receipt' as const,
+                label: `Receipts (${unifiedHubDocuments.filter((q) => q.document_type === 'receipt').length})`
+              },
+              ...(unifiedHubDocuments.some((q) => q.document_type === 'payment_voucher')
+                ? [
+                    {
+                      id: 'payment_voucher' as const,
+                      label: `Payment Vouchers (${unifiedHubDocuments.filter((q) => q.document_type === 'payment_voucher').length})`
+                    }
+                  ]
+                : []),
+              ...(unifiedHubDocuments.some(
+                (q) =>
+                  q.document_type === 'material_return_note' ||
+                  q.document_type === 'debit_note'
+              )
+                ? [
+                    {
+                      id: 'material_return_note' as const,
+                      label: `Returns (${unifiedHubDocuments.filter((q) => q.document_type === 'material_return_note').length})`
+                    },
+                    {
+                      id: 'debit_note' as const,
+                      label: `Debit Notes (${unifiedHubDocuments.filter((q) => q.document_type === 'debit_note').length})`
+                    }
+                  ]
+                : [])
+            ]
+          ).map((f) => {
+            const isSel = docHubFilter === f.id;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setDocHubFilter(f.id)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+                  isSel
+                    ? 'bg-slate-800 text-white shadow-2xs'
+                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Unified Commercial Documents Hub Table */}
+      {filteredHubDocuments.length > 0 ? (
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-100/80 border-b border-slate-200 text-[10px] font-mono uppercase tracking-wider text-slate-500">
+                  <th className="py-2.5 px-3 font-bold">Type</th>
+                  <th className="py-2.5 px-3 font-bold">Reference Code</th>
+                  <th className="py-2.5 px-3 font-bold">Rev #</th>
+                  <th className="py-2.5 px-3 font-bold">Created Date</th>
+                  <th className="py-2.5 px-3 font-bold text-right">Total Amount</th>
+                  <th className="py-2.5 px-3 font-bold">Status</th>
+                  <th className="py-2.5 px-3 font-bold text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredHubDocuments.map((q) => {
+                  const docType = q.document_type || 'quotation';
+                  const isQuoteDoc = docType === 'quotation';
+                  const isBaselineVirtual = Boolean((q as any)._isBaselineEnquiryProposal);
+                  const linkedEnqId = (q as any)._linkedEnquiryId as string | undefined;
+                  const isSuperseded = q.status === 'Superseded';
+                  const isApproved = q.status === 'Approved';
+                  const isDeclined = q.status === 'Declined';
+                  const isSent = q.status === 'Sent';
+                  const isDraft = q.status === 'Draft' || !q.status;
+
+                  const badgeLabel =
+                    docType === 'delivery_note'
+                      ? 'DO'
+                      : docType === 'purchase_order'
+                      ? 'PO'
+                      : docType === 'receipt'
+                      ? 'REC'
+                      : docType === 'payment_voucher'
+                      ? 'PV'
+                      : docType === 'material_return_note'
+                      ? 'MRN'
+                      : docType === 'debit_note'
+                      ? 'DN'
+                      : 'QT';
+
+                  const badgeClass =
+                    docType === 'delivery_note'
+                      ? 'bg-blue-100 text-blue-800 border-blue-200'
+                      : docType === 'purchase_order'
+                      ? 'bg-purple-100 text-purple-800 border-purple-200'
+                      : docType === 'receipt'
+                      ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                      : docType === 'payment_voucher'
+                      ? 'bg-amber-100 text-amber-900 border-amber-300'
+                      : docType === 'material_return_note' || docType === 'debit_note'
+                      ? 'bg-rose-100 text-rose-800 border-rose-200'
+                      : 'bg-indigo-100 text-indigo-800 border-indigo-200';
+
+                  const formattedDate = q.created_at
+                    ? new Date(q.created_at).toLocaleDateString('en-GB', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric'
+                      })
+                    : '—';
+
+                  return (
+                    <tr
+                      key={q.id || q.formatted_quote_ref}
+                      className={`transition hover:bg-slate-50/90 ${
+                        isApproved && isQuoteDoc
+                          ? 'bg-emerald-50/40'
+                          : isDeclined
+                          ? 'bg-rose-50/30 opacity-85'
+                          : isSuperseded
+                          ? 'bg-slate-50/60 text-slate-500 opacity-80'
+                          : ''
+                      }`}
+                    >
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-mono font-bold ${badgeClass}`}
+                        >
+                          {badgeLabel}
+                        </span>
+                      </td>
+
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-mono font-bold text-slate-900">
+                            {q.formatted_quote_ref}
+                          </span>
+                          {isBaselineVirtual && (
+                            <span className="text-[9.5px] font-mono px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                              Baseline Proposal
+                            </span>
+                          )}
+                        </div>
+                        {docType === 'purchase_order' && q.purchase_order_metadata?.supplier_name && (
+                          <span className="text-[10px] text-slate-400 block">
+                            Vendor: {q.purchase_order_metadata.supplier_name}
+                          </span>
+                        )}
+                        {docType === 'delivery_note' && q.delivery_metadata?.dispatch_mode && (
+                          <span className="text-[10px] text-slate-400 block">
+                            Dispatch: {q.delivery_metadata.dispatch_mode}
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="py-2.5 px-3 whitespace-nowrap font-mono">
+                        {isQuoteDoc ? (
+                          <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[10.5px] font-bold">
+                            R{q.revision_number || 1}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+
+                      <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[11px] text-slate-600">
+                        {formattedDate}
+                      </td>
+
+                      <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono">
+                        {docType === 'delivery_note' || docType === 'material_return_note' ? (
+                          <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                            Unpriced • {(q.line_items || []).length} item(s)
+                          </span>
+                        ) : docType === 'receipt' ? (
+                          <span className="font-bold text-emerald-800">
+                            {q.currency || 'AED'}{' '}
+                            {Number(
+                              q.receipt_metadata?.amount_received ?? q.grand_total ?? 0
+                            ).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          </span>
+                        ) : (
+                          <span className="font-bold text-slate-900">
+                            {isMaskedForBasic
+                              ? 'AED ***'
+                              : `${q.currency || 'AED'} ${Number(q.grand_total || 0).toLocaleString(
+                                  'en-US',
+                                  { minimumFractionDigits: 2 }
+                                )}`}
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        {isApproved && isQuoteDoc ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-emerald-100 text-emerald-800 border-emerald-300">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            Approved
+                          </span>
+                        ) : isDeclined ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-rose-50 text-rose-700 border-rose-200">
+                            <XCircle className="w-3 h-3 text-rose-600" />
+                            Declined
+                          </span>
+                        ) : (
+                          <span
+                            className={`inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                              isSent
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : isSuperseded
+                                ? 'bg-slate-100 text-slate-500 border-slate-200'
+                                : 'bg-amber-50 text-amber-700 border-amber-200'
+                            }`}
+                          >
+                            {q.status || 'Draft'}
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="py-2.5 px-3 whitespace-nowrap text-right">
+                        <div className="inline-flex items-center justify-end gap-1.5">
+                          {linkedEnqId && linkedEnqId !== currentEnquiry.id && onSelectEnquiry ? (
+                            <button
+                              type="button"
+                              onClick={() => onSelectEnquiry(linkedEnqId)}
+                              className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[11px] font-semibold rounded-lg transition cursor-pointer"
+                            >
+                              Switch Sheet
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingQuotation(isBaselineVirtual ? resolvePrimarySavedQuotation() : q);
+                                setIsQuotationStudioOpen(true);
+                              }}
+                              className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
+                              title="Open in Quotation Studio"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                              <span>Open in Studio</span>
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void handleOutsideQuickPrint(q);
+                            }}
+                            className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
+                            title="Print or Save as PDF"
+                          >
+                            <Printer className="w-3 h-3 text-slate-500" />
+                            <span>Print</span>
+                          </button>
+
+                          {!isBaselineVirtual && isQuoteDoc && !isSuperseded && !isDeclined && (
+                            <button
+                              type="button"
+                              onClick={() => handleCreateQuotationRevision(q)}
+                              className="px-2 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
+                              title={`Fork Revision R${(q.revision_number || 1) + 1}`}
+                            >
+                              <GitFork className="w-3 h-3" />
+                              <span>+Rev</span>
+                            </button>
+                          )}
+
+                          {!isBaselineVirtual && isQuoteDoc && isSent && !isSuperseded && !isDeclined && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => promptAcceptQuotation(q)}
+                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg transition cursor-pointer"
+                                title="Accept Commercial Offer & Win Enquiry"
+                              >
+                                Accept
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openDeclineModal(q)}
+                                className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-semibold rounded-lg transition cursor-pointer"
+                                title="Mark Quotation as Declined"
+                              >
+                                Decline
+                              </button>
+                            </>
+                          )}
+
+                          {!isBaselineVirtual && (
+                            <button
+                              type="button"
+                              onClick={() => promptDeleteQuotation(q)}
+                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                              title={isDraft ? 'Discard Draft Document' : 'Move Document to Recycle Bin'}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div className="p-4 bg-white border border-dashed border-slate-200 rounded-xl text-center space-y-1.5">
+          <p className="text-xs text-slate-500">
+            No commercial documents matching this filter yet.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setEditingQuotation(resolvePrimarySavedQuotation());
+              setIsQuotationStudioOpen(true);
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition cursor-pointer"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>Open Quotation Studio</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div id="enquiry-detail-drawer" className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs z-[90] flex justify-end">
       <div className={`w-full ${isExpandedWidth ? 'max-w-6xl xl:max-w-7xl' : 'max-w-4xl lg:max-w-5xl'} bg-white border-l border-slate-200 h-[100dvh] flex flex-col shadow-2xl relative transition-all duration-300 animate-in slide-in-from-right`}>
         
-        {/* Two-Tier Sticky Header Block */}
-        <div className="border-b border-slate-200/80 bg-white sticky top-0 z-20">
-          {/* Tier 1: Full Client Title, Identity Badges & Window Controls (Never Crushes Title) */}
-          <div className="px-4 pt-3.5 pb-2.5 sm:px-6 flex items-start justify-between gap-3 min-w-0">
+        {/* Two-Tier Sticky Header Block — z-40 so dropdowns always paint above the Tabs bar (z-20) and content (z-10) */}
+        <div className="border-b border-slate-200/80 bg-white sticky top-0 z-40">
+          {/* Tier 1: Full Client Title, Identity Badges & Window Controls (z-30 so rep/temp dropdowns paint above Tier 2) */}
+          <div className="px-4 pt-3.5 pb-2.5 sm:px-6 flex items-start justify-between gap-3 min-w-0 relative z-30">
             <div className="flex items-start space-x-3 min-w-0 flex-1">
               <span className="text-xs font-mono tabular-nums bg-slate-100 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-lg font-bold shrink-0 mt-0.5">
                 #{currentEnquiry.sn || enquiry.sn}
@@ -4352,10 +4909,10 @@ export default function EnquiryDetail({
                     {isReassignRepOpen && (
                       <>
                         <div
-                          className="fixed inset-0 z-30"
+                          className="fixed inset-0 z-40"
                           onClick={() => setIsReassignRepOpen(false)}
                         />
-                        <div className="absolute left-0 top-full mt-1.5 w-64 rounded-xl bg-white border border-slate-200 shadow-xl py-1.5 z-40 max-h-64 overflow-y-auto">
+                        <div className="absolute left-0 top-full mt-1.5 w-64 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl py-1.5 z-50 max-h-64 overflow-y-auto">
                           <div className="px-3 py-1.5 border-b border-slate-100 text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold">
                             Assign Sales Representative
                           </div>
@@ -4433,7 +4990,7 @@ export default function EnquiryDetail({
           </div>
 
           {/* Tier 2: Dedicated Action Toolbar Row (3 Primary Actions + More Actions Menu) */}
-          <div className="px-4 py-2 sm:px-6 bg-slate-50/80 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+          <div className="px-4 py-2 sm:px-6 bg-slate-50/95 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap relative z-20">
             <div className="flex items-center gap-2 flex-wrap">
               {/* 1. Primary Studio Button: [ Document Studio ] with count badge */}
               <button
@@ -4504,12 +5061,12 @@ export default function EnquiryDetail({
               {isMoreActionsOpen && (
                 <>
                   <div
-                    className="fixed inset-0 z-30"
+                    className="fixed inset-0 z-40"
                     onClick={() => setIsMoreActionsOpen(false)}
                   />
                   <div
                     role="menu"
-                    className="absolute right-0 top-full mt-1.5 w-60 rounded-xl bg-white text-slate-800 border border-slate-200 shadow-xl py-1.5 z-40 divide-y divide-slate-100"
+                    className="absolute right-0 top-full mt-1.5 w-60 rounded-xl bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 shadow-2xl py-1.5 z-50 divide-y divide-slate-100 dark:divide-slate-800"
                   >
                     <div className="py-1">
                       {canEditEnquiry(user, activeWorkspace, enquiry) && (
@@ -4644,8 +5201,8 @@ export default function EnquiryDetail({
           </div>
         </div>
 
-        {/* Tab Selection with Live Counts */}
-        <div className="px-6 border-b border-slate-200 dark:border-slate-800 flex space-x-6 text-sm overflow-x-auto scrollbar-none shrink-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs z-20 relative">
+        {/* Tab Selection with Live Counts — z-20 below sticky header (z-40) */}
+        <div className="px-6 border-b border-slate-200 dark:border-slate-800 flex space-x-6 text-sm overflow-x-auto scrollbar-none shrink-0 bg-white dark:bg-slate-900 z-20 relative">
           {([
             { id: 'details', label: 'Details', count: null },
             { id: 'items', label: 'Line Items', count: (currentEnquiry.line_items || []).length },
@@ -4678,7 +5235,7 @@ export default function EnquiryDetail({
         </div>
 
         {/* Panel Content */}
-        <div className="flex-1 overflow-y-auto p-6 pb-16 space-y-6">
+        <div className="flex-1 overflow-y-auto p-6 pb-16 space-y-6 relative z-10">
           
           {revertSuccess && (
             <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-emerald-800 flex items-center space-x-3 font-sans text-sm animate-pulse">
@@ -4767,12 +5324,12 @@ export default function EnquiryDetail({
                     </div>
                     <div className="flex items-baseline justify-between gap-2 pt-1 border-t border-current/15 text-[10.5px] font-mono">
                       <span className="opacity-75">
-                        Received: <strong className="font-bold">{enquiry.enquiry_date || '—'}</strong>
+                        Received: <strong className="font-bold">{currentEnquiry.enquiry_date || enquiry.enquiry_date || '—'}</strong>
                       </span>
                       <span className="opacity-85">
                         Follow-up:{' '}
                         <strong className="font-bold">
-                          {enquiry.next_followup_date || 'Not Set'}
+                          {currentEnquiry.next_followup_date || enquiry.next_followup_date || 'Not Set'}
                         </strong>
                       </span>
                     </div>
@@ -4931,472 +5488,7 @@ export default function EnquiryDetail({
               )}
 
               {/* Unified Commercial Documents Hub */}
-              <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-3.5">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-6 h-6 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
-                      <FileText className="w-3.5 h-3.5" />
-                    </div>
-                    <span className="text-xs font-mono text-slate-700 uppercase tracking-widest font-bold">
-                      Commercial Documents Hub ({unifiedHubDocuments.length})
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => handleIssueDeliveryNote()}
-                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 text-xs font-semibold flex items-center gap-1 cursor-pointer transition shadow-2xs"
-                      title="Generate an unpriced Delivery Note (DO) from the active quotation or line items"
-                    >
-                      <Truck className="w-3.5 h-3.5" />
-                      <span>Issue DO</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenSupplierPoModal()}
-                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-semibold flex items-center gap-1 cursor-pointer transition shadow-2xs"
-                      title="Generate an Outbound Supplier PO (using cost prices) or Order Acknowledgment"
-                    >
-                      <Package className="w-3.5 h-3.5" />
-                      <span>Issue PO</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleIssuePaymentReceipt()}
-                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold flex items-center gap-1 cursor-pointer transition shadow-2xs"
-                      title="Generate a Payment Receipt Voucher (REC) with automatic balance tracking"
-                    >
-                      <DollarSign className="w-3.5 h-3.5" />
-                      <span>Issue Receipt</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Procurement Cost & Realized Net Margin Rollup Strip (Gated to Workspace Admins/Managers - DEF-17) */}
-                {canViewConfidentialMargins &&
-                  (enquiryProcurementRollup.linkedPos.length > 0 ||
-                    enquiryProcurementRollup.linkedBills.length > 0) && (
-                  <div className="p-3 rounded-xl bg-white border border-indigo-200/80 shadow-2xs grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
-                    <div>
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
-                        Supplier POs ({enquiryProcurementRollup.linkedPos.length})
-                      </span>
-                      <span className="font-mono font-bold text-indigo-700">
-                        AED{' '}
-                        {enquiryProcurementRollup.poCommittedTotalAed.toLocaleString('en-US', {
-                          minimumFractionDigits: 2
-                        })}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
-                        Bills ({enquiryProcurementRollup.linkedBills.length}) / Actual Cost
-                      </span>
-                      <span className="font-mono font-bold text-slate-900">
-                        AED{' '}
-                        {enquiryProcurementRollup.netActualProcurementCostAed.toLocaleString(
-                          'en-US',
-                          { minimumFractionDigits: 2 }
-                        )}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
-                        Debit Note Credits
-                      </span>
-                      <span className="font-mono font-bold text-purple-700">
-                        AED{' '}
-                        {enquiryProcurementRollup.debitNoteCreditsAed.toLocaleString('en-US', {
-                          minimumFractionDigits: 2
-                        })}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
-                        Paid Out (PVs)
-                      </span>
-                      <span className="font-mono font-bold text-amber-700">
-                        AED{' '}
-                        {enquiryProcurementRollup.totalPaidOutAed.toLocaleString('en-US', {
-                          minimumFractionDigits: 2
-                        })}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
-                        Realized Net Margin
-                      </span>
-                      <span
-                        className={`font-mono font-extrabold ${
-                          enquiryProcurementRollup.realizedNetMarginAed >= 0
-                            ? 'text-emerald-700'
-                            : 'text-rose-700'
-                        }`}
-                      >
-                        AED{' '}
-                        {enquiryProcurementRollup.realizedNetMarginAed.toLocaleString('en-US', {
-                          minimumFractionDigits: 2
-                        })}{' '}
-                        ({enquiryProcurementRollup.realizedNetMarginPct}%)
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Document Type Filter Bar */}
-                {unifiedHubDocuments.length > 0 && (
-                  <div className="flex items-center gap-1 flex-wrap pt-0.5">
-                    {(
-                      [
-                        { id: 'all' as const, label: `All (${unifiedHubDocuments.length})` },
-                        {
-                          id: 'quotation' as const,
-                          label: `Proposals & Revisions (${unifiedHubDocuments.filter((q) => (q.document_type || 'quotation') === 'quotation').length})`
-                        },
-                        {
-                          id: 'delivery_note' as const,
-                          label: `Delivery Notes (${unifiedHubDocuments.filter((q) => q.document_type === 'delivery_note').length})`
-                        },
-                        {
-                          id: 'purchase_order' as const,
-                          label: `Purchase Orders (${unifiedHubDocuments.filter((q) => q.document_type === 'purchase_order').length})`
-                        },
-                        {
-                          id: 'receipt' as const,
-                          label: `Receipts (${unifiedHubDocuments.filter((q) => q.document_type === 'receipt').length})`
-                        },
-                        ...(unifiedHubDocuments.some((q) => q.document_type === 'payment_voucher')
-                          ? [
-                              {
-                                id: 'payment_voucher' as const,
-                                label: `Payment Vouchers (${unifiedHubDocuments.filter((q) => q.document_type === 'payment_voucher').length})`
-                              }
-                            ]
-                          : []),
-                        ...(unifiedHubDocuments.some(
-                          (q) =>
-                            q.document_type === 'material_return_note' ||
-                            q.document_type === 'debit_note'
-                        )
-                          ? [
-                              {
-                                id: 'material_return_note' as const,
-                                label: `Returns (${unifiedHubDocuments.filter((q) => q.document_type === 'material_return_note').length})`
-                              },
-                              {
-                                id: 'debit_note' as const,
-                                label: `Debit Notes (${unifiedHubDocuments.filter((q) => q.document_type === 'debit_note').length})`
-                              }
-                            ]
-                          : [])
-                      ]
-                    ).map((f) => {
-                      const isSel = docHubFilter === f.id;
-                      return (
-                        <button
-                          key={f.id}
-                          type="button"
-                          onClick={() => setDocHubFilter(f.id)}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
-                            isSel
-                              ? 'bg-slate-800 text-white shadow-2xs'
-                              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
-                          }`}
-                        >
-                          {f.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Unified Commercial Documents Hub Table */}
-                {filteredHubDocuments.length > 0 ? (
-                  <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse text-xs">
-                        <thead>
-                          <tr className="bg-slate-100/80 border-b border-slate-200 text-[10px] font-mono uppercase tracking-wider text-slate-500">
-                            <th className="py-2.5 px-3 font-bold">Type</th>
-                            <th className="py-2.5 px-3 font-bold">Reference Code</th>
-                            <th className="py-2.5 px-3 font-bold">Rev #</th>
-                            <th className="py-2.5 px-3 font-bold">Created Date</th>
-                            <th className="py-2.5 px-3 font-bold text-right">Total Amount</th>
-                            <th className="py-2.5 px-3 font-bold">Status</th>
-                            <th className="py-2.5 px-3 font-bold text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {filteredHubDocuments.map((q) => {
-                            const docType = q.document_type || 'quotation';
-                            const isQuoteDoc = docType === 'quotation';
-                            const isBaselineVirtual = Boolean((q as any)._isBaselineEnquiryProposal);
-                            const linkedEnqId = (q as any)._linkedEnquiryId as string | undefined;
-                            const isSuperseded = q.status === 'Superseded';
-                            const isApproved = q.status === 'Approved';
-                            const isDeclined = q.status === 'Declined';
-                            const isSent = q.status === 'Sent';
-                            const isDraft = q.status === 'Draft' || !q.status;
-
-                            const badgeLabel =
-                              docType === 'delivery_note'
-                                ? 'DO'
-                                : docType === 'purchase_order'
-                                ? 'PO'
-                                : docType === 'receipt'
-                                ? 'REC'
-                                : docType === 'payment_voucher'
-                                ? 'PV'
-                                : docType === 'material_return_note'
-                                ? 'MRN'
-                                : docType === 'debit_note'
-                                ? 'DN'
-                                : 'QT';
-
-                            const badgeClass =
-                              docType === 'delivery_note'
-                                ? 'bg-blue-100 text-blue-800 border-blue-200'
-                                : docType === 'purchase_order'
-                                ? 'bg-purple-100 text-purple-800 border-purple-200'
-                                : docType === 'receipt'
-                                ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                                : docType === 'payment_voucher'
-                                ? 'bg-amber-100 text-amber-900 border-amber-300'
-                                : docType === 'material_return_note' || docType === 'debit_note'
-                                ? 'bg-rose-100 text-rose-800 border-rose-200'
-                                : 'bg-indigo-100 text-indigo-800 border-indigo-200';
-
-                            const formattedDate = q.created_at
-                              ? new Date(q.created_at).toLocaleDateString('en-GB', {
-                                  day: '2-digit',
-                                  month: 'short',
-                                  year: 'numeric'
-                                })
-                              : '—';
-
-                            return (
-                              <tr
-                                key={q.id || q.formatted_quote_ref}
-                                className={`transition hover:bg-slate-50/90 ${
-                                  isApproved && isQuoteDoc
-                                    ? 'bg-emerald-50/40'
-                                    : isDeclined
-                                    ? 'bg-rose-50/30 opacity-85'
-                                    : isSuperseded
-                                    ? 'bg-slate-50/60 text-slate-500 opacity-80'
-                                    : ''
-                                }`}
-                              >
-                                {/* 1. Document Type Badge */}
-                                <td className="py-2.5 px-3 whitespace-nowrap">
-                                  <span
-                                    className={`inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-mono font-bold ${badgeClass}`}
-                                  >
-                                    {badgeLabel}
-                                  </span>
-                                </td>
-
-                                {/* 2. Reference Code */}
-                                <td className="py-2.5 px-3">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className="font-mono font-bold text-slate-900">
-                                      {q.formatted_quote_ref}
-                                    </span>
-                                    {isBaselineVirtual && (
-                                      <span className="text-[9.5px] font-mono px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200">
-                                        Baseline Proposal
-                                      </span>
-                                    )}
-                                  </div>
-                                  {docType === 'purchase_order' && q.purchase_order_metadata?.supplier_name && (
-                                    <span className="text-[10px] text-slate-400 block">
-                                      Vendor: {q.purchase_order_metadata.supplier_name}
-                                    </span>
-                                  )}
-                                  {docType === 'delivery_note' && q.delivery_metadata?.dispatch_mode && (
-                                    <span className="text-[10px] text-slate-400 block">
-                                      Dispatch: {q.delivery_metadata.dispatch_mode}
-                                    </span>
-                                  )}
-                                </td>
-
-                                {/* 3. Revision # */}
-                                <td className="py-2.5 px-3 whitespace-nowrap font-mono">
-                                  {isQuoteDoc ? (
-                                    <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[10.5px] font-bold">
-                                      R{q.revision_number || 1}
-                                    </span>
-                                  ) : (
-                                    <span className="text-slate-400">—</span>
-                                  )}
-                                </td>
-
-                                {/* 4. Created Date */}
-                                <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[11px] text-slate-600">
-                                  {formattedDate}
-                                </td>
-
-                                {/* 5. Total Amount */}
-                                <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono">
-                                  {docType === 'delivery_note' || docType === 'material_return_note' ? (
-                                    <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                                      Unpriced • {(q.line_items || []).length} item(s)
-                                    </span>
-                                  ) : docType === 'receipt' ? (
-                                    <span className="font-bold text-emerald-800">
-                                      {q.currency || 'AED'}{' '}
-                                      {Number(
-                                        q.receipt_metadata?.amount_received ?? q.grand_total ?? 0
-                                      ).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                    </span>
-                                  ) : (
-                                    <span className="font-bold text-slate-900">
-                                      {isMaskedForBasic
-                                        ? 'AED ***'
-                                        : `${q.currency || 'AED'} ${Number(q.grand_total || 0).toLocaleString(
-                                            'en-US',
-                                            { minimumFractionDigits: 2 }
-                                          )}`}
-                                    </span>
-                                  )}
-                                </td>
-
-                                {/* 6. Status */}
-                                <td className="py-2.5 px-3 whitespace-nowrap">
-                                  {isApproved && isQuoteDoc ? (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-emerald-100 text-emerald-800 border-emerald-300">
-                                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                      Approved
-                                    </span>
-                                  ) : isDeclined ? (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-rose-50 text-rose-700 border-rose-200">
-                                      <XCircle className="w-3 h-3 text-rose-600" />
-                                      Declined
-                                    </span>
-                                  ) : (
-                                    <span
-                                      className={`inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
-                                        isSent
-                                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                          : isSuperseded
-                                          ? 'bg-slate-100 text-slate-500 border-slate-200'
-                                          : 'bg-amber-50 text-amber-700 border-amber-200'
-                                      }`}
-                                    >
-                                      {q.status || 'Draft'}
-                                    </span>
-                                  )}
-                                </td>
-
-                                {/* 7. Actions: Direct Open in Studio & Print + Lifecycle */}
-                                <td className="py-2.5 px-3 whitespace-nowrap text-right">
-                                  <div className="inline-flex items-center justify-end gap-1.5">
-                                    {linkedEnqId && linkedEnqId !== currentEnquiry.id && onSelectEnquiry ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => onSelectEnquiry(linkedEnqId)}
-                                        className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[11px] font-semibold rounded-lg transition cursor-pointer"
-                                      >
-                                        Switch Sheet
-                                      </button>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setEditingQuotation(isBaselineVirtual ? resolvePrimarySavedQuotation() : q);
-                                          setIsQuotationStudioOpen(true);
-                                        }}
-                                        className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
-                                        title="Open in Quotation Studio"
-                                      >
-                                        <Edit2 className="w-3 h-3" />
-                                        <span>Open in Studio</span>
-                                      </button>
-                                    )}
-
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        void handleOutsideQuickPrint(q);
-                                      }}
-                                      className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
-                                      title="Print or Save as PDF"
-                                    >
-                                      <Printer className="w-3 h-3 text-slate-500" />
-                                      <span>Print</span>
-                                    </button>
-
-                                    {!isBaselineVirtual && isQuoteDoc && !isSuperseded && !isDeclined && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleCreateQuotationRevision(q)}
-                                        className="px-2 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
-                                        title={`Fork Revision R${(q.revision_number || 1) + 1}`}
-                                      >
-                                        <GitFork className="w-3 h-3" />
-                                        <span>+Rev</span>
-                                      </button>
-                                    )}
-
-                                    {!isBaselineVirtual && isQuoteDoc && isSent && !isSuperseded && !isDeclined && (
-                                      <>
-                                        <button
-                                          type="button"
-                                          onClick={() => promptAcceptQuotation(q)}
-                                          className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg transition cursor-pointer"
-                                          title="Accept Commercial Offer & Win Enquiry"
-                                        >
-                                          Accept
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => openDeclineModal(q)}
-                                          className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-semibold rounded-lg transition cursor-pointer"
-                                          title="Mark Quotation as Declined"
-                                        >
-                                          Decline
-                                        </button>
-                                      </>
-                                    )}
-
-                                    {!isBaselineVirtual && (
-                                      <button
-                                        type="button"
-                                        onClick={() => promptDeleteQuotation(q)}
-                                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                                        title={isDraft ? 'Discard Draft Document' : 'Move Document to Recycle Bin'}
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="p-4 bg-white border border-dashed border-slate-200 rounded-xl text-center space-y-1.5">
-                    <p className="text-xs text-slate-500">
-                      No commercial documents matching this filter yet.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingQuotation(resolvePrimarySavedQuotation());
-                        setIsQuotationStudioOpen(true);
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition cursor-pointer"
-                    >
-                      <FileText className="w-3.5 h-3.5" />
-                      <span>Open Quotation Studio</span>
-                    </button>
-                  </div>
-                )}
-              </div>
+              {renderCommercialDocumentsHubSection(false)}
 
               {/* Side-by-Side 2-Column Grid: Client Account & Contact Person */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
@@ -5417,7 +5509,7 @@ export default function EnquiryDetail({
                               size="xs"
                             />
                           </div>
-                          <div className="flex items-center gap-2 flex-wrap">
+                          <div className="flex items-center gap-2.5 flex-wrap">
                             <button
                               type="button"
                               onClick={() => openEditCompany(matchedCompany)}
@@ -5436,14 +5528,6 @@ export default function EnquiryDetail({
                               <Link2 className="w-3 h-3" />
                               <span>Re-pair</span>
                             </button>
-                            <TemperatureBadge
-                              companyId={matchedCompany.id}
-                              temperature={matchedCompany.temperature}
-                              isDnc={matchedCompany.is_dnc}
-                              variant="pill"
-                              companies={companies}
-                              setCompanies={setCompanies}
-                            />
                           </div>
                         </div>
 
@@ -5649,160 +5733,244 @@ export default function EnquiryDetail({
                     )}
                   </div>
 
-                  <div className="border-t border-slate-200/80 pt-2.5 space-y-2">
-                    {matchedContact && (matchedContact.mobile || matchedContact.email) && (
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs font-sans text-slate-700">
-                        {matchedContact.mobile && (
-                          <div className="flex items-center space-x-1.5">
-                            <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                            <a
-                              href={`tel:${matchedContact.mobile}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="hover:underline font-mono"
-                            >
-                              {matchedContact.mobile}
-                            </a>
-                            <a
-                              href={getWhatsAppUrl(matchedContact.mobile)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-bold transition cursor-pointer"
-                              title={`WhatsApp ${matchedContact.full_name}`}
-                            >
-                              <MessageSquare className="w-3 h-3 text-emerald-600" />
-                              <span>WhatsApp</span>
-                            </a>
-                          </div>
-                        )}
-                        {matchedContact.email && (
-                          <div className="flex items-center space-x-1.5 min-w-0">
-                            <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                            <span className="truncate">{matchedContact.email}</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                  {(() => {
+                    const contactPhone = matchedContact?.mobile || (matchedContact as any)?.phone || '';
+                    const contactEmail = matchedContact?.email || '';
+                    const hasContactChannels = Boolean(contactPhone || contactEmail);
+                    const hasStakeholders = resolvedConcernedPersons.length > 0;
 
-                    {resolvedConcernedPersons.length > 0 && (
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider flex items-center gap-1 mr-1">
-                          <Users className="w-3 h-3 text-slate-400" />
-                          <span>Stakeholders:</span>
-                        </span>
-                        {resolvedConcernedPersons.map((person, idx) => (
-                          <span
-                            key={idx}
-                            className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-blue-50/80 text-blue-700 border border-blue-200/60 font-sans"
-                          >
-                            {person}
-                          </span>
-                        ))}
+                    return (
+                      <div className="border-t border-slate-200/80 pt-2.5 space-y-2">
+                        {hasContactChannels ? (
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs font-sans text-slate-700">
+                            {contactPhone && (
+                              <div className="flex items-center space-x-1.5">
+                                <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                <a
+                                  href={`tel:${contactPhone}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="hover:underline font-mono"
+                                >
+                                  {contactPhone}
+                                </a>
+                                <a
+                                  href={getWhatsAppUrl(contactPhone)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-bold transition cursor-pointer"
+                                  title={`WhatsApp ${matchedContact?.full_name || 'Contact'}`}
+                                >
+                                  <MessageSquare className="w-3 h-3 text-emerald-600" />
+                                  <span>WhatsApp</span>
+                                </a>
+                              </div>
+                            )}
+                            {contactEmail && (
+                              <div className="flex items-center space-x-1.5 min-w-0">
+                                <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                <a
+                                  href={`mailto:${contactEmail}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="truncate hover:underline"
+                                >
+                                  {contactEmail}
+                                </a>
+                              </div>
+                            )}
+                          </div>
+                        ) : !hasStakeholders ? (
+                          <div className="flex items-center justify-between gap-2 text-xs text-slate-400">
+                            <span className="italic">No direct phone or email saved</span>
+                            {matchedContact ? (
+                              <button
+                                type="button"
+                                onClick={() => openEditContact(matchedCompany?.id, matchedContact)}
+                                className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>Add phone or email</span>
+                              </button>
+                            ) : matchedCompany ? (
+                              <button
+                                type="button"
+                                onClick={() => openEditCompany(matchedCompany)}
+                                className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>Link contact</span>
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
+
+                        {hasStakeholders && (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider flex items-center gap-1 mr-1">
+                              <Users className="w-3 h-3 text-slate-400" />
+                              <span>Stakeholders:</span>
+                            </span>
+                            {resolvedConcernedPersons.map((person, idx) => (
+                              <span
+                                key={idx}
+                                className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-blue-50/80 text-blue-700 border border-blue-200/60 font-sans"
+                              >
+                                {person}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
+                    );
+                  })()}
                 </div>
               </div>
 
-              {/* Engagement details / Identifiers & Dates */}
+              {/* Streamlined Enquiry Details: Reference Codes, Location & Inline-Editable Timeline */}
               <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 p-4 sm:p-4.5 rounded-xl space-y-3.5">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <h4 className="text-xs font-mono text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold flex items-center space-x-1.5">
                     <FileText className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Enquiry Details</span>
+                    <span>Enquiry Details &amp; Schedule</span>
                   </h4>
-                  {shouldShowProposalOptionBadge(currentEnquiry.proposal_option || enquiry.proposal_option) && (
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800" title="Proposal Option">
-                      {currentEnquiry.proposal_option || enquiry.proposal_option}
-                    </span>
-                  )}
+                  <span className="text-[10px] font-mono text-slate-400">
+                    System Created:{' '}
+                    {enquiry.createdAt
+                      ? new Date(enquiry.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' })
+                      : '—'}
+                  </span>
                 </div>
 
-                {/* Core Identifiers & Attribution Grid */}
+                {/* Core Identifiers & Location Grid (No Redundant Rep/Source/Subject) */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                   <div>
-                    <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Quote Ref</span>
-                    <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono truncate block" title={QuotationRepository.sanitizeCanonicalQuoteRef(currentEnquiry.quote_ref_no || enquiry.quote_ref_no)}>
-                      {QuotationRepository.sanitizeCanonicalQuoteRef(currentEnquiry.quote_ref_no || enquiry.quote_ref_no) || '—'}
+                    <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">
+                      Quote Ref
                     </span>
-                  </div>
-
-                  <div>
-                    <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Sales Representative</span>
-                    <span className="text-slate-800 dark:text-slate-200 font-semibold font-sans truncate block">
-                      {(() => {
-                        const targetEq = currentEnquiry || enquiry;
-                        const spId = resolveSalespersonIdentifier(targetEq);
-                        const spName = resolveSalespersonName(targetEq);
-                        const sp = salespersons.find(
-                          (s) =>
-                            s &&
-                            ((spId && (s.id === spId || s.initials === spId)) ||
-                             (spName &&
-                               (s.id === spName ||
-                                s.initials === spName ||
-                                (s.full_name && s.full_name.toLowerCase() === spName.toLowerCase()) ||
-                                (s.name && s.name.toLowerCase() === spName.toLowerCase()))))
-                        );
-                        return sp ? (sp.full_name || sp.name || sp.initials) : (spName || spId || '—');
-                      })()}
-                    </span>
-                  </div>
-
-                  <div>
-                    <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Project Country</span>
-                    <span className="text-slate-800 dark:text-slate-200 font-semibold font-sans truncate block">{enquiry.country || '—'}</span>
-                  </div>
-
-                  <div>
-                    <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Enquiry Source</span>
-                    <span className="text-slate-800 dark:text-slate-200 font-semibold font-sans truncate block">{normalizeEnquirySource(currentEnquiry.enquiry_source || enquiry.enquiry_source)}</span>
-                  </div>
-
-                  {(currentEnquiry.customer_reference_code || enquiry.customer_reference_code) && (
-                    <div>
-                      <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Customer Reference</span>
-                      <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono truncate block">
-                        {currentEnquiry.customer_reference_code || enquiry.customer_reference_code}
+                    <div className="flex items-center gap-1.5 min-w-0 mt-0.5">
+                      <span
+                        className="text-slate-800 dark:text-slate-200 font-semibold font-mono truncate block"
+                        title={QuotationRepository.sanitizeCanonicalQuoteRef(
+                          currentEnquiry.quote_ref_no || enquiry.quote_ref_no
+                        )}
+                      >
+                        {QuotationRepository.sanitizeCanonicalQuoteRef(
+                          currentEnquiry.quote_ref_no || enquiry.quote_ref_no
+                        ) || '—'}
                       </span>
+                      {(currentEnquiry.quote_ref_no || enquiry.quote_ref_no) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const refStr = QuotationRepository.sanitizeCanonicalQuoteRef(
+                              currentEnquiry.quote_ref_no || enquiry.quote_ref_no
+                            );
+                            navigator.clipboard?.writeText(refStr);
+                            triggerToast?.(`Copied ${refStr}`, 'info');
+                          }}
+                          className="p-0.5 text-slate-400 hover:text-blue-600 rounded transition cursor-pointer shrink-0"
+                          title="Copy Quote Ref"
+                        >
+                          <Copy className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
-                  )}
+                  </div>
+
+                  <div>
+                    <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">
+                      Client Ref / PO #
+                    </span>
+                    <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono truncate block mt-0.5">
+                      {currentEnquiry.customer_reference_code ||
+                        enquiry.customer_reference_code ||
+                        currentEnquiry.invoice_po_no ||
+                        enquiry.invoice_po_no ||
+                        '—'}
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">
+                      Project Location
+                    </span>
+                    <span className="text-slate-800 dark:text-slate-200 font-semibold font-sans truncate block mt-0.5">
+                      {[
+                        currentEnquiry.project_location || enquiry.project_location,
+                        currentEnquiry.country || enquiry.country
+                      ]
+                        .filter(Boolean)
+                        .join(', ') || 'UAE'}
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">
+                      Option Scope
+                    </span>
+                    <span className="text-slate-800 dark:text-slate-200 font-semibold font-sans truncate block mt-0.5">
+                      {currentEnquiry.proposal_option ||
+                        enquiry.proposal_option ||
+                        (optionAnalysis.hasMultipleOptions ? 'Multi-Option (A/B/C)' : 'Standard Single Offer')}
+                    </span>
+                  </div>
                 </div>
 
-                {/* Optional Subject Banner if present */}
-                {(currentEnquiry.subject || enquiry.subject) && (
-                  <div className="pt-2 border-t border-slate-200/70 dark:border-slate-800/70">
-                    <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Subject</span>
-                    <p className="text-xs text-slate-700 dark:text-slate-300 font-medium mt-0.5 leading-relaxed">
-                      {currentEnquiry.subject || enquiry.subject}
-                    </p>
-                  </div>
-                )}
-
-                {/* Timeline Dates Compact Sub-grid */}
+                {/* Timeline Dates Sub-grid with Inline Date Pickers */}
                 <div className="pt-2.5 border-t border-slate-200/70 dark:border-slate-800/70">
-                  <div className="flex items-center space-x-1.5 text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-2 font-bold">
-                    <Calendar className="w-3 h-3 text-slate-400" />
-                    <span>Timeline Dates</span>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                     <div>
-                      <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Received</span>
-                      <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono text-xs">{enquiry.enquiry_date || '—'}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Projected Order</span>
-                      <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono text-xs">{enquiry.projected_order_date || '—'}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Next Follow-up</span>
-                      <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono text-xs">{enquiry.next_followup_date || '—'}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">System Created</span>
-                      <span className="text-slate-600 dark:text-slate-400 font-medium font-mono text-xs">
-                        {enquiry.createdAt ? new Date(enquiry.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—'}
+                      <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px] mb-1">
+                        Received Date
                       </span>
+                      {canEditEnquiry(user, activeWorkspace, currentEnquiry) ? (
+                        <input
+                          type="date"
+                          value={currentEnquiry.enquiry_date || enquiry.enquiry_date || ''}
+                          onChange={(e) => handleQuickUpdateTimelineDate('enquiry_date', e.target.value)}
+                          className="w-full h-8 px-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer"
+                        />
+                      ) : (
+                        <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono text-xs">
+                          {currentEnquiry.enquiry_date || enquiry.enquiry_date || '—'}
+                        </span>
+                      )}
+                    </div>
+
+                    <div>
+                      <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px] mb-1">
+                        Projected Order Date
+                      </span>
+                      {canEditEnquiry(user, activeWorkspace, currentEnquiry) ? (
+                        <input
+                          type="date"
+                          value={currentEnquiry.projected_order_date || enquiry.projected_order_date || ''}
+                          onChange={(e) => handleQuickUpdateTimelineDate('projected_order_date', e.target.value)}
+                          className="w-full h-8 px-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer"
+                        />
+                      ) : (
+                        <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono text-xs">
+                          {currentEnquiry.projected_order_date || enquiry.projected_order_date || '—'}
+                        </span>
+                      )}
+                    </div>
+
+                    <div>
+                      <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px] mb-1">
+                        Next Follow-up Date
+                      </span>
+                      {canEditEnquiry(user, activeWorkspace, currentEnquiry) ? (
+                        <input
+                          type="date"
+                          value={currentEnquiry.next_followup_date || enquiry.next_followup_date || ''}
+                          onChange={(e) => handleQuickUpdateTimelineDate('next_followup_date', e.target.value)}
+                          className="w-full h-8 px-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 cursor-pointer"
+                        />
+                      ) : (
+                        <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono text-xs">
+                          {currentEnquiry.next_followup_date || enquiry.next_followup_date || '—'}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -6464,7 +6632,12 @@ export default function EnquiryDetail({
                               <span>⚡ Bulk Apply to All Items ▾</span>
                             </button>
                             {showBulkApplyPopover && (
-                              <div className="absolute right-0 mt-1.5 w-80 bg-white border border-slate-200 rounded-xl shadow-xl p-3 z-40 space-y-3 text-left">
+                              <>
+                                <div
+                                  className="fixed inset-0 z-30"
+                                  onClick={() => setShowBulkApplyPopover(false)}
+                                />
+                                <div className="absolute right-0 mt-1.5 w-80 bg-white border border-slate-200 rounded-xl shadow-2xl p-3 z-50 space-y-3 text-left">
                                 <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
                                   <span className="text-[11px] font-bold text-slate-800">
                                     ⚡ Bulk Apply to All Line Items
@@ -6555,7 +6728,8 @@ export default function EnquiryDetail({
                                     </button>
                                   </div>
                                 </div>
-                              </div>
+                                </div>
+                              </>
                             )}
                           </div>
                         )}
@@ -8012,12 +8186,12 @@ export default function EnquiryDetail({
                               </span>
                             </div>
 
-                            {user.role !== 'Viewer' && (
+                            {canEditEnquiry(user, activeWorkspace, currentEnquiry) && Boolean(log.before) && (
                               <button
                                 type="button"
                                 onClick={() => handleRevert(log)}
                                 disabled={reverting}
-                                className="py-1.5 px-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 rounded-lg text-xs font-semibold font-sans transition flex items-center space-x-1.5 shadow-sm"
+                                className="py-1.5 px-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 rounded-lg text-xs font-semibold font-sans transition flex items-center space-x-1.5 shadow-sm cursor-pointer"
                               >
                                 <RotateCcw className="w-3.5 h-3.5" />
                                 <span>Rollback</span>
@@ -8036,15 +8210,25 @@ export default function EnquiryDetail({
                                   String(diff.field)
                                     .replace(/_/g, ' ')
                                     .replace(/\b\w/g, (c) => c.toUpperCase());
+                                const formattedOld = formatAuditValue(canonical, diff.old_value);
+                                let formattedNew = formatAuditValue(canonical, diff.new_value);
+                                if (
+                                  canonical === 'quote_ref_no' &&
+                                  formattedOld &&
+                                  !formattedOld.includes('/') &&
+                                  (currentEnquiry.quote_ref_no || '').endsWith(formattedOld)
+                                ) {
+                                  formattedNew = currentEnquiry.quote_ref_no || formattedNew;
+                                }
                                 return (
                                   <div key={idx} className="bg-white border border-slate-200 rounded-lg p-3 text-xs space-y-1 font-sans">
                                     <span className="text-blue-600 font-semibold block">{label}</span>
                                     <div className="flex flex-col space-y-0.5 text-[11px] text-slate-500 pl-2 border-l border-slate-100 font-mono">
                                       <span className="line-through text-slate-400 break-words">
-                                        Was: {formatAuditValue(canonical, diff.old_value)}
+                                        Was: {formattedOld}
                                       </span>
                                       <span className="text-emerald-600 font-semibold break-words">
-                                        Is: {formatAuditValue(canonical, diff.new_value)}
+                                        Is: {formattedNew}
                                       </span>
                                     </div>
                                   </div>
@@ -8075,154 +8259,7 @@ export default function EnquiryDetail({
 
           {activeTab === 'revisions' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 flex-wrap gap-2">
-                <div className="flex items-center space-x-2 text-xs text-slate-500 font-mono">
-                  <FileText className="w-4 h-4 text-indigo-600" />
-                  <span className="font-bold uppercase tracking-wider text-slate-700">
-                    Commercial Documents Hub ({unifiedHubDocuments.length})
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
-                    <button
-                      type="button"
-                      onClick={handleCreateRevision}
-                      className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
-                    >
-                      <GitFork className="w-3.5 h-3.5" />
-                      <span>Create Revision</span>
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingQuotation(getPrimarySourceQuotation());
-                      setIsQuotationStudioOpen(true);
-                    }}
-                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition cursor-pointer flex items-center gap-1.5"
-                  >
-                    <FileText className="w-3.5 h-3.5" />
-                    <span>Open Quotation Studio</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="bg-slate-100/80 border-b border-slate-200 text-[10px] font-mono uppercase tracking-wider text-slate-500">
-                        <th className="py-2.5 px-3 font-bold">Type</th>
-                        <th className="py-2.5 px-3 font-bold">Reference Code</th>
-                        <th className="py-2.5 px-3 font-bold">Rev #</th>
-                        <th className="py-2.5 px-3 font-bold">Created Date</th>
-                        <th className="py-2.5 px-3 font-bold text-right">Total Amount</th>
-                        <th className="py-2.5 px-3 font-bold">Status</th>
-                        <th className="py-2.5 px-3 font-bold text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {unifiedHubDocuments.map((q) => {
-                        const docType = q.document_type || 'quotation';
-                        const isQuoteDoc = docType === 'quotation';
-                        const isBaselineVirtual = Boolean((q as any)._isBaselineEnquiryProposal);
-                        const isSuperseded = q.status === 'Superseded';
-                        const isApproved = q.status === 'Approved';
-                        const isDeclined = q.status === 'Declined';
-                        const isSent = q.status === 'Sent';
-
-                        const badgeLabel =
-                          docType === 'delivery_note'
-                            ? 'DO'
-                            : docType === 'purchase_order'
-                            ? 'PO'
-                            : docType === 'receipt'
-                            ? 'REC'
-                            : docType === 'payment_voucher'
-                            ? 'PV'
-                            : docType === 'material_return_note'
-                            ? 'MRN'
-                            : docType === 'debit_note'
-                            ? 'DN'
-                            : 'QT';
-
-                        return (
-                          <tr key={q.id || q.formatted_quote_ref} className="hover:bg-slate-50/90 transition">
-                            <td className="py-2.5 px-3 whitespace-nowrap">
-                              <span className="px-2 py-0.5 rounded border text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border-indigo-200">
-                                {badgeLabel}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3 font-mono font-bold text-slate-900">
-                              {q.formatted_quote_ref}
-                            </td>
-                            <td className="py-2.5 px-3 font-mono">
-                              {isQuoteDoc ? `R${q.revision_number || 1}` : '—'}
-                            </td>
-                            <td className="py-2.5 px-3 font-mono text-[11px] text-slate-600">
-                              {q.created_at
-                                ? new Date(q.created_at).toLocaleDateString('en-GB', {
-                                    day: '2-digit',
-                                    month: 'short',
-                                    year: 'numeric'
-                                  })
-                                : '—'}
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
-                              {docType === 'delivery_note' || docType === 'material_return_note'
-                                ? `Unpriced • ${(q.line_items || []).length} item(s)`
-                                : `${q.currency || 'AED'} ${Number(q.grand_total || 0).toLocaleString('en-US', {
-                                    minimumFractionDigits: 2
-                                  })}`}
-                            </td>
-                            <td className="py-2.5 px-3">
-                              <span
-                                className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
-                                  isApproved
-                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                                    : isDeclined
-                                    ? 'bg-rose-100 text-rose-800 border-rose-200'
-                                    : isSuperseded
-                                    ? 'bg-slate-100 text-slate-500 border-slate-200'
-                                    : isSent
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                    : 'bg-amber-50 text-amber-700 border-amber-200'
-                                }`}
-                              >
-                                {q.status || 'Draft'}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                              <div className="inline-flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingQuotation(isBaselineVirtual ? resolvePrimarySavedQuotation() : q);
-                                    setIsQuotationStudioOpen(true);
-                                  }}
-                                  className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-semibold transition cursor-pointer"
-                                >
-                                  Open in Studio
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    void handleOutsideQuickPrint(q);
-                                  }}
-                                  className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-[11px] font-semibold transition cursor-pointer flex items-center gap-1"
-                                >
-                                  <Printer className="w-3 h-3 text-slate-500" />
-                                  <span>Print</span>
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              {renderCommercialDocumentsHubSection(true)}
             </div>
           )}
 
