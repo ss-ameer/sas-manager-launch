@@ -2198,6 +2198,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     const hasPresetQuoteRef = Boolean(
       enquiryToEdit?.quote_ref_no &&
       enquiryToEdit.quote_ref_no.trim() &&
+      /\d/.test(enquiryToEdit.quote_ref_no) &&
       !enquiryToEdit.quote_ref_no.includes('[COMPANY_CODE]') &&
       !enquiryToEdit.quote_ref_no.includes('[COUNTRY]')
     );
@@ -2279,6 +2280,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     const hasPresetQuoteRef = Boolean(
       enquiryToEdit?.quote_ref_no &&
       enquiryToEdit.quote_ref_no.trim() &&
+      /\d/.test(enquiryToEdit.quote_ref_no) &&
       !enquiryToEdit.quote_ref_no.includes('[COMPANY_CODE]') &&
       !enquiryToEdit.quote_ref_no.includes('[COUNTRY]')
     );
@@ -2447,7 +2449,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       }
 
       setPastedSourceText(enquiryToEdit.raw_source_text || null);
-      setQuoteRefNo(enquiryToEdit.quote_ref_no || '');
+      setQuoteRefNo(
+        enquiryToEdit.quote_ref_no && /\d/.test(enquiryToEdit.quote_ref_no)
+          ? enquiryToEdit.quote_ref_no
+          : ''
+      );
       setProjectedOrderDate(enquiryToEdit.projected_order_date || '');
       setNextFollowupDate(enquiryToEdit.next_followup_date || '');
       const editCurrency = enquiryToEdit.currency || 'AED';
@@ -3383,8 +3389,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       setSn(Number(data.sn));
     }
     if (data.quote_ref_no) {
-      setQuoteRefNo(String(data.quote_ref_no));
-      setIsQuoteRefCustom(true);
+      const candidateRef = String(data.quote_ref_no).trim();
+      if (
+        /\d/.test(candidateRef) &&
+        !/^(received|details|from|for|by|subject|enquiry|quotation|item|none|null)$/i.test(candidateRef)
+      ) {
+        setQuoteRefNo(candidateRef);
+        setIsQuoteRefCustom(true);
+      }
     }
     if (data.received_date) {
       const dateStr = String(data.received_date).trim();
@@ -3927,9 +3939,17 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const phoneMatch = clean.match(/(?:\+?\d{1,3}[\s-]?)?\(?\d{2,4}\)?[\s-]?\d{3,4}[\s-]?\d{3,4}/);
       const extractedPhone = phoneMatch ? phoneMatch[0] : '';
 
-      // Extract Quote Ref
-      const refMatch = clean.match(/([a-zA-Z0-9]+-[a-zA-Z0-9]{5,})/)||(clean.match(/(?:quote|ref|rfq|enquiry)(?:\s*#|\s*no\.?)?:?\s*([a-zA-Z0-9/-]+)/i));
-      const extractedQuoteRef = refMatch ? (refMatch[1] || refMatch[0]) : '';
+      // Extract Quote Ref (must contain at least one digit so phrases like "RFQ received by..." never match "received")
+      const refMatch =
+        clean.match(/\b([A-Za-z0-9]{2,}(?:\/[A-Za-z0-9-]+){2,})\b/) ||
+        clean.match(/\b([A-Za-z0-9]*\d[A-Za-z0-9]*-[A-Za-z0-9]{4,})\b/) ||
+        clean.match(/(?:quote\s*(?:ref|no\.?|#)|rfq\s*(?:ref|no\.?|#)|enquiry\s*(?:ref|no\.?|#)|ref(?:\s*no\.?|\s*#)?\s*[:#-])\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9/_-]{3,})/i);
+      const rawCandidateRef = refMatch ? (refMatch[1] || refMatch[0] || '').trim() : '';
+      const extractedQuoteRef =
+        /\d/.test(rawCandidateRef) &&
+        !/^(received|details|from|for|by|subject|enquiry|quotation|item)$/i.test(rawCandidateRef)
+          ? rawCandidateRef
+          : '';
 
       // Extract Date
       const dateMatch = clean.match(/(\d{1,2}[/-]\d{1,2}[/-]\d{2,5}|\d{4}-\d{2}-\d{2})/);
@@ -5111,9 +5131,35 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
   };
 
   const getDiffs = (b: any, a: any) => {
+    const IGNORED_DIFF_KEYS = new Set([
+      'id',
+      '_id',
+      'updatedAt',
+      'updated_at',
+      'createdAt',
+      'created_at',
+      'version',
+      'sync_status',
+      'workspace_id',
+      'workspaceId',
+      'last_modified_by_uid',
+      'last_modified_by_name',
+      'updatedByUid',
+      'updatedByUsername',
+      'created_by_uid',
+      'created_by_name',
+      'statusUpdatedAt',
+      'statusUpdatedBy',
+      'statusHistory'
+    ]);
+    const isEmptyVal = (v: any) =>
+      v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
+
     const diffs: any[] = [];
     Object.keys({ ...b, ...a }).forEach((k) => {
-      if (JSON.stringify(b[k]) !== JSON.stringify(a[k]) && k !== 'id' && k !== 'updatedAt') {
+      if (IGNORED_DIFF_KEYS.has(k)) return;
+      if (isEmptyVal(b[k]) && isEmptyVal(a[k])) return;
+      if (JSON.stringify(b[k]) !== JSON.stringify(a[k])) {
         diffs.push({
           field: k,
           old_value: b[k] === undefined ? null : b[k],
@@ -5126,17 +5172,23 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
   const logAudit = async (docId: string, type: 'company' | 'contact' | 'enquiry', action: 'create' | 'update' | 'delete', before: any, after: any, changes: any[]) => {
     try {
+      const sanitizedChanges = sanitizeAuditPayload(changes || []);
+      // Skip writing empty no-op 'update' audit entries when no user-facing property changed
+      if (action === 'update' && (!Array.isArray(sanitizedChanges) || sanitizedChanges.length === 0)) {
+        return;
+      }
       const log = {
         id: 'log_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
         document_id: docId,
         entity_type: type,
         action,
+        details: action === 'create' ? 'Initial enquiry record created' : undefined,
         changed_by_uid: user.uid,
         changed_by_name: user.username,
         timestamp: new Date().toISOString(),
         before: sanitizeAuditPayload(before || {}),
         after: sanitizeAuditPayload(after || {}),
-        changes: sanitizeAuditPayload(changes || [])
+        changes: sanitizedChanges
       };
       await safeAddDoc('audit_logs', log);
       if (setAuditLogs) {

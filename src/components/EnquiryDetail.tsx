@@ -95,6 +95,7 @@ import {
   PackageCheck,
   ExternalLink,
   Calendar,
+  Clock,
   Truck,
   Wrench,
   Package,
@@ -3431,10 +3432,113 @@ export default function EnquiryDetail({
     onClose();
   };
 
-  // Filter audit logs for this specific enquiry
+  // Filter and sanitize audit logs for this specific enquiry (suppressing no-op 'Record updated' entries)
+  const HIDDEN_AUDIT_FIELDS_SET = new Set([
+    'id',
+    '_id',
+    'updated_at',
+    'updatedat',
+    'created_at',
+    'createdat',
+    'version',
+    'sync_status',
+    'workspace_id',
+    'workspaceid',
+    'createdby',
+    'created_by',
+    'created_by_uid',
+    'createdbyuid',
+    'created_by_name',
+    'createdbyusername',
+    'last_modified_by_uid',
+    'last_modified_by_name',
+    'updatedbyuid',
+    'updatedbyusername',
+    'assigned_to_id',
+    'sales_person_id',
+    'salesperson_id',
+    'statusupdatedat',
+    'statusupdatedby',
+    'statushistory'
+  ]);
+
+  const CANONICAL_AUDIT_MAP: Record<string, string> = {
+    salesperson: 'salesperson',
+    sales_person: 'salesperson',
+    assigned_salesperson: 'salesperson',
+    assignedsalesperson: 'salesperson',
+    assigned_to: 'salesperson',
+    quote_ref_no: 'quote_ref_no',
+    latest_quote_ref: 'quote_ref_no',
+    value_aed: 'value_aed',
+    quoted_amount: 'value_aed',
+    raw_source_text: 'raw_source_text',
+    projected_order_date: 'projected_order_date',
+    line_items: 'line_items',
+    company_name: 'company_name',
+    project_location: 'project_location',
+    concerned_person: 'concerned_person',
+    concerned_persons: 'concerned_person',
+    contact_person_name: 'concerned_person'
+  };
+
+  const isEmptyAuditValue = (v: any, canonicalField?: string): boolean => {
+    if (v === null || v === undefined || v === '') return true;
+    if (Array.isArray(v) && v.length === 0) return true;
+    if (
+      canonicalField === 'quote_ref_no' &&
+      /^(received|details|from|for|by|enquiry|quotation|subject|item|none|null)$/i.test(String(v).trim())
+    ) {
+      return true;
+    }
+    return false;
+  };
+
+  const formatAuditValue = (fieldKey: string, val: any): string => {
+    if (isEmptyAuditValue(val, fieldKey)) return 'None';
+    if (fieldKey === 'line_items' && Array.isArray(val)) {
+      return `${val.length} item${val.length === 1 ? '' : 's'}`;
+    }
+    if (fieldKey === 'attachments' && Array.isArray(val)) {
+      return `${val.length} file${val.length === 1 ? '' : 's'}`;
+    }
+    if (typeof val === 'object') {
+      if (Array.isArray(val)) {
+        return val.map((x) => (typeof x === 'object' ? (x?.name || x?.item_name || JSON.stringify(x)) : String(x))).join(', ');
+      }
+      return JSON.stringify(val);
+    }
+    return String(val);
+  };
+
+  const getMeaningfulBusinessChanges = (log: AuditLog) => {
+    const seenCanonical = new Set<string>();
+    return (log.changes || []).filter((diff) => {
+      const rawField = String(diff.field || '').trim();
+      const lowerField = rawField.toLowerCase();
+      if (!rawField || HIDDEN_AUDIT_FIELDS_SET.has(lowerField)) return false;
+      const canonical = CANONICAL_AUDIT_MAP[lowerField] || lowerField;
+      if (isEmptyAuditValue(diff.old_value, canonical) && isEmptyAuditValue(diff.new_value, canonical)) return false;
+      if (seenCanonical.has(canonical)) return false;
+      seenCanonical.add(canonical);
+      const formattedOld = formatAuditValue(canonical, diff.old_value);
+      const formattedNew = formatAuditValue(canonical, diff.new_value);
+      if (formattedOld === formattedNew) return false;
+      return true;
+    });
+  };
+
   const recordLogs = auditLogs
     .filter((log) => log.document_id === enquiry.id && log.entity_type === 'enquiry')
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date().getTime()); // Newest first
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) // Newest first
+    .filter((log) => {
+      const meaningfulChanges = getMeaningfulBusinessChanges(log);
+      if (meaningfulChanges.length > 0) return true;
+      if (log.action === 'create' || log.action === 'delete') return true;
+      const cleanDetails = (log.details || '').trim();
+      if (cleanDetails !== '' && cleanDetails.toLowerCase() !== 'record updated') return true;
+      return false;
+    });
 
   const isBasicTier = user.role !== 'Admin' && user.dataVisibilityTier === 'BASIC';
   const isOwnerOrAttributed = isRecordOwner(user, currentEnquiry);
@@ -7555,7 +7659,7 @@ export default function EnquiryDetail({
                                       </div>
                                     )}
                                   </div>
-                                  <div className="text-xs text-slate-500 truncate flex items-center gap-1.5">
+                                  <div className="text-xs text-slate-500 flex flex-wrap items-center gap-1.5 mt-0.5">
                                     {(item.brand_make || matchedProduct?.brand_make) && (
                                       <span className="font-medium text-slate-600">{item.brand_make || matchedProduct?.brand_make}</span>
                                     )}
@@ -7563,8 +7667,48 @@ export default function EnquiryDetail({
                                       <span>· {item.model_part_no || matchedProduct?.model_part_no}</span>
                                     )}
                                     {parsedDisplay.spec && parsedDisplay.spec !== parsedDisplay.title && (
-                                      <span className="truncate">· {parsedDisplay.spec}</span>
+                                      <span className="truncate max-w-[260px]">· {parsedDisplay.spec}</span>
                                     )}
+                                    {(() => {
+                                      const specCount = (item.attributes || []).filter((a) => a && (a.key?.trim() || a.value?.trim())).length;
+                                      const rawLeadTime = (
+                                        item.lead_time_note ||
+                                        item.availability ||
+                                        (item as any).delivery_time ||
+                                        matchedProduct?.default_availability ||
+                                        effectiveCommercialTerms.deliveryPeriod ||
+                                        ''
+                                      ).trim();
+                                      const showLeadTime =
+                                        rawLeadTime.length > 0 &&
+                                        !/^as mentioned against each item$/i.test(rawLeadTime);
+                                      const originVal = (
+                                        item.country_of_origin ||
+                                        matchedProduct?.country_of_origin ||
+                                        ''
+                                      ).trim();
+
+                                      return (
+                                        <>
+                                          {specCount > 0 && (
+                                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200/80 text-[10px] font-semibold leading-none shrink-0">
+                                              {specCount} {specCount === 1 ? 'Spec' : 'Specs'}
+                                            </span>
+                                          )}
+                                          {showLeadTime && (
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50/80 text-amber-800 border border-amber-200/70 text-[10px] font-semibold leading-none shrink-0">
+                                              <Clock className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                                              <span className="truncate max-w-[160px]">{rawLeadTime}</span>
+                                            </span>
+                                          )}
+                                          {originVal && (
+                                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50/70 text-blue-700 border border-blue-200/70 text-[10px] font-semibold leading-none shrink-0">
+                                              Origin: {originVal}
+                                            </span>
+                                          )}
+                                        </>
+                                      );
+                                    })()}
                                   </div>
                                 </div>
                               )}
@@ -7854,20 +7998,7 @@ export default function EnquiryDetail({
                 {recordLogs.length > 0 ? (
                   <div className="space-y-4">
                     {recordLogs.map((log) => {
-                      const seenCanonical = new Set<string>();
-                      const businessChanges = (log.changes || []).filter((diff) => {
-                        const rawField = String(diff.field || '').trim();
-                        const lowerField = rawField.toLowerCase();
-                        if (!rawField || HIDDEN_AUDIT_FIELDS.has(lowerField)) return false;
-                        if (isEmptyAuditVal(diff.old_value) && isEmptyAuditVal(diff.new_value)) return false;
-                        const canonical = CANONICAL_AUDIT_FIELD_MAP[lowerField] || lowerField;
-                        if (seenCanonical.has(canonical)) return false;
-                        seenCanonical.add(canonical);
-                        const formattedOld = formatAuditVal(canonical, diff.old_value);
-                        const formattedNew = formatAuditVal(canonical, diff.new_value);
-                        if (formattedOld === formattedNew) return false;
-                        return true;
-                      });
+                      const businessChanges = getMeaningfulBusinessChanges(log);
 
                       return (
                         <div key={log.id} className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-4">
@@ -7899,7 +8030,7 @@ export default function EnquiryDetail({
                               <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Modified properties:</span>
                               {businessChanges.map((diff, idx) => {
                                 const lowerField = String(diff.field || '').toLowerCase();
-                                const canonical = CANONICAL_AUDIT_FIELD_MAP[lowerField] || lowerField;
+                                const canonical = CANONICAL_AUDIT_MAP[lowerField] || lowerField;
                                 const label =
                                   BUSINESS_FIELD_LABELS[canonical] ||
                                   String(diff.field)
@@ -7910,10 +8041,10 @@ export default function EnquiryDetail({
                                     <span className="text-blue-600 font-semibold block">{label}</span>
                                     <div className="flex flex-col space-y-0.5 text-[11px] text-slate-500 pl-2 border-l border-slate-100 font-mono">
                                       <span className="line-through text-slate-400 break-words">
-                                        Was: {formatAuditVal(canonical, diff.old_value)}
+                                        Was: {formatAuditValue(canonical, diff.old_value)}
                                       </span>
                                       <span className="text-emerald-600 font-semibold break-words">
-                                        Is: {formatAuditVal(canonical, diff.new_value)}
+                                        Is: {formatAuditValue(canonical, diff.new_value)}
                                       </span>
                                     </div>
                                   </div>
@@ -7921,8 +8052,12 @@ export default function EnquiryDetail({
                               })}
                             </div>
                           ) : (
-                            <span className="text-xs font-mono text-slate-400 italic block">
-                              {log.details || 'Record updated'}
+                            <span className="text-xs font-mono text-slate-500 italic block">
+                              {log.details && log.details.trim().toLowerCase() !== 'record updated'
+                                ? log.details
+                                : log.action === 'create'
+                                ? 'Initial enquiry record created'
+                                : 'Record updated'}
                             </span>
                           )}
                         </div>
