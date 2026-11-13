@@ -2407,16 +2407,29 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       const dedupeRemarkLines = (raw?: string) => {
         if (!raw) return '';
-        const seen = new Set<string>();
-        return raw
+        const nonEmpty = raw
           .split(/\r?\n/)
-          .filter((line) => {
-            const trimmed = line.trim();
-            if (!trimmed) return true;
-            const key = trimmed.toLowerCase();
-            if (seen.has(key)) return false;
+          .map((l) => l.trim())
+          .filter(Boolean);
+        const exactUnique: string[] = [];
+        const seen = new Set<string>();
+        for (const line of nonEmpty) {
+          const key = line.toLowerCase();
+          if (!seen.has(key)) {
             seen.add(key);
-            return true;
+            exactUnique.push(line);
+          }
+        }
+        return exactUnique
+          .filter((line, idx) => {
+            const lower = line.toLowerCase();
+            if (lower.length < 10) return true;
+            return !exactUnique.some(
+              (other, oIdx) =>
+                oIdx !== idx &&
+                other.length > line.length &&
+                other.toLowerCase().includes(lower)
+            );
           })
           .join('\n');
       };
@@ -3545,17 +3558,31 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
     if (data.remarks) {
       setRemarks((prev) => {
-        const incomingLines = String(data.remarks)
+        const combined = `${prev || ''}\n${String(data.remarks || '')}`
           .split(/\r?\n/)
           .map((l) => l.trim())
           .filter(Boolean);
-        if (!prev || !prev.trim()) return incomingLines.join('\n');
-        const existingLines = prev.split(/\r?\n/).map((l) => l.trim());
-        const existingLower = new Set(existingLines.map((l) => l.toLowerCase()));
-        const newUniqueLines = incomingLines.filter(
-          (line) => !existingLower.has(line.toLowerCase())
-        );
-        return newUniqueLines.length > 0 ? `${prev.trim()}\n${newUniqueLines.join('\n')}` : prev;
+        const exactUnique: string[] = [];
+        const seen = new Set<string>();
+        for (const line of combined) {
+          const key = line.toLowerCase();
+          if (!seen.has(key)) {
+            seen.add(key);
+            exactUnique.push(line);
+          }
+        }
+        return exactUnique
+          .filter((line, idx) => {
+            const lower = line.toLowerCase();
+            if (lower.length < 10) return true;
+            return !exactUnique.some(
+              (other, oIdx) =>
+                oIdx !== idx &&
+                other.length > line.length &&
+                other.toLowerCase().includes(lower)
+            );
+          })
+          .join('\n');
       });
     }
 
@@ -4675,7 +4702,33 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       value_aed: formCurrency === 'USD' ? finalValue * 3.6725 : finalValue,
       currency: formCurrency,
       is_lump_sum: isLumpSum,
-      remarks: (remarks || '').trim(),
+      remarks: (() => {
+        const lines = (remarks || '')
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean);
+        const exactUnique: string[] = [];
+        const seen = new Set<string>();
+        for (const line of lines) {
+          const key = line.toLowerCase();
+          if (!seen.has(key)) {
+            seen.add(key);
+            exactUnique.push(line);
+          }
+        }
+        return exactUnique
+          .filter((line, idx) => {
+            const lower = line.toLowerCase();
+            if (lower.length < 10) return true;
+            return !exactUnique.some(
+              (other, oIdx) =>
+                oIdx !== idx &&
+                other.length > line.length &&
+                other.toLowerCase().includes(lower)
+            );
+          })
+          .join('\n');
+      })(),
       invoice_po_no: (invoicePoNo || '').trim() || undefined,
       payment_status: (paymentStatus || '').trim() || undefined,
       validity_days: Number(validityDays) > 0 ? Number(validityDays) : 30,

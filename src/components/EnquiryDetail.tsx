@@ -4586,16 +4586,27 @@ export default function EnquiryDetail({
           {activeTab === 'details' && (
             <div className="space-y-6">
               {/* Status and Value Header Card */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className={`p-4 rounded-xl border flex flex-col justify-between ${getStatusStyle(currentEnquiry.status)}`}>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-mono uppercase tracking-widest opacity-60">Status</span>
-                    {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-2 h-2 rounded-full bg-current shrink-0" />
+                      <span className="text-[10px] font-mono uppercase tracking-widest font-bold opacity-80 truncate">
+                        Pipeline Status
+                      </span>
+                      {currentEnquiry.stock_reserved && (
+                        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0">
+                          <Boxes className="w-3 h-3" />
+                          <span>Stock Reserved</span>
+                        </span>
+                      )}
+                    </div>
+                    {canEditEnquiry(user, activeWorkspace, currentEnquiry) ? (
                       <select
                         value={normalizeEnquiryStatus(currentEnquiry.status)}
                         disabled={isUpdatingStatus}
                         onChange={(e) => handleStatusTransition(e.target.value)}
-                        className="text-xs bg-white/90 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-0.5 font-semibold text-slate-800 dark:text-slate-200 cursor-pointer focus:outline-none shadow-2xs"
+                        className="text-xs bg-white/95 dark:bg-slate-800/95 border border-slate-300 dark:border-slate-600 rounded-lg px-2.5 py-1 font-bold text-slate-900 dark:text-slate-100 cursor-pointer focus:outline-none shadow-2xs shrink-0"
                         title="Change Enquiry Status"
                       >
                         {PIPELINE_STATUS_GROUPS.map((group) => (
@@ -4624,16 +4635,43 @@ export default function EnquiryDetail({
                           </optgroup>
                         )}
                       </select>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between gap-2 mt-2">
-                    <span className="text-base font-bold font-sans">{currentEnquiry.status}</span>
-                    {currentEnquiry.stock_reserved && (
-                      <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                        <Boxes className="w-3 h-3" />
-                        <span>Stock Reserved</span>
+                    ) : (
+                      <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-white/80 border border-current/20">
+                        {currentEnquiry.status}
                       </span>
                     )}
+                  </div>
+
+                  <div className="mt-2 flex flex-col gap-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-mono opacity-75">Source &amp; Lead Temp</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-2 py-0.5 rounded bg-white/80 border border-slate-200/80 text-[10.5px] font-semibold text-slate-700 font-sans">
+                          {normalizeEnquirySource(currentEnquiry.enquiry_source || enquiry.enquiry_source)}
+                        </span>
+                        {matchedCompany && (
+                          <TemperatureBadge
+                            companyId={matchedCompany.id}
+                            temperature={matchedCompany.temperature}
+                            isDnc={matchedCompany.is_dnc}
+                            variant="pill"
+                            companies={companies}
+                            setCompanies={setCompanies}
+                          />
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-2 pt-1 border-t border-current/15 text-[10.5px] font-mono">
+                      <span className="opacity-75">
+                        Received: <strong className="font-bold">{enquiry.enquiry_date || '—'}</strong>
+                      </span>
+                      <span className="opacity-85">
+                        Follow-up:{' '}
+                        <strong className="font-bold">
+                          {enquiry.next_followup_date || 'Not Set'}
+                        </strong>
+                      </span>
+                    </div>
                   </div>
                 </div>
                 <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col justify-between">
@@ -5256,217 +5294,263 @@ export default function EnquiryDetail({
                 )}
               </div>
 
-              {/* Company switchboard metadata */}
-              {matchedCompany ? (
-                <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest flex items-center space-x-2">
-                        <Building className="w-3.5 h-3.5 text-slate-400" />
-                        <span>Client Account</span>
-                      </h4>
-                      <GoogleSearchButton
-                        companyName={matchedCompany.display_name}
-                        location={matchedCompany.city}
-                        size="xs"
-                      />
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <button
-                        type="button"
-                        onClick={() => openEditCompany(matchedCompany)}
-                        className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
-                        title="Edit Company Details"
-                      >
-                        <Edit2 className="w-3 h-3" />
-                        <span>Edit Company</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setIsPairCompanyDropdownOpen(!isPairCompanyDropdownOpen)}
-                        className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 flex items-center gap-1 cursor-pointer"
-                        title="Re-pair with another company account"
-                      >
-                        <Link2 className="w-3 h-3" />
-                        <span>Re-pair</span>
-                      </button>
-                      <TemperatureBadge
-                        companyId={matchedCompany.id}
-                        temperature={matchedCompany.temperature}
-                        isDnc={matchedCompany.is_dnc}
-                        variant="pill"
-                        companies={companies}
-                        setCompanies={setCompanies}
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 text-xs font-sans">
-                    <div className="flex items-center space-x-2 text-slate-700">
-                      <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
-                      <span>{matchedCompany.city}, {matchedCompany.country}</span>
-                    </div>
-                    {matchedCompany.general_email && (
-                      <div className="flex items-center space-x-2 text-slate-700 overflow-hidden">
-                        <Mail className="w-4 h-4 text-slate-400 shrink-0" />
-                        <span className="truncate">{matchedCompany.general_email}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-amber-50/70 border border-amber-200 p-5 rounded-xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <h4 className="text-xs font-mono text-amber-800 uppercase tracking-widest flex items-center space-x-2 font-bold">
-                        <Building className="w-3.5 h-3.5 text-amber-600" />
-                        <span>Unpaired Company Account</span>
-                      </h4>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <button
-                        type="button"
-                        onClick={() => setIsCreateCompanyModalOpen(true)}
-                        className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 transition"
-                        title="Create new catalog account and pair"
-                      >
-                        <Building className="w-3 h-3" />
-                        <span>Create & Link</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setIsPairCompanyDropdownOpen(!isPairCompanyDropdownOpen)}
-                        className="text-[11px] font-semibold text-amber-800 hover:text-amber-950 flex items-center gap-1 cursor-pointer px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200/70 border border-amber-300 transition"
-                        title="Search and pair existing company"
-                      >
-                        <Link2 className="w-3 h-3" />
-                        <span>Pair Existing</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="text-xs text-slate-700 space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-slate-400 font-medium">Record Account:</span>
-                      <span className="font-bold text-slate-900 font-sans">
-                        {unpairedCompanyName || 'Unassigned Account'}
-                      </span>
-                    </div>
-
-                    {/* Candidate / Duplicate recommendation card */}
-                    {candidateCompanyMatch && candidateCompanyMatch.match && (
-                      <div className="p-3 bg-white rounded-lg border border-amber-300 flex items-center justify-between gap-3 shadow-2xs">
-                        <div className="min-w-0">
+              {/* Side-by-Side 2-Column Grid: Client Account & Contact Person */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+                {/* Left Column: Client Account Card */}
+                <div className="flex flex-col gap-2">
+                  {matchedCompany ? (
+                    <div className="bg-slate-50 border border-slate-200 p-4 sm:p-5 rounded-xl flex-1 flex flex-col justify-between gap-3">
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
                           <div className="flex items-center space-x-2">
-                            <span className="text-[10px] font-bold uppercase text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded font-mono">
-                              {Math.round(candidateCompanyMatch.similarity * 100)}% Match
-                            </span>
-                            <span className="text-xs font-bold text-slate-900 truncate">
-                              {candidateCompanyMatch.match.display_name || candidateCompanyMatch.match.canonical_name}
-                            </span>
+                            <h4 className="text-xs font-mono text-slate-500 uppercase tracking-widest font-bold flex items-center space-x-1.5">
+                              <Building className="w-3.5 h-3.5 text-slate-400" />
+                              <span>Client Account</span>
+                            </h4>
+                            <GoogleSearchButton
+                              companyName={matchedCompany.display_name}
+                              location={matchedCompany.city}
+                              size="xs"
+                            />
                           </div>
-                          <div className="text-[11px] text-slate-500 mt-0.5">
-                            {candidateCompanyMatch.match.city || 'UAE'} • {candidateCompanyMatch.reason}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => openEditCompany(matchedCompany)}
+                              className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                              title="Edit Company Details"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                              <span>Edit Company</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setIsPairCompanyDropdownOpen(!isPairCompanyDropdownOpen)}
+                              className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 flex items-center gap-1 cursor-pointer"
+                              title="Re-pair with another company account"
+                            >
+                              <Link2 className="w-3 h-3" />
+                              <span>Re-pair</span>
+                            </button>
+                            <TemperatureBadge
+                              companyId={matchedCompany.id}
+                              temperature={matchedCompany.temperature}
+                              isDnc={matchedCompany.is_dnc}
+                              variant="pill"
+                              companies={companies}
+                              setCompanies={setCompanies}
+                            />
                           </div>
                         </div>
+
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-bold text-slate-900 font-sans truncate">
+                            {matchedCompany.display_name || matchedCompany.canonical_name}
+                          </span>
+                          {(matchedCompany as any).category && (
+                            <span className="px-2 py-0.5 rounded bg-white border border-slate-200 text-[10px] font-mono text-slate-600 shrink-0">
+                              {(matchedCompany as any).category}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs font-sans border-t border-slate-200/80 pt-2.5 text-slate-700">
+                        <div className="flex items-center space-x-1.5">
+                          <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>
+                            {[matchedCompany.city, matchedCompany.country].filter(Boolean).join(', ') || 'UAE'}
+                          </span>
+                        </div>
+                        {matchedCompany.general_email && (
+                          <div className="flex items-center space-x-1.5 min-w-0">
+                            <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="truncate">{matchedCompany.general_email}</span>
+                          </div>
+                        )}
+                        {(matchedCompany as any).phone && (
+                          <div className="flex items-center space-x-1.5 font-mono">
+                            <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span>{(matchedCompany as any).phone}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-amber-50/70 border border-amber-200 p-4 sm:p-5 rounded-xl flex-1 flex flex-col justify-between gap-3">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <h4 className="text-xs font-mono text-amber-800 uppercase tracking-widest flex items-center space-x-2 font-bold">
+                          <Building className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Unpaired Company Account</span>
+                        </h4>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setIsCreateCompanyModalOpen(true)}
+                            className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 transition"
+                            title="Create new catalog account and pair"
+                          >
+                            <Building className="w-3 h-3" />
+                            <span>Create &amp; Link</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsPairCompanyDropdownOpen(!isPairCompanyDropdownOpen)}
+                            className="text-[11px] font-semibold text-amber-800 hover:text-amber-950 flex items-center gap-1 cursor-pointer px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200/70 border border-amber-300 transition"
+                            title="Search and pair existing company"
+                          >
+                            <Link2 className="w-3 h-3" />
+                            <span>Pair Existing</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="text-xs text-slate-700 space-y-2">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-slate-400 font-medium">Record Account:</span>
+                          <span className="font-bold text-slate-900 font-sans">
+                            {unpairedCompanyName || 'Unassigned Account'}
+                          </span>
+                        </div>
+
+                        {candidateCompanyMatch && candidateCompanyMatch.match && (
+                          <div className="p-2.5 bg-white rounded-lg border border-amber-300 flex items-center justify-between gap-3 shadow-2xs">
+                            <div className="min-w-0">
+                              <div className="flex items-center space-x-2">
+                                <span className="text-[10px] font-bold uppercase text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded font-mono">
+                                  {Math.round(candidateCompanyMatch.similarity * 100)}% Match
+                                </span>
+                                <span className="text-xs font-bold text-slate-900 truncate">
+                                  {candidateCompanyMatch.match.display_name || candidateCompanyMatch.match.canonical_name}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-slate-500 mt-0.5">
+                                {candidateCompanyMatch.match.city || 'UAE'} • {candidateCompanyMatch.reason}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handlePairCompany(candidateCompanyMatch.match)}
+                              className="shrink-0 px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-2xs"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span>Pair</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Inline Search & Pair Dropdown Popover */}
+                  {isPairCompanyDropdownOpen && (
+                    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-lg space-y-2 animate-in fade-in duration-150">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                          Select Company Account to Pair
+                        </span>
                         <button
                           type="button"
-                          onClick={() => handlePairCompany(candidateCompanyMatch.match)}
-                          className="shrink-0 px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-2xs"
+                          onClick={() => setIsPairCompanyDropdownOpen(false)}
+                          className="text-slate-400 hover:text-slate-600 p-1"
                         >
-                          <Check className="w-3 h-3" />
-                          <span>Pair This Account</span>
+                          <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Inline Search & Pair Dropdown Popover */}
-              {isPairCompanyDropdownOpen && (
-                <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-lg space-y-2 animate-in fade-in duration-150">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                      Select Company Account to Pair
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setIsPairCompanyDropdownOpen(false)}
-                      className="text-slate-400 hover:text-slate-600 p-1"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-                    <input
-                      type="text"
-                      placeholder="Search company by name or city..."
-                      value={companySearchTerm}
-                      onChange={(e) => setCompanySearchTerm(e.target.value)}
-                      className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div className="max-h-44 overflow-y-auto space-y-1">
-                    {companies
-                      .filter((c) => {
-                        if (!companySearchTerm.trim()) return true;
-                        const term = companySearchTerm.toLowerCase();
-                        return (
-                          c.display_name?.toLowerCase().includes(term) ||
-                          c.canonical_name?.toLowerCase().includes(term) ||
-                          c.city?.toLowerCase().includes(term)
-                        );
-                      })
-                      .slice(0, 10)
-                      .map((c) => (
-                        <div
-                          key={c.id}
-                          onClick={() => handlePairCompany(c)}
-                          className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-100 cursor-pointer text-xs transition"
-                        >
-                          <div className="font-semibold text-slate-900 truncate">
-                            {c.display_name || c.canonical_name}
-                          </div>
-                          <div className="text-[11px] text-slate-400 shrink-0 ml-2">
-                            {c.city || c.country || ''}
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Contact Information & Concerned Stakeholders */}
-              {(matchedContact || resolvedConcernedPersons.length > 0) && (
-                <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-3.5">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest flex items-center space-x-2">
-                      <User className="w-3.5 h-3.5 text-slate-400" />
-                      <span>{matchedContact ? 'Contact Person' : 'Concerned Stakeholders'}</span>
-                    </h4>
-                    {matchedContact && (
-                      <button
-                        type="button"
-                        onClick={() => openEditContact(matchedCompany?.id, matchedContact)}
-                        className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
-                        title="Edit Contact Person"
-                      >
-                        <Edit2 className="w-3 h-3" />
-                        <span>Edit Contact</span>
-                      </button>
-                    )}
-                  </div>
-                  {matchedContact && (
-                    <>
-                      <div className="space-y-1">
-                        <span className="text-sm font-semibold text-slate-800 block font-sans">{matchedContact.full_name}</span>
-                        <span className="text-[10px] text-slate-500 block font-sans">{matchedContact.designation || 'Project Manager'}</span>
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                        <input
+                          type="text"
+                          placeholder="Search company by name or city..."
+                          value={companySearchTerm}
+                          onChange={(e) => setCompanySearchTerm(e.target.value)}
+                          className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                        />
                       </div>
-                      <div className="flex flex-col md:flex-row md:items-center gap-4 text-xs font-sans text-slate-600 border-t border-slate-200 pt-2.5">
+                      <div className="max-h-44 overflow-y-auto space-y-1">
+                        {companies
+                          .filter((c) => {
+                            if (!companySearchTerm.trim()) return true;
+                            const term = companySearchTerm.toLowerCase();
+                            return (
+                              c.display_name?.toLowerCase().includes(term) ||
+                              c.canonical_name?.toLowerCase().includes(term) ||
+                              c.city?.toLowerCase().includes(term)
+                            );
+                          })
+                          .slice(0, 10)
+                          .map((c) => (
+                            <div
+                              key={c.id}
+                              onClick={() => handlePairCompany(c)}
+                              className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-100 cursor-pointer text-xs transition"
+                            >
+                              <div className="font-semibold text-slate-900 truncate">
+                                {c.display_name || c.canonical_name}
+                              </div>
+                              <div className="text-[11px] text-slate-400 shrink-0 ml-2">
+                                {c.city || c.country || ''}
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right Column: Contact Person & Concerned Stakeholders */}
+                <div className="bg-slate-50 border border-slate-200 p-4 sm:p-5 rounded-xl flex flex-col justify-between gap-3">
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <h4 className="text-xs font-mono text-slate-500 uppercase tracking-widest font-bold flex items-center space-x-1.5">
+                        <User className="w-3.5 h-3.5 text-slate-400" />
+                        <span>{matchedContact ? 'Contact Person' : 'Contact & Stakeholders'}</span>
+                      </h4>
+                      {matchedContact ? (
+                        <button
+                          type="button"
+                          onClick={() => openEditContact(matchedCompany?.id, matchedContact)}
+                          className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                          title="Edit Contact Person"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          <span>Edit Contact</span>
+                        </button>
+                      ) : matchedCompany ? (
+                        <button
+                          type="button"
+                          onClick={() => openEditCompany(matchedCompany)}
+                          className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                          title="Add or Manage Company Contacts"
+                        >
+                          <UserPlus className="w-3 h-3" />
+                          <span>+ Add Contact</span>
+                        </button>
+                      ) : null}
+                    </div>
+
+                    {matchedContact ? (
+                      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                        <span className="text-sm font-bold text-slate-900 font-sans">
+                          {matchedContact.full_name}
+                        </span>
+                        <span className="text-[11px] text-slate-500 font-sans">
+                          {matchedContact.designation || 'Project Manager'}
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500 italic">
+                        No primary contact person linked yet.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="border-t border-slate-200/80 pt-2.5 space-y-2">
+                    {matchedContact && (matchedContact.mobile || matchedContact.email) && (
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs font-sans text-slate-700">
                         {matchedContact.mobile && (
-                          <div className="flex items-center space-x-2">
-                            <Phone className="w-4 h-4 text-slate-400 shrink-0" />
+                          <div className="flex items-center space-x-1.5">
+                            <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                             <a
                               href={`tel:${matchedContact.mobile}`}
                               onClick={(e) => e.stopPropagation()}
@@ -5488,34 +5572,33 @@ export default function EnquiryDetail({
                           </div>
                         )}
                         {matchedContact.email && (
-                          <div className="flex items-center space-x-2 overflow-hidden">
-                            <Mail className="w-4 h-4 text-slate-400 shrink-0" />
+                          <div className="flex items-center space-x-1.5 min-w-0">
+                            <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                             <span className="truncate">{matchedContact.email}</span>
                           </div>
                         )}
                       </div>
-                    </>
-                  )}
-                  {resolvedConcernedPersons.length > 0 && (
-                    <div className={`${matchedContact ? 'border-t border-slate-200 pt-3' : ''} space-y-2`}>
-                      <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest flex items-center space-x-1.5">
-                        <Users className="w-3 h-3 text-slate-400" />
-                        <span>Stakeholders / Concerned Persons</span>
-                      </span>
-                      <div className="flex flex-wrap gap-1.5">
+                    )}
+
+                    {resolvedConcernedPersons.length > 0 && (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider flex items-center gap-1 mr-1">
+                          <Users className="w-3 h-3 text-slate-400" />
+                          <span>Stakeholders:</span>
+                        </span>
                         {resolvedConcernedPersons.map((person, idx) => (
                           <span
                             key={idx}
-                            className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-blue-50/80 text-blue-700 border border-blue-200/60 font-sans"
+                            className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-blue-50/80 text-blue-700 border border-blue-200/60 font-sans"
                           >
                             {person}
                           </span>
                         ))}
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
-              )}
+              </div>
 
               {/* Engagement details / Identifiers & Dates */}
               <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 p-4 sm:p-4.5 rounded-xl space-y-3.5">
@@ -5532,7 +5615,7 @@ export default function EnquiryDetail({
                 </div>
 
                 {/* Core Identifiers & Attribution Grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                   <div>
                     <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Quote Ref</span>
                     <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono truncate block" title={QuotationRepository.sanitizeCanonicalQuoteRef(currentEnquiry.quote_ref_no || enquiry.quote_ref_no)}>
@@ -5567,6 +5650,11 @@ export default function EnquiryDetail({
                     <span className="text-slate-800 dark:text-slate-200 font-semibold font-sans truncate block">{enquiry.country || '—'}</span>
                   </div>
 
+                  <div>
+                    <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Enquiry Source</span>
+                    <span className="text-slate-800 dark:text-slate-200 font-semibold font-sans truncate block">{normalizeEnquirySource(currentEnquiry.enquiry_source || enquiry.enquiry_source)}</span>
+                  </div>
+
                   {(currentEnquiry.customer_reference_code || enquiry.customer_reference_code) && (
                     <div>
                       <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Customer Reference</span>
@@ -5575,11 +5663,6 @@ export default function EnquiryDetail({
                       </span>
                     </div>
                   )}
-
-                  <div>
-                    <span className="text-slate-400 dark:text-slate-500 block uppercase font-mono text-[10px]">Enquiry Source</span>
-                    <span className="text-slate-800 dark:text-slate-200 font-semibold font-sans truncate block">{normalizeEnquirySource(currentEnquiry.enquiry_source || enquiry.enquiry_source)}</span>
-                  </div>
                 </div>
 
                 {/* Optional Subject Banner if present */}
@@ -5621,24 +5704,119 @@ export default function EnquiryDetail({
                 </div>
               </div>
 
-              {/* Collaborating Team & Sharing Card */}
-              <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-3.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Users className="w-4 h-4 text-indigo-600" />
-                    <h4 className="text-xs font-mono text-slate-500 uppercase tracking-widest font-bold">
+              {/* Streamlined Horizontal Team Access & Ownership Bar */}
+              <div className="bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+                  <div className="flex items-center space-x-1.5 shrink-0">
+                    <Users className="w-3.5 h-3.5 text-indigo-600" />
+                    <span className="text-xs font-mono text-slate-500 uppercase tracking-widest font-bold">
                       Team Access ({totalCollaboratorsCount + 1})
-                    </h4>
+                    </span>
                   </div>
+
+                  {/* Primary Deal Owner Pill */}
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-50/90 border border-amber-200 rounded-lg text-xs">
+                    <span className="w-5 h-5 rounded-full bg-amber-200 text-amber-800 font-mono font-bold text-[10px] flex items-center justify-center shrink-0">
+                      {(() => {
+                        const sp = salespersons.find(
+                          (s) =>
+                            s.id === currentEnquiry.salesperson_id ||
+                            s.id === currentEnquiry.sales_person_id ||
+                            s.initials === currentEnquiry.sales_person ||
+                            s.full_name === currentEnquiry.salesperson
+                        );
+                        return sp?.initials || (currentEnquiry.salesperson || currentEnquiry.sales_person || 'REP').slice(0, 2).toUpperCase();
+                      })()}
+                    </span>
+                    <span className="font-bold text-slate-800 font-sans">
+                      {(() => {
+                        const sp = salespersons.find(
+                          (s) =>
+                            s.id === currentEnquiry.salesperson_id ||
+                            s.id === currentEnquiry.sales_person_id ||
+                            s.initials === currentEnquiry.sales_person ||
+                            s.full_name === currentEnquiry.salesperson
+                        );
+                        return sp ? sp.full_name : (currentEnquiry.salesperson || currentEnquiry.sales_person || 'Assigned Representative');
+                      })()}
+                    </span>
+                    <span className="text-[10px] font-semibold bg-amber-200/80 text-amber-900 px-1.5 py-0.2 rounded font-mono">
+                      Primary Owner
+                    </span>
+                    {isCreatorOnly && (
+                      <span className="text-[10px] font-semibold bg-white text-amber-800 border border-amber-300 px-1.5 py-0.2 rounded font-sans">
+                        Logged by You
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Active Collaborator Chips */}
+                  {activeCollaboratorMembers.map((member) => (
+                    <div
+                      key={member.id || member.initials || member.full_name}
+                      className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-white border border-indigo-200 text-indigo-900 rounded-lg text-xs shadow-2xs"
+                    >
+                      <div className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold text-[10px] font-mono flex items-center justify-center shrink-0">
+                        {member.initials || member.full_name.slice(0, 2).toUpperCase()}
+                      </div>
+                      <span className="font-medium font-sans">{member.full_name}</span>
+                      {canManageSharing && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCollaborator(member)}
+                          className="ml-0.5 p-0.5 text-indigo-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition cursor-pointer"
+                          title={`Revoke access for ${member.full_name}`}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+
+                  {extraCollaboratorNames.map((name) => (
+                    <div
+                      key={name}
+                      className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-white border border-slate-200 text-slate-800 rounded-lg text-xs shadow-2xs"
+                    >
+                      <div className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 font-bold text-[10px] font-mono flex items-center justify-center shrink-0">
+                        {name.slice(0, 2).toUpperCase()}
+                      </div>
+                      <span className="font-medium font-sans">{name}</span>
+                      {canManageSharing && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCollaborator(name)}
+                          className="ml-0.5 p-0.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition cursor-pointer"
+                          title={`Remove ${name}`}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Right-Aligned Hand Over & Add Collaborator Controls */}
+                <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                  {isCreatorOnly && (
+                    <button
+                      type="button"
+                      onClick={handleReleaseCreatorAccess}
+                      className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold transition cursor-pointer whitespace-nowrap shadow-2xs"
+                      title="Release creator-only visibility on this enquiry so only the assigned rep (and Admins) see it"
+                    >
+                      Hand Over to Assigned Rep
+                    </button>
+                  )}
                   {canManageSharing ? (
                     <button
                       type="button"
                       onClick={() => setIsShareModalOpen(true)}
-                      className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-indigo-200 hover:border-indigo-300 transition shadow-2xs"
+                      className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-indigo-200 hover:border-indigo-300 transition shadow-2xs whitespace-nowrap"
                       title="Add or Remove Team Collaborators"
                     >
                       <UserPlus className="w-3.5 h-3.5" />
-                      <span>Manage Access</span>
+                      <span>+ Add Collaborator</span>
                     </button>
                   ) : (
                     <span className="text-[10px] font-semibold text-slate-500 bg-slate-200/70 px-2 py-0.5 rounded-md flex items-center gap-1">
@@ -5647,163 +5825,44 @@ export default function EnquiryDetail({
                     </span>
                   )}
                 </div>
-
-                <div className="space-y-2.5">
-                  {/* Primary Deal Owner & Creator Handover Controls */}
-                  <div className="flex flex-col gap-2.5 p-3 bg-amber-50/80 border border-amber-200/80 rounded-xl">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2.5">
-                        <div className="w-7 h-7 rounded-full bg-amber-200 text-amber-800 font-mono font-bold text-xs flex items-center justify-center">
-                          {(() => {
-                            const sp = salespersons.find(
-                              (s) =>
-                                s.id === currentEnquiry.salesperson_id ||
-                                s.id === currentEnquiry.sales_person_id ||
-                                s.initials === currentEnquiry.sales_person ||
-                                s.full_name === currentEnquiry.salesperson
-                            );
-                            return sp?.initials || (currentEnquiry.salesperson || currentEnquiry.sales_person || 'REP').slice(0, 2).toUpperCase();
-                          })()}
-                        </div>
-                        <div>
-                          <div className="flex items-center space-x-1.5 flex-wrap">
-                            <span className="text-xs font-bold text-slate-800 font-sans">
-                              {(() => {
-                                const sp = salespersons.find(
-                                  (s) =>
-                                    s.id === currentEnquiry.salesperson_id ||
-                                    s.id === currentEnquiry.sales_person_id ||
-                                    s.initials === currentEnquiry.sales_person ||
-                                    s.full_name === currentEnquiry.salesperson
-                                );
-                                return sp ? sp.full_name : (currentEnquiry.salesperson || currentEnquiry.sales_person || 'Assigned Representative');
-                              })()}
-                            </span>
-                            <span className="text-[10px] font-semibold bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded-md font-mono">
-                              Primary Owner
-                            </span>
-                            {isCreatorOnly && (
-                              <span className="text-[10px] font-semibold bg-white text-amber-800 border border-amber-300 px-1.5 py-0.2 rounded-md font-sans">
-                                Logged by You
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[10px] text-slate-500">Universal record management &amp; primary attribution</span>
-                        </div>
-                      </div>
-                      <Shield className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                    </div>
-
-                    {isCreatorOnly && (
-                      <div className="pt-2 border-t border-amber-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <p className="text-[11px] text-amber-900/90 leading-snug">
-                          Visible in your list because you created it. Hand over exclusive access to the assigned rep when ready.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={handleReleaseCreatorAccess}
-                          className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold transition cursor-pointer whitespace-nowrap shrink-0 shadow-2xs"
-                          title="Release creator-only visibility on this enquiry so only the assigned rep (and Admins) see it"
-                        >
-                          Hand Over to Assigned Rep
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Collaborator chips */}
-                  {totalCollaboratorsCount > 0 ? (
-                    <div className="space-y-1.5 pt-1">
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">
-                        Active Collaborators ({totalCollaboratorsCount})
-                      </span>
-                      <div className="flex flex-wrap gap-2">
-                        {activeCollaboratorMembers.map((member) => (
-                          <div
-                            key={member.id || member.initials || member.full_name}
-                            className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-white border border-indigo-200 text-indigo-900 rounded-lg text-xs shadow-2xs transition hover:border-indigo-300"
-                          >
-                            <div className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold text-[10px] font-mono flex items-center justify-center shrink-0">
-                              {member.initials || member.full_name.slice(0, 2).toUpperCase()}
-                            </div>
-                            <span className="font-medium font-sans">{member.full_name}</span>
-                            {member.initials && (
-                              <span className="text-[10px] font-mono text-indigo-500 font-bold">
-                                ({member.initials})
-                              </span>
-                            )}
-                            {canManageSharing && (
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveCollaborator(member)}
-                                className="ml-1 p-0.5 text-indigo-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition cursor-pointer"
-                                title={`Revoke access for ${member.full_name}`}
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            )}
-                          </div>
-                        ))}
-
-                        {extraCollaboratorNames.map((name) => (
-                          <div
-                            key={name}
-                            className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-white border border-slate-200 text-slate-800 rounded-lg text-xs shadow-2xs"
-                          >
-                            <div className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 font-bold text-[10px] font-mono flex items-center justify-center shrink-0">
-                              {name.slice(0, 2).toUpperCase()}
-                            </div>
-                            <span className="font-medium font-sans">{name}</span>
-                            {canManageSharing && (
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveCollaborator(name)}
-                                className="ml-1 p-0.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition cursor-pointer"
-                                title={`Remove ${name}`}
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            )}
-                          </div>
-                        ))}
-
-                        {canManageSharing && (
-                          <button
-                            type="button"
-                            onClick={() => setIsShareModalOpen(true)}
-                            className="inline-flex items-center space-x-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 border border-dashed border-indigo-300 text-indigo-700 rounded-lg text-xs font-semibold transition cursor-pointer"
-                          >
-                            <UserPlus className="w-3 h-3" />
-                            <span>Add</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-3 bg-white border border-dashed border-slate-200 rounded-xl flex items-center justify-between text-xs text-slate-500">
-                      <span>No additional collaborators added yet.</span>
-                      {canManageSharing ? (
-                        <button
-                          type="button"
-                          onClick={() => setIsShareModalOpen(true)}
-                          className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
-                        >
-                          <UserPlus className="w-3.5 h-3.5" />
-                          <span>Add Collaborator</span>
-                        </button>
-                      ) : (
-                        <span className="text-[11px] text-slate-400">Only deal owners & admins can add</span>
-                      )}
-                    </div>
-                  )}
-                </div>
               </div>
 
-              {/* Remarks */}
-              <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-1.5">
-                <span className="text-xs font-mono text-slate-400 uppercase tracking-widest block">Remarks & Progress Logs</span>
+              {/* Remarks (with prefix/substring line deduplication) */}
+              <div className="bg-slate-50 border border-slate-200 p-4 sm:p-5 rounded-xl space-y-1.5">
+                <span className="text-xs font-mono text-slate-500 font-bold uppercase tracking-widest block">
+                  Remarks &amp; Progress Logs
+                </span>
                 <p className="text-sm text-slate-700 leading-relaxed font-sans font-medium whitespace-pre-line">
-                  {enquiry.remarks || 'No progress remarks documented for this enquiry yet.'}
+                  {(() => {
+                    const rawRemarks = currentEnquiry.remarks || enquiry.remarks || '';
+                    if (!rawRemarks.trim()) {
+                      return 'No progress remarks documented for this enquiry yet.';
+                    }
+                    const nonEmpty = rawRemarks
+                      .split(/\r?\n/)
+                      .map((l) => l.trim())
+                      .filter(Boolean);
+                    const exactUnique: string[] = [];
+                    const seen = new Set<string>();
+                    for (const line of nonEmpty) {
+                      const key = line.toLowerCase();
+                      if (!seen.has(key)) {
+                        seen.add(key);
+                        exactUnique.push(line);
+                      }
+                    }
+                    const deduped = exactUnique.filter((line, idx) => {
+                      const lower = line.toLowerCase();
+                      if (lower.length < 10) return true;
+                      return !exactUnique.some(
+                        (other, oIdx) =>
+                          oIdx !== idx &&
+                          other.length > line.length &&
+                          other.toLowerCase().includes(lower)
+                      );
+                    });
+                    return deduped.join('\n');
+                  })()}
                 </p>
               </div>
 
