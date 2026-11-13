@@ -2732,28 +2732,28 @@ export default function CallLogManager({
       </div>
 
       {/* Navigation Sub-Tabs */}
-      <div className="flex items-center space-x-2 border-b border-slate-200 pb-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2">
         <button
           onClick={() => setSubTab('queue')}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
+          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${
             subTab === 'queue'
               ? 'bg-slate-900 text-white shadow'
               : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
           }`}
         >
-          <PhoneCall className="w-4 h-4" />
+          <PhoneCall className="w-4 h-4 shrink-0" />
           <span>Activity Queue ({queueItems.length})</span>
         </button>
 
         <button
           onClick={() => setSubTab('log')}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
+          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${
             subTab === 'log'
               ? 'bg-slate-900 text-white shadow'
               : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
           }`}
         >
-          <ListFilter className="w-4 h-4" />
+          <ListFilter className="w-4 h-4 shrink-0" />
           <span>Activity History ({filteredHistoryLogs.length !== workspaceCallLogs.length ? `${filteredHistoryLogs.length} of ${workspaceCallLogs.length}` : filteredHistoryLogs.length})</span>
         </button>
       </div>
@@ -2761,11 +2761,11 @@ export default function CallLogManager({
       {/* VIEW 1: ACTIVITY QUEUE */}
       {subTab === 'queue' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-            <div>
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+            <div className="min-w-[240px] flex-1">
               <h2 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 uppercase tracking-wider flex items-center gap-2 flex-wrap">
                 <span>Activity Queue</span>
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200 font-bold font-mono">
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200 font-bold font-mono whitespace-nowrap">
                   {queueItems.length} {queueTimeframe === 'today' ? 'Due Today / Overdue' : queueTimeframe === 'upcoming' ? 'Upcoming' : 'Total Scheduled'}
                 </span>
               </h2>
@@ -2776,68 +2776,70 @@ export default function CallLogManager({
               </div>
             </div>
 
-            {/* Timeframe Filter Buttons */}
-            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 self-start sm:self-auto">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {/* Timeframe Filter Buttons */}
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setQueueTimeframe('today')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                    queueTimeframe === 'today'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                  <span>Today ({allScheduledQueueItems.filter(i => isTaskDueTodayOrOverdue(i.next_followup_date || i.date)).length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQueueTimeframe('upcoming')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                    queueTimeframe === 'upcoming'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <Calendar className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  <span>Upcoming ({allScheduledQueueItems.filter(i => isTaskUpcoming(i.next_followup_date || i.date)).length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQueueTimeframe('all')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                    queueTimeframe === 'all'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <ListFilter className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                  <span>All ({allScheduledQueueItems.length})</span>
+                </button>
+              </div>
+
+              {/* Sort Toggle for Queue */}
               <button
                 type="button"
-                onClick={() => setQueueTimeframe('today')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                  queueTimeframe === 'today'
-                    ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
+                onClick={() => setQueueSortOrder((prev) => (prev === 'oldest' ? 'newest' : 'oldest'))}
+                className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap"
+                title="Toggle Queue Date Sorting"
               >
-                <Clock className="w-3.5 h-3.5 text-blue-500" />
-                <span>Today ({allScheduledQueueItems.filter(i => isTaskDueTodayOrOverdue(i.next_followup_date || i.date)).length})</span>
+                <ArrowUpDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                <span>Sort: {queueSortOrder === 'oldest' ? 'Oldest First' : 'Newest First'}</span>
               </button>
+
+              {/* Launch Live Execution Queue (Strict Overdue + Today Queue) */}
               <button
                 type="button"
-                onClick={() => setQueueTimeframe('upcoming')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                  queueTimeframe === 'upcoming'
-                    ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
+                id="launch-live-execution-queue-btn"
+                onClick={handleStartLiveExecutionQueue}
+                className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs whitespace-nowrap"
+                title="Start Live Execution Command Center for overdue and due today tasks"
               >
-                <Calendar className="w-3.5 h-3.5 text-amber-500" />
-                <span>Upcoming ({allScheduledQueueItems.filter(i => isTaskUpcoming(i.next_followup_date || i.date)).length})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setQueueTimeframe('all')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                  queueTimeframe === 'all'
-                    ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
-              >
-                <ListFilter className="w-3.5 h-3.5 text-indigo-500" />
-                <span>All ({allScheduledQueueItems.length})</span>
+                <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300 shrink-0" />
+                <span>Live Queue ({getStrictExecutionQueue().length})</span>
               </button>
             </div>
-
-            {/* Sort Toggle for Queue */}
-            <button
-              type="button"
-              onClick={() => setQueueSortOrder((prev) => (prev === 'oldest' ? 'newest' : 'oldest'))}
-              className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-              title="Toggle Queue Date Sorting"
-            >
-              <ArrowUpDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-              <span>Sort: {queueSortOrder === 'oldest' ? 'Oldest First' : 'Newest First'}</span>
-            </button>
-
-            {/* Launch Live Execution Queue (Strict Overdue + Today Queue) */}
-            <button
-              type="button"
-              id="launch-live-execution-queue-btn"
-              onClick={handleStartLiveExecutionQueue}
-              className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-              title="Start Live Execution Command Center for overdue and due today tasks"
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
-              <span>Live Queue ({getStrictExecutionQueue().length})</span>
-            </button>
           </div>
 
           {/* High-Density Real-Time Task Queue Search Bar */}

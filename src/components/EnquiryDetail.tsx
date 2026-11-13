@@ -3520,6 +3520,430 @@ export default function EnquiryDetail({
     return true;
   };
 
+  // Resolved Assigned Salesperson display info + Inline Reassignment State
+  const [isReassignRepOpen, setIsReassignRepOpen] = useState(false);
+  const [isSavingRepAssignment, setIsSavingRepAssignment] = useState(false);
+
+  const resolvedAssignedRepInfo = useMemo(() => {
+    const targetEq = currentEnquiry || enquiry;
+    const spId = resolveSalespersonIdentifier(targetEq);
+    const spName = resolveSalespersonName(targetEq, salespersons);
+    const matchedSp = (salespersons || []).find(
+      (s) =>
+        s &&
+        ((spId &&
+          (s.id === spId ||
+            s.initials?.toLowerCase() === spId.toLowerCase() ||
+            s.uid === spId ||
+            s.userId === spId)) ||
+          (spName &&
+            (s.id === spName ||
+              s.initials?.toLowerCase() === spName.toLowerCase() ||
+              (s.full_name && s.full_name.toLowerCase() === spName.toLowerCase()) ||
+              (s.name && s.name.toLowerCase() === spName.toLowerCase()))))
+    );
+    const fullName = matchedSp
+      ? matchedSp.full_name || matchedSp.name || matchedSp.initials
+      : spName || spId || '';
+    const initials = matchedSp?.initials || (fullName ? fullName.slice(0, 2).toUpperCase() : '');
+    const isUnassigned = !fullName || fullName.toLowerCase() === 'unassigned';
+    return {
+      matchedSp,
+      fullName: isUnassigned ? 'Unassigned' : fullName,
+      initials,
+      isUnassigned
+    };
+  }, [currentEnquiry, enquiry, salespersons]);
+
+  const handleQuickAssignSalesperson = async (sp: Salesperson) => {
+    const enquiryId = currentEnquiry.id || (currentEnquiry as any)._id;
+    if (!enquiryId || isSavingRepAssignment) return;
+    setIsSavingRepAssignment(true);
+    const nowIso = new Date().toISOString();
+    const repFullName = sp.full_name || sp.name || sp.initials || '';
+    const repInitials = sp.initials || repFullName.slice(0, 2).toUpperCase();
+    const repId = sp.id || repInitials;
+    try {
+      const patch: Partial<Enquiry> = {
+        salesperson: repFullName,
+        sales_person: repInitials,
+        salesperson_id: repId,
+        sales_person_id: repId,
+        assigned_salesperson: repFullName,
+        updatedAt: nowIso
+      };
+      await safeUpdateDoc('enquiries', enquiryId, patch);
+      const updatedEnquiry: Enquiry = { ...currentEnquiry, ...patch };
+      await EnquiryRepository.save(updatedEnquiry).catch(() => {});
+      setCurrentEnquiry(updatedEnquiry);
+      if (onUpdateEnquiry) onUpdateEnquiry(updatedEnquiry);
+      if (setEnquiries) {
+        setEnquiries((prev) => prev.map((e) => (e.id === enquiryId ? updatedEnquiry : e)));
+      }
+      // Also sync prepared_by onto any active Draft quotation
+      const activeDrafts = quotations.filter(
+        (q) =>
+          !q.is_deleted &&
+          (q.document_type || 'quotation') === 'quotation' &&
+          String(q.status || 'Draft').toLowerCase() === 'draft'
+      );
+      if (activeDrafts.length > 0) {
+        const updatedDrafts = await Promise.all(
+          activeDrafts.map(async (dq) => {
+            const patchedQuote: Quotation = {
+              ...dq,
+              prepared_by: repFullName,
+              updated_at: nowIso
+            };
+            await QuotationRepository.saveQuotation(patchedQuote).catch(() => {});
+            return patchedQuote;
+          })
+        );
+        setQuotations((prev) =>
+          prev.map((q) => {
+            const match = updatedDrafts.find((u) => u.id === q.id);
+            return match || q;
+          })
+        );
+      }
+      setIsReassignRepOpen(false);
+      triggerToast?.(`Assigned salesperson updated to ${repFullName}`, 'success');
+    } catch (err: any) {
+      console.error('Failed to reassign salesperson:', err);
+      triggerToast?.('Failed to update salesperson: ' + (err?.message || 'Unknown error'), 'error');
+    } finally {
+      setIsSavingRepAssignment(false);
+    }
+  };
+
+  // Inline Commercial Terms Quick-Edit State & Handler
+  const [isEditingCommercialTerms, setIsEditingCommercialTerms] = useState(false);
+  const [isSavingCommercialTerms, setIsSavingCommercialTerms] = useState(false);
+  const [draftValidityDays, setDraftValidityDays] = useState<number>(30);
+  const [draftPriceBasis, setDraftPriceBasis] = useState<string>('');
+  const [draftDeliveryPeriod, setDraftDeliveryPeriod] = useState<string>('');
+  const [draftPaymentTerms, setDraftPaymentTerms] = useState<string>('');
+  const [draftTaxMode, setDraftTaxMode] = useState<'taxes_extra' | 'vat_included' | 'no_vat'>('taxes_extra');
+
+  const activeCommercialQuote = useMemo(() => {
+    const stdQuotes = unifiedHubDocuments.filter(
+      (q) => (q.document_type || 'quotation') === 'quotation' && !q.is_deleted
+    );
+    return (
+      stdQuotes.find((q) => q.status === 'Draft') ||
+      stdQuotes.find((q) => q.status === 'Approved') ||
+      stdQuotes.find((q) => q.status === 'Sent') ||
+      stdQuotes[0]
+    );
+  }, [unifiedHubDocuments]);
+
+  const effectiveCommercialTerms = useMemo(() => {
+    const validity =
+      Number(currentEnquiry.validity_days) > 0
+        ? Number(currentEnquiry.validity_days)
+        : Number(activeCommercialQuote?.validity_days) > 0
+        ? Number(activeCommercialQuote?.validity_days)
+        : 30;
+    const priceBasis =
+      (currentEnquiry.price_basis || '').trim() ||
+      (activeCommercialQuote?.price_basis || '').trim() ||
+      '';
+    const deliveryPeriod =
+      (currentEnquiry.delivery_period || '').trim() ||
+      (activeCommercialQuote?.delivery_period || '').trim() ||
+      '';
+    const paymentTerms =
+      (currentEnquiry.payment_terms || '').trim() ||
+      (activeCommercialQuote?.payment_terms || '').trim() ||
+      '';
+    const taxMode: 'taxes_extra' | 'vat_included' | 'no_vat' =
+      (currentEnquiry.tax_mode as any) ||
+      (activeCommercialQuote?.tax_mode as any) ||
+      'taxes_extra';
+    const taxModeLabel =
+      taxMode === 'no_vat'
+        ? '0% / No VAT'
+        : taxMode === 'vat_included'
+        ? '5% VAT Included'
+        : '5% Standard VAT';
+    return {
+      validity,
+      priceBasis,
+      deliveryPeriod,
+      paymentTerms,
+      taxMode,
+      taxModeLabel
+    };
+  }, [currentEnquiry, activeCommercialQuote]);
+
+  const handleOpenCommercialTermsEditor = () => {
+    setDraftValidityDays(effectiveCommercialTerms.validity || 30);
+    setDraftPriceBasis(effectiveCommercialTerms.priceBasis);
+    setDraftDeliveryPeriod(effectiveCommercialTerms.deliveryPeriod);
+    setDraftPaymentTerms(effectiveCommercialTerms.paymentTerms);
+    setDraftTaxMode(effectiveCommercialTerms.taxMode);
+    setIsEditingCommercialTerms(true);
+  };
+
+  const handleSaveInlineCommercialTerms = async () => {
+    const enquiryId = currentEnquiry.id || (currentEnquiry as any)._id;
+    if (!enquiryId || isSavingCommercialTerms) return;
+    setIsSavingCommercialTerms(true);
+    const nowIso = new Date().toISOString();
+    const cleanValidity = Math.max(1, Number(draftValidityDays) || 30);
+    const cleanPriceBasis = draftPriceBasis.trim();
+    const cleanDelivery = draftDeliveryPeriod.trim();
+    const cleanPayment = draftPaymentTerms.trim();
+    try {
+      const patch: Partial<Enquiry> = {
+        validity_days: cleanValidity,
+        price_basis: cleanPriceBasis || undefined,
+        delivery_period: cleanDelivery || undefined,
+        payment_terms: cleanPayment || undefined,
+        tax_mode: draftTaxMode,
+        updatedAt: nowIso
+      };
+      await safeUpdateDoc('enquiries', enquiryId, patch);
+      const updatedEnquiry: Enquiry = { ...currentEnquiry, ...patch };
+      await EnquiryRepository.save(updatedEnquiry).catch(() => {});
+      setCurrentEnquiry(updatedEnquiry);
+      if (onUpdateEnquiry) onUpdateEnquiry(updatedEnquiry);
+      if (setEnquiries) {
+        setEnquiries((prev) => prev.map((e) => (e.id === enquiryId ? updatedEnquiry : e)));
+      }
+
+      // Sync commercial terms onto any active Draft quotation for this enquiry
+      const activeDrafts = quotations.filter(
+        (q) =>
+          !q.is_deleted &&
+          (q.document_type || 'quotation') === 'quotation' &&
+          String(q.status || 'Draft').toLowerCase() === 'draft'
+      );
+      if (activeDrafts.length > 0) {
+        const updatedDrafts = await Promise.all(
+          activeDrafts.map(async (dq) => {
+            const calc =
+              Array.isArray(dq.line_items) && dq.line_items.length > 0
+                ? QuotationRepository.calculateTotals(
+                    dq.line_items,
+                    dq.freight_amount || 0,
+                    draftTaxMode,
+                    dq.tax_rate_percent ?? 5
+                  )
+                : null;
+            const patchedQuote: Quotation = {
+              ...dq,
+              validity_days: cleanValidity,
+              price_basis: cleanPriceBasis || dq.price_basis,
+              delivery_period: cleanDelivery || dq.delivery_period,
+              payment_terms: cleanPayment || dq.payment_terms,
+              tax_mode: draftTaxMode,
+              ...(calc
+                ? {
+                    subtotal: calc.subtotal,
+                    tax_amount: calc.tax_amount,
+                    grand_total: calc.grand_total
+                  }
+                : {}),
+              updated_at: nowIso
+            };
+            await QuotationRepository.saveQuotation(patchedQuote).catch(() => {});
+            return patchedQuote;
+          })
+        );
+        setQuotations((prev) =>
+          prev.map((q) => {
+            const match = updatedDrafts.find((u) => u.id === q.id);
+            return match || q;
+          })
+        );
+      }
+
+      setIsEditingCommercialTerms(false);
+      triggerToast?.('Commercial terms saved & synced to active proposal!', 'success');
+    } catch (err: any) {
+      console.error('Failed saving commercial terms:', err);
+      triggerToast?.('Failed to save commercial terms: ' + (err?.message || 'Unknown error'), 'error');
+    } finally {
+      setIsSavingCommercialTerms(false);
+    }
+  };
+
+  const renderCommercialTermsSummaryStrip = () => {
+    const canEdit = canEditEnquiry(user, activeWorkspace, currentEnquiry);
+    return (
+      <div className="bg-slate-50/90 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 space-y-3 shadow-2xs">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <FileCheck className="w-4 h-4 text-indigo-600 shrink-0" />
+            <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+              Commercial Terms &amp; Offer Conditions
+            </span>
+          </div>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() =>
+                isEditingCommercialTerms
+                  ? setIsEditingCommercialTerms(false)
+                  : handleOpenCommercialTermsEditor()
+              }
+              className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-white dark:bg-slate-800 hover:bg-indigo-50 text-indigo-600 hover:text-indigo-700 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1 transition cursor-pointer shadow-2xs"
+              title="Quick-edit commercial terms directly without opening the full form"
+            >
+              <Edit2 className="w-3 h-3" />
+              <span>{isEditingCommercialTerms ? 'Cancel' : 'Edit Terms'}</span>
+            </button>
+          )}
+        </div>
+
+        {!isEditingCommercialTerms ? (
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow-2xs">
+              <span className="text-[10px] font-mono uppercase text-slate-400">Validity:</span>
+              <span className="font-semibold font-mono">{effectiveCommercialTerms.validity} Days</span>
+            </span>
+
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow-2xs">
+              <span className="text-[10px] font-mono uppercase text-slate-400">Price Basis:</span>
+              <span className="font-semibold">
+                {effectiveCommercialTerms.priceBasis || <span className="text-slate-400 italic font-normal">Default / Not Set</span>}
+              </span>
+            </span>
+
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow-2xs">
+              <span className="text-[10px] font-mono uppercase text-slate-400">Delivery:</span>
+              <span className="font-semibold">
+                {effectiveCommercialTerms.deliveryPeriod || <span className="text-slate-400 italic font-normal">Default / Not Set</span>}
+              </span>
+            </span>
+
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow-2xs">
+              <span className="text-[10px] font-mono uppercase text-slate-400">VAT:</span>
+              <span className="font-semibold text-indigo-700 dark:text-indigo-300">
+                {effectiveCommercialTerms.taxModeLabel}
+              </span>
+            </span>
+
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow-2xs max-w-full">
+              <span className="text-[10px] font-mono uppercase text-slate-400 shrink-0">Payment:</span>
+              <span className="font-semibold truncate" title={effectiveCommercialTerms.paymentTerms}>
+                {effectiveCommercialTerms.paymentTerms || <span className="text-slate-400 italic font-normal">Default / Not Set</span>}
+              </span>
+            </span>
+          </div>
+        ) : (
+          <div className="bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-xl p-3.5 space-y-3 animate-in fade-in duration-150">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              <div>
+                <label className="block text-[10px] font-mono uppercase text-slate-500 mb-1 font-bold">
+                  Offer Validity (Days)
+                </label>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={draftValidityDays}
+                    onChange={(e) => setDraftValidityDays(Math.max(1, Number(e.target.value) || 30))}
+                    className="w-20 h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-mono font-bold text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                  />
+                  {[15, 30, 60].map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setDraftValidityDays(d)}
+                      className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition cursor-pointer ${
+                        Number(draftValidityDays) === d
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {d}d
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-mono uppercase text-slate-500 mb-1 font-bold">
+                  Price Basis / Incoterms
+                </label>
+                <input
+                  type="text"
+                  value={draftPriceBasis}
+                  onChange={(e) => setDraftPriceBasis(e.target.value)}
+                  placeholder="e.g. Ex-Warehouse Ajman, DDP Site"
+                  className="w-full h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-mono uppercase text-slate-500 mb-1 font-bold">
+                  Delivery Period / Lead Time
+                </label>
+                <input
+                  type="text"
+                  value={draftDeliveryPeriod}
+                  onChange={(e) => setDraftDeliveryPeriod(e.target.value)}
+                  placeholder="e.g. Ex-Stock, 6-8 Weeks, 12-14 Weeks"
+                  className="w-full h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-mono uppercase text-slate-500 mb-1 font-bold">
+                  VAT / Tax Mode
+                </label>
+                <select
+                  value={draftTaxMode}
+                  onChange={(e) => setDraftTaxMode(e.target.value as any)}
+                  className="w-full h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden cursor-pointer"
+                >
+                  <option value="taxes_extra">5% Standard VAT (Excl.)</option>
+                  <option value="vat_included">5% VAT Included</option>
+                  <option value="no_vat">No VAT (0% / Export)</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-mono uppercase text-slate-500 mb-1 font-bold">
+                Payment Terms
+              </label>
+              <input
+                type="text"
+                value={draftPaymentTerms}
+                onChange={(e) => setDraftPaymentTerms(e.target.value)}
+                placeholder="e.g. 50% advance, 50% immediate upon readiness at factory"
+                className="w-full h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setIsEditingCommercialTerms(false)}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 text-xs font-semibold transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isSavingCommercialTerms}
+                onClick={handleSaveInlineCommercialTerms}
+                className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{isSavingCommercialTerms ? 'Saving...' : 'Save Commercial Terms'}</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const formatCurrency = (val: number) => {
     if (isMaskedForBasic) return 'AED *** (Basic View)';
     const isUSD = currentEnquiry.currency === 'USD';
@@ -3785,6 +4209,90 @@ export default function EnquiryDetail({
                       {currentEnquiry.proposal_option || enquiry.proposal_option}
                     </span>
                   )}
+
+                  {/* Assigned Salesperson Badge with Quick Inline Reassignment */}
+                  <div className="relative inline-flex items-center shrink-0">
+                    <button
+                      type="button"
+                      disabled={!canEditEnquiry(user, activeWorkspace, currentEnquiry)}
+                      onClick={() => {
+                        if (canEditEnquiry(user, activeWorkspace, currentEnquiry)) {
+                          setIsReassignRepOpen((prev) => !prev);
+                        }
+                      }}
+                      title={
+                        canEditEnquiry(user, activeWorkspace, currentEnquiry)
+                          ? `Assigned Sales Representative: ${resolvedAssignedRepInfo.fullName} (Click to reassign)`
+                          : `Assigned Sales Representative: ${resolvedAssignedRepInfo.fullName}`
+                      }
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-sans font-bold border transition shadow-2xs ${
+                        resolvedAssignedRepInfo.isUnassigned
+                          ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                          : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100'
+                      } ${canEditEnquiry(user, activeWorkspace, currentEnquiry) ? 'cursor-pointer' : 'cursor-default'}`}
+                    >
+                      <User className="w-3 h-3 text-blue-600 shrink-0" />
+                      <span>
+                        Assigned: {resolvedAssignedRepInfo.fullName}
+                        {resolvedAssignedRepInfo.initials &&
+                        resolvedAssignedRepInfo.initials.toLowerCase() !==
+                          resolvedAssignedRepInfo.fullName.toLowerCase()
+                          ? ` (${resolvedAssignedRepInfo.initials})`
+                          : ''}
+                      </span>
+                      {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
+                        <ChevronDown className="w-3 h-3 opacity-60 shrink-0" />
+                      )}
+                    </button>
+
+                    {isReassignRepOpen && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-30"
+                          onClick={() => setIsReassignRepOpen(false)}
+                        />
+                        <div className="absolute left-0 top-full mt-1.5 w-64 rounded-xl bg-white border border-slate-200 shadow-xl py-1.5 z-40 max-h-64 overflow-y-auto">
+                          <div className="px-3 py-1.5 border-b border-slate-100 text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold">
+                            Assign Sales Representative
+                          </div>
+                          {(salespersons || []).length > 0 ? (
+                            (salespersons || []).map((sp) => {
+                              const spLabel = sp.full_name || sp.name || sp.initials || 'Rep';
+                              const isCurrent =
+                                resolvedAssignedRepInfo.matchedSp?.id === sp.id ||
+                                resolvedAssignedRepInfo.fullName.toLowerCase() === spLabel.toLowerCase();
+                              return (
+                                <button
+                                  key={sp.id || sp.initials || spLabel}
+                                  type="button"
+                                  disabled={isSavingRepAssignment}
+                                  onClick={() => handleQuickAssignSalesperson(sp)}
+                                  className={`w-full px-3 py-2 text-left text-xs flex items-center justify-between gap-2 transition cursor-pointer ${
+                                    isCurrent
+                                      ? 'bg-blue-50/80 text-blue-800 font-bold'
+                                      : 'text-slate-700 hover:bg-slate-50 font-medium'
+                                  }`}
+                                >
+                                  <span className="flex items-center gap-2 truncate">
+                                    <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 font-mono text-[10px] font-bold flex items-center justify-center shrink-0">
+                                      {sp.initials || spLabel.slice(0, 2).toUpperCase()}
+                                    </span>
+                                    <span className="truncate">{spLabel}</span>
+                                  </span>
+                                  {isCurrent && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <div className="px-3 py-2 text-xs text-slate-400 italic">
+                              No sales representatives configured in workspace.
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
                   {isCreatorOnly && (
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-sans font-semibold bg-amber-50 text-amber-700 border border-amber-200 shrink-0" title="Visible to you because you logged this enquiry on behalf of the assigned salesperson">
                       Logged by You
@@ -4188,6 +4696,9 @@ export default function EnquiryDetail({
                   })()}
                 </div>
               </div>
+
+              {/* Compact Commercial Terms Summary & Quick-Edit Strip */}
+              {renderCommercialTermsSummaryStrip()}
 
               {/* Won Status - Project Conversion / Fulfillment Banner */}
               {isWonStatus(currentEnquiry.status) && (
@@ -5613,7 +6124,8 @@ export default function EnquiryDetail({
                     if (isDisc) return sum;
                     return sum + (Number(li.quantity) || 0) * (Number(li.cost_price) || 0);
                   }, 0);
-                  const vatAmount = Math.round(totalSelling * 0.05 * 100) / 100;
+                  const isNoVat = effectiveCommercialTerms.taxMode === 'no_vat';
+                  const vatAmount = isNoVat ? 0 : Math.round(totalSelling * 0.05 * 100) / 100;
                   const grandTotalInclVat = totalSelling + vatAmount;
                   const hasAnyCost = calcList.some((li) => (Number(li.cost_price) || 0) > 0);
                   const estProfit = totalSelling - totalCost;
@@ -5670,13 +6182,17 @@ export default function EnquiryDetail({
                           </span>
                         </div>
                         <div className="bg-white border border-slate-200/80 rounded-lg px-2.5 py-1.5">
-                          <span className="text-[10px] text-slate-400 uppercase block">5% VAT</span>
+                          <span className="text-[10px] text-slate-400 uppercase block">
+                            {isNoVat ? '0% VAT (No VAT)' : '5% VAT'}
+                          </span>
                           <span className="font-semibold text-slate-700">
                             {currSymbol}{vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         </div>
                         <div className="bg-blue-50/60 border border-blue-200 rounded-lg px-2.5 py-1.5">
-                          <span className="text-[10px] text-blue-600 uppercase font-bold block">Grand Total (Incl. VAT)</span>
+                          <span className="text-[10px] text-blue-600 uppercase font-bold block">
+                            {isNoVat ? 'Grand Total (Excl. VAT)' : 'Grand Total (Incl. VAT)'}
+                          </span>
                           <span className="font-bold text-blue-700">
                             {currSymbol}{grandTotalInclVat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
@@ -5686,6 +6202,9 @@ export default function EnquiryDetail({
                   );
                 })()
               )}
+
+              {/* Compact Commercial Terms Summary & Quick-Edit Strip on Line Items Tab */}
+              {renderCommercialTermsSummaryStrip()}
 
               {/* Commercial Option Comparison Banner */}
               {optionAnalysis.hasMultipleOptions && (

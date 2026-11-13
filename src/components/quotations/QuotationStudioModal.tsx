@@ -4625,8 +4625,21 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         secondary_image_caption: resolvedSecondaryImageCaption,
         image_adjustments: resolvedImageAdjustments,
         image_display_override: compOverride.image_display_override ?? item.image_display_override,
-        image_size_override: compOverride.image_size_override ?? item.image_size_override,
-        image_aspect_override: compOverride.image_aspect_override ?? item.image_aspect_override,
+        image_size_override: (() => {
+          const rawSz = (compOverride.image_size_override ?? item.image_size_override) as string | undefined;
+          if (!rawSz) return undefined;
+          if (rawSz === 'compact') return 'sm';
+          if (rawSz === 'standard') return 'md';
+          if (rawSz === 'large') return 'lg';
+          return rawSz as QuotationLineItem['image_size_override'];
+        })(),
+        image_aspect_override: (() => {
+          const rawAsp = (compOverride.image_aspect_override ?? item.image_aspect_override) as string | undefined;
+          if (!rawAsp) return undefined;
+          if (rawAsp === 'square') return '1:1';
+          if (rawAsp === 'natural' || rawAsp === 'contain') return 'auto';
+          return rawAsp as QuotationLineItem['image_aspect_override'];
+        })(),
         datasheet_attachment: resolvedDatasheet,
         include_datasheet_in_quote: resolvedIncludeDatasheet,
         is_optional: resolvedOptional,
@@ -4935,6 +4948,31 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         prev
           ? prev.map((it, i) => ((it.id || `item_${i}`) === itemKey ? { ...it, ...patch } : it))
           : prev
+      );
+    }
+  };
+
+  const resetAllItemsImageOverrides = (
+    fields: Array<'image_display_override' | 'image_size_override' | 'image_aspect_override'>
+  ) => {
+    const resetPatch: Partial<QuotationLineItem> = {};
+    for (const f of fields) {
+      resetPatch[f] = 'inherit';
+    }
+    setItemCompositeOverrides((prev) => {
+      const next = { ...prev };
+      quotationLineItems.forEach((it, idx) => {
+        const key = it.id || `item_${idx}`;
+        next[key] = {
+          ...(next[key] || {}),
+          ...resetPatch
+        };
+      });
+      return next;
+    });
+    if (customStudioLineItems) {
+      setCustomStudioLineItems((prev) =>
+        prev ? prev.map((it) => ({ ...it, ...resetPatch })) : prev
       );
     }
   };
@@ -7353,6 +7391,36 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     if (selectedPreset.signatory_title && selectedPreset.signatory_title !== signatoryTitle) return true;
     if (selectedPreset.footer_config?.primarySignatoryName && selectedPreset.footer_config.primarySignatoryName !== signatoryName) return true;
     if (selectedPreset.footer_config?.primarySignatoryDesignation && selectedPreset.footer_config.primarySignatoryDesignation !== signatoryTitle) return true;
+
+    // Compare visible_columns & all Line Item Photo / BOM settings against preset
+    const pCols = selectedPreset.visible_columns;
+    if (pCols) {
+      if (Boolean(pCols.showLineItemImages) !== Boolean(visibleColumns.showLineItemImages)) return true;
+      const normLayout = (l?: string) => (!l || l === 'inline' ? 'inline_left' : l);
+      if (normLayout(pCols.lineItemImageLayout) !== normLayout(visibleColumns.lineItemImageLayout)) return true;
+      if ((pCols.lineItemImageSize || 'md') !== (visibleColumns.lineItemImageSize || 'md')) return true;
+      if (
+        (visibleColumns.lineItemImageSize === 'custom' || pCols.lineItemImageSize === 'custom') &&
+        Number(pCols.lineItemImageCustomWidthPx || 84) !== Number(visibleColumns.lineItemImageCustomWidthPx || 84)
+      ) {
+        return true;
+      }
+      if ((pCols.lineItemImageColumnPosition || 'before_desc') !== (visibleColumns.lineItemImageColumnPosition || 'before_desc')) return true;
+      if ((pCols.lineItemImageAutoCollapseColumn !== false) !== (visibleColumns.lineItemImageAutoCollapseColumn !== false)) return true;
+      if ((pCols.lineItemImageAspectRatio || '1:1') !== (visibleColumns.lineItemImageAspectRatio || '1:1')) return true;
+      if ((pCols.lineItemImageFrame || 'card') !== (visibleColumns.lineItemImageFrame || 'card')) return true;
+      if ((pCols.lineItemImageObjectFit || 'contain') !== (visibleColumns.lineItemImageObjectFit || 'contain')) return true;
+      if ((pCols.lineItemImageBgFill || 'white') !== (visibleColumns.lineItemImageBgFill || 'white')) return true;
+      if ((pCols.bomSubComponentImageMode || 'off') !== (visibleColumns.bomSubComponentImageMode || 'off')) return true;
+      if ((pCols.photoScheduleColumns || 3) !== (visibleColumns.photoScheduleColumns || 3)) return true;
+      if (Boolean(pCols.photoScheduleNewPage) !== Boolean(visibleColumns.photoScheduleNewPage)) return true;
+      if ((pCols.showUnitPrice !== false) !== (visibleColumns.showUnitPrice !== false)) return true;
+      if ((pCols.showUom !== false) !== (visibleColumns.showUom !== false)) return true;
+      if ((pCols.showLineTotal !== false) !== (visibleColumns.showLineTotal !== false)) return true;
+      if ((pCols.showItemAttributes !== false) !== (visibleColumns.showItemAttributes !== false)) return true;
+      if ((pCols.attributeDisplayFormat || 'grid_2col_balanced') !== (visibleColumns.attributeDisplayFormat || 'grid_2col_balanced')) return true;
+    }
+
     if (saveCommercialTermsToPreset) {
       if ((selectedPreset.default_tax_mode || (selectedPreset as any).tax_mode) && (selectedPreset.default_tax_mode || (selectedPreset as any).tax_mode) !== taxMode) return true;
       if ((selectedPreset.default_price_basis || (selectedPreset as any).price_basis || '') !== (priceBasis || '')) return true;
@@ -7382,6 +7450,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     pdfFilenamePattern,
     signatoryName,
     signatoryTitle,
+    visibleColumns,
     saveCommercialTermsToPreset,
     taxMode,
     priceBasis,
@@ -17639,10 +17708,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
                                     >
                                       <option value="inherit">Inherit Table</option>
+                                      <option value="below_specs">Below Specs Banner</option>
                                       <option value="inline_left">Inline Left</option>
                                       <option value="inline_right">Inline Right</option>
                                       <option value="column">Media Column</option>
-                                      <option value="below_specs">Below Specs</option>
+                                      <option value="hidden">Hide Photo</option>
                                     </select>
                                   </div>
 
@@ -17658,9 +17728,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
                                     >
                                       <option value="inherit">Inherit Table</option>
-                                      <option value="compact">Compact (45px)</option>
-                                      <option value="standard">Standard (75px)</option>
-                                      <option value="large">Large (110px)</option>
+                                      <option value="xs">XS (32px)</option>
+                                      <option value="sm">SM (48px)</option>
+                                      <option value="md">MD (72px)</option>
+                                      <option value="lg">LG (110px)</option>
+                                      <option value="xl">XL (160px)</option>
                                     </select>
                                   </div>
 
@@ -17676,12 +17748,37 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
                                     >
                                       <option value="inherit">Inherit Table</option>
-                                      <option value="square">1:1 Square</option>
-                                      <option value="natural">Natural Aspect</option>
-                                      <option value="contain">Contain (Fit)</option>
+                                      <option value="1:1">1:1 Square</option>
+                                      <option value="4:3">4:3 Standard</option>
+                                      <option value="16:9">16:9 Wide</option>
+                                      <option value="auto">Auto / Natural</option>
                                     </select>
                                   </div>
                                 </div>
+                                {((curItem.image_display_override && curItem.image_display_override !== 'inherit') ||
+                                  (curItem.image_size_override && curItem.image_size_override !== 'inherit') ||
+                                  (curItem.image_aspect_override && curItem.image_aspect_override !== 'inherit')) && (
+                                  <div className="flex items-center justify-between px-2 py-1 rounded-lg bg-amber-50 border border-amber-200">
+                                    <span className="text-[10px] font-medium text-amber-800">
+                                      Item has custom photo overrides active
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const resetPatch = {
+                                          image_display_override: 'inherit' as const,
+                                          image_size_override: 'inherit' as const,
+                                          image_aspect_override: 'inherit' as const
+                                        };
+                                        updateCurItem(resetPatch);
+                                        handleUpdateTopItemRowOption(itemKey, resetPatch);
+                                      }}
+                                      className="text-[10px] font-bold text-amber-900 underline hover:text-amber-700 cursor-pointer"
+                                    >
+                                      Reset to Table Default
+                                    </button>
+                                  </div>
+                                )}
 
                                 <div className="min-w-0">
                                   <label className="block text-[10px] text-slate-500 mb-0.5 font-medium">
@@ -18330,12 +18427,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     <button
                                       key={mode.id}
                                       type="button"
-                                      onClick={() =>
+                                      onClick={() => {
                                         setVisibleColumns((prev) => ({
                                           ...prev,
                                           lineItemImageLayout: mode.id
-                                        }))
-                                      }
+                                        }));
+                                        resetAllItemsImageOverrides(['image_display_override']);
+                                      }}
                                       className={`p-2 rounded-xl border text-left transition cursor-pointer ${
                                         mIdx === 4 ? 'col-span-2' : ''
                                       } ${
@@ -18481,15 +18579,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     <button
                                       key={sz.id}
                                       type="button"
-                                      onClick={() =>
+                                      onClick={() => {
                                         setVisibleColumns((prev) => ({
                                           ...prev,
                                           lineItemImageSize: sz.id,
                                           ...(sz.id === 'custom' && !prev.lineItemImageCustomWidthPx
                                             ? { lineItemImageCustomWidthPx: 84 }
                                             : {})
-                                        }))
-                                      }
+                                        }));
+                                        resetAllItemsImageOverrides(['image_size_override']);
+                                      }}
                                       className={`py-1.5 px-1 rounded-lg text-[10px] font-semibold transition cursor-pointer whitespace-nowrap ${
                                         isSel
                                           ? 'bg-blue-600 text-white shadow-2xs'
@@ -18509,12 +18608,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     max={220}
                                     step={4}
                                     value={visibleColumns.lineItemImageCustomWidthPx || 84}
-                                    onChange={(e) =>
+                                    onChange={(e) => {
                                       setVisibleColumns((prev) => ({
                                         ...prev,
                                         lineItemImageCustomWidthPx: Number(e.target.value) || 84
-                                      }))
-                                    }
+                                      }));
+                                      resetAllItemsImageOverrides(['image_size_override']);
+                                    }}
                                     className="w-full accent-blue-600 cursor-pointer h-1.5 bg-slate-200 rounded-lg"
                                   />
                                   <div className="flex justify-between text-[9px] font-mono text-slate-400 mt-0.5">
@@ -18534,12 +18634,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 </label>
                                 <select
                                   value={visibleColumns.lineItemImageAspectRatio || '1:1'}
-                                  onChange={(e) =>
+                                  onChange={(e) => {
                                     setVisibleColumns((prev) => ({
                                       ...prev,
                                       lineItemImageAspectRatio: e.target.value as any
-                                    }))
-                                  }
+                                    }));
+                                    resetAllItemsImageOverrides(['image_aspect_override']);
+                                  }}
                                   className="w-full px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-[10.5px] font-semibold text-slate-700 cursor-pointer"
                                 >
                                   <option value="1:1">1:1 Square</option>
@@ -18707,6 +18808,33 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       >
                                         {item.is_optional ? 'Optional (Excl. Total)' : 'Baseline Item'}
                                       </button>
+                                      {((item.image_display_override && item.image_display_override !== 'inherit') ||
+                                        (item.image_size_override && item.image_size_override !== 'inherit')) && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleUpdateTopItemRowOption(itemKey, {
+                                              image_display_override: 'inherit',
+                                              image_size_override: 'inherit',
+                                              image_aspect_override: 'inherit'
+                                            })
+                                          }
+                                          className="text-[9.5px] font-bold px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition cursor-pointer"
+                                          title="Click to reset this item's placement & size override back to Table Default"
+                                        >
+                                          Custom: {[
+                                            item.image_display_override && item.image_display_override !== 'inherit'
+                                              ? item.image_display_override.replace('_', ' ')
+                                              : null,
+                                            item.image_size_override && item.image_size_override !== 'inherit'
+                                              ? item.image_size_override.toUpperCase()
+                                              : null
+                                          ]
+                                            .filter(Boolean)
+                                            .join(' · ')}{' '}
+                                          × Reset
+                                        </button>
+                                      )}
                                     </div>
                                   </div>
                                 </div>

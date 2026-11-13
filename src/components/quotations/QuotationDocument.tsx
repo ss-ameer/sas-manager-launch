@@ -425,10 +425,13 @@ export function splitLineItemsIntoChunks(
       case 'xs':
         return 32;
       case 'sm':
+      case 'compact':
         return 48;
       case 'md':
+      case 'standard':
         return 72;
       case 'lg':
+      case 'large':
         return 110;
       case 'xl':
         return 160;
@@ -11232,10 +11235,18 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               it: QuotationLineItem,
               mode: 'column' | 'inline_left' | 'inline_right' | 'below_specs' | 'photo_schedule'
             ): { widthPx: number; heightPx?: number; aspectRatio: '1:1' | '4:3' | '16:9' | 'auto' } => {
-              const sizeKey =
+              const rawSizeKey =
                 it.image_size_override && it.image_size_override !== 'inherit'
-                  ? it.image_size_override
+                  ? (it.image_size_override as string)
                   : lineItemImageSize;
+              const sizeKey =
+                rawSizeKey === 'compact'
+                  ? 'sm'
+                  : rawSizeKey === 'standard'
+                  ? 'md'
+                  : rawSizeKey === 'large'
+                  ? 'lg'
+                  : rawSizeKey;
               const widthPx =
                 sizeKey === 'xs'
                   ? 32
@@ -11248,18 +11259,32 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                   : sizeKey === 'xl'
                   ? 160
                   : lineItemImagePx;
-              const aspectRatio: '1:1' | '4:3' | '16:9' | 'auto' =
+              const rawAspect =
                 it.image_aspect_override && it.image_aspect_override !== 'inherit'
-                  ? it.image_aspect_override
+                  ? (it.image_aspect_override as string)
                   : lineItemImageAspectRatio;
+              const aspectRatio: '1:1' | '4:3' | '16:9' | 'auto' =
+                rawAspect === 'square'
+                  ? '1:1'
+                  : rawAspect === 'natural' || rawAspect === 'contain'
+                  ? 'auto'
+                  : (rawAspect as '1:1' | '4:3' | '16:9' | 'auto');
+
+              // Cap width in dedicated column (108px) and inline_left/inline_right (128px) so a large
+              // 220px global size never crushes the item title & 15 technical spec attributes.
+              // In below_specs (Below Specs Banner) and photo_schedule, allow the full widthPx (up to 260px).
+              const effectiveW =
+                mode === 'column'
+                  ? Math.min(widthPx, 108)
+                  : mode === 'inline_left' || mode === 'inline_right'
+                  ? Math.min(widthPx, 128)
+                  : widthPx;
 
               if (aspectRatio === 'auto') {
-                return { widthPx, heightPx: undefined, aspectRatio };
+                return { widthPx: effectiveW, heightPx: undefined, aspectRatio };
               }
               const ratioFactor =
                 aspectRatio === '16:9' ? 9 / 16 : aspectRatio === '4:3' ? 3 / 4 : 1;
-              // In dedicated column mode, cap width so it never overflows the column
-              const effectiveW = mode === 'column' ? Math.min(widthPx, 108) : widthPx;
               return {
                 widthPx: effectiveW,
                 heightPx: Math.round(effectiveW * ratioFactor),

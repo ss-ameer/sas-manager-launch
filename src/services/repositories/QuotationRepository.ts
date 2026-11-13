@@ -1632,8 +1632,38 @@ export class QuotationRepository {
         profile?.amount_in_words_enabled ??
         true,
       showLineItemImages: Boolean(rawCols.showLineItemImages),
-      lineItemImageLayout: rawCols.lineItemImageLayout === 'column' ? ('column' as const) : ('inline' as const),
-      lineItemImageSize: (rawCols.lineItemImageSize || 'md') as 'sm' | 'md' | 'lg'
+      lineItemImageLayout: (
+        rawCols.lineItemImageLayout === 'column' ||
+        rawCols.lineItemImageLayout === 'inline_left' ||
+        rawCols.lineItemImageLayout === 'inline_right' ||
+        rawCols.lineItemImageLayout === 'below_specs' ||
+        rawCols.lineItemImageLayout === 'photo_schedule'
+          ? rawCols.lineItemImageLayout
+          : 'inline_left'
+      ) as 'column' | 'inline' | 'inline_left' | 'inline_right' | 'below_specs' | 'photo_schedule',
+      lineItemImageColumnPosition: (rawCols.lineItemImageColumnPosition || 'before_desc') as 'before_desc' | 'after_desc',
+      lineItemImageAutoCollapseColumn: rawCols.lineItemImageAutoCollapseColumn !== false,
+      lineItemImageSize: (
+        rawCols.lineItemImageSize === 'xs' ||
+        rawCols.lineItemImageSize === 'sm' ||
+        rawCols.lineItemImageSize === 'md' ||
+        rawCols.lineItemImageSize === 'lg' ||
+        rawCols.lineItemImageSize === 'xl' ||
+        rawCols.lineItemImageSize === 'custom'
+          ? rawCols.lineItemImageSize
+          : 'md'
+      ) as 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'custom',
+      lineItemImageCustomWidthPx:
+        typeof rawCols.lineItemImageCustomWidthPx === 'number'
+          ? rawCols.lineItemImageCustomWidthPx
+          : undefined,
+      lineItemImageAspectRatio: (rawCols.lineItemImageAspectRatio || '1:1') as '1:1' | '4:3' | '16:9' | 'auto',
+      lineItemImageObjectFit: (rawCols.lineItemImageObjectFit || 'contain') as 'contain' | 'cover',
+      lineItemImageBgFill: (rawCols.lineItemImageBgFill || 'white') as 'transparent' | 'white' | 'slate',
+      lineItemImageFrame: (rawCols.lineItemImageFrame || 'card') as 'card' | 'rounded' | 'minimal' | 'shadow',
+      bomSubComponentImageMode: (rawCols.bomSubComponentImageMode || 'off') as 'off' | 'small' | 'match_parent',
+      photoScheduleColumns: (rawCols.photoScheduleColumns === 2 ? 2 : 3) as 2 | 3,
+      photoScheduleNewPage: Boolean(rawCols.photoScheduleNewPage)
     };
 
     const layoutBlocks = Array.isArray(quotation?.layout_blocks)
@@ -2872,8 +2902,38 @@ export class QuotationRepository {
         : [],
       showAmountInWords: resolvedAmountInWords,
       showLineItemImages: Boolean(rawCols.showLineItemImages),
-      lineItemImageLayout: rawCols.lineItemImageLayout === 'column' ? ('column' as const) : ('inline' as const),
-      lineItemImageSize: (rawCols.lineItemImageSize || 'md') as 'sm' | 'md' | 'lg'
+      lineItemImageLayout: (
+        rawCols.lineItemImageLayout === 'column' ||
+        rawCols.lineItemImageLayout === 'inline_left' ||
+        rawCols.lineItemImageLayout === 'inline_right' ||
+        rawCols.lineItemImageLayout === 'below_specs' ||
+        rawCols.lineItemImageLayout === 'photo_schedule'
+          ? rawCols.lineItemImageLayout
+          : 'inline_left'
+      ) as 'column' | 'inline' | 'inline_left' | 'inline_right' | 'below_specs' | 'photo_schedule',
+      lineItemImageColumnPosition: (rawCols.lineItemImageColumnPosition || 'before_desc') as 'before_desc' | 'after_desc',
+      lineItemImageAutoCollapseColumn: rawCols.lineItemImageAutoCollapseColumn !== false,
+      lineItemImageSize: (
+        rawCols.lineItemImageSize === 'xs' ||
+        rawCols.lineItemImageSize === 'sm' ||
+        rawCols.lineItemImageSize === 'md' ||
+        rawCols.lineItemImageSize === 'lg' ||
+        rawCols.lineItemImageSize === 'xl' ||
+        rawCols.lineItemImageSize === 'custom'
+          ? rawCols.lineItemImageSize
+          : 'md'
+      ) as 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'custom',
+      lineItemImageCustomWidthPx:
+        typeof rawCols.lineItemImageCustomWidthPx === 'number'
+          ? rawCols.lineItemImageCustomWidthPx
+          : undefined,
+      lineItemImageAspectRatio: (rawCols.lineItemImageAspectRatio || '1:1') as '1:1' | '4:3' | '16:9' | 'auto',
+      lineItemImageObjectFit: (rawCols.lineItemImageObjectFit || 'contain') as 'contain' | 'cover',
+      lineItemImageBgFill: (rawCols.lineItemImageBgFill || 'white') as 'transparent' | 'white' | 'slate',
+      lineItemImageFrame: (rawCols.lineItemImageFrame || 'card') as 'card' | 'rounded' | 'minimal' | 'shadow',
+      bomSubComponentImageMode: (rawCols.bomSubComponentImageMode || 'off') as 'off' | 'small' | 'match_parent',
+      photoScheduleColumns: (rawCols.photoScheduleColumns === 2 ? 2 : 3) as 2 | 3,
+      photoScheduleNewPage: Boolean(rawCols.photoScheduleNewPage)
     };
 
     const normalizedBlocks = Array.isArray(input.layout_blocks)
