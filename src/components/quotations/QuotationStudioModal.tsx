@@ -5447,6 +5447,19 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       if (prevType === 'delivery_note' || prevType === 'material_return_note') {
         handleRestorePricedQuoteMode();
       }
+      // Clean up default PO boilerplate notes if switching away from Purchase Order back to Quotation
+      if (
+        prevType === 'purchase_order' &&
+        customNotes &&
+        customNotes.includes('1. Please quote our Purchase Order number on all Delivery Notes')
+      ) {
+        const fallbackNotes =
+          editingQuotation?.notes ||
+          (enquiry as any)?.commercial_remarks ||
+          activeProfile?.default_notes ||
+          '';
+        setCustomNotes(fallbackNotes);
+      }
       const cleanQuoteNumber = cleanBaseRef.replace(/-R\d+$/i, '');
       const revNum = revisionNumber ?? editingQuotation?.revision_number ?? 1;
       setFormattedQuoteRefOverride(`${cleanQuoteNumber}-R${revNum}`);
@@ -5459,6 +5472,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     const matchingDefault = matchingPresets.find((p) => p.is_default) || matchingPresets[0];
     if (matchingDefault) {
       setSelectedPresetId(matchingDefault.id || '');
+      if (matchingDefault.header_layout) setHeaderLayout(matchingDefault.header_layout);
+      if (matchingDefault.table_density) setTableDensity(matchingDefault.table_density);
+      if (matchingDefault.theme_accent) setThemeAccent(matchingDefault.theme_accent);
+      if (matchingDefault.block_style) setBlockStyle(matchingDefault.block_style);
     } else {
       setSelectedPresetId('');
     }
@@ -7084,11 +7101,69 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     }
   };
 
+  // Opt-in toggle: whether saving/updating a Layout Preset should also overwrite preset commercial term defaults
+  const [saveCommercialTermsToPreset, setSaveCommercialTermsToPreset] = useState<boolean>(false);
+
+  // Sanitize layout_blocks before saving to a layout preset so deal-specific commercial values
+  // do not overwrite generic @price_basis, @delivery_period, @payment_terms, or @validity_days tokens
+  const sanitizeLayoutBlocksForPreset = (
+    blocks: QuotationBlockConfig[],
+    includeCommercialTerms?: boolean
+  ): QuotationBlockConfig[] => {
+    if (includeCommercialTerms) return blocks;
+    return (blocks || []).map((block) => {
+      if ((block.id === 'terms' || block.type === 'terms') && Array.isArray((block as any).customRows)) {
+        const sanitizedRows = ((block as any).customRows as Array<any>).map((row) => {
+          const labelNorm = String(row?.label || '').trim().toLowerCase();
+          const rowIdNorm = String(row?.id || '').trim().toLowerCase();
+          if (rowIdNorm === 'validity' || labelNorm.includes('validity')) {
+            return { ...row, value: '@validity_days' };
+          }
+          if (rowIdNorm === 'delivery' || labelNorm.includes('delivery') || labelNorm.includes('lead time')) {
+            return { ...row, value: '@delivery_period' };
+          }
+          if (rowIdNorm === 'price_basis' || labelNorm.includes('price basis') || labelNorm.includes('incoterm') || labelNorm.includes('delivery terms')) {
+            return { ...row, value: '@price_basis' };
+          }
+          if (rowIdNorm === 'payment' || labelNorm.includes('payment')) {
+            return { ...row, value: '@payment_terms' };
+          }
+          if (rowIdNorm === 'vat' || labelNorm.includes('vat') || labelNorm.includes('tax')) {
+            return { ...row, value: '@tax_mode_label' };
+          }
+          return row;
+        });
+        return { ...block, customRows: sanitizedRows } as QuotationBlockConfig;
+      }
+      return block;
+    });
+  };
+
   // Construct complete Phase 1 & Phase 2 preset snapshot from current studio settings
   const buildCurrentPresetPayload = (
     presetName: string,
-    isDefault?: boolean
+    isDefault?: boolean,
+    options?: {
+      existingPreset?: QuotationPreset;
+      includeCommercialTerms?: boolean;
+    }
   ): Omit<QuotationPreset, 'id'> => {
+    const includeCommercial = Boolean(options?.includeCommercialTerms ?? saveCommercialTermsToPreset);
+    const existing = options?.existingPreset;
+
+    const preservedPriceBasis = includeCommercial
+      ? priceBasis
+      : existing?.default_price_basis ?? (existing as any)?.price_basis ?? undefined;
+    const preservedPaymentTerms = includeCommercial
+      ? paymentTerms
+      : existing?.default_payment_terms ?? (existing as any)?.payment_terms ?? undefined;
+    const preservedValidityDays = includeCommercial
+      ? validityDays
+      : existing?.default_validity_days ?? (existing as any)?.validity_days ?? 30;
+    const preservedNotesTemplate = includeCommercial
+      ? customNotes
+      : existing?.notes_template ?? (existing as any)?.default_notes ?? undefined;
+
     return QuotationRepository.serializePresetSnapshot({
       workspace_id: activeWorkspaceId,
       workspaceId: activeWorkspaceId,
@@ -7108,11 +7183,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         showAmountInWords: amountInWordsEnabled
       },
       default_tax_mode: taxMode,
-      default_price_basis: priceBasis,
-      default_payment_terms: paymentTerms,
-      default_validity_days: validityDays,
+      default_price_basis: preservedPriceBasis,
+      default_payment_terms: preservedPaymentTerms,
+      default_validity_days: preservedValidityDays,
       signatory_mode: signatoryMode,
-      notes_template: customNotes,
+      notes_template: preservedNotesTemplate,
       header_layout: headerLayout,
       table_density: tableDensity,
       table_font_scale: tableFontScale,
@@ -7152,7 +7227,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       option_display_mode: optionDisplayMode,
       option_group_titles: optionGroupTitles,
       show_combined_options_total: showCombinedOptionsTotal,
-      layout_blocks: layoutBlocks,
+      layout_blocks: sanitizeLayoutBlocksForPreset(layoutBlocks, includeCommercial),
       flyer_attachments: flyerAttachments,
       show_submittals_index: showSubmittalsIndex,
       header_config: {
@@ -7221,7 +7296,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     try {
       const presetData = buildCurrentPresetPayload(
         newPresetName.trim(),
-        filteredPresetsForDocType.length === 0
+        filteredPresetsForDocType.length === 0,
+        {
+          includeCommercialTerms: saveCommercialTermsToPreset
+        }
       );
 
       const saved = await QuotationRepository.savePreset(presetData);
@@ -7229,7 +7307,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setSelectedPresetId(saved.id || '');
       setIsSavePresetModalOpen(false);
       setNewPresetName('');
-      triggerToast?.(`Template preset "${saved.preset_name}" saved successfully!`, 'success');
+      triggerToast?.(
+        saveCommercialTermsToPreset
+          ? `Template preset "${saved.preset_name}" saved (including commercial terms)!`
+          : `Layout preset "${saved.preset_name}" saved cleanly (deal commercial terms isolated)!`,
+        'success'
+      );
     } catch (err) {
       console.error('[QuotationStudioModal] Error saving preset:', err);
       triggerToast?.('Failed to save preset.', 'error');
@@ -7244,50 +7327,81 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     [filteredPresetsForDocType, selectedPresetId]
   );
 
-  // Whether the current studio settings differ from the currently selected preset
+  // Whether the current studio layout/branding settings differ from the currently selected preset.
+  // Deal-specific commercial terms (priceBasis, paymentTerms, deliveryPeriod, validityDays, customNotes)
+  // are intentionally excluded unless the user explicitly checks saveCommercialTermsToPreset.
   const isPresetModified = useMemo(() => {
     if (!selectedPreset) return false;
     if (selectedPreset.header_layout && selectedPreset.header_layout !== headerLayout) return true;
     if (selectedPreset.table_density && selectedPreset.table_density !== tableDensity) return true;
     if (selectedPreset.table_font_scale && selectedPreset.table_font_scale !== tableFontScale) return true;
-    if ((selectedPreset.default_tax_mode || (selectedPreset as any).tax_mode) && (selectedPreset.default_tax_mode || (selectedPreset as any).tax_mode) !== taxMode) return true;
-    if ((selectedPreset.default_price_basis || (selectedPreset as any).price_basis) && (selectedPreset.default_price_basis || (selectedPreset as any).price_basis) !== priceBasis) return true;
-    if ((selectedPreset.default_payment_terms || (selectedPreset as any).payment_terms) && (selectedPreset.default_payment_terms || (selectedPreset as any).payment_terms) !== paymentTerms) return true;
+    if ((selectedPreset.fontSizeScale || selectedPreset.font_size_scale) && (selectedPreset.fontSizeScale || selectedPreset.font_size_scale) !== fontSizeScale) return true;
+    if (selectedPreset.block_style && selectedPreset.block_style !== blockStyle) return true;
+    if (selectedPreset.globalCardRadius && selectedPreset.globalCardRadius !== globalCardRadius) return true;
+    if (selectedPreset.logo_position && selectedPreset.logo_position !== logoPosition) return true;
+    if (selectedPreset.pageMode && selectedPreset.pageMode !== pageMode) return true;
+    if (selectedPreset.show_bank_details !== undefined && Boolean(selectedPreset.show_bank_details) !== Boolean(showBankDetails)) return true;
+    if (selectedPreset.show_commercial_terms !== undefined && Boolean(selectedPreset.show_commercial_terms) !== Boolean(showCommercialTerms)) return true;
+    if (selectedPreset.show_company_seal !== undefined && Boolean(selectedPreset.show_company_seal) !== Boolean(showCompanySeal)) return true;
+    if (selectedPreset.amount_in_words_enabled !== undefined && Boolean(selectedPreset.amount_in_words_enabled) !== Boolean(amountInWordsEnabled)) return true;
+    if (selectedPreset.customer_acceptance_enabled !== undefined && Boolean(selectedPreset.customer_acceptance_enabled) !== Boolean(customerAcceptanceEnabled)) return true;
     if (selectedPreset.signatory_mode && selectedPreset.signatory_mode !== signatoryMode) return true;
     if (selectedPreset.theme_accent && selectedPreset.theme_accent !== themeAccent) return true;
     if (selectedPreset.documentFontFamily && selectedPreset.documentFontFamily !== (headerConfig.documentFontFamily || 'inter')) return true;
     if (selectedPreset.pdf_filename_pattern && selectedPreset.pdf_filename_pattern !== pdfFilenamePattern) return true;
-    if ((selectedPreset as any).tax_rate_percent !== undefined && Number((selectedPreset as any).tax_rate_percent) !== Number(taxRatePercent)) return true;
     if (selectedPreset.signatory_name && selectedPreset.signatory_name !== signatoryName) return true;
     if (selectedPreset.signatory_title && selectedPreset.signatory_title !== signatoryTitle) return true;
     if (selectedPreset.footer_config?.primarySignatoryName && selectedPreset.footer_config.primarySignatoryName !== signatoryName) return true;
     if (selectedPreset.footer_config?.primarySignatoryDesignation && selectedPreset.footer_config.primarySignatoryDesignation !== signatoryTitle) return true;
+    if (saveCommercialTermsToPreset) {
+      if ((selectedPreset.default_tax_mode || (selectedPreset as any).tax_mode) && (selectedPreset.default_tax_mode || (selectedPreset as any).tax_mode) !== taxMode) return true;
+      if ((selectedPreset.default_price_basis || (selectedPreset as any).price_basis || '') !== (priceBasis || '')) return true;
+      if ((selectedPreset.default_payment_terms || (selectedPreset as any).payment_terms || '') !== (paymentTerms || '')) return true;
+      if (Number(selectedPreset.default_validity_days || 30) !== Number(validityDays || 30)) return true;
+      if ((selectedPreset.notes_template || '') !== (customNotes || '')) return true;
+    }
     return false;
   }, [
     selectedPreset,
     headerLayout,
     tableDensity,
     tableFontScale,
-    taxMode,
-    priceBasis,
-    paymentTerms,
+    fontSizeScale,
+    blockStyle,
+    globalCardRadius,
+    logoPosition,
+    pageMode,
+    showBankDetails,
+    showCommercialTerms,
+    showCompanySeal,
+    amountInWordsEnabled,
+    customerAcceptanceEnabled,
     signatoryMode,
     themeAccent,
     headerConfig.documentFontFamily,
     pdfFilenamePattern,
-    taxRatePercent,
     signatoryName,
-    signatoryTitle
+    signatoryTitle,
+    saveCommercialTermsToPreset,
+    taxMode,
+    priceBasis,
+    paymentTerms,
+    validityDays,
+    customNotes
   ]);
 
-  // Overwrite currently selected custom preset with all current studio settings
+  // Overwrite currently selected custom preset with current layout & branding studio settings
   const handleUpdatePreset = async () => {
     if (!selectedPresetId || !selectedPreset) return;
     setIsSavingPreset(true);
     try {
       const payload = buildCurrentPresetPayload(
         selectedPreset.preset_name,
-        selectedPreset.is_default
+        selectedPreset.is_default,
+        {
+          existingPreset: selectedPreset,
+          includeCommercialTerms: saveCommercialTermsToPreset
+        }
       );
       const updated = await QuotationRepository.updatePreset(selectedPresetId, {
         ...payload,
@@ -7295,7 +7409,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         createdAt: selectedPreset.createdAt
       });
       setPresets((prev) => QuotationRepository.applyPresetUpdateInList(prev, updated));
-      triggerToast?.(`Preset "${updated.preset_name}" updated with current studio settings!`, 'success');
+      triggerToast?.(
+        saveCommercialTermsToPreset
+          ? `Preset "${updated.preset_name}" updated (including commercial terms)!`
+          : `Preset "${updated.preset_name}" layout & styling updated (deal commercial terms isolated)!`,
+        'success'
+      );
     } catch (err) {
       console.error('[QuotationStudioModal] Error updating preset:', err);
       triggerToast?.('Failed to update preset.', 'error');
@@ -7334,6 +7453,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         activeProfile?.trn ??
         (activeProfile as any)?.tax_registration_number ??
         '';
+
+      const targetPreset =
+        selectedPreset ||
+        filteredPresetsForDocType.find((p) => p.is_default) ||
+        filteredPresetsForDocType[0];
+
+      const existingDocTypeDefault = (activeProfile?.document_type_defaults || {})[
+        documentType || 'quotation'
+      ] as QuotationPreset | undefined;
 
       const updatedProfilePayload: WorkspaceDocumentProfile & { workspace_id: string } = {
         ...(activeProfile || ({} as WorkspaceDocumentProfile)),
@@ -7388,7 +7516,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         secondary_signatory_title: secondarySignatoryTitle,
         signatory_presets: customSignatoryPresets,
         default_signatory_preset_id: selectedSignatoryPresetId,
-        default_notes: customNotes,
+        default_notes: saveCommercialTermsToPreset
+          ? customNotes
+          : activeProfile?.default_notes ?? '',
         bank_accounts: activeProfile?.bank_accounts || [],
         header_config: {
           ...headerConfig,
@@ -7407,7 +7537,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           ...(resolvedSealUrl ? { companySealUrl: resolvedSealUrl } : {}),
           ...(resolvedSigUrl ? { signatureImageUrl: resolvedSigUrl } : {})
         },
-        layout_blocks: layoutBlocks,
+        layout_blocks: sanitizeLayoutBlocksForPreset(layoutBlocks, saveCommercialTermsToPreset),
         saved_custom_blocks: savedCustomBlocks,
         visible_columns: {
           ...visibleColumns,
@@ -7422,7 +7552,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           ...(activeProfile?.document_type_defaults || {}),
           [documentType || 'quotation']: buildCurrentPresetPayload(
             `${(documentType || 'quotation').toUpperCase()} Default`,
-            true
+            true,
+            {
+              existingPreset: existingDocTypeDefault || targetPreset,
+              includeCommercialTerms: saveCommercialTermsToPreset
+            }
           )
         },
         updated_at: new Date().toISOString()
@@ -7434,15 +7568,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setWorkspaceProfile(savedProfile);
 
       // Also update the active or default preset for the current document type if one exists
-      const targetPreset =
-        selectedPreset ||
-        filteredPresetsForDocType.find((p) => p.is_default) ||
-        filteredPresetsForDocType[0];
       let savedPreset: QuotationPreset | undefined = undefined;
       if (targetPreset && targetPreset.id) {
         const presetPayload = buildCurrentPresetPayload(
           targetPreset.preset_name,
-          targetPreset.is_default
+          targetPreset.is_default,
+          {
+            existingPreset: targetPreset,
+            includeCommercialTerms: saveCommercialTermsToPreset
+          }
         );
         savedPreset = await QuotationRepository.updatePreset(targetPreset.id, {
           ...presetPayload,
@@ -8291,6 +8425,19 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       </>
                     )}
                   </div>
+
+                  <label
+                    title="When unchecked (default), saving/updating a preset only saves layout, styling, and branding while keeping deal-specific commercial terms (Price Basis, Delivery, Payment Terms, Validity, Notes) isolated to this deal."
+                    className="inline-flex items-center gap-1.5 text-[10px] text-slate-500 hover:text-slate-700 cursor-pointer select-none"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={saveCommercialTermsToPreset}
+                      onChange={(e) => setSaveCommercialTermsToPreset(e.target.checked)}
+                      className="w-3 h-3 rounded-xs border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>Save current commercial terms as preset defaults</span>
+                  </label>
 
                   {selectedPreset && (
                     <button
@@ -27805,6 +27952,23 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 }}
               />
             </div>
+
+            <label className="flex items-start gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={saveCommercialTermsToPreset}
+                onChange={(e) => setSaveCommercialTermsToPreset(e.target.checked)}
+                className="mt-0.5 w-3.5 h-3.5 rounded-xs border-slate-300 text-blue-600 focus:ring-blue-500"
+              />
+              <div>
+                <div className="font-semibold text-slate-800">
+                  Save current commercial terms as preset defaults
+                </div>
+                <div className="text-[11px] text-slate-500 leading-snug mt-0.5">
+                  Leave unchecked to save only layout, visual styling, and branding without baking this deal&apos;s Price Basis, Delivery, or Payment Terms into the preset.
+                </div>
+              </div>
+            </label>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
               <button

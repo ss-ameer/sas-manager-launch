@@ -295,6 +295,7 @@ export interface QuotationTableChunk {
   startIndex: number;
   isContinuation: boolean;
   splitFromItemNumber?: number;
+  estimatedHeightMm?: number;
 }
 
 export interface QuotationSheetPartition {
@@ -340,16 +341,44 @@ export function estimateBlockHeightMm(
     bType === 'rec_payment_instrument' ||
     bType === 'rec_balance_statement'
   ) {
-    return (block.placement || 'full') === 'full' ? 28 : 20;
+    return (block.placement || 'full') === 'full' ? 30 : 24;
   }
   if (bType === 'pv_bill_allocation') {
     const allocCount = quotation?.payment_voucher_metadata?.allocated_bills?.length || 1;
-    return 20 + Math.min(6, allocCount) * 6;
+    return 22 + Math.min(6, allocCount) * 6;
+  }
+  if (bType === 'terms') {
+    const customRowsCount = Array.isArray((block as any).customRows)
+      ? ((block as any).customRows as Array<any>).filter((r) => r?.visible !== false).length
+      : 5;
+    const notesText = String(quotation?.notes || '').trim();
+    const notesLines = notesText
+      ? notesText
+          .split(/\r?\n/)
+          .reduce((acc, line) => acc + Math.max(1, Math.ceil(line.trim().length / 55)), 0)
+      : 0;
+    return Math.min(85, 16 + customRowsCount * 4.5 + (notesLines > 0 ? 6 + notesLines * 3.6 : 0));
+  }
+  if (bType === 'totals') {
+    const hasWords = quotation?.amount_in_words_enabled !== false;
+    return hasWords ? 42 : 32;
+  }
+  if (bType === 'remittance') {
+    return 40;
+  }
+  if (bType === 'signatory' || bType === 'signatories') {
+    const sigSpaceMm = Number(
+      (quotation?.footer_config as any)?.signatureSpaceHeightMm ?? 25
+    );
+    return Math.max(42, 24 + Math.min(45, Math.max(12, sigSpaceMm)));
+  }
+  if (bType === 'acceptance') {
+    return 32;
   }
   if (Array.isArray(block.pieces) && block.pieces.length > 0) {
     return Math.min(75, 14 + block.pieces.filter((p) => p.enabled !== false).length * 9);
   }
-  return (block.placement || 'full') === 'full' ? 24 : 18;
+  return (block.placement || 'full') === 'full' ? 28 : 24;
 }
 
 export function splitLineItemsIntoChunks(
@@ -367,7 +396,8 @@ export function splitLineItemsIntoChunks(
       {
         items: [],
         startIndex: 0,
-        isContinuation: false
+        isContinuation: false,
+        estimatedHeightMm: 0
       }
     ];
   }
@@ -384,6 +414,11 @@ export function splitLineItemsIntoChunks(
   const baseImgSize = colCfg.lineItemImageSize || 'md';
   const customWidthPx = colCfg.lineItemImageCustomWidthPx || 72;
   const bomSubImgMode = colCfg.bomSubComponentImageMode || 'off';
+  const showAttrs = colCfg.showItemAttributes !== false;
+  const attrFormat = colCfg.attributeDisplayFormat || 'grid_2col_balanced';
+  const hiddenAttrKeys = new Set(
+    (colCfg.hiddenAttributeKeys || []).map((k) => String(k).trim().toLowerCase())
+  );
 
   const resolveSizePx = (sizeKey?: string): number => {
     switch (sizeKey) {
@@ -404,18 +439,74 @@ export function splitLineItemsIntoChunks(
     }
   };
 
+  const countWrappedLines = (text: string, charsPerLine: number): number => {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return 0;
+    return trimmed
+      .split(/\r?\n/)
+      .reduce((sum, seg) => sum + Math.max(1, Math.ceil(seg.trim().length / charsPerLine)), 0);
+  };
+
   const SHEET_1_BUDGET_MM = Math.max(65, 175 - Math.max(0, resolvedPreTableOverheadMm));
   const CONTINUATION_SHEET_BUDGET_MM = 220;
 
   const estimateParentRowHeightMm = (item: QuotationLineItem): number => {
-    const descLen = (item.description || '').trim().length;
-    const descLines = descLen > 0 ? Math.ceil(descLen / 75) : 0;
-    const noteLen = (item.row_note || '').trim().length;
-    const noteLines = noteLen > 0 ? Math.ceil(noteLen / 75) : 0;
+    const { cleanDescription, extractedSpecsAttrs } =
+      extractLineItemAttributesAndCleanDescription(item);
+    const titleLines = Math.max(
+      1,
+      countWrappedLines(item.item_name || item.description || '', 62)
+    );
+    const descLines =
+      cleanDescription && cleanDescription.trim() !== (item.item_name || '').trim()
+        ? countWrappedLines(cleanDescription, 68)
+        : 0;
+    const noteLines = countWrappedLines(item.row_note || '', 68);
     const hasSubs = Array.isArray(item.sub_components) && item.sub_components.length > 0;
     const spacerMm = !hasSubs ? Number(item.row_spacer_after_mm || 0) : 0;
+
+    // Calculate technical attributes & metadata badges vertical height
+    let attributesHeightMm = 0;
+    if (showAttrs) {
+      const explicitAttrs =
+        item.attributes && typeof item.attributes === 'object'
+          ? Object.entries(item.attributes).filter(
+              ([k, v]) =>
+                Boolean(k && String(v ?? '').trim()) &&
+                !hiddenAttrKeys.has(String(k).trim().toLowerCase())
+            )
+          : [];
+      const seenKeys = new Set(explicitAttrs.map(([k]) => String(k).trim().toLowerCase()));
+      const extraSpecs = extractedSpecsAttrs.filter(
+        (pair) =>
+          !seenKeys.has(pair.key.toLowerCase()) &&
+          !hiddenAttrKeys.has(pair.key.toLowerCase())
+      );
+      const totalAttrCount = explicitAttrs.length + extraSpecs.length;
+      if (totalAttrCount > 0) {
+        if (attrFormat === 'grid_3col') {
+          attributesHeightMm += 3 + Math.ceil(totalAttrCount / 3) * 4.4;
+        } else if (attrFormat === 'pills' || attrFormat === 'inline_text') {
+          attributesHeightMm += 3 + Math.ceil(totalAttrCount / 3) * 4.2;
+        } else {
+          // grid_2col_balanced or table_2col
+          attributesHeightMm += 3.5 + Math.ceil(totalAttrCount / 2) * 4.6;
+        }
+      }
+      const hasMetaBadges = Boolean(
+        item.brand || item.sku || item.country_of_origin || item.hs_code
+      );
+      if (hasMetaBadges) {
+        attributesHeightMm += 4.5;
+      }
+    }
+
     const textHeightMm =
-      11 + descLines * 3.5 + (noteLines > 0 ? Math.max(4, noteLines * 3.5) : 0);
+      9.5 +
+      Math.max(0, titleLines - 1) * 3.8 +
+      descLines * 3.6 +
+      attributesHeightMm +
+      (noteLines > 0 ? Math.max(4.5, noteLines * 3.6) : 0);
 
     const itemOverride = item.image_display_override || 'inherit';
     const effectiveLayout =
@@ -448,17 +539,26 @@ export function splitLineItemsIntoChunks(
 
   const estimateSubRowHeightMm = (sub: {
     item_name?: string;
+    technical_highlight?: string;
     remark?: string;
     row_note?: string;
     row_spacer_after_mm?: number;
     image_url?: string;
   }): number => {
-    const nameLines = Math.max(1, Math.ceil((sub.item_name || '').trim().length / 75));
+    const nameLines = Math.max(1, countWrappedLines(sub.item_name || '', 68));
+    const highlightLines = sub.technical_highlight
+      ? countWrappedLines(sub.technical_highlight, 68)
+      : 0;
     const remarkMm = sub.remark && sub.remark.trim() ? 3.5 : 0;
-    const noteLen = (sub.row_note || '').trim().length;
-    const noteMm = noteLen > 0 ? Math.max(3.5, Math.ceil(noteLen / 75) * 3.5) : 0;
+    const noteLines = countWrappedLines(sub.row_note || '', 68);
+    const noteMm = noteLines > 0 ? Math.max(3.5, noteLines * 3.5) : 0;
     const spacerMm = Number(sub.row_spacer_after_mm || 0);
-    const baseSubMm = 7.5 + Math.max(0, nameLines - 1) * 3.2 + remarkMm + noteMm;
+    const baseSubMm =
+      7.5 +
+      Math.max(0, nameLines - 1) * 3.4 +
+      highlightLines * 3.4 +
+      remarkMm +
+      noteMm;
     const subHasImg = bomSubImgMode !== 'off' && Boolean(sub.image_url);
     return (subHasImg ? Math.max(baseSubMm, 11.5) : baseSubMm) + spacerMm;
   };
@@ -495,7 +595,8 @@ export function splitLineItemsIntoChunks(
       items: currentItems,
       startIndex: currentStartIndex,
       isContinuation: chunks.length > 0,
-      splitFromItemNumber
+      splitFromItemNumber,
+      estimatedHeightMm: runningHeightMm
     });
     currentItems = [];
     currentStartIndex = nextStartIndex;
@@ -620,7 +721,8 @@ export function splitLineItemsIntoChunks(
       items: currentItems,
       startIndex: currentStartIndex,
       isContinuation: chunks.length > 0,
-      splitFromItemNumber
+      splitFromItemNumber,
+      estimatedHeightMm: runningHeightMm
     });
   }
 
@@ -634,17 +736,21 @@ export function partitionBlocksIntoSheets(
     autoPaginate?: boolean;
     columnConfig?: QuotationPresetColumns;
     preTableOverheadMm?: number;
+    quotation?: Quotation;
   }
 ): QuotationSheetPartition[] {
   const activeBlocks = (blocks || []).filter(
     (b) => b.enabled !== false && b.is_visible !== false
   );
 
+  const preTableOverheadMm = options?.preTableOverheadMm ?? 0;
+  const autoPaginate = Boolean(options?.autoPaginate);
+
   const tableChunks = splitLineItemsIntoChunks(
     lineItems || [],
     options,
     undefined,
-    options?.preTableOverheadMm ?? 0
+    preTableOverheadMm
   );
 
   const rawSheets: Array<{
@@ -697,14 +803,24 @@ export function partitionBlocksIntoSheets(
         items: [],
         startIndex: lineItems!.length,
         isContinuation: true,
-        splitFromItemNumber: lineItems!.length
+        splitFromItemNumber: lineItems!.length,
+        estimatedHeightMm: 0
       },
       isTableContinuationSheet: true
     });
   }
 
-  // Process closing layoutBlocks after the final table chunk
-  activeBlocks.forEach((b) => {
+  // Group post-table activeBlocks into atomic visual rows so side-by-side left+right blocks
+  // (e.g. Commercial Terms + Financial Totals, or Bank Details + Signatures & Stamp)
+  // stay together when auto-paginating onto a continuation sheet.
+  type BlockVisualRow =
+    | { kind: 'page_break'; block: QuotationBlockConfig }
+    | { kind: 'content_row'; blocks: QuotationBlockConfig[]; heightMm: number };
+
+  const visualRows: BlockVisualRow[] = [];
+  let idx = 0;
+  while (idx < activeBlocks.length) {
+    const b = activeBlocks[idx];
     const bType =
       b.type ||
       (b.id?.startsWith('break_')
@@ -714,6 +830,66 @@ export function partitionBlocksIntoSheets(
         : b.id);
 
     if (bType === 'page_break') {
+      visualRows.push({ kind: 'page_break', block: b });
+      idx++;
+      continue;
+    }
+
+    const placement = b.placement || 'full';
+    const nextB = idx + 1 < activeBlocks.length ? activeBlocks[idx + 1] : undefined;
+    const nextType = nextB
+      ? nextB.type ||
+        (nextB.id?.startsWith('break_')
+          ? 'page_break'
+          : nextB.id?.startsWith('spacer_')
+          ? 'spacer'
+          : nextB.id)
+      : undefined;
+    const nextPlacement = nextB ? nextB.placement || 'full' : undefined;
+
+    // Pair consecutive half-width blocks (left + right or right + left) as an atomic 2-column row
+    if (
+      (placement === 'left' || placement === 'right') &&
+      nextB &&
+      nextType !== 'page_break' &&
+      nextType !== 'spacer' &&
+      (nextPlacement === 'left' || nextPlacement === 'right') &&
+      nextPlacement !== placement
+    ) {
+      const h1 = estimateBlockHeightMm(b, options?.quotation);
+      const h2 = estimateBlockHeightMm(nextB, options?.quotation);
+      visualRows.push({
+        kind: 'content_row',
+        blocks: [b, nextB],
+        heightMm: Math.max(h1, h2) + 4
+      });
+      idx += 2;
+      continue;
+    }
+
+    visualRows.push({
+      kind: 'content_row',
+      blocks: [b],
+      heightMm: estimateBlockHeightMm(b, options?.quotation) + 3
+    });
+    idx++;
+  }
+
+  // Track vertical space consumed on the active sheet so post-table closing blocks
+  // automatically flow onto a continuation sheet when autoPaginate is enabled.
+  const sheet1TotalBudgetMm = Math.max(85, 195 - Math.max(0, preTableOverheadMm));
+  const continuationTotalBudgetMm = 235;
+
+  const activeLastSheet = rawSheets[rawSheets.length - 1];
+  const lastChunkItemsCount = activeLastSheet.tableChunk?.items?.length || 0;
+  let currentSheetUsedMm =
+    lastChunkItemsCount > 0
+      ? (activeLastSheet.tableChunk?.estimatedHeightMm || 0) + 12
+      : 0;
+
+  visualRows.forEach((row) => {
+    if (row.kind === 'page_break') {
+      const b = row.block;
       const currentSheet = rawSheets[rawSheets.length - 1];
       const isCurrentSheetEmptyContinuation =
         rawSheets.length > 1 &&
@@ -734,8 +910,32 @@ export function partitionBlocksIntoSheets(
           isTableContinuationSheet: false
         });
       }
+      currentSheetUsedMm = 0;
+      return;
+    }
+
+    const currentSheet = rawSheets[rawSheets.length - 1];
+    const hasContentOnCurrentSheet =
+      currentSheet.blocks.length > 0 ||
+      Boolean(currentSheet.tableChunk && currentSheet.tableChunk.items.length > 0);
+    const activeSheetBudgetMm =
+      rawSheets.length === 1 ? sheet1TotalBudgetMm : continuationTotalBudgetMm;
+
+    if (
+      autoPaginate &&
+      hasContentOnCurrentSheet &&
+      currentSheetUsedMm + row.heightMm > activeSheetBudgetMm
+    ) {
+      rawSheets.push({
+        sheetNumber: rawSheets.length + 1,
+        blocks: [...row.blocks],
+        showContinuationHeader: true,
+        isTableContinuationSheet: false
+      });
+      currentSheetUsedMm = row.heightMm;
     } else {
-      rawSheets[rawSheets.length - 1].blocks.push(b);
+      currentSheet.blocks.push(...row.blocks);
+      currentSheetUsedMm += row.heightMm;
     }
   });
 
@@ -1121,6 +1321,7 @@ export function resolveDocumentPaginationWithAnnexes(
     autoPaginate?: boolean;
     columnConfig?: QuotationPresetColumns;
     preTableOverheadMm?: number;
+    quotation?: Quotation;
   }
 ): {
   coverSheetAttachments: Attachment[];
@@ -3893,7 +4094,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       {
         autoPaginate: Boolean(quotation.auto_paginate_items),
         columnConfig,
-        preTableOverheadMm
+        preTableOverheadMm,
+        quotation
       }
     );
   }, [

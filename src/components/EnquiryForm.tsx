@@ -1401,9 +1401,32 @@ export default function EnquiryForm({
     disclosure.ensureFieldVisible(fieldKey);
     if (fieldKey === 'company' || fieldKey === 'line_items' || fieldKey === 'value') {
       setActiveFormSection(fieldKey);
-    } else if (fieldKey === 'country' || fieldKey === 'location' || fieldKey === 'received_date' || fieldKey === 'quote_ref_no') {
+    } else if (
+      fieldKey === 'country' ||
+      fieldKey === 'location' ||
+      fieldKey === 'received_date' ||
+      fieldKey === 'quote_ref_no' ||
+      fieldKey === 'salesperson' ||
+      fieldKey === 'subject' ||
+      fieldKey === 'contact' ||
+      fieldKey === 'unregistered_entities' ||
+      fieldKey === 'custom_project_details'
+    ) {
       setActiveFormSection('company');
-    } else if (fieldKey === 'source_files') {
+    } else if (fieldKey.startsWith('line_item_')) {
+      setActiveFormSection('line_items');
+    } else if (
+      fieldKey === 'source_files' ||
+      fieldKey === 'price_basis' ||
+      fieldKey === 'delivery_period' ||
+      fieldKey === 'payment_terms' ||
+      fieldKey === 'validity_days' ||
+      fieldKey === 'tax_mode' ||
+      fieldKey === 'remarks' ||
+      fieldKey === 'commercial_terms' ||
+      fieldKey === 'invoice_po_no' ||
+      fieldKey === 'payment_status'
+    ) {
       setActiveFormSection('value');
     }
     setHighlightedField(fieldKey);
@@ -1413,6 +1436,7 @@ export default function EnquiryForm({
       quote_ref_no: 'field-quote_ref_no',
       company: 'field-company',
       contact: 'field-contact',
+      salesperson: 'field-salesperson',
       received_date: 'field-received_date',
       location: 'field-location',
       country: 'field-country',
@@ -1420,7 +1444,13 @@ export default function EnquiryForm({
       line_items: 'field-line_items',
       subject: 'field-subject',
       custom_project_details: 'field-custom_project_details',
-      unregistered_entities: 'field-unregistered_entities'
+      unregistered_entities: 'field-unregistered_entities',
+      price_basis: 'field-price_basis',
+      delivery_period: 'field-delivery_period',
+      payment_terms: 'field-payment_terms',
+      validity_days: 'field-validity_days',
+      tax_mode: 'field-tax_mode',
+      remarks: 'field-remarks'
     };
 
     const targetId = idMap[fieldKey] || `field-${fieldKey}`;
@@ -1448,27 +1478,327 @@ export default function EnquiryForm({
     return '';
   };
 
+  // Shared parser for commercial terms, header salesperson/company ("received by X for Y"), and unit/package prices
+  const extractCommercialTermsAndHeaderFromText = React.useCallback(
+    (rawText?: string | null) => {
+      const result: {
+        salesperson?: string;
+        companyName?: string;
+        subject?: string;
+        priceBasis?: string;
+        deliveryPeriod?: string;
+        paymentTerms?: string;
+        validityDays?: number;
+        taxMode?: QuotationTaxMode;
+        unitPrice?: number;
+      } = {};
+      if (!rawText || typeof rawText !== 'string') return result;
+      const clean = rawText.trim();
+      if (!clean) return result;
+
+      // 1. Header pattern: e.g. "A RFQ received by Nitin Srivastava for Metichem - Enquiry Details:"
+      const receivedByForMatch = clean.match(
+        /received\s+by\s+([A-Za-z][A-Za-z\s.]{1,40}?)\s+for\s+([^\n\r\-–—:]+?)(?:\s*[-–—:]|\r|\n|$)/i
+      );
+      if (receivedByForMatch) {
+        result.salesperson = receivedByForMatch[1].trim();
+        const candidateComp = receivedByForMatch[2].trim();
+        if (candidateComp && !/^(enquiry|rfq|quotation|quote|details)$/i.test(candidateComp)) {
+          result.companyName = candidateComp;
+        }
+      } else {
+        const spExplicitMatch = clean.match(
+          /(?:received\s+by|sales\s*person|sales\s*rep|assigned\s+to|prepared\s+by|handled\s+by)\s*[:=-]?\s*([A-Za-z][A-Za-z\s.]{1,35}?)(?=\s+for\b|\s*[-–—:,\n\r]|$)/i
+        );
+        if (spExplicitMatch) {
+          result.salesperson = spExplicitMatch[1].trim();
+        }
+      }
+
+      // Match workspace salespersons by full name or first name if still not resolved
+      if (Array.isArray(salespersons) && salespersons.length > 0) {
+        const lowerClean = clean.toLowerCase();
+        for (const sp of salespersons) {
+          const fullName = (sp.full_name || '').trim();
+          if (fullName && fullName.length >= 3 && lowerClean.includes(fullName.toLowerCase())) {
+            result.salesperson = sp.id || sp.initials || fullName;
+            break;
+          }
+        }
+        if (result.salesperson) {
+          const rawSpLower = result.salesperson.toLowerCase();
+          const firstToken = rawSpLower.split(/\s+/)[0];
+          const matchedSp = salespersons.find((sp) => {
+            const fn = (sp.full_name || '').toLowerCase();
+            const ini = (sp.initials || '').toLowerCase();
+            return (
+              sp.id === result.salesperson ||
+              fn === rawSpLower ||
+              ini === rawSpLower ||
+              fn.includes(rawSpLower) ||
+              (firstToken.length >= 3 && fn.split(/\s+/)[0] === firstToken)
+            );
+          });
+          if (matchedSp) {
+            result.salesperson = matchedSp.id || matchedSp.initials || matchedSp.full_name;
+          }
+        }
+      }
+
+      // 2. Company Name fallback from "for [Company]" or matching workspace companies
+      if (!result.companyName) {
+        const forCompanyMatch = clean.match(
+          /(?:rfq|enquiry|quote|quotation|proposal|inquiry)[^\n\r]{0,50}?\bfor\s+([A-Z][A-Za-z0-9\s&.,()-]{1,55}?)(?:\s*[-–—:]\s*(?:enquiry|rfq|details|scope)|\r|\n|$)/i
+        );
+        if (forCompanyMatch) {
+          const cand = forCompanyMatch[1].trim();
+          if (cand && !/^(enquiry|rfq|quotation|details|supply)$/i.test(cand)) {
+            result.companyName = cand;
+          }
+        }
+      }
+      if (!result.companyName && Array.isArray(companies) && companies.length > 0) {
+        const lowerClean = clean.toLowerCase();
+        for (const comp of companies) {
+          const dName = (comp.display_name || '').trim();
+          if (dName && dName.length >= 4 && lowerClean.includes(dName.toLowerCase())) {
+            result.companyName = dName;
+            break;
+          }
+        }
+      }
+
+      // 3. Subject / Primary Equipment Title detection
+      const subjExplicit = clean.match(/(?:subject|project\s*title|re)\s*[:=-]\s*([^\n\r]+)/i);
+      if (subjExplicit && subjExplicit[1]?.trim()) {
+        result.subject = subjExplicit[1].trim();
+      } else {
+        const lines = clean
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean);
+        for (const line of lines.slice(0, 5)) {
+          if (
+            /received\s+by/i.test(line) ||
+            /^(from|to|client|company|attn|date|email|phone|tel)\b/i.test(line)
+          ) {
+            continue;
+          }
+          if (
+            /\b(system|skid|unit|package|plant|vessel|pump|valve|filter|softener|ro\b|uf\b|mmf\b|dosing|panel|supply|assembly)\b/i.test(
+              line
+            ) &&
+            line.length <= 120
+          ) {
+            result.subject = line.replace(/^\d+[\.\)]\s*/, '').trim();
+            break;
+          }
+        }
+      }
+
+      // 4. Price Basis / Incoterms
+      const explicitBasis = clean.match(
+        /(?:price\s*basis|incoterms?|basis\s*of\s*price|delivery\s*basis)\s*[:=-]\s*([^\n\r;|]+)/i
+      );
+      if (explicitBasis && explicitBasis[1]?.trim()) {
+        result.priceBasis = explicitBasis[1].trim();
+      } else {
+        const standaloneBasis = clean.match(
+          /(?:^|[\n\r;|•])\s*((?:ex[\s-]*warehouse|ex[\s-]*works|exw\b|ddp\b|cif\b|fob\b|cfr\b|dap\b)[^\n\r;|]*)/i
+        );
+        if (standaloneBasis && standaloneBasis[1]?.trim()) {
+          result.priceBasis = standaloneBasis[1].trim();
+        }
+      }
+
+      // 5. Delivery Period / Lead Time
+      const deliveryMatch = clean.match(
+        /(?:delivery(?:\s*period|\s*time|\s*terms|\s*schedule)?|lead\s*time)\s*[:=-]\s*([^\n\r;|]+)/i
+      );
+      if (deliveryMatch && deliveryMatch[1]?.trim()) {
+        result.deliveryPeriod = deliveryMatch[1].trim();
+      } else {
+        const weeksStandalone = clean.match(
+          /(?:^|[\n\r;|•])\s*(\d+\s*(?:[-–to]+\s*\d+\s*)?(?:weeks?|days?|months?)\s*(?:from\s+[^\n\r;|]+)?|ex[\s-]*stock(?:\s*\/\s*immediate)?)/i
+        );
+        if (weeksStandalone && weeksStandalone[1]?.trim()) {
+          result.deliveryPeriod = weeksStandalone[1].trim();
+        }
+      }
+
+      // 6. Payment Terms
+      const paymentMatch = clean.match(
+        /(?:payment(?:\s*terms)?|terms\s*of\s*payment)\s*[:=-]\s*([^\n\r;|]+)/i
+      );
+      if (paymentMatch && paymentMatch[1]?.trim()) {
+        result.paymentTerms = paymentMatch[1].trim();
+      } else {
+        const advanceLine = clean.match(
+          /(?:^|[\n\r;|•])\s*(\d{1,3}%\s*advance[^\n\r;|]*|\d+\s*days?\s*(?:pdc|credit|from\s+invoice)[^\n\r;|]*)/i
+        );
+        if (advanceLine && advanceLine[1]?.trim()) {
+          result.paymentTerms = advanceLine[1].trim();
+        }
+      }
+
+      // 7. Offer Validity (Days)
+      const validityMatch =
+        clean.match(/(?:offer\s*)?validity\s*[:=-]?\s*(\d{1,3})\s*days?/i) ||
+        clean.match(/valid\s+for\s+(\d{1,3})\s*days?/i);
+      if (validityMatch && validityMatch[1]) {
+        const vDays = Number(validityMatch[1]);
+        if (vDays > 0 && vDays <= 365) {
+          result.validityDays = vDays;
+        }
+      }
+
+      // 8. VAT / Tax Mode
+      if (/\+\s*(?:5%\s*)?vat\b|\bexcl(?:uding|\.)?\s*vat\b|\bvat\s*extra\b/i.test(clean)) {
+        result.taxMode = 'taxes_extra';
+      } else if (/\bincl(?:uding|\.)?\s*vat\b|\bvat\s*included\b/i.test(clean)) {
+        result.taxMode = 'tax_calculated';
+      } else if (/\b(?:0%\s*vat|zero[\s-]*rated|tax\s*exempt)\b/i.test(clean)) {
+        result.taxMode = 'tax_exempt';
+      }
+
+      // 9. Unit / Package Price (e.g. "Unit Price - AED 207,150.00 + VAT" or "Total: AED 45,000")
+      const explicitPriceMatch =
+        clean.match(
+          /(?:unit\s*price|package\s*price|total\s*price|total\s*amount|offer\s*price|price|amount)\s*[-:=$]*\s*(?:aed|usd|\$)?\s*([\d,]{3,}(?:\.\d{1,2})?)/i
+        ) ||
+        clean.match(/(?:aed|usd|\$)\s*([\d,]{3,}(?:\.\d{1,2})?)/i);
+      if (explicitPriceMatch && explicitPriceMatch[1]) {
+        const parsedNum = Number(explicitPriceMatch[1].replace(/,/g, ''));
+        if (!isNaN(parsedNum) && parsedNum > 0) {
+          result.unitPrice = parsedNum;
+        }
+      }
+
+      return result;
+    },
+    [salespersons, companies]
+  );
+
+  // Search/Fuzzy Company Add state
+  const [companySearch, setCompanySearch] = useState('');
+
+  // Unified live + AI extracted tokens so the "AI Extracted Field Tokens" card is ALWAYS populated
+  // even when re-opening an existing Enquiry (where pastedExtractedData is null on reload)
+  const effectiveExtractedTokens = React.useMemo(() => {
+    const parsedFromRaw = extractCommercialTermsAndHeaderFromText(pastedSourceText);
+    const resolvedCompName =
+      pastedExtractedData?.company_name ||
+      companies.find((c) => c.id === companyId)?.display_name ||
+      (companySearch && companySearch.trim() ? companySearch.trim() : '') ||
+      parsedFromRaw.companyName ||
+      '';
+    const resolvedContName =
+      pastedExtractedData?.contact_name ||
+      contacts.find((c) => c.id === contactId)?.full_name ||
+      (customContactInput && customContactInput.trim() ? customContactInput.trim() : '') ||
+      '';
+    const resolvedSpObj = salespersons.find(
+      (s) => s.id === salesPerson || s.initials === salesPerson || s.full_name === salesPerson
+    );
+    const resolvedSpName =
+      resolvedSpObj?.full_name ||
+      pastedExtractedData?.salesperson ||
+      parsedFromRaw.salesperson ||
+      salesPerson ||
+      '';
+    const resolvedValue =
+      Number(pastedExtractedData?.package_value) > 0
+        ? Number(pastedExtractedData.package_value)
+        : Number(manualValue) > 0
+        ? Number(manualValue)
+        : parsedFromRaw.unitPrice || 0;
+    const resolvedLineItems =
+      Array.isArray(lineItems) && lineItems.length > 0
+        ? lineItems
+        : Array.isArray(pastedExtractedData?.line_items)
+        ? pastedExtractedData.line_items
+        : [];
+
+    return {
+      quote_ref_no: quoteRefNo || pastedExtractedData?.quote_ref_no || '',
+      company_name: resolvedCompName,
+      contact_name: resolvedContName,
+      salesperson: resolvedSpName,
+      subject: subject || pastedExtractedData?.subject || parsedFromRaw.subject || '',
+      received_date: enquiryDate || pastedExtractedData?.received_date || '',
+      project_location: projectLocation || pastedExtractedData?.project_location || '',
+      country: country || pastedExtractedData?.country || '',
+      price_basis: priceBasis || pastedExtractedData?.price_basis || parsedFromRaw.priceBasis || '',
+      delivery_period:
+        deliveryPeriod || pastedExtractedData?.delivery_period || parsedFromRaw.deliveryPeriod || '',
+      payment_terms:
+        paymentTerms || pastedExtractedData?.payment_terms || parsedFromRaw.paymentTerms || '',
+      validity_days:
+        validityDays || pastedExtractedData?.validity_days || parsedFromRaw.validityDays || 0,
+      tax_mode: taxMode || pastedExtractedData?.tax_mode || parsedFromRaw.taxMode || '',
+      package_value: resolvedValue,
+      line_items: resolvedLineItems,
+      remarks: remarks || pastedExtractedData?.remarks || ''
+    };
+  }, [
+    pastedSourceText,
+    pastedExtractedData,
+    extractCommercialTermsAndHeaderFromText,
+    companies,
+    companyId,
+    companySearch,
+    contacts,
+    contactId,
+    customContactInput,
+    salespersons,
+    salesPerson,
+    subject,
+    enquiryDate,
+    projectLocation,
+    country,
+    priceBasis,
+    deliveryPeriod,
+    paymentTerms,
+    validityDays,
+    taxMode,
+    manualValue,
+    lineItems,
+    remarks
+  ]);
+
   // Helper for bi-directional text highlighting in the raw source text preview
   const renderSourceTextWithHighlight = (text: string | null, fieldKey: string | null, data: any) => {
     try {
       if (!text || typeof text !== 'string') return null;
-      if (!fieldKey || !data) return text;
+      const activeData = data || effectiveExtractedTokens;
+      if (!fieldKey || !activeData) return text;
 
       let searchStr: string | null = null;
-      if (fieldKey === 'quote_ref_no' && data.quote_ref_no) searchStr = String(data.quote_ref_no);
-      else if (fieldKey === 'company' && data.company_name) searchStr = String(data.company_name);
-      else if (fieldKey === 'contact' && data.contact_name) searchStr = String(data.contact_name);
-      else if (fieldKey === 'received_date' && data.received_date) searchStr = String(data.received_date);
-      else if (fieldKey === 'location' && data.project_location) searchStr = String(data.project_location);
-      else if (fieldKey === 'country' && data.country) searchStr = String(data.country);
-      else if (fieldKey === 'value' && data.package_value) searchStr = String(data.package_value);
-      else if (fieldKey === 'subject' && data.subject) searchStr = String(data.subject);
-      else if (fieldKey.startsWith('line_item_') && Array.isArray(data.line_items)) {
+      if (fieldKey === 'quote_ref_no' && activeData.quote_ref_no) searchStr = String(activeData.quote_ref_no);
+      else if (fieldKey === 'company' && activeData.company_name) searchStr = String(activeData.company_name);
+      else if (fieldKey === 'contact' && activeData.contact_name) searchStr = String(activeData.contact_name);
+      else if (fieldKey === 'salesperson' && activeData.salesperson) searchStr = String(activeData.salesperson);
+      else if (fieldKey === 'received_date' && activeData.received_date) searchStr = String(activeData.received_date);
+      else if (fieldKey === 'location' && activeData.project_location) searchStr = String(activeData.project_location);
+      else if (fieldKey === 'country' && activeData.country) searchStr = String(activeData.country);
+      else if (fieldKey === 'value' && activeData.package_value) {
+        const formatted = Number(activeData.package_value).toLocaleString();
+        searchStr = text.includes(formatted) ? formatted : String(activeData.package_value);
+      } else if (fieldKey === 'subject' && activeData.subject) searchStr = String(activeData.subject);
+      else if (fieldKey === 'price_basis' && activeData.price_basis) searchStr = String(activeData.price_basis);
+      else if (fieldKey === 'delivery_period' && activeData.delivery_period) searchStr = String(activeData.delivery_period);
+      else if (fieldKey === 'payment_terms' && activeData.payment_terms) searchStr = String(activeData.payment_terms);
+      else if (fieldKey === 'validity_days' && activeData.validity_days) searchStr = `${activeData.validity_days}`;
+      else if (fieldKey === 'tax_mode') searchStr = 'VAT';
+      else if (fieldKey.startsWith('line_item_') && Array.isArray(activeData.line_items)) {
         const idx = parseInt(fieldKey.replace('line_item_', ''), 10);
-        const item = data.line_items[idx];
-        if (item) searchStr = item.description || item.product_type;
-      } else if (fieldKey === 'line_items' && Array.isArray(data.line_items) && data.line_items[0]) {
-        searchStr = data.line_items[0].description || data.line_items[0].product_type;
+        const item = activeData.line_items[idx];
+        if (item) searchStr = item.item_name || item.description || item.product_type;
+      } else if (fieldKey === 'line_items' && Array.isArray(activeData.line_items) && activeData.line_items[0]) {
+        searchStr =
+          activeData.line_items[0].item_name ||
+          activeData.line_items[0].description ||
+          activeData.line_items[0].product_type;
       }
 
       if (!searchStr || searchStr.trim().length < 2) return text;
@@ -1613,8 +1943,6 @@ export default function EnquiryForm({
     });
   };
 
-  // Search/Fuzzy Company Add state
-  const [companySearch, setCompanySearch] = useState('');
   const [showCompanyList, setShowCompanyList] = useState(false);
   const [newCompanyModal, setNewCompanyModal] = useState(false);
   const [isCreatingCompanyInline, setIsCreatingCompanyInline] = useState(false);
@@ -2117,22 +2445,38 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       setInvoicePoNo(enquiryToEdit.invoice_po_no || '');
       setPaymentStatus(enquiryToEdit.payment_status || '');
       const rawRem = enquiryToEdit.remarks || '';
+      const fallbackFromSource = extractCommercialTermsAndHeaderFromText(
+        `${rawRem}\n${enquiryToEdit.raw_source_text || ''}`
+      );
       const extractedValidity = rawRem.match(/validity\s*[:=-]\s*(\d+)\s*day/i)?.[1];
-      const extractedPriceBasis = rawRem.match(/(?:price\s*basis|incoterms?)\s*[:=-]\s*([^\n;|]+)/i)?.[1]?.trim();
-      const extractedDelivery = rawRem.match(/delivery(?:\s*period|\s*terms)?\s*[:=-]\s*([^\n;|]+)/i)?.[1]?.trim();
-      const extractedPayment = rawRem.match(/payment(?:\s*terms)?\s*[:=-]\s*([^\n;|]+)/i)?.[1]?.trim();
+      const extractedPriceBasis =
+        rawRem.match(/(?:price\s*basis|incoterms?)\s*[:=-]\s*([^\n;|]+)/i)?.[1]?.trim() ||
+        fallbackFromSource.priceBasis;
+      const extractedDelivery =
+        rawRem.match(/delivery(?:\s*period|\s*terms)?\s*[:=-]\s*([^\n;|]+)/i)?.[1]?.trim() ||
+        fallbackFromSource.deliveryPeriod;
+      const extractedPayment =
+        rawRem.match(/payment(?:\s*terms)?\s*[:=-]\s*([^\n;|]+)/i)?.[1]?.trim() ||
+        fallbackFromSource.paymentTerms;
       setValidityDays(
         typeof enquiryToEdit.validity_days === 'number' && enquiryToEdit.validity_days > 0
           ? enquiryToEdit.validity_days
           : extractedValidity
           ? Number(extractedValidity) || 30
-          : 30
+          : fallbackFromSource.validityDays || 30
       );
       setPriceBasis(enquiryToEdit.price_basis || extractedPriceBasis || '');
       setDeliveryPeriod(enquiryToEdit.delivery_period || extractedDelivery || '');
       setPaymentTerms(enquiryToEdit.payment_terms || extractedPayment || enquiryToEdit.payment_status || '');
-      setTaxMode(enquiryToEdit.tax_mode || 'taxes_extra');
-      setSubject(enquiryToEdit.subject || '');
+      const rawTaxMode = String(enquiryToEdit.tax_mode || fallbackFromSource.taxMode || 'taxes_extra');
+      const normalizedTaxMode: QuotationTaxMode =
+        rawTaxMode === 'inclusive'
+          ? 'tax_calculated'
+          : rawTaxMode === 'zero_rated'
+          ? 'tax_exempt'
+          : (rawTaxMode as QuotationTaxMode);
+      setTaxMode(normalizedTaxMode);
+      setSubject(enquiryToEdit.subject || fallbackFromSource.subject || '');
       setCustomerReferenceCode(enquiryToEdit.customer_reference_code || '');
       setProposalOption(enquiryToEdit.proposal_option || '');
       setParentId(enquiryToEdit.parent_id ?? null);
@@ -3111,15 +3455,94 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     } else if (hasPricedLineItems) {
       setIsLumpSum(false);
     }
-    if (data.salesperson) {
-      const matchedSp = salespersons.find(s =>
-        s.full_name.toLowerCase().includes(String(data.salesperson).toLowerCase()) ||
-        (s.initials && s.initials.toLowerCase() === String(data.salesperson).toLowerCase())
-      );
+    const fallbackCommercial = extractCommercialTermsAndHeaderFromText(
+      `${data.remarks || ''}\n${pastedSourceText || ''}\n${rawTextInput || ''}`
+    );
+
+    if (!data.subject && fallbackCommercial.subject) {
+      setSubject(fallbackCommercial.subject);
+    }
+    if (
+      (!data.company_name || data.company_name === 'Prospective Client') &&
+      fallbackCommercial.companyName
+    ) {
+      data.company_name = fallbackCommercial.companyName;
+    }
+
+    const effectiveSalespersonToken = data.salesperson || fallbackCommercial.salesperson;
+    if (effectiveSalespersonToken) {
+      const spQuery = String(effectiveSalespersonToken).trim().toLowerCase();
+      const spFirstWord = spQuery.split(/\s+/)[0];
+      const matchedSp = salespersons.find((s) => {
+        const fullLower = (s.full_name || '').toLowerCase();
+        const initLower = (s.initials || '').toLowerCase();
+        return (
+          s.id === effectiveSalespersonToken ||
+          fullLower === spQuery ||
+          initLower === spQuery ||
+          fullLower.includes(spQuery) ||
+          spQuery.includes(fullLower) ||
+          (spFirstWord.length >= 3 && fullLower.split(/\s+/)[0] === spFirstWord)
+        );
+      });
       if (matchedSp) {
         setSalesPerson(matchedSp.id || matchedSp.initials || matchedSp.full_name);
       }
     }
+
+    const resolvedPriceBasis = String(data.price_basis || fallbackCommercial.priceBasis || '').trim();
+    if (resolvedPriceBasis) {
+      setPriceBasis(resolvedPriceBasis);
+    }
+    const resolvedDeliveryPeriod = String(
+      data.delivery_period || fallbackCommercial.deliveryPeriod || ''
+    ).trim();
+    if (resolvedDeliveryPeriod) {
+      setDeliveryPeriod(resolvedDeliveryPeriod);
+    }
+    const resolvedPaymentTerms = String(
+      data.payment_terms || fallbackCommercial.paymentTerms || ''
+    ).trim();
+    if (resolvedPaymentTerms) {
+      setPaymentTerms(resolvedPaymentTerms);
+    }
+    const resolvedValidityDays = Number(data.validity_days || fallbackCommercial.validityDays || 0);
+    if (!isNaN(resolvedValidityDays) && resolvedValidityDays > 0 && resolvedValidityDays <= 365) {
+      setValidityDays(resolvedValidityDays);
+    }
+    const rawExtractedTaxMode = String(data.tax_mode || fallbackCommercial.taxMode || '').trim();
+    if (rawExtractedTaxMode) {
+      const normTax: QuotationTaxMode =
+        rawExtractedTaxMode === 'inclusive'
+          ? 'tax_calculated'
+          : rawExtractedTaxMode === 'zero_rated'
+          ? 'tax_exempt'
+          : (rawExtractedTaxMode as QuotationTaxMode);
+      if (
+        normTax === 'taxes_extra' ||
+        normTax === 'tax_calculated' ||
+        normTax === 'tax_exempt' ||
+        normTax === 'vat_excluded_extra' ||
+        normTax === 'vat_hidden'
+      ) {
+        setTaxMode(normTax);
+      }
+    }
+
+    if (
+      Array.isArray(data.line_items) &&
+      data.line_items.length === 1 &&
+      !hasPricedLineItems &&
+      (Number(data.package_value) > 0 || (fallbackCommercial.unitPrice && fallbackCommercial.unitPrice > 0))
+    ) {
+      const pkgPrice = Number(data.package_value) || fallbackCommercial.unitPrice || 0;
+      const qty = Math.max(1, Number(data.line_items[0].quantity) || 1);
+      data.line_items[0].unit_price = Number((pkgPrice / qty).toFixed(2));
+      data.line_items[0].unit_price_aed = Number((pkgPrice / qty).toFixed(2));
+      setManualValue(pkgPrice);
+      setIsLumpSum(false);
+    }
+
     if (data.remarks) {
       setRemarks((prev) => {
         const incomingLines = String(data.remarks)
@@ -3508,18 +3931,26 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       else if (/qatar/i.test(clean)) { extractedCountry = 'Qatar'; extractedLocation = 'Doha'; }
       else if (/saudi|ksa|riyadh|jeddah/i.test(clean)) { extractedCountry = 'Saudi Arabia'; extractedLocation = 'Riyadh'; }
 
-      // Extract Package Value
-      let extractedValue: number | null = null;
-      const valMatch = clean.match(/(?:total|amount|value|budget|aed|usd)?\s*:?\s*([\d,]{4,}(?:\.\d{2})?)/i);
-      if (valMatch) {
-        const num = Number(valMatch[1].replace(/,/g, ''));
-        if (!isNaN(num) && num > 100) extractedValue = num;
+      const extractedCommercial = extractCommercialTermsAndHeaderFromText(clean);
+
+      // Extract Package Value (prefer explicit unit/package price over raw numbers so years like 2026 are never matched)
+      let extractedValue: number | null = extractedCommercial.unitPrice || null;
+      if (!extractedValue) {
+        const valMatch = clean.match(
+          /(?:total|amount|value|budget|unit\s*price|aed|usd)\s*[-:=$]*\s*([\d,]{4,}(?:\.\d{2})?)/i
+        );
+        if (valMatch) {
+          const num = Number(valMatch[1].replace(/,/g, ''));
+          if (!isNaN(num) && num > 100 && !(num >= 1990 && num <= 2050 && !valMatch[1].includes(','))) {
+            extractedValue = num;
+          }
+        }
       }
 
       // Semantic cell parsing if tab-separated or pipe-separated
-      let extractedCompany = '';
+      let extractedCompany = extractedCommercial.companyName || '';
       let extractedContact = '';
-      let salesperson = '';
+      let salesperson = extractedCommercial.salesperson || '';
 
       if (clean.includes('\t') || clean.includes('|')) {
         const delimiter = clean.includes('\t') ? '\t' : '|';
@@ -3580,18 +4011,19 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       // Line items intelligent parser
       const lineItemsArr: any[] = [];
-      const itemBlocks = clean.split(/(?=(?:Commercial Control|Modular Assembly|Consumables|Actuated|Isolation Valve|Control Unit|Skid Frame|Assembly|Pump|Valve|Equipment|Module))/i);
+      const itemBlocks = clean.split(/(?=(?:Commercial Control|Modular Assembly|Consumables|Actuated|Isolation Valve|Control Unit|Skid Frame|Assembly|Pump|Valve|Equipment|Module|DUPLEX WATER SOFTENER|WATER SOFTENER|RO SYSTEM|MMF SYSTEM))/i);
 
       if (itemBlocks.length > 1) {
         itemBlocks.forEach((block) => {
           const trimmed = block.trim();
           if (trimmed.length < 5) return;
+          if (/^a\s+rfq\s+received\s+by/i.test(trimmed) && trimmed.split(/\r?\n/).length === 1) return;
 
           let productType = 'General Equipment';
           if (/control|instrument|sensor|plc/i.test(trimmed)) productType = 'Instrumentation & Controls';
           else if (/consumable|spare|seal|kit/i.test(trimmed)) productType = 'Consumables & Spares';
           else if (/valve|manifold|flange|fastener/i.test(trimmed)) productType = 'Hardware & Fasteners';
-          else if (/frame|skid|fabrication/i.test(trimmed)) productType = 'Custom Fabrication';
+          else if (/frame|skid|fabrication|softener/i.test(trimmed)) productType = 'Custom Fabrication';
           else if (/service|commissioning|turnkey/i.test(trimmed)) productType = 'Turnkey / Services';
 
           const qtyMatch = trimmed.match(/(?:quantity|qty|nos\.?|sets?)\s*:?\s*(\d+)/i) || trimmed.match(/(\d+)\s*(?:nos|pcs|set|kg|mtr|lot)/i);
@@ -3620,12 +4052,19 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             description: parsedBlock.spec || firstLine,
             quantity: qty,
             unit: unit === 'Nos' ? 'Nos' : unit === 'Set' ? 'Set' : 'Nos',
+            unit_price: 0,
             unit_price_aed: 0,
             brand_make: makeMatch ? makeMatch[1].trim() : undefined,
             model_part_no: modelMatch ? modelMatch[1].trim() : undefined,
             attributes
           });
         });
+      }
+
+      if (lineItemsArr.length === 1 && extractedValue && extractedValue > 0) {
+        const qty = Math.max(1, Number(lineItemsArr[0].quantity) || 1);
+        lineItemsArr[0].unit_price = Number((extractedValue / qty).toFixed(2));
+        lineItemsArr[0].unit_price_aed = Number((extractedValue / qty).toFixed(2));
       }
 
       if (lineItemsArr.length === 0) {
@@ -3640,6 +4079,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               description: parsedLine.spec || trimmed,
               quantity: 1,
               unit: 'Lot',
+              unit_price: extractedValue || 0,
               unit_price_aed: extractedValue || 0,
               attributes: []
             });
@@ -3653,10 +4093,21 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           ? 'USD'
           : undefined;
 
-      if (extractedCompany || extractedContact || extractedEmail || extractedQuoteRef || lineItemsArr.length > 0) {
+      if (
+        extractedCompany ||
+        extractedContact ||
+        extractedEmail ||
+        extractedQuoteRef ||
+        salesperson ||
+        extractedCommercial.priceBasis ||
+        extractedCommercial.deliveryPeriod ||
+        extractedCommercial.paymentTerms ||
+        lineItemsArr.length > 0
+      ) {
         return {
           sn: null,
           quote_ref_no: extractedQuoteRef,
+          subject: extractedCommercial.subject || null,
           received_date: extractedDate || new Date().toISOString().split('T')[0],
           salesperson: salesperson || '',
           company_name: extractedCompany || 'Prospective Client',
@@ -3669,6 +4120,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
           enquiry_source: 'EMAIL',
           ...(detectedInstantCurrency ? { currency: detectedInstantCurrency } : {}),
           package_value: extractedValue,
+          price_basis: extractedCommercial.priceBasis || null,
+          delivery_period: extractedCommercial.deliveryPeriod || null,
+          payment_terms: extractedCommercial.paymentTerms || null,
+          validity_days: extractedCommercial.validityDays || null,
+          tax_mode: extractedCommercial.taxMode || null,
           line_items: lineItemsArr,
           confidence_scores: { company_name: 'high', contact_name: 'high', project_location: 'high', line_items: 'medium' }
         };
@@ -4794,235 +5250,367 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                  {/* Extracted Tokens Card */}
-                  <div className="bg-white border border-emerald-200/80 rounded-2xl p-4 shadow-2xs space-y-3">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                      <span className="text-xs font-bold text-slate-800 font-sans flex items-center gap-1.5">
-                        <Sparkles className="w-4 h-4 text-emerald-600 fill-emerald-600" />
-                        <span>AI Extracted Field Tokens</span>
-                      </span>
-                      <span className="text-[10px] font-mono text-slate-400">
-                        Hover/Click to Highlight Field
-                      </span>
-                    </div>
+                  {/* Extracted Tokens Card (synthesized from live form + Smart Paste tokens so it is never blank on reload) */}
+                  {(() => {
+                    const hasAnyTokens = Boolean(
+                      effectiveExtractedTokens.quote_ref_no ||
+                        effectiveExtractedTokens.company_name ||
+                        effectiveExtractedTokens.contact_name ||
+                        effectiveExtractedTokens.salesperson ||
+                        effectiveExtractedTokens.subject ||
+                        effectiveExtractedTokens.received_date ||
+                        effectiveExtractedTokens.project_location ||
+                        effectiveExtractedTokens.price_basis ||
+                        effectiveExtractedTokens.delivery_period ||
+                        effectiveExtractedTokens.payment_terms ||
+                        effectiveExtractedTokens.validity_days ||
+                        effectiveExtractedTokens.tax_mode ||
+                        effectiveExtractedTokens.package_value > 0 ||
+                        effectiveExtractedTokens.line_items.length > 0 ||
+                        unregisteredEntities ||
+                        customProjectDetails.some((d) => d.value.trim() !== '')
+                    );
+                    if (!hasAnyTokens) return null;
 
-                    <div className="flex flex-wrap gap-2 text-xs">
-                      {pastedExtractedData?.quote_ref_no && (
-                        <button
-                          type="button"
-                          onMouseEnter={() => setHighlightedField('quote_ref_no')}
-                          onMouseLeave={() => setHighlightedField(null)}
-                          onClick={() => scrollToField('quote_ref_no')}
-                          className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'quote_ref_no' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
-                          title="Click to scroll & glowQuote Ref field"
-                        >
-                          <Tag className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
-                          <span>Quote Ref: <strong className="font-mono">{pastedExtractedData.quote_ref_no}</strong></span>
-                        </button>
-                      )}
+                    const taxModeLabel =
+                      effectiveExtractedTokens.tax_mode === 'tax_calculated'
+                        ? 'VAT Included'
+                        : effectiveExtractedTokens.tax_mode === 'tax_exempt'
+                        ? '0% Zero-Rated'
+                        : effectiveExtractedTokens.tax_mode === 'vat_hidden'
+                        ? 'No VAT Shown'
+                        : '5% VAT Extra';
 
-                      {pastedExtractedData?.company_name && (
-                        <button
-                          type="button"
-                          onMouseEnter={() => setHighlightedField('company')}
-                          onMouseLeave={() => setHighlightedField(null)}
-                          onClick={() => scrollToField(unregisteredEntities ? 'unregistered_entities' : 'company')}
-                          className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'company' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
-                          title="Click to scroll & glow Company account field"
-                        >
-                          <Building className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
-                          <span>Company: <strong>{pastedExtractedData.company_name}</strong></span>
-                        </button>
-                      )}
+                    return (
+                      <div className="bg-white border border-emerald-200/80 rounded-2xl p-4 shadow-2xs space-y-3">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                          <span className="text-xs font-bold text-slate-800 font-sans flex items-center gap-1.5">
+                            <Sparkles className="w-4 h-4 text-emerald-600 fill-emerald-600" />
+                            <span>AI Extracted Field Tokens</span>
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-400">
+                            Hover/Click to Highlight Field
+                          </span>
+                        </div>
 
-                      {pastedExtractedData?.contact_name && (
-                        <button
-                          type="button"
-                          onMouseEnter={() => setHighlightedField('contact')}
-                          onMouseLeave={() => setHighlightedField(null)}
-                          onClick={() => scrollToField(unregisteredEntities ? 'unregistered_entities' : 'contact')}
-                          className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'contact' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
-                          title="Click to scroll & glow Contact field"
-                        >
-                          <User className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
-                          <span>Contact: <strong>{pastedExtractedData.contact_name}</strong></span>
-                        </button>
-                      )}
+                        <div className="flex flex-wrap gap-2 text-xs">
+                          {effectiveExtractedTokens.quote_ref_no && (
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHighlightedField('quote_ref_no')}
+                              onMouseLeave={() => setHighlightedField(null)}
+                              onClick={() => scrollToField('quote_ref_no')}
+                              className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'quote_ref_no' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
+                              title="Click to scroll & glow Quote Ref field"
+                            >
+                              <Tag className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                              <span>Quote Ref: <strong className="font-mono">{effectiveExtractedTokens.quote_ref_no}</strong></span>
+                            </button>
+                          )}
 
-                      {unregisteredEntities && (
-                        <button
-                          type="button"
-                          onMouseEnter={() => setHighlightedField('unregistered_entities')}
-                          onMouseLeave={() => setHighlightedField(null)}
-                          onClick={() => {
-                            setShowConfirmRegistrationModal(true);
-                            scrollToField('unregistered_entities');
-                          }}
-                          className="px-2.5 py-1.5 rounded-xl text-left border border-amber-300 bg-amber-100 hover:bg-amber-200 text-amber-950 transition flex items-center space-x-1.5 cursor-pointer font-semibold animate-pulse"
-                          title="Click to open Entity Registration & Mapping Modal"
-                        >
-                          <Sparkles className="w-3.5 h-3.5 shrink-0 text-amber-700" />
-                          <span>New Entity Registration Action Required</span>
-                        </button>
-                      )}
+                          {effectiveExtractedTokens.company_name && (
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHighlightedField('company')}
+                              onMouseLeave={() => setHighlightedField(null)}
+                              onClick={() => scrollToField(unregisteredEntities ? 'unregistered_entities' : 'company')}
+                              className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'company' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
+                              title="Click to scroll & glow Company account field"
+                            >
+                              <Building className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                              <span>Company: <strong>{effectiveExtractedTokens.company_name}</strong></span>
+                            </button>
+                          )}
 
-                      {pastedExtractedData?.received_date && (
-                        <button
-                          type="button"
-                          onMouseEnter={() => setHighlightedField('received_date')}
-                          onMouseLeave={() => setHighlightedField(null)}
-                          onClick={() => scrollToField('received_date')}
-                          className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'received_date' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
-                          title="Click to scroll & glow Date field"
-                        >
-                          <Calendar className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
-                          <span>Date: <strong className="font-mono">{pastedExtractedData.received_date}</strong></span>
-                        </button>
-                      )}
+                          {effectiveExtractedTokens.contact_name && (
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHighlightedField('contact')}
+                              onMouseLeave={() => setHighlightedField(null)}
+                              onClick={() => scrollToField(unregisteredEntities ? 'unregistered_entities' : 'contact')}
+                              className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'contact' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
+                              title="Click to scroll & glow Contact field"
+                            >
+                              <User className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                              <span>Contact: <strong>{effectiveExtractedTokens.contact_name}</strong></span>
+                            </button>
+                          )}
 
-                      {pastedExtractedData?.project_location && (
-                        <button
-                          type="button"
-                          onMouseEnter={() => setHighlightedField('location')}
-                          onMouseLeave={() => setHighlightedField(null)}
-                          onClick={() => scrollToField('location')}
-                          className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'location' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
-                          title="Click to scroll & glow Location field"
-                        >
-                          <MapPin className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
-                          <span>Location: <strong>{pastedExtractedData.project_location}</strong></span>
-                        </button>
-                      )}
+                          {effectiveExtractedTokens.salesperson && (
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHighlightedField('salesperson')}
+                              onMouseLeave={() => setHighlightedField(null)}
+                              onClick={() => scrollToField('salesperson')}
+                              className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'salesperson' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
+                              title="Click to scroll & glow Salesperson field"
+                            >
+                              <User className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                              <span>Salesperson: <strong>{effectiveExtractedTokens.salesperson}</strong></span>
+                            </button>
+                          )}
 
-                      {customProjectDetails.some(d => d.value.trim() !== '') && (
-                        <button
-                          type="button"
-                          onMouseEnter={() => setHighlightedField('custom_project_details')}
-                          onMouseLeave={() => setHighlightedField(null)}
-                          onClick={() => scrollToField('custom_project_details')}
-                          className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'custom_project_details' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
-                          title="Click to scroll & glow Custom Project Details field"
-                        >
-                          <Sliders className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
-                          <span>Custom Project Specs: <strong>{customProjectDetails.filter(d => d.value.trim() !== '').length} Specs</strong></span>
-                        </button>
-                      )}
+                          {effectiveExtractedTokens.subject && (
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHighlightedField('subject')}
+                              onMouseLeave={() => setHighlightedField(null)}
+                              onClick={() => scrollToField('subject')}
+                              className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer max-w-full ${highlightedField === 'subject' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
+                              title="Click to scroll & glow Subject field"
+                            >
+                              <FileText className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                              <span className="truncate">Subject: <strong>{effectiveExtractedTokens.subject}</strong></span>
+                            </button>
+                          )}
 
-                      {pastedExtractedData?.package_value && (
-                        <button
-                          type="button"
-                          onMouseEnter={() => setHighlightedField('value')}
-                          onMouseLeave={() => setHighlightedField(null)}
-                          onClick={() => scrollToField('value')}
-                          className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'value' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
-                          title="Click to scroll & glow Package Value field"
-                        >
-                          <DollarSign className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
-                          <span>Value: <strong className="font-mono">AED {Number(pastedExtractedData?.package_value || 0).toLocaleString()}</strong></span>
-                        </button>
-                      )}
+                          {unregisteredEntities && (
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHighlightedField('unregistered_entities')}
+                              onMouseLeave={() => setHighlightedField(null)}
+                              onClick={() => {
+                                setShowConfirmRegistrationModal(true);
+                                scrollToField('unregistered_entities');
+                              }}
+                              className="px-2.5 py-1.5 rounded-xl text-left border border-amber-300 bg-amber-100 hover:bg-amber-200 text-amber-950 transition flex items-center space-x-1.5 cursor-pointer font-semibold animate-pulse"
+                              title="Click to open Entity Registration & Mapping Modal"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 shrink-0 text-amber-700" />
+                              <span>New Entity Registration Action Required</span>
+                            </button>
+                          )}
 
-                      {/* Multi-Level Hierarchical Token Expander for Line Items */}
-                      {Array.isArray(pastedExtractedData?.line_items) && pastedExtractedData.line_items.length > 0 && (
-                        <div className="w-full space-y-2 border-t border-slate-100 pt-2">
-                          <button
-                            type="button"
-                            onMouseEnter={() => setHighlightedField('line_items')}
-                            onMouseLeave={() => setHighlightedField(null)}
-                            onClick={() => {
-                              setExpandedLineItemsToken(!expandedLineItemsToken);
-                              scrollToField('line_items');
-                            }}
-                            onDoubleClick={() => setExpandedLineItemsToken(!expandedLineItemsToken)}
-                            className={`w-full px-2.5 py-1.5 rounded-xl text-left border transition flex items-center justify-between cursor-pointer ${highlightedField === 'line_items' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
-                            title="Click or double-click to toggle items tree expansion"
-                          >
-                            <div className="flex items-center space-x-1.5">
-                              <Layers className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
-                              <span>Line Items: <strong className="font-mono">{pastedExtractedData.line_items.length} Items Parsed</strong></span>
-                            </div>
-                            <div className="flex items-center space-x-1 text-[10px] font-semibold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md">
-                              <span>{expandedLineItemsToken ? 'Collapse' : 'Expand Tree'}</span>
-                              <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${expandedLineItemsToken ? 'rotate-180' : ''}`} />
-                            </div>
-                          </button>
+                          {effectiveExtractedTokens.received_date && (
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHighlightedField('received_date')}
+                              onMouseLeave={() => setHighlightedField(null)}
+                              onClick={() => scrollToField('received_date')}
+                              className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'received_date' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
+                              title="Click to scroll & glow Date field"
+                            >
+                              <Calendar className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                              <span>Date: <strong className="font-mono">{effectiveExtractedTokens.received_date}</strong></span>
+                            </button>
+                          )}
 
-                          {/* Level 1 & Level 2 Tree */}
-                          {expandedLineItemsToken && (
-                            <div className="pl-3 border-l-2 border-emerald-300 space-y-2 py-1">
-                              {pastedExtractedData.line_items.map((item: any, idx: number) => {
-                                const isItemExpanded = expandedItemIndices.includes(idx);
-                                const attrs: ProductAttribute[] = Array.isArray(item.attributes) ? item.attributes : [];
+                          {effectiveExtractedTokens.project_location && (
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHighlightedField('location')}
+                              onMouseLeave={() => setHighlightedField(null)}
+                              onClick={() => scrollToField('location')}
+                              className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'location' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
+                              title="Click to scroll & glow Location field"
+                            >
+                              <MapPin className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                              <span>Location: <strong>{effectiveExtractedTokens.project_location}</strong></span>
+                            </button>
+                          )}
 
-                                return (
-                                  <div key={idx} className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 space-y-2 text-xs">
-                                    <div 
-                                      className="flex items-center justify-between cursor-pointer hover:bg-emerald-50/60 p-1 rounded-lg transition"
-                                      onClick={() => scrollToField(`line_item_${idx}`)}
-                                      onDoubleClick={() => {
-                                        setExpandedItemIndices(prev =>
-                                          prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]
-                                        );
-                                      }}
-                                      onMouseEnter={() => setHighlightedField(`line_item_${idx}`)}
-                                      onMouseLeave={() => setHighlightedField(null)}
-                                    >
-                                      <div className="flex items-center space-x-2 truncate">
-                                        <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-900 font-mono font-bold text-[10px] rounded-md">
-                                          #{idx + 1}
-                                        </span>
-                                        <span className="font-bold text-slate-800 truncate">
-                                          {item.product_type || 'Item'}: {item.description || 'No description'}
-                                        </span>
-                                      </div>
-                                      <div className="flex items-center space-x-2 shrink-0">
-                                        <span className="font-mono text-emerald-700 font-bold text-[11px]">
-                                          {item.total_price ? `AED ${Number(item.total_price || 0).toLocaleString()}` : (item.quantity ? `Qty: ${item.quantity}` : 'Parsed')}
-                                        </span>
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
+                          {customProjectDetails.some(d => d.value.trim() !== '') && (
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHighlightedField('custom_project_details')}
+                              onMouseLeave={() => setHighlightedField(null)}
+                              onClick={() => scrollToField('custom_project_details')}
+                              className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'custom_project_details' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
+                              title="Click to scroll & glow Custom Project Details field"
+                            >
+                              <Sliders className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                              <span>Custom Project Specs: <strong>{customProjectDetails.filter(d => d.value.trim() !== '').length} Specs</strong></span>
+                            </button>
+                          )}
+
+                          {effectiveExtractedTokens.package_value > 0 && (
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHighlightedField('value')}
+                              onMouseLeave={() => setHighlightedField(null)}
+                              onClick={() => scrollToField('value')}
+                              className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'value' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
+                              title="Click to scroll & glow Package Value field"
+                            >
+                              <DollarSign className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                              <span>Value: <strong className="font-mono">{formCurrency} {Number(effectiveExtractedTokens.package_value || 0).toLocaleString()}</strong></span>
+                            </button>
+                          )}
+
+                          {effectiveExtractedTokens.price_basis && (
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHighlightedField('price_basis')}
+                              onMouseLeave={() => setHighlightedField(null)}
+                              onClick={() => scrollToField('price_basis')}
+                              className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'price_basis' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
+                              title="Click to jump to Chapter 3 & glow Price Basis / Incoterms"
+                            >
+                              <MapPin className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                              <span>Price Basis: <strong>{effectiveExtractedTokens.price_basis}</strong></span>
+                            </button>
+                          )}
+
+                          {effectiveExtractedTokens.delivery_period && (
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHighlightedField('delivery_period')}
+                              onMouseLeave={() => setHighlightedField(null)}
+                              onClick={() => scrollToField('delivery_period')}
+                              className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'delivery_period' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
+                              title="Click to jump to Chapter 3 & glow Delivery Period"
+                            >
+                              <Calendar className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                              <span>Delivery: <strong>{effectiveExtractedTokens.delivery_period}</strong></span>
+                            </button>
+                          )}
+
+                          {effectiveExtractedTokens.payment_terms && (
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHighlightedField('payment_terms')}
+                              onMouseLeave={() => setHighlightedField(null)}
+                              onClick={() => scrollToField('payment_terms')}
+                              className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer max-w-full ${highlightedField === 'payment_terms' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
+                              title="Click to jump to Chapter 3 & glow Payment Terms"
+                            >
+                              <FileCheck className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                              <span className="truncate">Payment: <strong>{effectiveExtractedTokens.payment_terms}</strong></span>
+                            </button>
+                          )}
+
+                          {effectiveExtractedTokens.validity_days > 0 && (
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHighlightedField('validity_days')}
+                              onMouseLeave={() => setHighlightedField(null)}
+                              onClick={() => scrollToField('validity_days')}
+                              className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'validity_days' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
+                              title="Click to jump to Chapter 3 & glow Offer Validity"
+                            >
+                              <Calendar className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                              <span>Validity: <strong className="font-mono">{effectiveExtractedTokens.validity_days} Days</strong></span>
+                            </button>
+                          )}
+
+                          {effectiveExtractedTokens.tax_mode && (
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHighlightedField('tax_mode')}
+                              onMouseLeave={() => setHighlightedField(null)}
+                              onClick={() => scrollToField('tax_mode')}
+                              className={`px-2.5 py-1.5 rounded-xl text-left border transition flex items-center space-x-1.5 cursor-pointer ${highlightedField === 'tax_mode' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
+                              title="Click to jump to Chapter 3 & glow VAT / Tax Mode"
+                            >
+                              <Tag className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                              <span>VAT Mode: <strong>{taxModeLabel}</strong></span>
+                            </button>
+                          )}
+
+                          {/* Multi-Level Hierarchical Token Expander for Line Items */}
+                          {Array.isArray(effectiveExtractedTokens.line_items) && effectiveExtractedTokens.line_items.length > 0 && (
+                            <div className="w-full space-y-2 border-t border-slate-100 pt-2">
+                              <button
+                                type="button"
+                                onMouseEnter={() => setHighlightedField('line_items')}
+                                onMouseLeave={() => setHighlightedField(null)}
+                                onClick={() => {
+                                  setExpandedLineItemsToken(!expandedLineItemsToken);
+                                  scrollToField('line_items');
+                                }}
+                                onDoubleClick={() => setExpandedLineItemsToken(!expandedLineItemsToken)}
+                                className={`w-full px-2.5 py-1.5 rounded-xl text-left border transition flex items-center justify-between cursor-pointer ${highlightedField === 'line_items' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs font-bold' : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200'}`}
+                                title="Click or double-click to toggle items tree expansion"
+                              >
+                                <div className="flex items-center space-x-1.5">
+                                  <Layers className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                                  <span>Line Items: <strong className="font-mono">{effectiveExtractedTokens.line_items.length} Items Parsed</strong></span>
+                                </div>
+                                <div className="flex items-center space-x-1 text-[10px] font-semibold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md">
+                                  <span>{expandedLineItemsToken ? 'Collapse' : 'Expand Tree'}</span>
+                                  <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${expandedLineItemsToken ? 'rotate-180' : ''}`} />
+                                </div>
+                              </button>
+
+                              {/* Level 1 & Level 2 Tree */}
+                              {expandedLineItemsToken && (
+                                <div className="pl-3 border-l-2 border-emerald-300 space-y-2 py-1">
+                                  {effectiveExtractedTokens.line_items.map((item: any, idx: number) => {
+                                    const isItemExpanded = expandedItemIndices.includes(idx);
+                                    const attrs: ProductAttribute[] = Array.isArray(item.attributes) ? item.attributes : [];
+                                    const itemPrice = Number(item.total_price || item.unit_price || item.unit_price_aed || 0);
+
+                                    return (
+                                      <div key={idx} className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 space-y-2 text-xs">
+                                        <div 
+                                          className="flex items-center justify-between cursor-pointer hover:bg-emerald-50/60 p-1 rounded-lg transition"
+                                          onClick={() => scrollToField(`line_item_${idx}`)}
+                                          onDoubleClick={() => {
                                             setExpandedItemIndices(prev =>
                                               prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]
                                             );
                                           }}
-                                          className="p-1 text-slate-400 hover:text-slate-700 rounded-md"
-                                          title="Toggle attributes details"
+                                          onMouseEnter={() => setHighlightedField(`line_item_${idx}`)}
+                                          onMouseLeave={() => setHighlightedField(null)}
                                         >
-                                          <ChevronRight className={`w-3.5 h-3.5 transition-transform ${isItemExpanded ? 'rotate-90' : ''}`} />
-                                        </button>
-                                      </div>
-                                    </div>
-
-                                    {/* Level 2 Attributes Tree */}
-                                    {isItemExpanded && (
-                                      <div className="pl-4 pt-1 border-t border-slate-200/60 space-y-1.5 text-[11px]">
-                                        <span className="text-[10px] font-mono uppercase text-slate-400 font-bold block">
-                                          Technical Attributes ({attrs.length}):
-                                        </span>
-                                        <div className="flex flex-wrap gap-1.5">
-                                          {attrs.length > 0 ? (
-                                            attrs.map((attr, aIdx) => (
-                                              <span key={aIdx} className="bg-white border border-slate-200 px-2 py-0.5 rounded-md text-slate-700 font-sans shadow-2xs">
-                                                <strong className="text-slate-900 font-semibold">{attr.key}:</strong> {attr.value || 'N/A'}
-                                              </span>
-                                            ))
-                                          ) : (
-                                            <span className="text-slate-400 italic">No custom attributes extracted.</span>
-                                          )}
+                                          <div className="flex items-center space-x-2 truncate">
+                                            <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-900 font-mono font-bold text-[10px] rounded-md">
+                                              #{idx + 1}
+                                            </span>
+                                            <span className="font-bold text-slate-800 truncate">
+                                              {item.item_name || item.product_type || 'Item'}: {item.description || 'No description'}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center space-x-2 shrink-0">
+                                            <span className="font-mono text-emerald-700 font-bold text-[11px]">
+                                              {itemPrice > 0 ? `${formCurrency} ${itemPrice.toLocaleString()}` : (item.quantity ? `Qty: ${item.quantity}` : 'Parsed')}
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setExpandedItemIndices(prev =>
+                                                  prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]
+                                                );
+                                              }}
+                                              className="p-1 text-slate-400 hover:text-slate-700 rounded-md"
+                                              title="Toggle attributes details"
+                                            >
+                                              <ChevronRight className={`w-3.5 h-3.5 transition-transform ${isItemExpanded ? 'rotate-90' : ''}`} />
+                                            </button>
+                                          </div>
                                         </div>
+
+                                        {/* Level 2 Attributes Tree */}
+                                        {isItemExpanded && (
+                                          <div className="pl-4 pt-1 border-t border-slate-200/60 space-y-1.5 text-[11px]">
+                                            <span className="text-[10px] font-mono uppercase text-slate-400 font-bold block">
+                                              Technical Attributes ({attrs.length}):
+                                            </span>
+                                            <div className="flex flex-wrap gap-1.5">
+                                              {attrs.length > 0 ? (
+                                                attrs.map((attr, aIdx) => (
+                                                  <span key={aIdx} className="bg-white border border-slate-200 px-2 py-0.5 rounded-md text-slate-700 font-sans shadow-2xs">
+                                                    <strong className="text-slate-900 font-semibold">{attr.key}:</strong> {attr.value || 'N/A'}
+                                                  </span>
+                                                ))
+                                              ) : (
+                                                <span className="text-slate-400 italic">No custom attributes extracted.</span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        )}
                                       </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
-                      )}
-                    </div>
-                  </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Price Discrepancy & Valuation Accuracy Validation Ping */}
                   {lineItems.length === 0 ? (
@@ -5105,7 +5693,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     </div>
 
                     <pre className="p-3 bg-slate-900 text-emerald-400 rounded-xl font-mono text-[11px] leading-relaxed overflow-x-auto whitespace-pre-wrap max-h-[350px]">
-                      {renderSourceTextWithHighlight(pastedSourceText, highlightedField, pastedExtractedData)}
+                      {renderSourceTextWithHighlight(pastedSourceText, highlightedField, effectiveExtractedTokens)}
                     </pre>
                   </div>
                 </div>
@@ -5215,29 +5803,45 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             {/* Sticky Quick-Jump Section Bar (Unified Navigation + Smart RFQ Actions) */}
             <div className="px-6 py-2 bg-white/95 dark:bg-slate-900/95 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-2 overflow-x-auto shrink-0 z-10">
               <div className="flex items-center gap-1.5">
-                {(
-                  [
-                    { label: '1. Client & Details', target: 'company' },
-                    { label: `2. Line Items (${lineItems.length})`, target: 'line_items' },
-                    { label: `3. Summary, Terms & Files (${attachments.length})`, target: 'value' }
-                  ] as const
-                ).map((sec) => {
-                  const isActive = activeFormSection === sec.target;
-                  return (
-                    <button
-                      key={sec.target}
-                      type="button"
-                      onClick={() => scrollToField(sec.target)}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold font-sans border transition whitespace-nowrap cursor-pointer ${
-                        isActive
-                          ? 'bg-blue-600 text-white border-blue-600 shadow-xs ring-2 ring-blue-500/20'
-                          : 'bg-slate-50 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 border-slate-200/80 dark:border-slate-700'
-                      }`}
-                    >
-                      {sec.label}
-                    </button>
+                {(() => {
+                  const hasCommercialOrRemarks = Boolean(
+                    (priceBasis && priceBasis.trim()) ||
+                      (deliveryPeriod && deliveryPeriod.trim()) ||
+                      (paymentTerms && paymentTerms.trim()) ||
+                      (remarks && remarks.trim()) ||
+                      (invoicePoNo && invoicePoNo.trim()) ||
+                      (paymentStatus && paymentStatus.trim())
                   );
-                })}
+                  const tab3Suffix =
+                    attachments.length > 0
+                      ? ` (${attachments.length} ${attachments.length === 1 ? 'File' : 'Files'}${hasCommercialOrRemarks ? ' ✓' : ''})`
+                      : hasCommercialOrRemarks
+                      ? ' ✓'
+                      : '';
+                  return (
+                    [
+                      { label: '1. Client & Details', target: 'company' },
+                      { label: `2. Line Items (${lineItems.length})`, target: 'line_items' },
+                      { label: `3. Summary, Terms & Files${tab3Suffix}`, target: 'value' }
+                    ] as const
+                  ).map((sec) => {
+                    const isActive = activeFormSection === sec.target;
+                    return (
+                      <button
+                        key={sec.target}
+                        type="button"
+                        onClick={() => scrollToField(sec.target)}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold font-sans border transition whitespace-nowrap cursor-pointer ${
+                          isActive
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-xs ring-2 ring-blue-500/20'
+                            : 'bg-slate-50 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 border-slate-200/80 dark:border-slate-700'
+                        }`}
+                      >
+                        {sec.label}
+                      </button>
+                    );
+                  });
+                })()}
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
                 {isExtracting && (
@@ -6350,7 +6954,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             </div>
                           )}
 
-                          <div>
+                          <div id="field-salesperson">
                             <MarqueeLabel
                               badge={
                                 user?.role === 'Admin' || allowUserSalespersonSelection
@@ -6367,7 +6971,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               disabled={user?.role !== 'Admin' && !allowUserSalespersonSelection}
                               className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg text-sm text-slate-900 dark:text-white px-3 py-2 transition-all font-sans ${
                                 user?.role !== 'Admin' && !allowUserSalespersonSelection ? 'bg-slate-100/90 text-slate-500 cursor-not-allowed' : ''
-                              }`}
+                              } ${getHighlightClasses('salesperson')}`}
                             >
                               {sortedSalespersons.map((s) => (
                                 <option key={s.id || s.initials} value={s.id || s.initials}>
@@ -7976,7 +8580,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               const hasPipelineDatesData = Boolean(projectedOrderDate || nextFollowupDate);
               const showPipelineDates = disclosure.expandedSections.pipelineDates || hasPipelineDatesData;
 
-              const hasRemarksTermsData = Boolean((remarks && remarks.trim()) || (invoicePoNo && invoicePoNo.trim()) || (paymentStatus && paymentStatus.trim()));
+              const hasRemarksTermsData = Boolean(
+                (remarks && remarks.trim()) ||
+                  (invoicePoNo && invoicePoNo.trim()) ||
+                  (paymentStatus && paymentStatus.trim()) ||
+                  (priceBasis && priceBasis.trim()) ||
+                  (deliveryPeriod && deliveryPeriod.trim()) ||
+                  (paymentTerms && paymentTerms.trim())
+              );
               const showRemarksTerms = disclosure.expandedSections.remarksTerms || hasRemarksTermsData;
 
               const hasSourceFilesData = attachments.length > 0 || isExtracting || uploading || Boolean(extractionError);
@@ -8128,7 +8739,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           } gap-3`}
                         >
                           {/* 1. Offer Validity (Days) + Valid Until Preview */}
-                          <div>
+                          <div id="field-validity_days">
                             <div className="flex items-center justify-between mb-1">
                               <label className="text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300">
                                 Offer Validity (Days)
@@ -8150,7 +8761,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 max={365}
                                 value={validityDays}
                                 onChange={(e) => setValidityDays(Math.max(1, Number(e.target.value) || 30))}
-                                className="w-20 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                                className={`w-20 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 ${getHighlightClasses('validity_days')}`}
                               />
                               <div className="flex items-center gap-1 flex-wrap">
                                 {[7, 15, 30, 60].map((dVal) => (
@@ -8172,7 +8783,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           </div>
 
                           {/* 2. Price Basis / Incoterms */}
-                          <div>
+                          <div id="field-price_basis">
                             <label className="block text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
                               Price Basis / Incoterms
                             </label>
@@ -8182,7 +8793,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               value={priceBasis}
                               onChange={(e) => setPriceBasis(e.target.value)}
                               placeholder="e.g. EX Warehouse Ajman, UAE"
-                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                              className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 ${getHighlightClasses('price_basis')}`}
                             />
                             <datalist id="enquiry-price-basis-presets">
                               <option value="EX Warehouse Ajman, UAE" />
@@ -8193,7 +8804,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           </div>
 
                           {/* 3. Delivery Period */}
-                          <div>
+                          <div id="field-delivery_period">
                             <label className="block text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
                               Delivery Period
                             </label>
@@ -8203,7 +8814,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                               value={deliveryPeriod}
                               onChange={(e) => setDeliveryPeriod(e.target.value)}
                               placeholder="e.g. As mentioned against each item"
-                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                              className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 ${getHighlightClasses('delivery_period')}`}
                             />
                             <datalist id="enquiry-delivery-period-presets">
                               <option value="As mentioned against each item" />
@@ -8214,24 +8825,32 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           </div>
 
                           {/* 4. VAT / Tax Mode */}
-                          <div>
+                          <div id="field-tax_mode">
                             <label className="block text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
                               VAT / Tax Mode
                             </label>
                             <select
-                              value={taxMode}
+                              value={
+                                (taxMode as string) === 'inclusive'
+                                  ? 'tax_calculated'
+                                  : (taxMode as string) === 'zero_rated'
+                                  ? 'tax_exempt'
+                                  : taxMode
+                              }
                               onChange={(e) => setTaxMode(e.target.value as QuotationTaxMode)}
-                              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                              className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-2.5 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 ${getHighlightClasses('tax_mode')}`}
                             >
                               <option value="taxes_extra">5% Standard VAT (Extra)</option>
-                              <option value="inclusive">VAT Included in Total</option>
-                              <option value="zero_rated">0% Zero-Rated / Export</option>
+                              <option value="tax_calculated">VAT Included in Total</option>
+                              <option value="tax_exempt">0% Zero-Rated / Export</option>
+                              <option value="vat_excluded_extra">VAT Excluded (Extra as Applicable)</option>
+                              <option value="vat_hidden">Hide VAT Line</option>
                             </select>
                           </div>
                         </div>
 
                         {/* 5. Payment Terms with Quick Preset Chips */}
-                        <div>
+                        <div id="field-payment_terms">
                           <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
                             <label className="text-[10.5px] font-bold uppercase text-slate-600 dark:text-slate-300">
                               Payment Terms (Quotation Commercial Clause)
@@ -8262,20 +8881,20 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             value={paymentTerms}
                             onChange={(e) => setPaymentTerms(e.target.value)}
                             placeholder="e.g. 50% advance to reserve and 50% before collection / 30 days PDC from Invoice & Collection"
-                            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-3 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                            className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-1.5 px-3 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 ${getHighlightClasses('payment_terms')}`}
                           />
                         </div>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="md:col-span-2">
+                        <div id="field-remarks" className="md:col-span-2">
                           <MarqueeLabel className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">Remarks / Status Updates</MarqueeLabel>
                           <textarea
                             rows={3}
                             placeholder="e.g. Quotation sent. Customer requested 5% discount."
                             value={remarks}
                             onChange={(e) => setRemarks(e.target.value)}
-                            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-sans"
+                            className={`w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-2 px-3 text-sm text-slate-900 dark:text-white focus:outline-none font-sans ${getHighlightClasses('remarks')}`}
                           />
                         </div>
 

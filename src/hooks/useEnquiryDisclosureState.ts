@@ -86,11 +86,37 @@ export function useEnquiryDisclosureState(initialEditing?: boolean) {
    * jumps to a specific field ID.
    */
   const ensureFieldVisible = useCallback((fieldKey: string) => {
-    if (fieldKey === 'received_date' || fieldKey === 'quote_ref_no' || fieldKey === 'country' || fieldKey === 'location') {
+    if (
+      fieldKey === 'received_date' ||
+      fieldKey === 'quote_ref_no' ||
+      fieldKey === 'country' ||
+      fieldKey === 'location' ||
+      fieldKey === 'salesperson' ||
+      fieldKey === 'option_scope' ||
+      fieldKey === 'client_ref'
+    ) {
       setIsMetadataExpanded(true);
       setExpandedSections((prev) => ({ ...prev, locationScope: true }));
     } else if (fieldKey === 'custom_project_details') {
       setExpandedSections((prev) => ({ ...prev, customSpecs: true }));
+    } else if (
+      fieldKey === 'price_basis' ||
+      fieldKey === 'delivery_period' ||
+      fieldKey === 'payment_terms' ||
+      fieldKey === 'validity_days' ||
+      fieldKey === 'tax_mode' ||
+      fieldKey === 'remarks' ||
+      fieldKey === 'commercial_terms' ||
+      fieldKey === 'invoice_po_no' ||
+      fieldKey === 'payment_status'
+    ) {
+      setExpandedSections((prev) => ({ ...prev, remarksTerms: true }));
+    } else if (
+      fieldKey === 'status' ||
+      fieldKey === 'projected_order_date' ||
+      fieldKey === 'next_followup_date'
+    ) {
+      setExpandedSections((prev) => ({ ...prev, pipelineDates: true }));
     } else if (fieldKey === 'source_files') {
       setExpandedSections((prev) => ({ ...prev, sourceFiles: true }));
     }
