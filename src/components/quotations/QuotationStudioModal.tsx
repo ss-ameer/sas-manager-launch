@@ -12933,50 +12933,46 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           {/* Center Column: Live A4 Document Preview */}
           <div className="flex-1 min-w-0 bg-slate-200/80 flex flex-col overflow-hidden print:bg-transparent print:overflow-visible print:w-full print:block">
             {/* Preview Toolbar */}
-            <div className="px-3 py-1.5 bg-slate-100 border-b border-slate-300/80 flex items-center justify-between gap-2 text-xs text-slate-600 shrink-0 print:hidden min-w-0">
+            <div className="px-3 py-1.5 bg-slate-100 border-b border-slate-300/80 flex items-center gap-1.5 text-xs text-slate-600 shrink-0 print:hidden min-w-0">
+              {/* Left Zoom & Scale Controls (never overlap or collide) */}
               <div className="flex items-center gap-1.5 shrink-0">
-                <span className="font-semibold text-slate-700 hidden xl:inline">Live Preview:</span>
-                <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded border border-slate-300 text-slate-600 whitespace-nowrap">
-                  A4 210mm × 297mm
+                <span
+                  className="hidden 2xl:inline-flex items-center font-mono text-[11px] bg-white px-2 py-0.5 rounded border border-slate-300 text-slate-600 whitespace-nowrap shrink-0"
+                  title="A4 Physical Sheet (210mm × 297mm)"
+                >
+                  A4
                 </span>
-                <span className="text-[10px] text-slate-400 font-mono hidden 2xl:inline whitespace-nowrap">
-                  • 1:1 Physical Geometry
-                </span>
-              </div>
 
-              <div className="flex items-center gap-1.5 min-w-0 flex-1 justify-end">
                 {/* Scale Dropdown: 50%, 75%, 85%, 100%, Fit Page */}
-                <div className="flex items-center gap-1 shrink-0">
-                  <span className="text-[11px] text-slate-500 font-medium hidden lg:inline">Scale:</span>
-                  <select
-                    value={
-                      isFitModeActive
-                        ? 'fit'
-                        : [0.5, 0.75, 0.85, 1.0].includes(Number(zoomScale.toFixed(2)))
-                        ? String(zoomScale.toFixed(2))
-                        : 'custom'
+                <select
+                  value={
+                    isFitModeActive
+                      ? 'fit'
+                      : [0.5, 0.75, 0.85, 1.0].includes(Number(zoomScale.toFixed(2)))
+                      ? String(zoomScale.toFixed(2))
+                      : 'custom'
+                  }
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === 'fit') {
+                      handleFitPage();
+                    } else if (val !== 'custom') {
+                      setIsFitModeActive(false);
+                      setZoomScale(parseFloat(val));
                     }
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (val === 'fit') {
-                        handleFitPage();
-                      } else if (val !== 'custom') {
-                        setIsFitModeActive(false);
-                        setZoomScale(parseFloat(val));
-                      }
-                    }}
-                    className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-mono text-slate-700 cursor-pointer focus:ring-1 focus:ring-blue-500 focus:outline-hidden"
-                  >
-                    <option value="0.50">50%</option>
-                    <option value="0.75">75%</option>
-                    <option value="0.85">85%</option>
-                    <option value="1.00">100%</option>
-                    <option value="fit">Fit Page</option>
-                    {!isFitModeActive && ![0.5, 0.75, 0.85, 1.0].includes(Number(zoomScale.toFixed(2))) && (
-                      <option value="custom">{Math.round(zoomScale * 100)}%</option>
-                    )}
-                  </select>
-                </div>
+                  }}
+                  aria-label="Preview Scale"
+                  className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-mono text-slate-700 cursor-pointer focus:ring-1 focus:ring-blue-500 focus:outline-hidden shrink-0"
+                >
+                  <option value="0.50">50%</option>
+                  <option value="0.75">75%</option>
+                  <option value="0.85">85%</option>
+                  <option value="1.00">100%</option>
+                  <option value="fit">Fit Page</option>
+                  {!isFitModeActive && ![0.5, 0.75, 0.85, 1.0].includes(Number(zoomScale.toFixed(2))) && (
+                    <option value="custom">{Math.round(zoomScale * 100)}%</option>
+                  )}
+                </select>
 
                 {/* Zoom Out */}
                 <button
@@ -13023,21 +13019,23 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 >
                   <span>Fit Page</span>
                 </button>
-                {/* Live PDF Filename Bar (shrinks gracefully when both sidebars are open) */}
-                <div
-                  onClick={() => setActiveLeftTab('structure')}
-                  className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-blue-50 border border-slate-300 rounded-lg text-slate-700 text-xs transition cursor-pointer min-w-0 flex-1 max-w-[220px] xl:max-w-[340px] shadow-2xs group"
-                  title={`PDF Filename: ${resolvedPdfFilename}.pdf (Click to configure preset pattern)`}
-                >
-                  <FileText className="w-3.5 h-3.5 text-blue-600 shrink-0 group-hover:scale-110 transition-transform" />
-                  <span className="font-mono text-[11px] truncate min-w-0 flex-1 text-slate-700 select-all font-medium">
-                    {resolvedPdfFilename}.pdf
-                  </span>
-                </div>
+              </div>
 
-                {/* Right-Pinned Pre-Flight & Print Controls (never clip off-screen) */}
-                <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-                  {/* Pre-Flight Check Pill */}
+              {/* Live PDF Filename Bar (guaranteed readable width even when both sidebars are open) */}
+              <div
+                onClick={() => setActiveLeftTab('structure')}
+                className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-blue-50 border border-slate-300 rounded-lg text-slate-700 text-xs transition cursor-pointer min-w-[130px] sm:min-w-[170px] flex-1 max-w-[340px] shadow-2xs group"
+                title={`PDF Filename: ${resolvedPdfFilename}.pdf (Click to configure preset pattern)`}
+              >
+                <FileText className="w-3.5 h-3.5 text-blue-600 shrink-0 group-hover:scale-110 transition-transform" />
+                <span className="font-mono text-[11px] truncate min-w-0 flex-1 text-slate-700 select-all font-medium">
+                  {resolvedPdfFilename}.pdf
+                </span>
+              </div>
+
+              {/* Right-Pinned Pre-Flight & Print Controls (never clip off-screen) */}
+              <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                {/* Pre-Flight Check Pill */}
                   {(() => {
                     const todayStr = new Date().toISOString().split('T')[0];
                     const isUnpricedMode =
@@ -13184,7 +13182,6 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     <span>Print Document</span>
                   </button>
                 </div>
-              </div>
             </div>
 
             {/* Scaled Preview Canvas & Retractable Inspector Drawer */}
