@@ -471,33 +471,54 @@ export function splitLineItemsIntoChunks(
     // Calculate technical attributes & metadata badges vertical height
     let attributesHeightMm = 0;
     if (showAttrs) {
-      const explicitAttrs =
-        item.attributes && typeof item.attributes === 'object'
-          ? Object.entries(item.attributes).filter(
+      const explicitAttrs: Array<{ key: string; value: string }> = Array.isArray(item.attributes)
+        ? item.attributes
+            .filter(
+              (a) =>
+                a &&
+                Boolean((a.key || (a as any).name) && String(a.value ?? '').trim()) &&
+                !hiddenAttrKeys.has(String(a.key || (a as any).name).trim().toLowerCase())
+            )
+            .map((a) => ({
+              key: String(a.key || (a as any).name).trim(),
+              value: String(a.value).trim()
+            }))
+        : item.attributes && typeof item.attributes === 'object'
+        ? Object.entries(item.attributes)
+            .filter(
               ([k, v]) =>
                 Boolean(k && String(v ?? '').trim()) &&
                 !hiddenAttrKeys.has(String(k).trim().toLowerCase())
             )
-          : [];
-      const seenKeys = new Set(explicitAttrs.map(([k]) => String(k).trim().toLowerCase()));
+            .map(([k, v]) => ({ key: String(k).trim(), value: String(v).trim() }))
+        : [];
+      const normSpecKey = (k: string) => String(k || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      const seenKeys = new Set(explicitAttrs.map((a) => normSpecKey(a.key)));
       const extraSpecs = extractedSpecsAttrs.filter(
         (pair) =>
-          !seenKeys.has(pair.key.toLowerCase()) &&
+          !seenKeys.has(normSpecKey(pair.key)) &&
           !hiddenAttrKeys.has(pair.key.toLowerCase())
       );
       const totalAttrCount = explicitAttrs.length + extraSpecs.length;
-      if (totalAttrCount > 0) {
+      const lineBreakExtraSlots = Array.isArray(item.attribute_line_breaks_after)
+        ? item.attribute_line_breaks_after.length
+        : 0;
+      const fullWidthExtraSlots = Array.isArray(item.attribute_full_width_keys)
+        ? item.attribute_full_width_keys.length
+        : 0;
+      const effectiveAttrSlots = totalAttrCount + lineBreakExtraSlots + fullWidthExtraSlots;
+      if (effectiveAttrSlots > 0) {
         if (attrFormat === 'grid_3col') {
-          attributesHeightMm += 3 + Math.ceil(totalAttrCount / 3) * 4.4;
+          attributesHeightMm += 3 + Math.ceil(effectiveAttrSlots / 3) * 4.4;
         } else if (attrFormat === 'pills' || attrFormat === 'inline_text') {
-          attributesHeightMm += 3 + Math.ceil(totalAttrCount / 3) * 4.2;
+          attributesHeightMm += 3 + Math.ceil(effectiveAttrSlots / 3) * 4.2;
         } else {
           // grid_2col_balanced or table_2col
-          attributesHeightMm += 3.5 + Math.ceil(totalAttrCount / 2) * 4.6;
+          attributesHeightMm += 3.5 + Math.ceil(effectiveAttrSlots / 2) * 4.6;
         }
       }
       const hasMetaBadges = Boolean(
-        item.brand || item.sku || item.country_of_origin || item.hs_code
+        item.brand_make || (item as any).brand || item.sku || item.country_of_origin || item.hs_code
       );
       if (hasMetaBadges) {
         attributesHeightMm += 4.5;
@@ -1265,23 +1286,23 @@ export function extractLineItemAttributesAndCleanDescription(item: QuotationLine
     }
 
     // Check if this line is a standalone "Key: Value" line that duplicates an existing structured attribute.
-    // Never strip lines when the description uses multi-section sub-headings (e.g. MOTOR SPECIFICATIONS:- / GEARBOX SPECIFICATIONS:-).
-    if (!hasMultiSectionHeaders) {
-      const colonIdx = trimmed.indexOf(':');
-      if (
-        colonIdx > 0 &&
-        colonIdx <= 38 &&
-        !/^https?:/i.test(trimmed) &&
-        !/^note:/i.test(trimmed) &&
-        !isTechnicalSectionHeaderLine(trimmed)
-      ) {
-        const candidateKey = trimmed.replace(/^[•\-*]\s*/, '').slice(0, colonIdx).trim();
-        const candidateVal = trimmed.slice(colonIdx + 1).trim();
-        if (candidateKey && candidateVal) {
-          const cKey = canonicalizeSpecKey(candidateKey);
-          if (existingCanonicalKeys.has(cKey)) {
-            return;
-          }
+    const colonIdx = trimmed.indexOf(':');
+    if (
+      colonIdx > 0 &&
+      colonIdx <= 38 &&
+      !/^https?:/i.test(trimmed) &&
+      !/^note:/i.test(trimmed) &&
+      !isTechnicalSectionHeaderLine(trimmed)
+    ) {
+      const candidateKey = trimmed.replace(/^[•\-*]\s*/, '').slice(0, colonIdx).trim();
+      const candidateVal = trimmed.slice(colonIdx + 1).trim();
+      if (candidateKey && candidateVal) {
+        const cKey = canonicalizeSpecKey(candidateKey);
+        if (existingCanonicalKeys.has(cKey)) {
+          return;
+        }
+        if (!hasMultiSectionHeaders) {
+          extractedSpecsAttrs.push({ key: candidateKey, value: candidateVal });
         }
       }
     }
@@ -5116,6 +5137,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               const optionSummaryMap = new Map<string, number>();
 
               rawLineItems.forEach((it) => {
+                if (it.isCompositeContinuation) return;
                 const rawOpt = String(it.option || it.option_group || '').trim();
                 const optLower = rawOpt.toLowerCase();
                 const rawVal = Number(
@@ -11013,11 +11035,12 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
     rawLineItems.forEach((it) => {
       if (it.isCompositeContinuation) return;
-      const itemTotal = Number(
+      const rawItemVal = Number(
         it.total_price ??
           it.line_total ??
           (Number(it.quantity) || 1) * (Number(it.unit_price) || 0)
       );
+      const itemTotal = it.item_type === 'discount' ? -Math.abs(rawItemVal) : rawItemVal;
       fullOptionGroupTotals.all = (fullOptionGroupTotals.all || 0) + itemTotal;
 
       const optRaw = String(it.option || it.option_group || '').trim();
@@ -11200,14 +11223,13 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
             const normGroupKey = group.optionKey.toLowerCase();
             const groupTotal = group.items.reduce((acc, it) => {
               if (it.isCompositeContinuation) return acc;
-              return (
-                acc +
-                Number(
-                  it.total_price ??
-                    it.line_total ??
-                    (Number(it.quantity) || 1) * (Number(it.unit_price) || 0)
-                )
+              const rawItemVal = Number(
+                it.total_price ??
+                  it.line_total ??
+                  (Number(it.quantity) || 1) * (Number(it.unit_price) || 0)
               );
+              const signedVal = it.item_type === 'discount' ? -Math.abs(rawItemVal) : rawItemVal;
+              return acc + signedVal;
             }, 0);
             const fullGroupTotal = fullOptionGroupTotals[normGroupKey] ?? groupTotal;
             const lastChunkIdxForGroup =
@@ -11936,7 +11958,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                                 allAttrs.push({ key: 'Delivery', value: item.availability.trim() });
                                               }
 
-                                              const rawAttrs: Array<{ key: string; value: string }> = [...extractedSpecsAttrs];
+                                              const rawAttrs: Array<{ key: string; value: string }> = [];
                                               const itemAny = item as any;
                                               const isLegacySampleAttr = (_k: string, _v: string) => false;
 
@@ -11977,6 +11999,12 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                                   }
                                                 });
                                               }
+
+                                              extractedSpecsAttrs.forEach((ea) => {
+                                                if (ea && ea.key && ea.value) {
+                                                  rawAttrs.push({ key: String(ea.key).trim(), value: String(ea.value).trim() });
+                                                }
+                                              });
 
                                               rawAttrs.forEach((attr) => {
                                                 const cKey = canonicalAttrKey(attr.key);

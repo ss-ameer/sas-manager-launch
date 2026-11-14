@@ -2,6 +2,7 @@ import {
   Quotation,
   QuotationPreset,
   QuotationTaxMode,
+  QuotationOptionDisplayMode,
   WorkspaceDocumentProfile,
   DocumentProfileBankAccount,
   BankAccountProfile,
@@ -123,23 +124,71 @@ export class QuotationRepository {
   public static calculateTotals(
     lineItems: Array<{
       total_price?: number;
+      line_total?: number;
       quantity?: number;
       unit_price?: number;
       is_optional?: boolean;
+      option?: string;
+      option_group?: string;
+      option_designation?: string;
+      item_type?: string;
     }>,
     freightAmount: number = 0,
     taxMode: QuotationTaxMode = 'taxes_extra',
-    taxRatePercent: number = 5
+    taxRatePercent: number = 5,
+    optionDisplayMode?: QuotationOptionDisplayMode
   ): TaxCalculationResult {
-    // Only non-optional items contribute to financial totals; accumulate in integer subunits (fils) to prevent 0.1 + 0.2 drift
+    // Filter items according to optionDisplayMode and exclude non-baseline / optional items by default;
+    // subtract discount items (-Math.abs) and accumulate in integer subunits (fils) to prevent floating-point drift.
     const subtotalFils = (lineItems || [])
-      .filter((item) => !item.is_optional)
+      .filter((item) => {
+        const opt = String(item.option || item.option_group || item.option_designation || '').trim();
+        const optLower = opt.toLowerCase();
+        if (optLower.includes('optional') || optLower.includes('add-on')) {
+          return false;
+        }
+        if (optionDisplayMode === 'option_c_only') {
+          return (
+            !opt ||
+            opt === 'Default / Included' ||
+            opt === 'Baseline / All' ||
+            /^option\s*c\b/i.test(opt) ||
+            /^option\s*3\b/i.test(opt)
+          );
+        }
+        if (optionDisplayMode === 'option_b_only') {
+          return (
+            !opt ||
+            opt === 'Default / Included' ||
+            opt === 'Baseline / All' ||
+            /^option\s*b\b/i.test(opt) ||
+            /^option\s*2\b/i.test(opt)
+          );
+        }
+        if (optionDisplayMode === 'option_a_only') {
+          return (
+            !opt ||
+            opt === 'Default / Included' ||
+            opt === 'Baseline / All' ||
+            /^option\s*a\b/i.test(opt) ||
+            /^option\s*1\b/i.test(opt)
+          );
+        }
+        if (/^option\s+[b-z]\b/i.test(opt) || /^option\s+[2-9]\b/i.test(opt)) {
+          return false;
+        }
+        return !item.is_optional;
+      })
       .reduce((sumFils, item) => {
         const rawLineTotal =
           item.total_price !== undefined && item.total_price !== null
             ? Number(item.total_price) || 0
+            : item.line_total !== undefined && item.line_total !== null
+            ? Number(item.line_total) || 0
             : (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
-        const lineFils = Math.round((rawLineTotal + Math.sign(rawLineTotal || 1) * Number.EPSILON) * 100);
+        const signedLineTotal =
+          item.item_type === 'discount' ? -Math.abs(rawLineTotal) : rawLineTotal;
+        const lineFils = Math.round((signedLineTotal + Math.sign(signedLineTotal || 1) * Number.EPSILON) * 100);
         return sumFils + lineFils;
       }, 0);
 
@@ -268,12 +317,13 @@ export class QuotationRepository {
             };
           });
 
-    const computedLinesSum = sanitizedLineItems.reduce((sum, li) => {
-      const q = Number(li?.qty_ordered ?? li?.quantity ?? li?.qty) || 0;
-      const r = Number(li?.unit_price ?? li?.rate) || 0;
-      const t = Number(li?.total_price ?? li?.line_total ?? li?.total) || q * r;
-      return sum + t;
-    }, 0);
+    const computedLinesSum = QuotationRepository.calculateTotals(
+      sanitizedLineItems,
+      0,
+      data.tax_mode || 'taxes_extra',
+      5,
+      data.option_display_mode
+    ).subtotal;
 
     const rawSubtotal =
       Number(data.subtotal ?? data.financial_totals?.subtotal ?? 0) ||
@@ -1170,7 +1220,8 @@ export class QuotationRepository {
           quotation.line_items,
           quotation.freight_amount || 0,
           quotation.tax_mode || 'taxes_extra',
-          quotation.tax_rate_percent ?? 5
+          quotation.tax_rate_percent ?? 5,
+          quotation.option_display_mode
         )
       : null;
 
@@ -1213,7 +1264,12 @@ export class QuotationRepository {
             id: qi.id || `item_${idx + 1}`,
             product_id: qi.product_id,
             sku: qi.sku,
-            product_type: (qi as any).product_type || ('Other' as any),
+            product_sku: qi.product_sku ?? qi.sku,
+            variant_id: qi.variant_id,
+            variant_name: qi.variant_name,
+            product_type: (qi as any).product_type,
+            item_type: qi.item_type as any,
+            charge_type: (qi as any).charge_type,
             item_name: qi.item_name || `Item #${idx + 1}`,
             description: qi.description || '',
             quantity: qty,
@@ -1234,9 +1290,17 @@ export class QuotationRepository {
               ...(deliveryVal ? { Delivery: deliveryVal, 'Lead Time': deliveryVal } : {})
             },
             option: optGroup,
+            option_group: qi.option_group ?? (optGroup !== 'Default / Included' && optGroup !== 'Baseline / All' ? optGroup : undefined),
             option_designation: optGroup,
             option_scope_notes: qi.option_scope_notes,
+            is_optional: qi.is_optional,
             attributes: Array.isArray(qi.attributes) ? qi.attributes : [],
+            technical_attributes: (qi as any).technical_attributes,
+            visible_attributes: qi.visible_attributes,
+            hidden_attributes: qi.hidden_attributes,
+            attribute_order: qi.attribute_order,
+            attribute_line_breaks_after: qi.attribute_line_breaks_after,
+            attribute_full_width_keys: qi.attribute_full_width_keys,
             image_url: qi.image_url,
             secondary_image_url: qi.secondary_image_url,
             image_caption: qi.image_caption,
@@ -1245,6 +1309,12 @@ export class QuotationRepository {
             image_display_override: qi.image_display_override,
             image_size_override: qi.image_size_override,
             image_aspect_override: qi.image_aspect_override,
+            row_note: qi.row_note,
+            row_highlight: qi.row_highlight,
+            row_bold: qi.row_bold,
+            hide_row_price: qi.hide_row_price,
+            page_break_after: qi.page_break_after,
+            row_spacer_after_mm: qi.row_spacer_after_mm,
             datasheet_attachment: qi.datasheet_attachment,
             include_datasheet_in_quote: qi.include_datasheet_in_quote !== false,
             is_composite_set: qi.is_composite_set,

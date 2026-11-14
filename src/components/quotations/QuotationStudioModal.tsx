@@ -2908,12 +2908,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         const rawSourceItems: QuotationLineItem[] | null =
           isDraftQuote && hasFreshEnquiryItems
             ? enquiry!.line_items.map((li, idx) => {
-                const prevIt =
-                  (targetQuote.line_items || []).find(
-                    (oldIt) =>
-                      (oldIt.id && li.id && oldIt.id === li.id) ||
-                      (oldIt.product_id && li.product_id && oldIt.product_id === li.product_id && oldIt.sn === idx + 1)
-                  ) || (targetQuote.line_items || [])[idx];
+                const prevIt = (targetQuote.line_items || []).find(
+                  (oldIt) =>
+                    (oldIt.id && li.id && oldIt.id === li.id) ||
+                    (!oldIt.id &&
+                      !li.id &&
+                      oldIt.product_id &&
+                      li.product_id &&
+                      oldIt.product_id === li.product_id &&
+                      oldIt.sn === idx + 1)
+                );
                 const qty = Number(li.quantity) || 1;
                 const rate = Number(li.unit_price) || 0;
                 const tot =
@@ -2922,6 +2926,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     : QuotationRepository.roundCurrency(qty * rate);
                 const rawOpt = String((li as any).option_designation || li.option || prevIt?.option || '').trim();
                 const isOptionalOrAlt =
+                  Boolean((li as any).is_optional ?? prevIt?.is_optional) ||
                   rawOpt.toLowerCase().includes('optional') ||
                   rawOpt.toLowerCase().includes('add-on') ||
                   /option\s+[b-z]/i.test(rawOpt);
@@ -2935,14 +2940,44 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   li.lead_time_note ||
                   prevIt?.availability ||
                   'Ex-Stock / Standard';
+                const resolvedItemName =
+                  li.item_name || li.product_type || prevIt?.item_name || `Item #${idx + 1}`;
+                const resolvedDesc =
+                  li.description !== undefined ? li.description : (prevIt?.description || '');
+                const { extractedSpecsAttrs } = extractLineItemAttributesAndCleanDescription({
+                  item_name: resolvedItemName,
+                  description: resolvedDesc,
+                  quantity: qty,
+                  unit: li.unit || prevIt?.unit || 'Nos',
+                  unit_price: rate,
+                  total_price: tot,
+                  attributes: Array.isArray(li.attributes) && li.attributes.length > 0 ? li.attributes : (prevIt?.attributes || [])
+                });
+                const baseAttrs: QuotationItemAttribute[] =
+                  Array.isArray(li.attributes) && li.attributes.length > 0
+                    ? li.attributes.map((a) => ({ key: a.key, value: a.value }))
+                    : Array.isArray(prevIt?.attributes)
+                    ? prevIt!.attributes!.map((a) => ({ key: a.key, value: a.value }))
+                    : [];
+                extractedSpecsAttrs.forEach((ea) => {
+                  if (!baseAttrs.some((ba) => canonicalKey(ba.key) === canonicalKey(ea.key))) {
+                    baseAttrs.push(ea);
+                  }
+                });
                 return {
                   ...(prevIt || {}),
                   id: li.id || prevIt?.id || `item_${idx + 1}`,
                   sn: idx + 1,
                   product_id: li.product_id ?? prevIt?.product_id,
                   sku: li.sku ?? prevIt?.sku,
-                  item_name: li.item_name || li.product_type || prevIt?.item_name || `Item #${idx + 1}`,
-                  description: li.description !== undefined ? li.description : (prevIt?.description || ''),
+                  product_sku: (li as any).product_sku ?? li.sku ?? prevIt?.product_sku ?? prevIt?.sku,
+                  variant_id: (li as any).variant_id ?? prevIt?.variant_id,
+                  variant_name: (li as any).variant_name ?? prevIt?.variant_name,
+                  product_type: (li as any).product_type ?? (prevIt as any)?.product_type,
+                  item_type: (li as any).item_type ?? prevIt?.item_type,
+                  charge_type: (li as any).charge_type ?? (prevIt as any)?.charge_type,
+                  item_name: resolvedItemName,
+                  description: resolvedDesc,
                   brand_make: li.brand_make ?? prevIt?.brand_make,
                   model_part_no: li.model_part_no ?? prevIt?.model_part_no,
                   country_of_origin: li.country_of_origin ?? prevIt?.country_of_origin,
@@ -2957,8 +2992,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   line_total: tot,
                   option: rawOpt || undefined,
                   option_group: rawOpt && rawOpt !== 'Default / Included' && rawOpt !== 'Baseline / All' ? rawOpt : undefined,
+                  option_scope_notes: li.option_scope_notes ?? prevIt?.option_scope_notes,
                   is_optional: isOptionalOrAlt,
-                  attributes: Array.isArray(li.attributes) && li.attributes.length > 0 ? li.attributes : (prevIt?.attributes || []),
+                  attributes: baseAttrs,
+                  technical_attributes: (li as any).technical_attributes ?? (prevIt as any)?.technical_attributes,
+                  visible_attributes: (li as any).visible_attributes ?? prevIt?.visible_attributes,
+                  hidden_attributes: (li as any).hidden_attributes ?? prevIt?.hidden_attributes,
+                  attribute_order: li.attribute_order ?? prevIt?.attribute_order,
+                  attribute_line_breaks_after: li.attribute_line_breaks_after ?? prevIt?.attribute_line_breaks_after,
+                  attribute_full_width_keys: li.attribute_full_width_keys ?? prevIt?.attribute_full_width_keys,
                   image_url: li.image_url || prevIt?.image_url,
                   secondary_image_url: li.secondary_image_url || prevIt?.secondary_image_url,
                   image_caption: li.image_caption ?? prevIt?.image_caption,
@@ -2967,6 +3009,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   image_display_override: li.image_display_override ?? prevIt?.image_display_override,
                   image_size_override: li.image_size_override ?? prevIt?.image_size_override,
                   image_aspect_override: li.image_aspect_override ?? prevIt?.image_aspect_override,
+                  row_note: li.row_note ?? prevIt?.row_note,
+                  row_highlight: li.row_highlight ?? prevIt?.row_highlight,
+                  row_bold: li.row_bold ?? prevIt?.row_bold,
+                  hide_row_price: li.hide_row_price ?? prevIt?.hide_row_price,
+                  page_break_after: li.page_break_after ?? prevIt?.page_break_after,
+                  row_spacer_after_mm: li.row_spacer_after_mm ?? prevIt?.row_spacer_after_mm,
                   datasheet_attachment: li.datasheet_attachment ?? prevIt?.datasheet_attachment,
                   include_datasheet_in_quote: li.include_datasheet_in_quote ?? prevIt?.include_datasheet_in_quote ?? true,
                   is_composite_set: li.is_composite_set ?? prevIt?.is_composite_set,
@@ -3062,6 +3110,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 : QuotationRepository.roundCurrency(qty * rate);
             const rawOpt = String((li as any).option_designation || li.option || '').trim();
             const isOptionalOrAlt =
+              Boolean((li as any).is_optional) ||
               rawOpt.toLowerCase().includes('optional') ||
               rawOpt.toLowerCase().includes('add-on') ||
               /option\s+[b-z]/i.test(rawOpt);
@@ -3075,12 +3124,36 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               enquiry.delivery_period ||
               li.lead_time_note ||
               'Ex-Stock / Standard';
+            const resolvedItemName = li.item_name || li.product_type || `Item #${idx + 1}`;
+            const { extractedSpecsAttrs } = extractLineItemAttributesAndCleanDescription({
+              item_name: resolvedItemName,
+              description: li.description || '',
+              quantity: qty,
+              unit: li.unit || 'Nos',
+              unit_price: rate,
+              total_price: tot,
+              attributes: Array.isArray(li.attributes) ? li.attributes : []
+            });
+            const baseAttrs: QuotationItemAttribute[] = Array.isArray(li.attributes)
+              ? li.attributes.map((a) => ({ key: a.key, value: a.value }))
+              : [];
+            extractedSpecsAttrs.forEach((ea) => {
+              if (!baseAttrs.some((ba) => canonicalKey(ba.key) === canonicalKey(ea.key))) {
+                baseAttrs.push(ea);
+              }
+            });
             return {
               id: li.id || `item_${idx + 1}`,
               sn: idx + 1,
               product_id: li.product_id,
               sku: li.sku,
-              item_name: li.item_name || li.product_type || `Item #${idx + 1}`,
+              product_sku: (li as any).product_sku ?? li.sku,
+              variant_id: (li as any).variant_id,
+              variant_name: (li as any).variant_name,
+              product_type: (li as any).product_type,
+              item_type: (li as any).item_type,
+              charge_type: (li as any).charge_type,
+              item_name: resolvedItemName,
               description: li.description || '',
               brand_make: li.brand_make,
               model_part_no: li.model_part_no,
@@ -3101,7 +3174,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   : undefined,
               option_scope_notes: li.option_scope_notes,
               is_optional: isOptionalOrAlt,
-              attributes: Array.isArray(li.attributes) ? li.attributes : [],
+              attributes: baseAttrs,
+              technical_attributes: (li as any).technical_attributes,
+              visible_attributes: (li as any).visible_attributes,
+              hidden_attributes: (li as any).hidden_attributes,
+              attribute_order: li.attribute_order,
+              attribute_line_breaks_after: li.attribute_line_breaks_after,
+              attribute_full_width_keys: li.attribute_full_width_keys,
               image_url: li.image_url,
               secondary_image_url: li.secondary_image_url,
               image_caption: li.image_caption,
@@ -3110,6 +3189,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               image_display_override: li.image_display_override,
               image_size_override: li.image_size_override,
               image_aspect_override: li.image_aspect_override,
+              row_note: li.row_note,
+              row_highlight: li.row_highlight,
+              row_bold: li.row_bold,
+              hide_row_price: li.hide_row_price,
+              page_break_after: li.page_break_after,
+              row_spacer_after_mm: li.row_spacer_after_mm,
               datasheet_attachment: li.datasheet_attachment,
               include_datasheet_in_quote: li.include_datasheet_in_quote !== false,
               is_composite_set: li.is_composite_set,
@@ -4327,8 +4412,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       baseItems = sourceQuotation.line_items.map((item, idx) => {
         const matchingEnquiryItem =
           (item.id && enquiry?.line_items?.find((e) => e.id === item.id)) ||
-          enquiry?.line_items?.[idx] ||
-          (item.product_id && enquiry?.line_items?.find((e) => e.product_id === item.product_id));
+          (!item.id &&
+            item.product_id &&
+            enquiry?.line_items?.find((e, eIdx) => e.product_id === item.product_id && eIdx === idx));
         const liveEnquiryDelivery =
           (matchingEnquiryItem as any)?.lead_time_note ||
           (matchingEnquiryItem as any)?.delivery_time ||
@@ -4366,10 +4452,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               (a.key === 'Power Supply' && a.value === '220V / 50Hz / 1Ph')
             );
           });
-          const mergedAttrs = [...extractedSpecsAttrs];
-          filteredExisting.forEach((a) => {
-            if (!mergedAttrs.some((m) => m.key.toLowerCase() === a.key.toLowerCase())) {
-              mergedAttrs.push(a);
+          // Structured item.attributes is authoritative; only append extractedSpecsAttrs keys that do not already exist
+          const mergedAttrs = [...filteredExisting];
+          extractedSpecsAttrs.forEach((ea) => {
+            if (!mergedAttrs.some((m) => canonicalKey(m.key) === canonicalKey(ea.key))) {
+              mergedAttrs.push(ea);
             }
           });
           return {
@@ -4455,6 +4542,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             id: li.id || `item_${idx}`,
             product_id: li.product_id,
             sku: li.sku,
+            product_sku: (li as any).product_sku ?? li.sku,
+            variant_id: (li as any).variant_id,
+            variant_name: (li as any).variant_name,
+            product_type: (li as any).product_type,
+            item_type: (li as any).item_type,
+            charge_type: (li as any).charge_type,
             item_name: resolvedTitle,
             description: cleanDescription,
             quantity: qty,
@@ -4485,6 +4578,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             sub_components: li.sub_components,
             package_pricing_mode: li.package_pricing_mode,
             attributes: itemAttrs,
+            technical_attributes: (li as any).technical_attributes,
+            visible_attributes: (li as any).visible_attributes,
+            hidden_attributes: (li as any).hidden_attributes,
             image_url: li.image_url,
             secondary_image_url: li.secondary_image_url,
             image_caption: li.image_caption,
@@ -4511,14 +4607,19 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
     return baseItems.map((item, idx) => {
       const itemKey = item.id || `item_${idx}`;
-      const effectiveProductId = itemLinkedProductIds[itemKey] || item.product_id;
-      const matchedCatalogProduct = workspaceProducts.find(
-        (p) =>
-          (effectiveProductId && p.id === effectiveProductId) ||
-          (item.sku && p.sku && p.sku.toLowerCase() === item.sku.toLowerCase()) ||
-          (item.item_name &&
-            (p.name || p.description || '').trim().toLowerCase() === item.item_name.trim().toLowerCase())
-      );
+      const isExplicitlyUnlinked = itemLinkedProductIds[itemKey] === '';
+      const effectiveProductId = isExplicitlyUnlinked
+        ? undefined
+        : itemLinkedProductIds[itemKey] || item.product_id;
+      const matchedCatalogProduct = isExplicitlyUnlinked
+        ? undefined
+        : workspaceProducts.find(
+            (p) =>
+              (effectiveProductId && p.id === effectiveProductId) ||
+              (item.sku && p.sku && p.sku.toLowerCase() === item.sku.toLowerCase()) ||
+              (item.item_name &&
+                (p.name || p.description || '').trim().toLowerCase() === item.item_name.trim().toLowerCase())
+          );
 
       const customVisible = itemVisibleAttributes[itemKey] ?? item.visible_attributes;
       const compOverride = itemCompositeOverrides[itemKey] || {};
@@ -4574,8 +4675,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
       const matchingEnquiryItem =
         (item.id && enquiry?.line_items?.find((e) => e.id === item.id)) ||
-        enquiry?.line_items?.[idx] ||
-        (item.product_id && enquiry?.line_items?.find((e) => e.product_id === item.product_id));
+        (!item.id &&
+          item.product_id &&
+          enquiry?.line_items?.find((e, eIdx) => e.product_id === item.product_id && eIdx === idx));
       const freshDelivery =
         (matchingEnquiryItem as any)?.lead_time_note ||
         (matchingEnquiryItem as any)?.delivery_time ||
@@ -4861,6 +4963,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         if (s && s.key) addKey(s.key);
       });
     }
+    const { extractedSpecsAttrs } = extractLineItemAttributesAndCleanDescription(item);
+    extractedSpecsAttrs.forEach((ea) => {
+      if (ea && ea.key) addKey(ea.key);
+    });
     if (item.brand_make && item.brand_make.trim() && item.brand_make !== '—') {
       addKey('Brand');
     }
@@ -5016,7 +5122,18 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       triggerToast?.('No line items found on the source enquiry to sync.', 'info');
       return;
     }
+    const currentList = customStudioLineItems ?? quotationLineItems;
     const freshStudioItems: QuotationLineItem[] = enquiry.line_items.map((li, idx) => {
+      const prevIt = currentList.find(
+        (oldIt) =>
+          (oldIt.id && li.id && oldIt.id === li.id) ||
+          (!oldIt.id &&
+            !li.id &&
+            oldIt.product_id &&
+            li.product_id &&
+            oldIt.product_id === li.product_id &&
+            oldIt.sn === idx + 1)
+      );
       const qty = Number(li.quantity) || 1;
       const uPrice = Number(li.unit_price) || 0;
       const tPrice =
@@ -5037,8 +5154,19 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           quantity: qty,
           unit: li.unit || 'pcs',
           unit_price: uPrice,
-          total_price: tPrice
+          total_price: tPrice,
+          attributes: Array.isArray(li.attributes) ? li.attributes : []
         });
+      const mergedAttrs: QuotationItemAttribute[] = Array.isArray(li.attributes)
+        ? li.attributes.map((a) => ({ key: a.key, value: a.value }))
+        : Array.isArray(prevIt?.attributes)
+        ? prevIt!.attributes!.map((a) => ({ key: a.key, value: a.value }))
+        : [];
+      extractedSpecsAttrs.forEach((ea) => {
+        if (!mergedAttrs.some((ma) => canonicalKey(ma.key) === canonicalKey(ea.key))) {
+          mergedAttrs.push(ea);
+        }
+      });
       const deliveryVal =
         ((li as any).lead_time_note && (li as any).lead_time_note !== 'Ex-Stock / Standard' ? (li as any).lead_time_note : '') ||
         ((li as any).delivery_time && (li as any).delivery_time !== 'Ex-Stock / Standard' ? (li as any).delivery_time : '') ||
@@ -5049,49 +5177,74 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         enquiry.delivery_period ||
         (li as any).lead_time_note ||
         (li as any).availability ||
+        prevIt?.availability ||
         'Ex-Stock / Standard';
-      const optLabel = (li.option || (li as any).option_designation || '').trim();
+      const optLabel = (li.option || (li as any).option_designation || prevIt?.option || '').trim();
       const isOptionalFromOption =
-        Boolean((li as any).is_optional) ||
+        Boolean((li as any).is_optional ?? prevIt?.is_optional) ||
         optLabel === 'Optional / Add-On' ||
         optLabel === 'Option B' ||
         optLabel === 'Option C' ||
         /^option\s+[b-z]/i.test(optLabel);
 
       return {
-        id: li.id || `item_${idx}`,
-        product_id: li.product_id,
-        sku: li.sku,
+        ...(prevIt || {}),
+        id: li.id || prevIt?.id || `item_${idx}`,
+        sn: idx + 1,
+        product_id: li.product_id ?? prevIt?.product_id,
+        sku: li.sku ?? prevIt?.sku,
+        product_sku: (li as any).product_sku ?? li.sku ?? prevIt?.product_sku ?? prevIt?.sku,
+        variant_id: (li as any).variant_id ?? prevIt?.variant_id,
+        variant_name: (li as any).variant_name ?? prevIt?.variant_name,
+        product_type: (li as any).product_type ?? (prevIt as any)?.product_type,
+        item_type: (li as any).item_type ?? prevIt?.item_type,
+        charge_type: (li as any).charge_type ?? (prevIt as any)?.charge_type,
         item_name: resolvedTitle,
         description: cleanDescription,
         quantity: qty,
-        unit: li.unit || 'pcs',
+        unit: li.unit || prevIt?.unit || 'pcs',
         unit_price: uPrice,
-        cost_price: li.cost_price,
+        cost_price: li.cost_price ?? prevIt?.cost_price,
         total_price: tPrice,
-        brand_make: li.brand_make || undefined,
-        model_part_no: li.model_part_no || undefined,
-        country_of_origin: li.country_of_origin || undefined,
-        hs_code: li.hs_code || undefined,
+        line_total: tPrice,
+        brand_make: li.brand_make || prevIt?.brand_make || undefined,
+        model_part_no: li.model_part_no || prevIt?.model_part_no || undefined,
+        country_of_origin: li.country_of_origin || prevIt?.country_of_origin || undefined,
+        hs_code: li.hs_code || prevIt?.hs_code || undefined,
         availability: deliveryVal,
         delivery_time: deliveryVal,
         lead_time: deliveryVal,
         lead_time_note: deliveryVal,
         is_optional: isOptionalFromOption,
         option: optLabel || undefined,
-        option_group: optLabel || undefined,
-        option_scope_notes: li.option_scope_notes || undefined,
-        is_composite_set: li.is_composite_set,
-        sub_components: li.sub_components,
-        package_pricing_mode: li.package_pricing_mode,
-        attributes: Array.isArray(li.attributes) && li.attributes.length > 0 ? li.attributes : extractedSpecsAttrs,
-        image_url: li.image_url,
-        secondary_image_url: li.secondary_image_url,
-        image_caption: li.image_caption,
-        secondary_image_caption: li.secondary_image_caption,
-        image_adjustments: li.image_adjustments,
-        datasheet_attachment: li.datasheet_attachment,
-        include_datasheet_in_quote: li.include_datasheet_in_quote !== false
+        option_group: optLabel && optLabel !== 'Default / Included' && optLabel !== 'Baseline / All' ? optLabel : undefined,
+        option_scope_notes: li.option_scope_notes || prevIt?.option_scope_notes || undefined,
+        is_composite_set: li.is_composite_set ?? prevIt?.is_composite_set,
+        sub_components: li.sub_components ?? prevIt?.sub_components,
+        package_pricing_mode: li.package_pricing_mode ?? prevIt?.package_pricing_mode,
+        attributes: mergedAttrs,
+        technical_attributes: (li as any).technical_attributes ?? (prevIt as any)?.technical_attributes,
+        visible_attributes: (li as any).visible_attributes ?? prevIt?.visible_attributes,
+        hidden_attributes: (li as any).hidden_attributes ?? prevIt?.hidden_attributes,
+        attribute_order: li.attribute_order ?? prevIt?.attribute_order,
+        attribute_line_breaks_after: li.attribute_line_breaks_after ?? prevIt?.attribute_line_breaks_after,
+        attribute_full_width_keys: li.attribute_full_width_keys ?? prevIt?.attribute_full_width_keys,
+        image_url: li.image_url ?? prevIt?.image_url,
+        secondary_image_url: li.secondary_image_url ?? prevIt?.secondary_image_url,
+        image_caption: li.image_caption ?? prevIt?.image_caption,
+        secondary_image_caption: li.secondary_image_caption ?? prevIt?.secondary_image_caption,
+        image_adjustments: li.image_adjustments ?? prevIt?.image_adjustments,
+        image_display_override: li.image_display_override ?? prevIt?.image_display_override,
+        image_size_override: li.image_size_override ?? prevIt?.image_size_override,
+        image_aspect_override: li.image_aspect_override ?? prevIt?.image_aspect_override,
+        row_note: li.row_note ?? prevIt?.row_note,
+        row_highlight: li.row_highlight ?? prevIt?.row_highlight,
+        row_bold: li.row_bold ?? prevIt?.row_bold,
+        hide_row_price: li.hide_row_price ?? prevIt?.hide_row_price,
+        page_break_after: li.page_break_after ?? prevIt?.page_break_after,
+        row_spacer_after_mm: li.row_spacer_after_mm ?? prevIt?.row_spacer_after_mm,
+        datasheet_attachment: li.datasheet_attachment ?? prevIt?.datasheet_attachment,
+        include_datasheet_in_quote: li.include_datasheet_in_quote ?? prevIt?.include_datasheet_in_quote ?? true
       };
     });
 
@@ -11859,7 +12012,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   onChange={(e) => {
                                     const pid = e.target.value;
                                     const currentList = customStudioLineItems ?? quotationLineItems;
+                                    const rowKey = li.id || `item_${idx}`;
                                     if (!pid) {
+                                      setItemLinkedProductIds((prev) => ({
+                                        ...prev,
+                                        [rowKey]: ''
+                                      }));
                                       setCustomStudioLineItems(
                                         currentList.map((row, rIdx) =>
                                           rIdx === idx
@@ -11878,6 +12036,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     }
                                     const prod = workspaceProducts.find((p) => p.id === pid);
                                     if (!prod) return;
+                                    setItemLinkedProductIds((prev) => ({
+                                      ...prev,
+                                      [rowKey]: prod.id!
+                                    }));
                                     const isVendorCostDoc =
                                       documentType === 'purchase_order' ||
                                       documentType === 'material_return_note' ||
@@ -17266,6 +17428,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   onChange={(e) => {
                                     const pid = e.target.value;
                                     if (!pid) {
+                                      setItemLinkedProductIds((prev) => ({
+                                        ...prev,
+                                        [itemKey]: ''
+                                      }));
                                       updateCurItem({
                                         product_id: undefined,
                                         sku: undefined,
@@ -17277,6 +17443,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     }
                                     const prod = workspaceProducts.find((p) => p.id === pid);
                                     if (!prod) return;
+                                    setItemLinkedProductIds((prev) => ({
+                                      ...prev,
+                                      [itemKey]: prod.id!
+                                    }));
                                     const wasPopulated = isLineItemPopulated(curItem);
                                     const merged = linkLineItemToCatalogProductNonDestructive(
                                       curItem,
@@ -28199,10 +28369,42 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             propSetProducts((prev) => [newProd, ...prev.filter((p) => p.id !== newProd.id)]);
           }
           if (catalogModalTarget?.itemKey && newProd.id) {
+            const targetKey = catalogModalTarget.itemKey;
             setItemLinkedProductIds((prev) => ({
               ...prev,
-              [catalogModalTarget.itemKey]: newProd.id!
+              [targetKey]: newProd.id!
             }));
+            const currentList = customStudioLineItems ?? quotationLineItems;
+            setCustomStudioLineItems(
+              currentList.map((row, rIdx) => {
+                const rKey = row.id || `item_${rIdx}`;
+                if (rKey !== targetKey) return row;
+                const prodAttrs = Array.isArray((newProd as any).attributes)
+                  ? (newProd as any).attributes
+                  : row.attributes;
+                const deliveryVal =
+                  newProd.default_availability ||
+                  (newProd as any).lead_time_note ||
+                  row.lead_time_note ||
+                  row.availability;
+                return {
+                  ...row,
+                  product_id: newProd.id,
+                  sku: newProd.sku || row.sku,
+                  product_sku: newProd.sku || row.product_sku || row.sku,
+                  brand_make: newProd.brand_make || row.brand_make,
+                  model_part_no: newProd.model_part_no || row.model_part_no,
+                  country_of_origin: newProd.country_of_origin || row.country_of_origin,
+                  cost_price: newProd.cost_price ?? row.cost_price,
+                  image_url: newProd.image_url || row.image_url,
+                  secondary_image_url: newProd.secondary_image_url || row.secondary_image_url,
+                  datasheet_attachment: newProd.datasheet_attachment || row.datasheet_attachment,
+                  attributes: prodAttrs,
+                  lead_time_note: deliveryVal,
+                  availability: deliveryVal
+                };
+              })
+            );
           }
         }}
         triggerToast={triggerToast}
