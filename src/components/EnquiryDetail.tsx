@@ -32,7 +32,7 @@ import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { ActivityLogRepository } from '../services/repositories/CallLogRepository';
 import { QuotationRepository } from '../services/repositories/QuotationRepository';
 import { ProcurementRepository } from '../services/repositories/ProcurementRepository';
-import { Quotation, WorkspaceDocumentProfile, CommercialDocumentType, SupplierBill } from '../types';
+import { Quotation, WorkspaceDocumentProfile, CommercialDocumentType, SupplierBill, QuotationTaxMode } from '../types';
 import { QuotationStudioModal } from './quotations/QuotationStudioModal';
 import { QuotationDocument } from './quotations/QuotationDocument';
 import { resolvePdfFilename } from '../utils/quotationTokenResolver';
@@ -404,9 +404,12 @@ export default function EnquiryDetail({
         quote.tax_mode,
         quote.tax_rate_percent
       );
-      const rawGrandTotal =
-        syncedLineItems.length > 0 ? acceptedTotals.grand_total : Number(quote.grand_total || 0);
-      const dealValueAed = quote.currency === 'USD' ? Math.round(rawGrandTotal * 3.6725 * 100) / 100 : rawGrandTotal;
+      const rawSubtotal =
+        syncedLineItems.length > 0
+          ? acceptedTotals.subtotal
+          : Number(quote.subtotal ?? quote.grand_total ?? 0);
+      const dealValueAed =
+        quote.currency === 'USD' ? Math.round(rawSubtotal * 3.6725 * 100) / 100 : rawSubtotal;
       let updatedEnquiry = await EnquiryRepository.syncAcceptedQuotation(
         currentEnquiry.id,
         quote.formatted_quote_ref,
@@ -429,6 +432,10 @@ export default function EnquiryDetail({
             stock_reserved: true,
             stock_reserved_at: reservedNow
           };
+          await safeUpdateDoc('enquiries', currentEnquiry.id, {
+            stock_reserved: true,
+            stock_reserved_at: reservedNow
+          }).catch(() => {});
           await EnquiryRepository.save(updatedEnquiry);
         }
         if (onStockUpdated) {
@@ -442,6 +449,11 @@ export default function EnquiryDetail({
         setCurrentEnquiry(updatedEnquiry);
         if (onUpdateEnquiry) {
           onUpdateEnquiry(updatedEnquiry);
+        }
+        if (setEnquiries) {
+          setEnquiries((prev) =>
+            prev.map((e) => (e.id === updatedEnquiry!.id ? updatedEnquiry! : e))
+          );
         }
       }
 
@@ -568,6 +580,11 @@ export default function EnquiryDetail({
         setCurrentEnquiry(updatedEnquiry);
         if (onUpdateEnquiry) {
           onUpdateEnquiry(updatedEnquiry);
+        }
+        if (setEnquiries) {
+          setEnquiries((prev) =>
+            prev.map((e) => (e.id === updatedEnquiry.id ? updatedEnquiry : e))
+          );
         }
       }
 
@@ -702,9 +719,30 @@ export default function EnquiryDetail({
           const rawSub = Number(fallbackActive.subtotal ?? fallbackActive.grand_total ?? 0);
           const newTotal = fallbackActive.currency === 'USD' ? Math.round(rawSub * 3.6725 * 100) / 100 : rawSub;
           const newRef = fallbackActive.formatted_quote_ref;
-          setCurrentEnquiry((prev) => (prev ? { ...prev, value_aed: newTotal, quote_ref_no: newRef } : prev));
+          const nextEnq: Enquiry = {
+            ...currentEnquiry,
+            value_aed: newTotal,
+            quoted_amount: newTotal,
+            quote_ref_no: newRef,
+            latest_quote_ref: newRef
+          };
+          setCurrentEnquiry(nextEnq);
+          if (currentEnquiry.id) {
+            await safeUpdateDoc('enquiries', currentEnquiry.id, {
+              value_aed: newTotal,
+              quoted_amount: newTotal,
+              quote_ref_no: newRef,
+              latest_quote_ref: newRef
+            }).catch(() => {});
+            await EnquiryRepository.save(nextEnq).catch(() => {});
+          }
           if (onUpdateEnquiry) {
-            onUpdateEnquiry({ ...currentEnquiry, value_aed: newTotal, quote_ref_no: newRef });
+            onUpdateEnquiry(nextEnq);
+          }
+          if (setEnquiries) {
+            setEnquiries((prev) =>
+              prev.map((e) => (e.id === currentEnquiry.id ? nextEnq : e))
+            );
           }
         } else {
           // Root Revision (R0) Discard: No remaining active quotes; fallback to line items total
@@ -712,9 +750,26 @@ export default function EnquiryDetail({
             (sum, it) => sum + Number(it.quantity || 0) * Number(it.unit_price || 0),
             0
           );
-          setCurrentEnquiry((prev) => (prev ? { ...prev, value_aed: fallbackValue } : prev));
+          const nextEnq: Enquiry = {
+            ...currentEnquiry,
+            value_aed: fallbackValue,
+            quoted_amount: fallbackValue
+          };
+          setCurrentEnquiry(nextEnq);
+          if (currentEnquiry.id) {
+            await safeUpdateDoc('enquiries', currentEnquiry.id, {
+              value_aed: fallbackValue,
+              quoted_amount: fallbackValue
+            }).catch(() => {});
+            await EnquiryRepository.save(nextEnq).catch(() => {});
+          }
           if (onUpdateEnquiry) {
-            onUpdateEnquiry({ ...currentEnquiry, value_aed: fallbackValue });
+            onUpdateEnquiry(nextEnq);
+          }
+          if (setEnquiries) {
+            setEnquiries((prev) =>
+              prev.map((e) => (e.id === currentEnquiry.id ? nextEnq : e))
+            );
           }
         }
       }
@@ -741,6 +796,11 @@ export default function EnquiryDetail({
     const cleanLatest = QuotationRepository.sanitizeCanonicalQuoteRef(rawLatest);
     if ((rawRef && cleanRef && rawRef !== cleanRef) || (rawLatest && cleanLatest && rawLatest !== cleanLatest)) {
       const nextQuoteRef = cleanRef || cleanLatest;
+      const sanitizedEnq: Enquiry = {
+        ...currentEnquiry,
+        quote_ref_no: nextQuoteRef,
+        latest_quote_ref: cleanLatest || nextQuoteRef
+      };
       setCurrentEnquiry((prev) =>
         prev
           ? {
@@ -755,13 +815,15 @@ export default function EnquiryDetail({
           quote_ref_no: nextQuoteRef,
           latest_quote_ref: cleanLatest || nextQuoteRef
         }).catch(() => {});
+        EnquiryRepository.save(sanitizedEnq).catch(() => {});
       }
       if (onUpdateEnquiry) {
-        onUpdateEnquiry({
-          ...currentEnquiry,
-          quote_ref_no: nextQuoteRef,
-          latest_quote_ref: cleanLatest || nextQuoteRef
-        });
+        onUpdateEnquiry(sanitizedEnq);
+      }
+      if (setEnquiries) {
+        setEnquiries((prev) =>
+          prev.map((e) => (e.id === sanitizedEnq.id ? sanitizedEnq : e))
+        );
       }
     }
   }, [currentEnquiry?.id, currentEnquiry?.quote_ref_no]);
@@ -1628,19 +1690,20 @@ export default function EnquiryDetail({
   }, [currentEnquiry?.id, currentEnquiry?.project_id]);
 
   // Status transition handler: auto-reserves stock on Won, auto-releases on Lost/Cancelled
-  const handleStatusTransition = async (newStatus: string) => {
-    if (!currentEnquiry?.id || isUpdatingStatus || newStatus === currentEnquiry.status) return;
+  const handleStatusTransition = async (newStatus: string, baseEnquiryOverride?: Enquiry) => {
+    const targetEnq = baseEnquiryOverride || currentEnquiry;
+    if (!targetEnq?.id || isUpdatingStatus || newStatus === targetEnq.status) return;
     setIsUpdatingStatus(true);
-    const oldStatus = currentEnquiry.status;
+    const oldStatus = targetEnq.status;
     const nowIso = new Date().toISOString();
 
     try {
-      let isStockReserved = Boolean(currentEnquiry.stock_reserved);
-      let stockReservedAt = currentEnquiry.stock_reserved_at;
+      let isStockReserved = Boolean(targetEnq.stock_reserved);
+      let stockReservedAt = targetEnq.stock_reserved_at;
 
       // 1. Transition TO Won/Order Received/Approved
       if (isWonStatus(newStatus) && !isWonStatus(oldStatus)) {
-        const res = await reserveEnquiryStock(currentEnquiry, user);
+        const res = await reserveEnquiryStock(targetEnq, user);
         isStockReserved = true;
         stockReservedAt = nowIso;
         if (onStockUpdated) {
@@ -1658,12 +1721,12 @@ export default function EnquiryDetail({
       // 2. Transition into Lost or Cancelled
       else if (isLostOrCancelledStatus(newStatus)) {
         let linkedProjectCancelled = false;
-        const linkedProjId = currentEnquiry.project_id || linkedProject?.id;
+        const linkedProjId = targetEnq.project_id || linkedProject?.id;
         if (linkedProjId) {
           try {
             await safeUpdateDoc('projects', linkedProjId, {
               status: 'Cancelled',
-              cancellation_reason: `Cancelled via Proposal #${currentEnquiry.sn || ''} transition to ${newStatus}`,
+              cancellation_reason: `Cancelled via Proposal #${targetEnq.sn || ''} transition to ${newStatus}`,
               updated_at: nowIso
             });
             linkedProjectCancelled = true;
@@ -1673,7 +1736,7 @@ export default function EnquiryDetail({
                   ? {
                       ...prev,
                       status: 'Cancelled',
-                      cancellation_reason: `Cancelled via Proposal #${currentEnquiry.sn || ''} transition to ${newStatus}`,
+                      cancellation_reason: `Cancelled via Proposal #${targetEnq.sn || ''} transition to ${newStatus}`,
                       updated_at: nowIso
                     }
                   : null
@@ -1685,7 +1748,7 @@ export default function EnquiryDetail({
         }
 
         if (isStockReserved || linkedProjectCancelled) {
-          const rel = await releaseEnquiryStock(currentEnquiry, user);
+          const rel = await releaseEnquiryStock(targetEnq, user);
           isStockReserved = false;
           stockReservedAt = null;
           if (onStockUpdated) {
@@ -1717,23 +1780,24 @@ export default function EnquiryDetail({
       }
 
       const updatedEnquiry: Enquiry = {
-        ...currentEnquiry,
+        ...targetEnq,
         status: newStatus as any,
         stock_reserved: isStockReserved,
         stock_reserved_at: stockReservedAt,
         updatedAt: nowIso
       };
 
-      await safeUpdateDoc('enquiries', currentEnquiry.id, {
+      await safeUpdateDoc('enquiries', targetEnq.id, {
         status: newStatus,
         stock_reserved: isStockReserved,
         stock_reserved_at: stockReservedAt,
         updatedAt: nowIso
       });
+      await EnquiryRepository.save(updatedEnquiry).catch(() => {});
 
       setCurrentEnquiry(updatedEnquiry);
       if (setEnquiries) {
-        setEnquiries((prev) => prev.map((e) => (e.id === currentEnquiry.id ? updatedEnquiry : e)));
+        setEnquiries((prev) => prev.map((e) => (e.id === targetEnq.id ? updatedEnquiry : e)));
       }
       if (onUpdateEnquiry) {
         onUpdateEnquiry(updatedEnquiry);
@@ -2176,56 +2240,64 @@ export default function EnquiryDetail({
     }
   };
 
-  const handleDeleteAttachment = async (targetIndex: number) => {
-    const attachments = enquiry.attachments || [];
+  const handleDeleteAttachment = (targetIndex: number) => {
+    const attachments = currentEnquiry.attachments || enquiry.attachments || [];
     const target = attachments[targetIndex];
     if (!target) return;
 
-    if (!window.confirm(`Are you sure you want to remove the attachment "${target.name}"?`)) {
-      return;
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Remove Attachment',
+      message: `Are you sure you want to remove the attachment "${target.name}"?`,
+      confirmText: 'Remove Attachment',
+      cancelText: 'Cancel',
+      isDestructive: true,
+      variant: 'destructive',
+      onConfirm: async () => {
+        const key = target.storageKey || target.id || `att_${targetIndex}`;
+        setDeletingAttachmentKey(key);
 
-    const key = target.storageKey || target.id || `att_${targetIndex}`;
-    setDeletingAttachmentKey(key);
+        try {
+          const f = target as any;
+          const fileUrl = f.url || f.fileUrl || f.downloadURL || f.downloadUrl || '';
 
-    try {
-      const f = target as any;
-      const fileUrl = f.url || f.fileUrl || f.downloadURL || f.downloadUrl || '';
+          // Unified 1GB Bucket & IndexedDB Deletion
+          await deleteFromStorageBucket(fileUrl, activeWorkspace, target.storageKey);
 
-      // Unified 1GB Bucket & IndexedDB Deletion
-      await deleteFromStorageBucket(fileUrl, activeWorkspace, target.storageKey);
+          const updatedAttachments = attachments.filter((_, i) => i !== targetIndex);
+          const updatedEnquiry: Enquiry = {
+            ...currentEnquiry,
+            attachments: updatedAttachments.length > 0 ? updatedAttachments : undefined
+          };
 
-      const updatedAttachments = attachments.filter((_, i) => i !== targetIndex);
-      const updatedEnquiry: Enquiry = {
-        ...enquiry,
-        attachments: updatedAttachments.length > 0 ? updatedAttachments : undefined
-      };
+          if (currentEnquiry.id) {
+            await safeUpdateDoc('enquiries', currentEnquiry.id, {
+              attachments: updatedAttachments.length > 0 ? updatedAttachments : []
+            });
+            await EnquiryRepository.save(updatedEnquiry).catch(() => {});
+          }
 
-      if (enquiry.id) {
-        await safeUpdateDoc('enquiries', enquiry.id, {
-          attachments: updatedAttachments.length > 0 ? updatedAttachments : []
-        });
+          setCurrentEnquiry(updatedEnquiry);
+          if (onUpdateEnquiry) {
+            onUpdateEnquiry(updatedEnquiry);
+          }
+          if (setEnquiries) {
+            setEnquiries((prev) => prev.map((e) => (e.id === currentEnquiry.id ? updatedEnquiry : e)));
+          }
+
+          if (triggerToast) {
+            triggerToast(`Attachment "${target.name}" removed successfully.`, 'info');
+          }
+        } catch (err: any) {
+          console.error('Failed to remove attachment:', err);
+          if (triggerToast) {
+            triggerToast(`Failed to remove attachment: ${err.message || 'Unknown error'}`, 'error');
+          }
+        } finally {
+          setDeletingAttachmentKey(null);
+        }
       }
-
-      setCurrentEnquiry(updatedEnquiry);
-      if (onUpdateEnquiry) {
-        onUpdateEnquiry(updatedEnquiry);
-      }
-      if (setEnquiries) {
-        setEnquiries((prev) => prev.map((e) => (e.id === enquiry.id ? updatedEnquiry : e)));
-      }
-
-      if (triggerToast) {
-        triggerToast(`Attachment "${target.name}" removed successfully.`, 'info');
-      }
-    } catch (err: any) {
-      console.error('Failed to remove attachment:', err);
-      if (triggerToast) {
-        triggerToast(`Failed to remove attachment: ${err.message || 'Unknown error'}`, 'error');
-      }
-    } finally {
-      setDeletingAttachmentKey(null);
-    }
+    });
   };
 
   const handlePromoteAttachmentToCloud = async (targetIndex: number) => {
@@ -3224,7 +3296,7 @@ export default function EnquiryDetail({
       setIsCreateCompanyModalOpen(false);
     } catch (err: any) {
       console.error('Error pairing company:', err);
-      alert('Failed to pair company: ' + err.message);
+      triggerToast?.('Failed to pair company: ' + (err?.message || 'Unknown error'), 'error');
     }
   };
 
@@ -3727,7 +3799,32 @@ export default function EnquiryDetail({
   const [draftPriceBasis, setDraftPriceBasis] = useState<string>('');
   const [draftDeliveryPeriod, setDraftDeliveryPeriod] = useState<string>('');
   const [draftPaymentTerms, setDraftPaymentTerms] = useState<string>('');
-  const [draftTaxMode, setDraftTaxMode] = useState<'taxes_extra' | 'vat_included' | 'no_vat'>('taxes_extra');
+  const [draftTaxMode, setDraftTaxMode] = useState<QuotationTaxMode>('taxes_extra');
+
+  const normalizeEnquiryTaxMode = (rawMode?: string | null): QuotationTaxMode => {
+    const m = (rawMode || '').trim();
+    if (m === 'vat_included' || m === 'tax_calculated') return 'tax_calculated';
+    if (m === 'no_vat' || m === 'tax_exempt') return 'tax_exempt';
+    if (m === 'vat_excluded_extra') return 'vat_excluded_extra';
+    if (m === 'vat_hidden') return 'vat_hidden';
+    return 'taxes_extra';
+  };
+
+  const getTaxModeDisplayLabel = (mode: QuotationTaxMode): string => {
+    switch (mode) {
+      case 'tax_calculated':
+        return '5% VAT Inclusive';
+      case 'tax_exempt':
+        return '0% / Tax Exempt';
+      case 'vat_excluded_extra':
+        return 'VAT Excluded (5% Extra)';
+      case 'vat_hidden':
+        return 'VAT Hidden (Lump Sum)';
+      case 'taxes_extra':
+      default:
+        return '5% Standard VAT (Excl.)';
+    }
+  };
 
   const activeCommercialQuote = useMemo(() => {
     const stdQuotes = unifiedHubDocuments.filter(
@@ -3760,16 +3857,10 @@ export default function EnquiryDetail({
       (currentEnquiry.payment_terms || '').trim() ||
       (activeCommercialQuote?.payment_terms || '').trim() ||
       '';
-    const taxMode: 'taxes_extra' | 'vat_included' | 'no_vat' =
-      (currentEnquiry.tax_mode as any) ||
-      (activeCommercialQuote?.tax_mode as any) ||
-      'taxes_extra';
-    const taxModeLabel =
-      taxMode === 'no_vat'
-        ? '0% / No VAT'
-        : taxMode === 'vat_included'
-        ? '5% VAT Included'
-        : '5% Standard VAT';
+    const taxMode: QuotationTaxMode = normalizeEnquiryTaxMode(
+      (currentEnquiry.tax_mode as string) || (activeCommercialQuote?.tax_mode as string) || 'taxes_extra'
+    );
+    const taxModeLabel = getTaxModeDisplayLabel(taxMode);
     return {
       validity,
       priceBasis,
@@ -4001,12 +4092,14 @@ export default function EnquiryDetail({
                 </label>
                 <select
                   value={draftTaxMode}
-                  onChange={(e) => setDraftTaxMode(e.target.value as any)}
+                  onChange={(e) => setDraftTaxMode(normalizeEnquiryTaxMode(e.target.value))}
                   className="w-full h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden cursor-pointer"
                 >
                   <option value="taxes_extra">5% Standard VAT (Excl.)</option>
-                  <option value="vat_included">5% VAT Included</option>
-                  <option value="no_vat">No VAT (0% / Export)</option>
+                  <option value="vat_excluded_extra">VAT Excluded (5% Extra)</option>
+                  <option value="tax_calculated">5% VAT Inclusive</option>
+                  <option value="tax_exempt">0% / Tax Exempt (Export)</option>
+                  <option value="vat_hidden">VAT Hidden (Lump Sum)</option>
                 </select>
               </div>
             </div>
@@ -5076,10 +5169,11 @@ export default function EnquiryDetail({
                             setIsMoreActionsOpen(false);
                             handleDuplicateAsNewEnquiry();
                           }}
+                          title="Clone this enquiry into a brand new deal with a new S/N and fresh base Quote Ref"
                           className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-900 flex items-center gap-2.5 cursor-pointer transition"
                         >
                           <Copy className="w-3.5 h-3.5 text-slate-600 shrink-0" />
-                          <span>Duplicate as New Enquiry</span>
+                          <span>Duplicate as New Enquiry (New S/N)</span>
                         </button>
                       )}
 
@@ -5147,7 +5241,7 @@ export default function EnquiryDetail({
                             setIsMoreActionsOpen(false);
                             const targetId = enquiry.id || (enquiry as any)._id;
                             if (!targetId) {
-                              alert('Error: Enquiry ID is missing. Cannot delete.');
+                              triggerToast?.('Error: Enquiry ID is missing. Cannot delete.', 'error');
                               return;
                             }
 
@@ -5164,11 +5258,7 @@ export default function EnquiryDetail({
                               if (activeProj && activeProj.status !== 'Cancelled') {
                                 const guardMsg =
                                   'Cannot delete this proposal because an active project is linked. Please cancel the operational project before deleting this enquiry.';
-                                if (triggerToast) {
-                                  triggerToast(guardMsg, 'error');
-                                } else {
-                                  alert(guardMsg);
-                                }
+                                triggerToast?.(guardMsg, 'error');
                                 return;
                               }
                             }
@@ -5346,19 +5436,40 @@ export default function EnquiryDetail({
                       stdQuotes[0];
                     const hasLineItems = (currentEnquiry.line_items || []).length > 0;
                     const isUSD = currentEnquiry.currency === 'USD';
-                    const effectiveTaxMode = activeQ?.tax_mode || currentEnquiry.tax_mode || 'taxes_extra';
-                    const isNoVat = effectiveTaxMode === 'no_vat';
-                    const subtotalAed = activeQ
+                    const effectiveTaxMode = normalizeEnquiryTaxMode(
+                      (activeQ?.tax_mode as string) || (currentEnquiry.tax_mode as string) || 'taxes_extra'
+                    );
+                    const isZeroVatMode =
+                      effectiveTaxMode === 'tax_exempt' ||
+                      effectiveTaxMode === 'vat_excluded_extra' ||
+                      effectiveTaxMode === 'vat_hidden';
+                    const rawGrossOrSubAed = activeQ
                       ? (activeQ.currency === 'USD' ? Number(activeQ.subtotal || 0) * 3.6725 : Number(activeQ.subtotal || 0))
                       : hasLineItems && !currentEnquiry.is_lump_sum
                       ? (isUSD ? optionAnalysis.baselineTotal * 3.6725 : optionAnalysis.baselineTotal)
                       : Number(currentEnquiry.value_aed || 0);
-                    const vatAed = isNoVat
+                    const subtotalAed =
+                      !activeQ && effectiveTaxMode === 'tax_calculated'
+                        ? Math.round((rawGrossOrSubAed / 1.05) * 100) / 100
+                        : rawGrossOrSubAed;
+                    const vatAed = isZeroVatMode
                       ? 0
-                      : activeQ && activeQ.tax_amount !== undefined && effectiveTaxMode !== 'taxes_extra'
+                      : activeQ && activeQ.tax_amount !== undefined
                       ? (activeQ.currency === 'USD' ? Number(activeQ.tax_amount || 0) * 3.6725 : Number(activeQ.tax_amount || 0))
+                      : effectiveTaxMode === 'tax_calculated'
+                      ? Math.max(0, Math.round((rawGrossOrSubAed - subtotalAed) * 100) / 100)
                       : Math.round(subtotalAed * 0.05 * 100) / 100;
-                    const grandTotalAed = isNoVat ? subtotalAed : subtotalAed + vatAed;
+                    const grandTotalAed = isZeroVatMode ? subtotalAed : subtotalAed + vatAed;
+                    const grandTotalSubLabel =
+                      effectiveTaxMode === 'vat_excluded_extra'
+                        ? 'Grand Total (VAT Excluded — 5% Extra)'
+                        : effectiveTaxMode === 'tax_exempt'
+                        ? 'Grand Total (0% / Tax Exempt)'
+                        : effectiveTaxMode === 'vat_hidden'
+                        ? 'Grand Total (VAT Hidden)'
+                        : effectiveTaxMode === 'tax_calculated'
+                        ? `Grand Total (5% VAT Inclusive: ${formatCurrency(vatAed)})`
+                        : `Grand Total (Incl. 5% VAT: ${formatCurrency(vatAed)})`;
 
                     return (
                       <>
@@ -5381,9 +5492,7 @@ export default function EnquiryDetail({
                           </div>
                           <div className="flex items-baseline justify-between gap-2 pt-1 border-t border-slate-200/70">
                             <span className="text-[10px] font-mono text-slate-500">
-                              {isNoVat
-                                ? 'Grand Total (VAT Excluded / 0% VAT)'
-                                : `Grand Total (Incl. 5% VAT: ${formatCurrency(vatAed)})`}
+                              {grandTotalSubLabel}
                             </span>
                             <span className="text-xs font-bold font-mono tabular-nums text-blue-600">
                               {formatCurrency(grandTotalAed)}
@@ -6159,12 +6268,27 @@ export default function EnquiryDetail({
                 </div>
               )}
 
-              {/* Attachments & Direct Custom Bucket Upload */}
-              {((currentEnquiry.attachments && currentEnquiry.attachments.length > 0) || canEditEnquiry(user, activeWorkspace, currentEnquiry)) && (
+              {/* Attachments & Direct Custom Bucket Upload (filtering out any legacy phantom 0KB quotation PDFs) */}
+              {(() => {
+                const rawAttachments = currentEnquiry.attachments || [];
+                const validAttachmentEntries = rawAttachments
+                  .map((file, origIdx) => ({ file, origIdx }))
+                  .filter(
+                    ({ file }) =>
+                      !(
+                        (file.size === 0 || !file.size) &&
+                        typeof file.url === 'string' &&
+                        file.url.startsWith('quotations/')
+                      )
+                  );
+                if (validAttachmentEntries.length === 0 && !canEditEnquiry(user, activeWorkspace, currentEnquiry)) {
+                  return null;
+                }
+                return (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <h4 className="text-xs font-mono text-slate-400 uppercase tracking-widest">
-                      Attachments ({(currentEnquiry.attachments || []).length})
+                      Attachments ({validAttachmentEntries.length})
                     </h4>
                     {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
                       <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-semibold transition cursor-pointer shadow-2xs">
@@ -6188,9 +6312,9 @@ export default function EnquiryDetail({
                     )}
                   </div>
 
-                  {currentEnquiry.attachments && currentEnquiry.attachments.length > 0 ? (
+                  {validAttachmentEntries.length > 0 ? (
                     <div className="grid grid-cols-1 gap-2">
-                      {currentEnquiry.attachments.map((file, idx) => {
+                      {validAttachmentEntries.map(({ file, origIdx: idx }) => {
                         const f = file as any;
                         const fileUrl = f.url || f.fileUrl || f.downloadURL || f.downloadUrl || f.file_url || f.dataUrl || f.src || '';
                         const isImg = file.type?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(file.name);
@@ -6356,7 +6480,8 @@ export default function EnquiryDetail({
                     </label>
                   )}
                 </div>
-              )}
+                );
+              })()}
 
               {/* Original Pasted Source */}
               {enquiry.raw_source_text && (
@@ -6455,12 +6580,35 @@ export default function EnquiryDetail({
                     if (isDisc) return sum;
                     return sum + (Number(li.quantity) || 0) * (Number(li.cost_price) || 0);
                   }, 0);
-                  const isNoVat = effectiveCommercialTerms.taxMode === 'no_vat';
-                  const vatAmount = isNoVat ? 0 : Math.round(totalSelling * 0.05 * 100) / 100;
-                  const grandTotalInclVat = totalSelling + vatAmount;
+                  const mode = effectiveCommercialTerms.taxMode;
+                  const isZeroVat =
+                    mode === 'tax_exempt' || mode === 'vat_excluded_extra' || mode === 'vat_hidden';
+                  const subtotalExclVat =
+                    mode === 'tax_calculated'
+                      ? Math.round((totalSelling / 1.05) * 100) / 100
+                      : totalSelling;
+                  const vatAmount = isZeroVat
+                    ? 0
+                    : mode === 'tax_calculated'
+                    ? Math.max(0, Math.round((totalSelling - subtotalExclVat) * 100) / 100)
+                    : Math.round(subtotalExclVat * 0.05 * 100) / 100;
+                  const grandTotalVal = isZeroVat ? subtotalExclVat : subtotalExclVat + vatAmount;
                   const hasAnyCost = calcList.some((li) => (Number(li.cost_price) || 0) > 0);
-                  const estProfit = totalSelling - totalCost;
-                  const marginPct = totalSelling > 0 && hasAnyCost ? (estProfit / totalSelling) * 100 : null;
+                  const estProfit = subtotalExclVat - totalCost;
+                  const marginPct = subtotalExclVat > 0 && hasAnyCost ? (estProfit / subtotalExclVat) * 100 : null;
+                  const vatBoxTitle =
+                    mode === 'vat_excluded_extra'
+                      ? 'VAT Excluded (5% Extra)'
+                      : mode === 'tax_exempt'
+                      ? '0% / Tax Exempt'
+                      : mode === 'vat_hidden'
+                      ? 'VAT Hidden'
+                      : mode === 'tax_calculated'
+                      ? '5% VAT (Inclusive)'
+                      : '5% VAT';
+                  const grandTotalBoxTitle = isZeroVat
+                    ? 'Grand Total (Excl. VAT)'
+                    : 'Grand Total (Incl. VAT)';
 
                   return (
                     <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5">
@@ -6509,12 +6657,12 @@ export default function EnquiryDetail({
                         <div className="bg-white border border-slate-200/80 rounded-lg px-2.5 py-1.5">
                           <span className="text-[10px] text-slate-400 uppercase block">Subtotal (Excl. VAT)</span>
                           <span className="font-bold text-slate-900">
-                            {currSymbol}{totalSelling.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {currSymbol}{subtotalExclVat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         </div>
                         <div className="bg-white border border-slate-200/80 rounded-lg px-2.5 py-1.5">
                           <span className="text-[10px] text-slate-400 uppercase block">
-                            {isNoVat ? '0% VAT (No VAT)' : '5% VAT'}
+                            {vatBoxTitle}
                           </span>
                           <span className="font-semibold text-slate-700">
                             {currSymbol}{vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -6522,10 +6670,10 @@ export default function EnquiryDetail({
                         </div>
                         <div className="bg-blue-50/60 border border-blue-200 rounded-lg px-2.5 py-1.5">
                           <span className="text-[10px] text-blue-600 uppercase font-bold block">
-                            {isNoVat ? 'Grand Total (Excl. VAT)' : 'Grand Total (Incl. VAT)'}
+                            {grandTotalBoxTitle}
                           </span>
                           <span className="font-bold text-blue-700">
-                            {currSymbol}{grandTotalInclVat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {currSymbol}{grandTotalVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         </div>
                       </div>
@@ -8821,6 +8969,7 @@ export default function EnquiryDetail({
               });
 
               // Deal Value & Bi-Directional Line Item / Commercial Sync for standard Quotations
+              let syncedEnquiryAfterSave: Enquiry = currentEnquiry;
               if (isStandardQuotation && currentEnquiry?.id) {
                 const syncPayload = QuotationRepository.buildEnquiryQuotationSyncPayload(newQuote);
                 const newTotal = syncPayload.quoted_amount;
@@ -8851,8 +9000,9 @@ export default function EnquiryDetail({
                     ...(syncPayload.payment_terms ? { payment_terms: syncPayload.payment_terms } : {}),
                     ...(syncPayload.tax_mode ? { tax_mode: syncPayload.tax_mode } : {})
                   });
-                  setCurrentEnquiry((prev) => (prev ? buildPatched(prev) : prev));
                   const nextEnq = buildPatched(currentEnquiry);
+                  syncedEnquiryAfterSave = nextEnq;
+                  setCurrentEnquiry((prev) => (prev ? buildPatched(prev) : prev));
                   if (onUpdateEnquiry) {
                     onUpdateEnquiry(nextEnq);
                   }
@@ -8866,7 +9016,7 @@ export default function EnquiryDetail({
 
               if (newQuote.status === 'Sent') {
                 if (isStandardQuotation) {
-                  handleStatusTransition('Sent / Pending Client');
+                  await handleStatusTransition('Sent / Pending Client', syncedEnquiryAfterSave);
 
                   // If new revision has a parent quotation, ensure predecessor is updated to Superseded
                   const parentId = newQuote.parent_quotation_id || newQuote.parent_quote_id;
@@ -8889,7 +9039,7 @@ export default function EnquiryDetail({
                   }
                 }
 
-                // 1. Append immutable activity log entry for the issued commercial document
+                // Append immutable activity log entry for the issued commercial document
                 try {
                   const activityId = `act_doc_${Date.now()}`;
                   const wsId = currentEnquiry.workspace_id || activeWorkspaceId || 'ws_default';
@@ -8922,44 +9072,6 @@ export default function EnquiryDetail({
                   });
                 } catch (actErr) {
                   console.warn('[EnquiryDetail] Failed creating activity log for issued document:', actErr);
-                }
-
-                // 2. Register document / attachment reference on the enquiry record
-                try {
-                  if (currentEnquiry?.id) {
-                    const newDocAttachment: Attachment = {
-                      name: `${newQuote.formatted_quote_ref}.pdf`,
-                      size: 0,
-                      type: 'application/pdf',
-                      url: `quotations/${newQuote.formatted_quote_ref}.pdf`,
-                      storageProvider: 'local',
-                      uploadedAt: new Date().toISOString(),
-                      uploadedByUserName: user?.full_name || user?.username || 'System'
-                    };
-
-                    const existingAttachments = currentEnquiry.attachments || [];
-                    const updatedAttachments = [
-                      ...existingAttachments.filter(
-                        (a) => a.name !== newDocAttachment.name
-                      ),
-                      newDocAttachment
-                    ];
-
-                    await safeUpdateDoc('enquiries', currentEnquiry.id, {
-                      attachments: updatedAttachments,
-                      updated_at: new Date().toISOString()
-                    });
-
-                    setCurrentEnquiry((prev) =>
-                      prev ? { ...prev, attachments: updatedAttachments } : prev
-                    );
-
-                    if (onUpdateEnquiry) {
-                      onUpdateEnquiry({ ...currentEnquiry, attachments: updatedAttachments });
-                    }
-                  }
-                } catch (attErr) {
-                  console.warn('[EnquiryDetail] Failed registering quotation document attachment:', attErr);
                 }
               }
             }}

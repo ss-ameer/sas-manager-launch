@@ -67,8 +67,23 @@ export async function createProjectFromEnquiry(
   overrides?: Partial<Project>
 ): Promise<Project> {
   const wsId = enquiry.workspace_id || (enquiry as any).workspaceId || 'default';
-  const projectNumber = await generateNextProjectNumber(wsId);
   const nowIso = new Date().toISOString();
+
+  // Idempotency guard: check if an active project already exists for this enquiry
+  let existingProject: Project | null = null;
+  if (enquiry.project_id) {
+    try {
+      const existingSnap = await safeGetDoc('projects', enquiry.project_id);
+      if (existingSnap && existingSnap.exists() && !existingSnap.data()?.is_deleted) {
+        existingProject = { id: existingSnap.id, ...existingSnap.data() } as Project;
+      }
+    } catch (e) {
+      console.warn('Error checking existing project by project_id:', e);
+    }
+  }
+  if (!existingProject && enquiry.id) {
+    existingProject = await getProjectForEnquiry(enquiry.id);
+  }
 
   const winningOption = (options?.selected_option || enquiry.proposal_option || '').trim();
   const rawLineItems = enquiry.line_items || [];
@@ -93,12 +108,14 @@ export async function createProjectFromEnquiry(
   );
 
   const finalProjectType: 'Supply Only' | 'Turnkey / Installation' =
-    options?.project_type || (isTurnkeyDetected ? 'Turnkey / Installation' : 'Supply Only');
+    options?.project_type || existingProject?.project_type || (isTurnkeyDetected ? 'Turnkey / Installation' : 'Supply Only');
 
   const generatedMilestones =
     options?.milestones && options.milestones.length > 0
       ? options.milestones
-      : getDefaultMilestones(finalProjectType);
+      : existingProject?.milestones && existingProject.milestones.length > 0
+        ? existingProject.milestones
+        : getDefaultMilestones(finalProjectType);
 
   const fallbackEngineerName =
     user?.full_name ||
@@ -107,14 +124,22 @@ export async function createProjectFromEnquiry(
     (user as any)?.username ||
     '';
   const assignedEngineerName =
-    options?.assigned_engineer_name !== undefined ? options.assigned_engineer_name : fallbackEngineerName;
+    options?.assigned_engineer_name !== undefined
+      ? options.assigned_engineer_name
+      : existingProject?.assigned_engineer_name || fallbackEngineerName;
   const assignedEngineerId =
-    options?.assigned_engineer_id !== undefined ? options.assigned_engineer_id : (user?.uid || '');
+    options?.assigned_engineer_id !== undefined
+      ? options.assigned_engineer_id
+      : existingProject?.assigned_engineer_id || (user?.uid || '');
   const siteLocation =
-    options?.site_location !== undefined ? options.site_location : (enquiry.project_location || (enquiry as any).location || '');
-  const targetDeliveryDate = options?.target_delivery_date;
+    options?.site_location !== undefined
+      ? options.site_location
+      : existingProject?.site_location || (enquiry.project_location || (enquiry as any).location || '');
+  const targetDeliveryDate = options?.target_delivery_date ?? existingProject?.target_delivery_date;
   const operationalNotes =
-    options?.operational_notes !== undefined ? options.operational_notes : (enquiry.remarks || '');
+    options?.operational_notes !== undefined
+      ? options.operational_notes
+      : existingProject?.operational_notes ?? (enquiry.remarks || '');
 
   // Calculate contract value for the confirmed option if multi-option and not overridden
   const confirmedItemsValue = confirmedLineItems.reduce((sum, it) => {
@@ -127,19 +152,21 @@ export async function createProjectFromEnquiry(
       ? enquiry.currency === 'USD'
         ? confirmedItemsValue * 3.6725
         : confirmedItemsValue
-      : enquiry.value_aed || 0;
+      : enquiry.value_aed || existingProject?.contract_value || 0;
+
+  const projectNumber = existingProject?.project_number || (await generateNextProjectNumber(wsId));
 
   const projectPayload: Omit<Project, 'id'> = {
     project_number: projectNumber,
     workspace_id: wsId,
     enquiry_id: enquiry.id || '',
-    client_name: enquiry.company_name || enquiry.client_company || 'Client Account',
-    client_contact_id: enquiry.contact_id,
-    title: enquiry.subject || `Fulfillment for ${enquiry.company_name || enquiry.quote_ref_no || 'Enquiry'}`,
-    status: 'In Progress',
+    client_name: enquiry.company_name || enquiry.client_company || existingProject?.client_name || 'Client Account',
+    client_contact_id: enquiry.contact_id ?? existingProject?.client_contact_id,
+    title: enquiry.subject || existingProject?.title || `Fulfillment for ${enquiry.company_name || enquiry.quote_ref_no || 'Enquiry'}`,
+    status: existingProject?.status && existingProject.status !== 'Cancelled' ? existingProject.status : 'In Progress',
     project_type: finalProjectType,
     contract_value: resolvedContractValue,
-    currency: enquiry.currency || 'AED',
+    currency: enquiry.currency || existingProject?.currency || 'AED',
     line_items: confirmedLineItems,
     operational_notes: operationalNotes,
     assigned_engineer_name: assignedEngineerName || undefined,
@@ -147,23 +174,29 @@ export async function createProjectFromEnquiry(
     target_delivery_date: targetDeliveryDate || undefined,
     site_location: siteLocation || undefined,
     milestones: generatedMilestones,
-    created_at: nowIso,
+    created_at: existingProject?.created_at || nowIso,
     updated_at: nowIso,
     ...overrides
   };
 
-  const res = await safeAddDoc('projects', projectPayload);
-  const createdId = res?.id || `prj_${Date.now()}`;
-  const createdProject: Project = { id: createdId, ...projectPayload };
+  let finalProject: Project;
+  if (existingProject?.id) {
+    await safeUpdateDoc('projects', existingProject.id, projectPayload).catch(() => {});
+    finalProject = { id: existingProject.id, ...projectPayload };
+  } else {
+    const res = await safeAddDoc('projects', projectPayload);
+    const createdId = res?.id || `prj_${Date.now()}`;
+    finalProject = { id: createdId, ...projectPayload };
+  }
 
   // Tag enquiry with project reference & winning option
   if (enquiry.id) {
     await safeUpdateDoc('enquiries', enquiry.id, {
-      project_id: createdId,
+      project_id: finalProject.id,
       project_number: projectNumber,
       ...(winningOption ? { proposal_option: winningOption } : {}),
       stock_reserved: true,
-      stock_reserved_at: nowIso,
+      stock_reserved_at: enquiry.stock_reserved_at || nowIso,
       updatedAt: nowIso
     }).catch(() => {});
   }
@@ -190,7 +223,7 @@ export async function createProjectFromEnquiry(
     }
   }
 
-  return createdProject;
+  return finalProject;
 }
 
 export async function getProjectForEnquiry(enquiryId: string): Promise<Project | null> {

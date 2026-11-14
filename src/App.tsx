@@ -2492,6 +2492,11 @@ export default function App() {
           user={user}
           enquiries={visibleEnquiries} // Pass enquiries list to EnquiryDetail so it can show linked revisions!
           setEnquiries={setEnquiries}
+          onUpdateEnquiry={(updated) =>
+            setEnquiries((prev) =>
+              prev.map((e) => (e.id === updated.id ? normalizeEnquiry(updated, activeWorkspace.id) : e))
+            )
+          }
           onClose={() => setSelectedEnquiryId(null)}
           onNavigateToProject={handleNavigateToProject}
           onDeleteEnquiry={handleDeleteEnquiry}

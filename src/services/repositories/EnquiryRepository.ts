@@ -1,7 +1,7 @@
 import { Enquiry, Workspace, UserProfile } from '../../types';
 import { syncEngine } from '../SyncEngine';
 import { getFromLocalStore, saveToLocalStore } from '../db';
-import { safeGetDocs, safeGetDoc, safeSetDoc, db } from '../../firebase';
+import { safeGetDocs, safeGetDoc, safeSetDoc, safeUpdateDoc, db } from '../../firebase';
 import { doc, updateDoc, setDoc, where } from 'firebase/firestore';
 import { canAccessEnquiry, isAdmin, isSuperAdmin, getUserWorkspaceRole } from '../../utils/permissions';
 import { purgeEnquiryAttachments, WorkspaceStorageSettings } from '../attachmentStorage';
@@ -179,11 +179,12 @@ export class EnquiryRepository {
       updatedBy: user?.name || user?.uid || 'User'
     };
 
-    const updated: Enquiry = {
-      ...existing,
+    const patch: Partial<Enquiry> & Record<string, any> = {
       status: newStatus,
       quote_ref_no: quoteRef,
+      latest_quote_ref: quoteRef,
       value_aed: dealValueAed,
+      quoted_amount: dealValueAed,
       ...(selectedOption ? { proposal_option: selectedOption } : {}),
       wonAt: nowIso,
       statusUpdatedAt: nowIso,
@@ -193,6 +194,14 @@ export class EnquiryRepository {
       updatedAt: nowIso
     };
 
+    const updated: Enquiry = {
+      ...existing,
+      ...patch
+    };
+
+    await safeUpdateDoc('enquiries', enquiryId, patch).catch((err) => {
+      console.warn('[EnquiryRepository] safeUpdateDoc notice on syncAcceptedQuotation:', err);
+    });
     await this.save(updated);
     return updated;
   }
@@ -223,8 +232,7 @@ export class EnquiryRepository {
       updatedBy: user?.name || user?.uid || 'User'
     };
 
-    const updated: Enquiry = {
-      ...existing,
+    const patch: Partial<Enquiry> & Record<string, any> = {
       status: newStatus,
       quote_ref_no: quoteRef,
       lost_reason: reason,
@@ -237,6 +245,14 @@ export class EnquiryRepository {
       updatedAt: nowIso
     };
 
+    const updated: Enquiry = {
+      ...existing,
+      ...patch
+    };
+
+    await safeUpdateDoc('enquiries', enquiryId, patch).catch((err) => {
+      console.warn('[EnquiryRepository] safeUpdateDoc notice on syncDeclinedQuotation:', err);
+    });
     await this.save(updated);
     return updated;
   }

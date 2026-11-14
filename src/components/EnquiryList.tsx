@@ -52,6 +52,7 @@ import GoogleSearchButton from './common/GoogleSearchButton';
 import { InitiateActivityOptions, useActivityLauncher } from '../context/ActivityLauncherContext';
 import Company360Modal from './Company360Modal';
 import { QuickClaimModal } from './QuickClaimModal';
+import { syncSequenceHighWaterMark } from '../services/enquirySequences';
 
 // ==========================================
 // PURE UTILITY HELPERS (Module Level)
@@ -1279,10 +1280,10 @@ export default function EnquiryList({
       if (!e || e.is_gap_placeholder) return;
       const quote = e.id ? activeQuotationByEnquiryId.get(e.id) : null;
       const normStatus = normalizeEnquiryStatus(e.status);
-      const quoteGrandTotal = Number(quote?.grand_total || 0);
-      const quoteValAed =
-        quoteGrandTotal > 0 ? (quote?.currency === 'USD' ? quoteGrandTotal * 3.6725 : quoteGrandTotal) : 0;
-      const valAed = quoteValAed > 0 ? quoteValAed : Number(e.value_aed || 0);
+      const quoteSubtotal = Number(quote?.subtotal || 0);
+      const quoteSubtotalAed =
+        quoteSubtotal > 0 ? (quote?.currency === 'USD' ? quoteSubtotal * 3.6725 : quoteSubtotal) : 0;
+      const valAed = Number(e.value_aed) > 0 ? Number(e.value_aed) : quoteSubtotalAed;
 
       const isWon =
         quote?.status === 'Approved' ||
@@ -1636,24 +1637,31 @@ export default function EnquiryList({
   const handleBulkImport = async () => {
     const startIndex = hasHeader ? 1 : 0;
     if (parsedRows.length <= startIndex) {
-      alert('No data rows to import!');
+      if (triggerToast) {
+        triggerToast('No data rows to import!', 'error');
+      }
       return;
     }
 
     try {
-      const batch = writeBatch(db);
       const rowsToProcess = parsedRows.slice(startIndex);
+      const activeWorkspaceId = activeWorkspace?.id ?? 'default';
+      const defaultCountry = (activeWorkspace as any)?.settings?.default_country || 'UAE';
+      const defaultCity = (activeWorkspace as any)?.settings?.default_city || '';
+      const importedRecords: Enquiry[] = [];
+      let maxImportedSn = 0;
+      let maxImportedQuoteRef = '';
 
       for (let i = 0; i < rowsToProcess.length; i++) {
         const parts = rowsToProcess[i];
-        if (parts.length === 0) continue;
+        if (!parts || parts.length === 0) continue;
 
         // Map SN
         const snVal = Number(parts[columnMappings.sn]);
-        const snNum = isNaN(snVal) ? 3000 + i : snVal;
+        const snNum = isNaN(snVal) || snVal <= 0 ? 3000 + i : snVal;
 
         // Map Quote Ref
-        const quoteRef = parts[columnMappings.quote_ref] || `${snNum}-2026`;
+        const quoteRef = (parts[columnMappings.quote_ref] || `${snNum}-2026`).trim();
 
         // Map Date
         const dateStr = parts[columnMappings.date] || new Date().toISOString().split('T')[0];
@@ -1679,8 +1687,7 @@ export default function EnquiryList({
             c.display_name?.toLowerCase() === clientText.toLowerCase() ||
             c.aliases?.some((a) => a.toLowerCase() === clientText.toLowerCase())
         );
-        const cId = comp?.id || 'comp_ionex'; // fall back to preloaded general client account
-        const activeWorkspaceId = activeWorkspace?.id ?? 'ws_default';
+        const cId = comp?.id || '';
         const now = new Date().toISOString();
 
         // Map Status
@@ -1690,41 +1697,66 @@ export default function EnquiryList({
           rowStatus = normalizeEnquiryStatus(rawSt) as EnquiryStatus;
         }
 
+        const docRef = doc(collection(db, 'enquiries'));
         const record: Enquiry = {
+          id: docRef.id,
           sn: snNum,
           workspace_id: activeWorkspaceId,
           workspaceId: activeWorkspaceId,
           enquiry_date: dateStr,
+          logged_date: dateStr,
           sales_person: spInitials,
           company_id: cId,
           company_name: comp?.display_name || clientText,
           client_company: clientText,
-          country: 'UAE',
-          project_location: 'Sharjah',
+          country: comp?.country || defaultCountry,
+          project_location: comp?.city || defaultCity,
           enquiry_source: 'Email',
           status: rowStatus,
           quote_ref_no: quoteRef,
           value_aed: valNum,
+          currency: 'AED',
           line_items: [],
           created_by: user?.uid || 'system',
           createdBy: user?.displayName || user?.name || user?.email || 'User',
           created_by_uid: user?.uid || 'system',
           createdAt: now,
-          created_at: now
+          created_at: now,
+          updatedAt: now
         };
 
-        const docRef = doc(collection(db, 'enquiries'));
-        batch.set(docRef, record);
+        await safeSetDoc('enquiries', record.id!, record, { merge: true });
+        await EnquiryRepository.save(record, activeWorkspaceId).catch(() => {});
+        importedRecords.push(record);
+
+        if (snNum > maxImportedSn) {
+          maxImportedSn = snNum;
+          maxImportedQuoteRef = quoteRef;
+        }
       }
 
-      await batch.commit();
-      alert(`Import complete! Successfully parsed and imported ${rowsToProcess.length} rows.`);
+      if (maxImportedSn > 0) {
+        await syncSequenceHighWaterMark(activeWorkspaceId, maxImportedSn, maxImportedQuoteRef).catch(() => {});
+      }
+
+      if (setEnquiries && importedRecords.length > 0) {
+        setEnquiries((prev) => {
+          const importedIds = new Set(importedRecords.map((r) => r.id));
+          return [...importedRecords, ...prev.filter((e) => !importedIds.has(e.id))];
+        });
+      }
+
+      if (triggerToast) {
+        triggerToast(`Import complete! Successfully imported ${importedRecords.length} enquiries.`, 'success');
+      }
       setShowImport(false);
       setImportStep('input');
       setImportText('');
-      window.location.reload();
     } catch (err: any) {
-      alert('Import failed: ' + err.message);
+      console.error('Import failed:', err);
+      if (triggerToast) {
+        triggerToast('Import failed: ' + (err?.message || 'Unknown error'), 'error');
+      }
     }
   };
 
@@ -1749,28 +1781,28 @@ export default function EnquiryList({
       }
 
       const gapDocId = `${workspaceId || 'default'}_gap_${targetSn}`;
-      const gapRef = doc(db, 'enquiries', gapDocId);
       const now = new Date().toISOString();
       const today = now.split('T')[0];
+      const defaultCountry = (activeWorkspace as any)?.settings?.default_country || 'UAE';
+      const defaultCity = (activeWorkspace as any)?.settings?.default_city || '';
 
-      const gapDocData: any = {
+      const gapDocData: Enquiry = {
         id: gapDocId,
         sn: targetSn,
+        quote_ref_no: '',
         company_name: `[Reserved Sequence / #${targetSn}]`,
         company_id: '',
-        country: 'United Arab Emirates',
-        project_location: 'Dubai',
+        country: defaultCountry,
+        project_location: defaultCity,
         enquiry_source: 'Direct',
-        status: 'Gap / Reserved',
+        status: 'Gap / Reserved' as any,
         workspace_id: workspaceId,
         workspaceId: workspaceId,
         created_at: now,
         createdAt: now,
-        received_date: today,
         enquiry_date: today,
         logged_date: today,
         is_deleted: false,
-        package_total: 0,
         value_aed: 0,
         currency: 'AED',
         is_gap_placeholder: true,
@@ -1782,14 +1814,15 @@ export default function EnquiryList({
         updatedAt: now
       };
 
-      await setDoc(gapRef, gapDocData, { merge: true });
+      await safeSetDoc('enquiries', gapDocId, gapDocData, { merge: true });
+      await EnquiryRepository.save(gapDocData, workspaceId).catch(() => {});
 
       if (setEnquiries) {
         setEnquiries((prev) => {
           if (prev.some((e) => e.id === gapDocId || (Number(e.sn) === targetSn && !e.is_deleted))) {
-            return prev.map((e) => (e.id === gapDocId || Number(e.sn) === targetSn ? (gapDocData as Enquiry) : e));
+            return prev.map((e) => (e.id === gapDocId || Number(e.sn) === targetSn ? gapDocData : e));
           }
-          return [gapDocData as Enquiry, ...prev];
+          return [gapDocData, ...prev];
         });
       }
 
@@ -1812,7 +1845,9 @@ export default function EnquiryList({
 
     const snNum = Number(reserveGapSn);
     if (isNaN(snNum) || snNum <= 0) {
-      alert('Please enter a valid numeric S/N greater than 0.');
+      if (triggerToast) {
+        triggerToast('Please enter a valid numeric S/N greater than 0.', 'error');
+      }
       return;
     }
 
@@ -1829,8 +1864,6 @@ export default function EnquiryList({
     if (isOccupied) {
       if (triggerToast) {
         triggerToast(`S/N #${snNum} is already occupied or reserved in this workspace.`, 'error');
-      } else {
-        alert(`S/N #${snNum} is already occupied or reserved in this workspace.`);
       }
       return;
     }
@@ -1841,13 +1874,14 @@ export default function EnquiryList({
       const now = new Date().toISOString();
       const recordDate = reserveGapDate || now.split('T')[0];
       const gapDocId = `${activeWorkspaceId}_gap_${snNum}`;
+      const defaultCountry = (activeWorkspace as any)?.settings?.default_country || 'UAE';
+      const defaultCity = (activeWorkspace as any)?.settings?.default_city || '';
 
-      const newGapDoc: any = {
+      const newGapDoc: Enquiry = {
         id: gapDocId,
         sn: snNum,
-        status: 'Gap / Reserved',
+        status: 'Gap / Reserved' as any,
         company_name: (reserveGapMemo || '').trim() ? `[Reserved Sequence / #${snNum}] ${(reserveGapMemo || '').trim()}` : `[Reserved Sequence / #${snNum}]`,
-        quote_ref: (reserveGapMemo || '').trim(),
         quote_ref_no: (reserveGapMemo || '').trim(),
         value_aed: 0,
         currency: 'AED',
@@ -1855,15 +1889,13 @@ export default function EnquiryList({
         workspaceId: activeWorkspaceId,
         created_at: now,
         createdAt: now,
-        received_date: recordDate,
         enquiry_date: recordDate,
         logged_date: recordDate,
         is_deleted: false,
         is_gap_placeholder: true,
-        package_total: 0,
         company_id: '',
-        country: 'United Arab Emirates',
-        project_location: 'Dubai',
+        country: defaultCountry,
+        project_location: defaultCity,
         enquiry_source: 'Direct',
         remarks: (reserveGapMemo || '').trim() ? `[Reserved Gap] ${reserveGapMemo.trim()}` : 'Reserved sequence gap / missing record',
         line_items: [],
@@ -1873,15 +1905,15 @@ export default function EnquiryList({
         updatedAt: now
       };
 
-      const gapRef = doc(db, 'enquiries', gapDocId);
-      await setDoc(gapRef, newGapDoc, { merge: true });
+      await safeSetDoc('enquiries', gapDocId, newGapDoc, { merge: true });
+      await EnquiryRepository.save(newGapDoc, activeWorkspaceId).catch(() => {});
 
       if (setEnquiries) {
         setEnquiries((prev) => {
           if (prev.some((e) => e.id === gapDocId || (Number(e.sn) === snNum && !e.is_deleted))) {
-            return prev.map((e) => (e.id === gapDocId || Number(e.sn) === snNum ? (newGapDoc as Enquiry) : e));
+            return prev.map((e) => (e.id === gapDocId || Number(e.sn) === snNum ? newGapDoc : e));
           }
-          return [newGapDoc as Enquiry, ...prev];
+          return [newGapDoc, ...prev];
         });
       }
 
@@ -1894,7 +1926,9 @@ export default function EnquiryList({
       setReserveGapMemo('');
     } catch (err: any) {
       console.error('Failed to reserve gap:', err);
-      alert('Failed to reserve gap: ' + (err?.message || 'Unknown error'));
+      if (triggerToast) {
+        triggerToast('Failed to reserve gap: ' + (err?.message || 'Unknown error'), 'error');
+      }
     } finally {
       setIsSubmittingGap(false);
     }
@@ -3245,6 +3279,12 @@ export default function EnquiryList({
         enquiries={enquiries}
         triggerToast={triggerToast}
         onSuccess={(claimedEnquiry) => {
+          if (setEnquiries) {
+            setEnquiries((prev) => [
+              claimedEnquiry,
+              ...prev.filter((e) => e.id !== claimedEnquiry.id)
+            ]);
+          }
           if (onSelectEnquiry && claimedEnquiry.id) {
             onSelectEnquiry(claimedEnquiry.id);
           }

@@ -11,8 +11,9 @@ import {
   patternRequiresCompanyCode,
   patternRequiresCountryCode
 } from '../services/enquirySequences';
-import { safeAddDoc, safeUpdateDoc } from '../firebase';
+import { safeAddDoc, safeSetDoc, safeUpdateDoc } from '../firebase';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
+import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 
 interface QuickClaimModalProps {
   isOpen: boolean;
@@ -122,25 +123,38 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
         if (!isMounted) return;
         const now = new Date();
 
-        const resolvedPattern = (activeWorkspace as any)?.settings?.quote_sequence_pattern || counters.pattern || '{SEQ}-{DD}{MM}{YY}';
-        // Calculate dynamic active ceilings from registered proposals
+        const resolvedPattern =
+          counters.pattern ||
+          (activeWorkspace as any)?.settings?.quote_sequence_pattern ||
+          '{SEQ}-{DD}{MM}{YY}';
+        const currentPeriodKey = getSequencePeriodKey(counters.resetCadence, now);
+        // Calculate dynamic active ceilings scoped by periodKey and resetCadence (matching claimNextEnquirySequence)
         const { maxSn, maxSeq } = getWorkspaceActiveCeilings(
           candidateEnquiries || [],
           activeWorkspace.id,
-          resolvedPattern
+          resolvedPattern,
+          currentPeriodKey,
+          counters.resetCadence
         );
 
-        // S/N: Respect baseline overrides if higher than maxSn, but clamp down phantom counters to maxSn + 1
-        const baselineSn = (activeWorkspace as any)?.settings?.next_sn_baseline || 0;
-        const displayNextSn = Math.max(baselineSn, maxSn + 1);
+        const baseSeq = counters.sequences?.[currentPeriodKey] || 0;
+        const currentMaxSn = Math.max(counters.lastSnNumber || 0, maxSn);
+        const currentMaxSeq = Math.max(baseSeq, maxSeq);
 
-        // Sequence: Respect baseline overrides if higher than maxSeq, but clamp down phantom counters to maxSeq + 1
-        const baselineSeq = (activeWorkspace as any)?.settings?.next_seq_baseline || 0;
-        const displayNextSeq = Math.max(baselineSeq, maxSeq + 1);
+        // Respect baseline overrides if higher than currentMaxSn + 1
+        const baselineSn = Number((activeWorkspace as any)?.settings?.next_sn_baseline) || 0;
+        const displayNextSn = Math.max(baselineSn, currentMaxSn + 1);
 
-        const prefix = (activeWorkspace as any)?.settings?.quote_prefix !== undefined
-          ? (activeWorkspace as any).settings.quote_prefix
-          : (counters.prefix || '');
+        // Sequence: Respect baseline overrides if higher than currentMaxSeq + 1
+        const baselineSeq = Number((activeWorkspace as any)?.settings?.next_seq_baseline) || 0;
+        const displayNextSeq = Math.max(baselineSeq, currentMaxSeq + 1);
+
+        const prefix =
+          counters.prefix !== undefined && counters.prefix !== ''
+            ? counters.prefix
+            : (activeWorkspace as any)?.settings?.quote_prefix !== undefined
+            ? (activeWorkspace as any).settings.quote_prefix
+            : '';
 
         setActivePattern(resolvedPattern);
         setActivePrefix(prefix);
@@ -166,13 +180,16 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
         const now = new Date();
         const fallbackPattern = (activeWorkspace as any)?.settings?.quote_sequence_pattern || '{SEQ}-{DD}{MM}{YY}';
         const fallbackPrefix = (activeWorkspace as any)?.settings?.quote_prefix || '';
+        const fallbackPeriodKey = getSequencePeriodKey('monthly', now);
         const { maxSn, maxSeq } = getWorkspaceActiveCeilings(
           candidateEnquiries || [],
           activeWorkspace.id,
-          fallbackPattern
+          fallbackPattern,
+          fallbackPeriodKey,
+          'monthly'
         );
-        const displayNextSn = Math.max((activeWorkspace as any)?.settings?.next_sn_baseline || 0, maxSn + 1);
-        const displayNextSeq = Math.max((activeWorkspace as any)?.settings?.next_seq_baseline || 0, maxSeq + 1);
+        const displayNextSn = Math.max(Number((activeWorkspace as any)?.settings?.next_sn_baseline) || 0, maxSn + 1);
+        const displayNextSeq = Math.max(Number((activeWorkspace as any)?.settings?.next_seq_baseline) || 0, maxSeq + 1);
         setActivePattern(fallbackPattern);
         setActivePrefix(fallbackPrefix);
         setPreviewRef(
@@ -330,6 +347,17 @@ export const QuickClaimModal: React.FC<QuickClaimModalProps> = ({
         id: docRef?.id || `enq_stub_${Date.now()}`,
         ...stubPayload
       };
+
+      await safeSetDoc('enquiries', newEnquiry.id!, newEnquiry, { merge: true }).catch(() => {});
+      await EnquiryRepository.save(newEnquiry, activeWorkspace.id).catch(() => {});
+      try {
+        const cached = localStorage.getItem('omni_enquiries');
+        const parsed = cached ? JSON.parse(cached) : [];
+        if (Array.isArray(parsed)) {
+          const nextCache = [newEnquiry, ...parsed.filter((e: any) => e?.id !== newEnquiry.id)];
+          localStorage.setItem('omni_enquiries', JSON.stringify(nextCache));
+        }
+      } catch (_) {}
 
       try {
         await safeAddDoc('audit_logs', {

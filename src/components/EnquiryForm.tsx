@@ -5031,8 +5031,23 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               activeDraftQuote.tax_rate_percent ?? 5
             );
             const assignedRep = resolveSalespersonName(updatedDoc);
+            const rawSyncedRef = (updatedDoc.quote_ref_no || quoteRefNo || '').trim();
+            const baseSyncedRef = rawSyncedRef.replace(/-R\d+$/i, '');
+            const draftRevNum = Math.max(1, Number(activeDraftQuote.revision_number) || 1);
+            const syncedFormattedQuoteRef = baseSyncedRef
+              ? draftRevNum > 1
+                ? `${baseSyncedRef}-R${draftRevNum}`
+                : baseSyncedRef
+              : activeDraftQuote.formatted_quote_ref;
             await QuotationRepository.updateQuotation(activeDraftQuote.id, {
               line_items: updatedQuoteLineItems as any,
+              currency: formCurrency,
+              ...(baseSyncedRef
+                ? {
+                    quote_number: baseSyncedRef,
+                    formatted_quote_ref: syncedFormattedQuoteRef
+                  }
+                : {}),
               subject: (subject || '').trim() || activeDraftQuote.subject,
               ...(assignedRep ? { prepared_by: assignedRep } : {}),
               ...(priceBasis.trim() ? { price_basis: priceBasis.trim() } : {}),
@@ -8647,9 +8662,41 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 if (isDisc) return sum;
                 return sum + (Number(li.quantity) || 0) * (Number(li.cost_price) || 0);
               }, 0);
-              const effectiveSubtotal = isLumpSum ? (Number(manualValue) || 0) : totalSelling;
-              const vatAmount = Math.round(effectiveSubtotal * 0.05 * 100) / 100;
-              const grandTotalInclVat = effectiveSubtotal + vatAmount;
+              const rawBaseSubtotal = isLumpSum ? (Number(manualValue) || 0) : totalSelling;
+              const activeTaxMode = (taxMode || 'taxes_extra') as string;
+              const isZeroVatMode =
+                activeTaxMode === 'tax_exempt' ||
+                activeTaxMode === 'no_vat' ||
+                activeTaxMode === 'vat_excluded_extra' ||
+                activeTaxMode === 'vat_hidden';
+              const isVatInclusiveMode =
+                activeTaxMode === 'tax_calculated' || activeTaxMode === 'vat_included';
+              const effectiveSubtotal = isVatInclusiveMode
+                ? Math.round((rawBaseSubtotal / 1.05) * 100) / 100
+                : rawBaseSubtotal;
+              const vatAmount = isZeroVatMode
+                ? 0
+                : isVatInclusiveMode
+                ? Math.max(0, Math.round((rawBaseSubtotal - effectiveSubtotal) * 100) / 100)
+                : Math.round(effectiveSubtotal * 0.05 * 100) / 100;
+              const grandTotalInclVat = isZeroVatMode
+                ? effectiveSubtotal
+                : isVatInclusiveMode
+                ? rawBaseSubtotal
+                : effectiveSubtotal + vatAmount;
+              const vatSummaryLabel =
+                activeTaxMode === 'vat_excluded_extra'
+                  ? 'VAT Excluded (5% Extra)'
+                  : activeTaxMode === 'tax_exempt' || activeTaxMode === 'no_vat'
+                  ? '0% / Tax Exempt'
+                  : activeTaxMode === 'vat_hidden'
+                  ? 'VAT Hidden'
+                  : isVatInclusiveMode
+                  ? '5% VAT (Inclusive)'
+                  : '5% VAT';
+              const grandTotalSummaryLabel = isZeroVatMode
+                ? 'Grand Total (Excl. VAT)'
+                : 'Grand Total (Incl. VAT)';
               const hasAnyCost = calcList.some((li) => (Number(li.cost_price) || 0) > 0);
               const grossProfit = effectiveSubtotal - totalCost;
               const marginPct = effectiveSubtotal > 0 && hasAnyCost ? (grossProfit / effectiveSubtotal) * 100 : null;
@@ -8776,14 +8823,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     </div>
 
                     <div className="bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 rounded-xl px-3 py-2 flex flex-col justify-between">
-                      <span className="text-[10px] text-slate-400 uppercase block leading-tight">5% VAT</span>
+                      <span className="text-[10px] text-slate-400 uppercase block leading-tight">{vatSummaryLabel}</span>
                       <span className="font-semibold text-slate-700 dark:text-slate-200 mt-0.5">
                         {formCurrency} {vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                     </div>
 
                     <div className="bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200/80 dark:border-blue-800 rounded-xl px-3 py-2 flex flex-col justify-between">
-                      <span className="text-[10px] text-blue-600 dark:text-blue-400 uppercase font-bold block leading-tight">Grand Total (Incl. VAT)</span>
+                      <span className="text-[10px] text-blue-600 dark:text-blue-400 uppercase font-bold block leading-tight">{grandTotalSummaryLabel}</span>
                       <span className="font-bold text-blue-700 dark:text-blue-300 mt-0.5">
                         {formCurrency} {grandTotalInclVat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
@@ -9595,9 +9642,28 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   const lineVal = Number(li.total_price) || (Number(li.quantity) || 0) * (Number(li.unit_price) || 0);
                   return isDisc ? sum - Math.abs(lineVal) : sum + lineVal;
                 }, 0);
-                const effectiveSubtotal = isLumpSum ? (Number(manualValue) || 0) : totalSelling;
-                const vatAmount = Math.round(effectiveSubtotal * 0.05 * 100) / 100;
-                const grandTotalInclVat = effectiveSubtotal + vatAmount;
+                const rawBaseSubtotal = isLumpSum ? (Number(manualValue) || 0) : totalSelling;
+                const activeTaxMode = (taxMode || 'taxes_extra') as string;
+                const isZeroVatMode =
+                  activeTaxMode === 'tax_exempt' ||
+                  activeTaxMode === 'no_vat' ||
+                  activeTaxMode === 'vat_excluded_extra' ||
+                  activeTaxMode === 'vat_hidden';
+                const isVatInclusiveMode =
+                  activeTaxMode === 'tax_calculated' || activeTaxMode === 'vat_included';
+                const effectiveSubtotal = isVatInclusiveMode
+                  ? Math.round((rawBaseSubtotal / 1.05) * 100) / 100
+                  : rawBaseSubtotal;
+                const vatAmount = isZeroVatMode
+                  ? 0
+                  : isVatInclusiveMode
+                  ? Math.max(0, Math.round((rawBaseSubtotal - effectiveSubtotal) * 100) / 100)
+                  : Math.round(effectiveSubtotal * 0.05 * 100) / 100;
+                const grandTotalInclVat = isZeroVatMode
+                  ? effectiveSubtotal
+                  : isVatInclusiveMode
+                  ? rawBaseSubtotal
+                  : effectiveSubtotal + vatAmount;
 
                 return (
                   <div className="flex items-center gap-2 sm:gap-3 flex-wrap text-xs font-mono tabular-nums min-w-0">
@@ -9617,7 +9683,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     </span>
                     <span className="text-slate-300 dark:text-slate-700">·</span>
                     <span className="text-slate-600 dark:text-slate-300 font-sans font-medium">
-                      Grand Total:{' '}
+                      {isZeroVatMode ? 'Grand Total (Excl. VAT):' : 'Grand Total (Incl. VAT):'}{' '}
                       <strong className="font-mono font-bold text-blue-600 dark:text-blue-400">
                         {formCurrency}{' '}
                         {grandTotalInclVat.toLocaleString(undefined, {
