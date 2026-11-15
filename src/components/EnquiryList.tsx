@@ -387,6 +387,8 @@ export function areRowPropsEqual(
       prevE.is_gap_placeholder !== nextE.is_gap_placeholder ||
       prevE.is_deleted !== nextE.is_deleted ||
       prevE.creator_access_released !== nextE.creator_access_released ||
+      prevE.contact_person_name !== nextE.contact_person_name ||
+      prevE.project_location !== nextE.project_location ||
       prevE.attachments?.length !== nextE.attachments?.length ||
       prevE.line_items?.length !== nextE.line_items?.length
     ) {
@@ -589,7 +591,15 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                   ? rawIndustry
                   : '';
               const cleanSource = e.enquiry_source ? normalizeEnquirySource(e.enquiry_source) : '';
+              const cleanContact = (e.contact_person_name || (e as any).contact_person || '').trim();
+              const cleanLocation = (
+                e.project_location ||
+                resolvedCompany?.city ||
+                (companies || []).find((c) => c && c.id === e.company_id)?.city ||
+                ''
+              ).trim();
               const secondaryParts = [cleanIndustry, cleanSource].filter(Boolean);
+              const compactContextParts = [cleanContact, cleanLocation].filter(Boolean);
 
               return (
                 <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 truncate min-w-0">
@@ -607,11 +617,56 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                       {secondaryParts.join(' · ')}
                     </span>
                   )}
+                  {compactContextParts.length > 0 && (
+                    <span
+                      className="2xl:hidden inline-flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500 truncate"
+                      title={compactContextParts.join(' · ')}
+                    >
+                      {(resolvedCompany || secondaryParts.length > 0) && (
+                        <span className="text-slate-300 dark:text-slate-600 shrink-0" aria-hidden="true">·</span>
+                      )}
+                      <span className="truncate">{compactContextParts.join(' · ')}</span>
+                    </span>
+                  )}
                 </div>
               );
             })()}
           </div>
         )}
+      </td>
+
+      {/* 2B. CONTACT & LOCATION (Dedicated column on 2xl+ screens; stacked under Company Account on < 2xl) */}
+      <td className="hidden 2xl:table-cell py-3 px-2.5 whitespace-nowrap overflow-hidden align-middle">
+        {(() => {
+          const cleanContact = (e.contact_person_name || (e as any).contact_person || '').trim();
+          const cleanLocation = (
+            e.project_location ||
+            resolvedCompany?.city ||
+            (companies || []).find((c) => c && c.id === e.company_id)?.city ||
+            ''
+          ).trim();
+          if (!cleanContact && !cleanLocation) {
+            return <span className="text-xs text-slate-400 dark:text-slate-600">—</span>;
+          }
+          return (
+            <div className="flex flex-col gap-0.5 min-w-0 overflow-hidden">
+              <span
+                className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate"
+                title={cleanContact || cleanLocation}
+              >
+                {cleanContact || cleanLocation}
+              </span>
+              {cleanContact && cleanLocation && (
+                <span
+                  className="text-[11px] text-slate-400 dark:text-slate-500 truncate"
+                  title={cleanLocation}
+                >
+                  {cleanLocation}
+                </span>
+              )}
+            </div>
+          );
+        })()}
       </td>
 
       {/* 3. QUOTE REF NO (Single Clean Monospace Badge) */}
@@ -2679,29 +2734,30 @@ export default function EnquiryList({
                       />
                     </th>
                   )}
-                  <th onClick={() => handleSort('sn')} className="py-2.5 px-2 w-[6%] text-center cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition bg-slate-50 dark:bg-slate-900 whitespace-nowrap">
+                  <th onClick={() => handleSort('sn')} className="py-2.5 px-2 w-[5.5%] 2xl:w-[5%] text-center cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition bg-slate-50 dark:bg-slate-900 whitespace-nowrap">
                     <div className="flex items-center space-x-1 justify-center">
                       <span>S/N</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-3 w-[22%] truncate bg-slate-50 dark:bg-slate-900">Company Account</th>
-                  <th className="py-2.5 px-2.5 w-[19%] truncate bg-slate-50 dark:bg-slate-900">Quote Ref No</th>
-                  <th className="py-2.5 px-1.5 w-[6%] text-center truncate bg-slate-50 dark:bg-slate-900">Rep</th>
-                  <th onClick={() => handleSort('enquiry_date')} className="py-2.5 px-2 w-[10%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition whitespace-nowrap bg-slate-50 dark:bg-slate-900">
+                  <th className="py-2.5 px-3 w-[25%] 2xl:w-[20%] truncate bg-slate-50 dark:bg-slate-900">Company Account</th>
+                  <th className="hidden 2xl:table-cell py-2.5 px-2.5 w-[13%] truncate bg-slate-50 dark:bg-slate-900">Contact / Location</th>
+                  <th className="py-2.5 px-2.5 w-[20%] 2xl:w-[17%] truncate bg-slate-50 dark:bg-slate-900">Quote Ref No</th>
+                  <th className="py-2.5 px-1.5 w-[5.5%] 2xl:w-[5%] text-center truncate bg-slate-50 dark:bg-slate-900">Rep</th>
+                  <th onClick={() => handleSort('enquiry_date')} className="py-2.5 px-2 w-[9.5%] 2xl:w-[8.5%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition whitespace-nowrap bg-slate-50 dark:bg-slate-900">
                     <div className="flex items-center space-x-1">
                       <span>Date</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-2 w-[12%] truncate bg-slate-50 dark:bg-slate-900">Status</th>
-                  <th onClick={() => handleSort('value_aed')} className="py-2.5 pl-2 pr-5 w-[13%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">
+                  <th className="py-2.5 px-2 w-[12.5%] 2xl:w-[11.5%] truncate bg-slate-50 dark:bg-slate-900">Status</th>
+                  <th onClick={() => handleSort('value_aed')} className="py-2.5 pl-2 pr-5 w-[13.5%] 2xl:w-[12%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">
                     <div className="flex items-center space-x-1 justify-end">
                       <span>Value</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 pl-2 pr-3 w-[136px] text-right truncate bg-slate-50 dark:bg-slate-900">Actions</th>
+                  <th className="py-2.5 pl-2 pr-3 w-[124px] text-right truncate bg-slate-50 dark:bg-slate-900">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans">

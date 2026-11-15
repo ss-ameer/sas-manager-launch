@@ -5253,6 +5253,87 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     triggerToast?.(`Synchronized ${freshStudioItems.length} line items & delivery terms from Enquiry Form!`, 'success');
   };
 
+  // Studio Quick Catalog Insert state & handler
+  const [studioCatalogPickerLocation, setStudioCatalogPickerLocation] = useState<'sidebar' | 'inspector' | null>(null);
+  const [studioCatalogSearchQuery, setStudioCatalogSearchQuery] = useState<string>('');
+
+  const filteredStudioCatalogProducts = useMemo(() => {
+    const activeList = workspaceProducts.filter((p) => !p.is_deleted);
+    const q = studioCatalogSearchQuery.trim().toLowerCase();
+    if (!q) return activeList;
+    return activeList.filter((p) => {
+      const hay = [
+        p.name,
+        p.sku,
+        p.brand_make,
+        p.model_part_no,
+        p.category,
+        p.product_type,
+        p.country_of_origin,
+        p.description
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [workspaceProducts, studioCatalogSearchQuery]);
+
+  const handleAddCatalogProductToStudio = (prod: Product) => {
+    const currentList = customStudioLineItems ?? quotationLineItems;
+    const newIdx = currentList.length;
+    const newId = `st_li_${Date.now()}_${newIdx + 1}`;
+    const isVendorCostDoc =
+      documentType === 'purchase_order' ||
+      documentType === 'material_return_note' ||
+      (documentType as string) === 'material_return' ||
+      documentType === 'debit_note';
+    const activeDocCurrency =
+      editingQuotation?.currency || enquiry?.currency || 'AED';
+
+    const blankRow: QuotationLineItem = {
+      id: newId,
+      sn: newIdx + 1,
+      item_name: '',
+      description: '',
+      quantity: 1,
+      qty_ordered: 1,
+      unit: prod.unit || 'Nos',
+      unit_price: 0,
+      total_price: 0
+    };
+
+    const hydratedRow = linkLineItemToCatalogProductNonDestructive(
+      blankRow,
+      prod,
+      activeDocCurrency,
+      isVendorCostDoc
+    );
+
+    if (prod.id) {
+      setItemLinkedProductIds((prev) => ({
+        ...prev,
+        [newId]: prod.id!
+      }));
+    }
+    if (hydratedRow.image_url) {
+      setVisibleColumns((prev) => ({
+        ...prev,
+        showLineItemImages: true
+      }));
+    }
+
+    setCustomStudioLineItems([...currentList, hydratedRow]);
+    setFocusedItemIndex(newIdx);
+    setSelectedSection('items_table');
+    setStudioCatalogPickerLocation(null);
+    setStudioCatalogSearchQuery('');
+    triggerToast?.(
+      `Added "${prod.name}"${prod.sku ? ` (${prod.sku})` : ''} from catalog`,
+      'success'
+    );
+  };
+
   // Choice B1 Price-Restore Memory for switching into/out of Unpriced Submittal / DO Mode
   const savedPricedConfigRef = useRef<{
     showUnitPrice: boolean;
@@ -11953,6 +12034,81 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               <span>Pull from Enquiry</span>
                             </button>
                           )}
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setStudioCatalogPickerLocation((prev) =>
+                                  prev === 'sidebar' ? null : 'sidebar'
+                                );
+                                setStudioCatalogSearchQuery('');
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold text-[11px] cursor-pointer transition shadow-2xs"
+                              title="Insert a pre-configured product directly from the Workspace Catalog"
+                            >
+                              <Package className="w-3 h-3 text-indigo-600" />
+                              <span>+ From Catalog</span>
+                            </button>
+                            {studioCatalogPickerLocation === 'sidebar' && (
+                              <div className="absolute right-0 top-full mt-1.5 w-80 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2.5 space-y-2">
+                                <div className="flex items-center justify-between gap-2 pb-1 border-b border-slate-100">
+                                  <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
+                                    <Package className="w-3.5 h-3.5 text-indigo-600" />
+                                    Insert from Product Catalog
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setStudioCatalogPickerLocation(null)}
+                                    className="p-0.5 rounded text-slate-400 hover:text-slate-700 cursor-pointer"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                                <input
+                                  type="text"
+                                  autoFocus
+                                  value={studioCatalogSearchQuery}
+                                  onChange={(e) => setStudioCatalogSearchQuery(e.target.value)}
+                                  placeholder="Search SKU, name, brand, model..."
+                                  className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-slate-50 focus:bg-white focus:outline-none focus:border-indigo-500"
+                                />
+                                <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
+                                  {filteredStudioCatalogProducts.length === 0 ? (
+                                    <div className="py-4 text-center text-[11px] text-slate-400">
+                                      No matching catalog products found.
+                                    </div>
+                                  ) : (
+                                    filteredStudioCatalogProducts.slice(0, 40).map((prod) => (
+                                      <button
+                                        key={prod.id}
+                                        type="button"
+                                        onClick={() => handleAddCatalogProductToStudio(prod)}
+                                        className="w-full text-left px-2 py-1.5 hover:bg-indigo-50/80 rounded-lg transition flex items-start justify-between gap-2 cursor-pointer"
+                                      >
+                                        <div className="min-w-0 flex-1">
+                                          <div className="font-semibold text-[11px] text-slate-800 truncate">
+                                            {formatProductVariantSelectorLabel(prod, workspaceProducts)}
+                                          </div>
+                                          <div className="text-[10px] text-slate-500 font-mono truncate">
+                                            {[prod.sku, prod.brand_make, prod.model_part_no]
+                                              .filter(Boolean)
+                                              .join(' • ') || prod.category || 'Standard Item'}
+                                          </div>
+                                        </div>
+                                        <span className="shrink-0 font-mono text-[10.5px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+                                          {prod.currency || 'AED'}{' '}
+                                          {Number(prod.default_unit_price ?? prod.unit_price ?? 0).toLocaleString(
+                                            undefined,
+                                            { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+                                          )}
+                                        </span>
+                                      </button>
+                                    ))
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
                           <button
                             type="button"
                             onClick={() => {
@@ -17128,7 +17284,104 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0 relative">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStudioCatalogPickerLocation((prev) =>
+                            prev === 'inspector' ? null : 'inspector'
+                          );
+                          setStudioCatalogSearchQuery('');
+                        }}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition cursor-pointer"
+                        title="Insert a pre-configured product directly from the Workspace Catalog"
+                      >
+                        <Package className="w-3 h-3 text-indigo-600" />
+                        <span>+ Catalog</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const currentList = customStudioLineItems ?? quotationLineItems;
+                          const newIdx = currentList.length;
+                          const nextItem: QuotationLineItem = {
+                            id: `st_li_${Date.now()}_${newIdx + 1}`,
+                            sn: newIdx + 1,
+                            item_name: '',
+                            description: '',
+                            quantity: 1,
+                            qty_ordered: 1,
+                            unit: 'Nos',
+                            unit_price: 0,
+                            total_price: 0
+                          };
+                          setCustomStudioLineItems([...currentList, nextItem]);
+                          setFocusedItemIndex(newIdx);
+                        }}
+                        className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-[10.5px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition cursor-pointer"
+                        title="Add a new blank line item row"
+                      >
+                        <span>+ Item</span>
+                      </button>
+                      {studioCatalogPickerLocation === 'inspector' && (
+                        <div className="absolute right-0 top-full mt-1.5 w-80 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2.5 space-y-2">
+                          <div className="flex items-center justify-between gap-2 pb-1 border-b border-slate-100">
+                            <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
+                              <Package className="w-3.5 h-3.5 text-indigo-600" />
+                              Insert from Product Catalog
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setStudioCatalogPickerLocation(null)}
+                              className="p-0.5 rounded text-slate-400 hover:text-slate-700 cursor-pointer"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          <input
+                            type="text"
+                            autoFocus
+                            value={studioCatalogSearchQuery}
+                            onChange={(e) => setStudioCatalogSearchQuery(e.target.value)}
+                            placeholder="Search SKU, name, brand, model..."
+                            className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-slate-50 focus:bg-white focus:outline-none focus:border-indigo-500"
+                          />
+                          <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
+                            {filteredStudioCatalogProducts.length === 0 ? (
+                              <div className="py-4 text-center text-[11px] text-slate-400">
+                                No matching catalog products found.
+                              </div>
+                            ) : (
+                              filteredStudioCatalogProducts.slice(0, 40).map((prod) => (
+                                <button
+                                  key={prod.id}
+                                  type="button"
+                                  onClick={() => handleAddCatalogProductToStudio(prod)}
+                                  className="w-full text-left px-2 py-1.5 hover:bg-indigo-50/80 rounded-lg transition flex items-start justify-between gap-2 cursor-pointer"
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <div className="font-semibold text-[11px] text-slate-800 truncate">
+                                      {formatProductVariantSelectorLabel(prod, workspaceProducts)}
+                                    </div>
+                                    <div className="text-[10px] text-slate-500 font-mono truncate">
+                                      {[prod.sku, prod.brand_make, prod.model_part_no]
+                                        .filter(Boolean)
+                                        .join(' • ') || prod.category || 'Standard Item'}
+                                    </div>
+                                  </div>
+                                  <span className="shrink-0 font-mono text-[10.5px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+                                    {prod.currency || 'AED'}{' '}
+                                    {Number(prod.default_unit_price ?? prod.unit_price ?? 0).toLocaleString(
+                                      undefined,
+                                      { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+                                    )}
+                                  </span>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      )}
                       {enquiry?.line_items && enquiry.line_items.length > 0 && (
                         <button
                           type="button"

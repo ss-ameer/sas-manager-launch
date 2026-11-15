@@ -7531,23 +7531,101 @@ export default function EnquiryDetail({
                             />
                           </div>
                           <div className="min-w-0">
-                            <div className="h-4 flex items-center mb-1">
-                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Option Scope</label>
+                            <div className="h-4 flex items-center justify-between mb-1">
+                              <label className="text-[10px] font-mono uppercase font-semibold text-slate-500 whitespace-nowrap">Option / Scope</label>
+                              {Boolean(
+                                item.is_optional ||
+                                  /optional|add-on/i.test(
+                                    String(
+                                      (item as any).option_designation ||
+                                        (item as any).item_option ||
+                                        item.option ||
+                                        ''
+                                    )
+                                  )
+                              ) && (
+                                <span className="text-[9px] font-mono font-bold text-amber-700 bg-amber-50 px-1 rounded border border-amber-200">
+                                  Excl. Base
+                                </span>
+                              )}
                             </div>
-                            <select
-                              value={((item as any).option_designation || item.option || 'Default / Included') ?? 'Default / Included'}
-                              onChange={(e) => {
-                                handleDraftItemChange(idx, 'option', e.target.value);
-                                handleDraftItemChange(idx, 'option_designation' as any, e.target.value);
-                              }}
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-sans text-slate-800 focus:outline-none focus:border-blue-500"
-                            >
-                              <option value="Default / Included">Baseline / Included</option>
-                              <option value="Option A">Option A (Baseline)</option>
-                              <option value="Option B">Option B (Alternative)</option>
-                              <option value="Option C">Option C (Alternative)</option>
-                              <option value="Optional / Add-On">Optional / Add-On</option>
-                            </select>
+                            {(() => {
+                              const rawOpt = String(
+                                (item as any).option_designation ||
+                                  (item as any).item_option ||
+                                  item.option ||
+                                  (item.is_optional ? 'Optional / Add-On' : 'Default / Included')
+                              ).trim() || 'Default / Included';
+                              const normalizedPreset =
+                                rawOpt === 'Baseline / All' || rawOpt === 'Baseline / Included'
+                                  ? 'Default / Included'
+                                  : rawOpt;
+                              const presetValues = [
+                                'Default / Included',
+                                'Option A',
+                                'Option B',
+                                'Option C',
+                                'Optional / Add-On'
+                              ];
+                              const isCustomOpt = !presetValues.includes(normalizedPreset);
+                              const applyOptionValue = (nextVal: string) => {
+                                const cleanVal = nextVal || 'Default / Included';
+                                const isOptAddOn =
+                                  cleanVal === 'Optional / Add-On' ||
+                                  /optional|add-on/i.test(cleanVal);
+                                const isBaseline =
+                                  cleanVal === 'Default / Included' ||
+                                  cleanVal === 'Baseline / All';
+                                setDraftLineItems((prev) =>
+                                  prev.map((row, rIdx) =>
+                                    rIdx === idx
+                                      ? ({
+                                          ...row,
+                                          option: cleanVal,
+                                          item_option: isBaseline ? '' : cleanVal,
+                                          option_designation: cleanVal,
+                                          option_group: isBaseline ? undefined : cleanVal,
+                                          is_optional: isOptAddOn
+                                        } as any)
+                                      : row
+                                  )
+                                );
+                              };
+
+                              return (
+                                <div className="space-y-1">
+                                  <select
+                                    value={isCustomOpt ? '__custom__' : normalizedPreset}
+                                    onChange={(e) => {
+                                      if (e.target.value === '__custom__') {
+                                        applyOptionValue(isCustomOpt ? rawOpt : 'Option D');
+                                      } else {
+                                        applyOptionValue(e.target.value);
+                                      }
+                                    }}
+                                    className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-sans text-slate-800 focus:outline-none focus:border-blue-500"
+                                  >
+                                    <option value="Default / Included">Default / Included</option>
+                                    <option value="Option A">Option A (Baseline)</option>
+                                    <option value="Option B">Option B (Alternative)</option>
+                                    <option value="Option C">Option C (Alternative)</option>
+                                    <option value="Optional / Add-On">Optional / Add-On</option>
+                                    <option value="__custom__">
+                                      {isCustomOpt ? `Custom: ${rawOpt}` : 'Custom Option...'}
+                                    </option>
+                                  </select>
+                                  {isCustomOpt && (
+                                    <input
+                                      type="text"
+                                      value={rawOpt}
+                                      onChange={(e) => applyOptionValue(e.target.value)}
+                                      placeholder="e.g. Option D / Phase 2"
+                                      className="w-full bg-indigo-50/50 border border-indigo-200 rounded-lg px-2 py-1 text-[11px] font-mono text-indigo-900 focus:outline-none focus:border-indigo-500"
+                                    />
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </div>
                           <div className="min-w-0">
                             <div className="h-4 flex items-center mb-1">
