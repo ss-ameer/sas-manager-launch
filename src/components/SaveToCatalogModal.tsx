@@ -168,20 +168,26 @@ export function extractAttributesFromDescription(
 
   const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   for (const line of lines) {
-    const cleaned = line.replace(/^(?:[-•*▪▸]+|\d+[.)])\s*/, '').trim();
-    const match = cleaned.match(/^([A-Za-z0-9][A-Za-z0-9\s/&().\-_#]{1,42}?)\s*:\s*(.+)$/);
-    if (match) {
-      const k = match[1].trim();
-      const v = match[2].trim();
-      if (
-        k &&
-        v &&
-        !k.toLowerCase().startsWith('http') &&
-        !k.toLowerCase().startsWith('note') &&
-        !seenKeys.has(k.toLowerCase())
-      ) {
-        seenKeys.add(k.toLowerCase());
-        baseAttrs.push({ key: k, value: v });
+    const withoutSpecsPrefix = line.replace(/^specs:\s*/i, '').trim();
+    const segments = /^specs:\s*/i.test(line)
+      ? withoutSpecsPrefix.split(/\s*[•|]\s*/)
+      : [withoutSpecsPrefix];
+    for (const seg of segments) {
+      const cleaned = seg.replace(/^(?:[-•*▪▸]+|\d+[.)])\s*/, '').trim();
+      const match = cleaned.match(/^([A-Za-z0-9][A-Za-z0-9\s/&().\-_#]{1,42}?)\s*:\s*(.+)$/);
+      if (match) {
+        const k = match[1].replace(/^(?:[-•*▪▸]+)\s*/, '').trim();
+        const v = match[2].trim();
+        if (
+          k &&
+          v &&
+          !k.toLowerCase().startsWith('http') &&
+          !k.toLowerCase().startsWith('note') &&
+          !seenKeys.has(k.toLowerCase())
+        ) {
+          seenKeys.add(k.toLowerCase());
+          baseAttrs.push({ key: k, value: v });
+        }
       }
     }
   }
@@ -247,9 +253,10 @@ export function compileDescriptionWithSpecs(
       const trimmed = line.trim();
       if (!trimmed) return false;
       if (/^specs:\s*/i.test(trimmed)) return false;
-      const colonIdx = trimmed.indexOf(':');
+      const strippedBullet = trimmed.replace(/^(?:[-•*▪▸]+|\d+[.)])\s*/, '').trim();
+      const colonIdx = strippedBullet.indexOf(':');
       if (colonIdx > 0 && colonIdx < 40) {
-        const lineKey = trimmed.slice(0, colonIdx).trim().toLowerCase();
+        const lineKey = strippedBullet.slice(0, colonIdx).trim().toLowerCase();
         if (attrKeySet.has(lineKey)) {
           return false;
         }
@@ -550,7 +557,7 @@ export function linkLineItemToCatalogProductNonDestructive(
       : resolveToAedMultiplier(prodCurrency) / resolveToAedMultiplier(effectiveCurrency);
 
   const catalogUnitSell = Math.round(Number(catalogProduct.unit_price ?? (catalogProduct as any).selling_price ?? 0) * fxFromProdToItem * 100) / 100;
-  const catalogUnitCost = Math.round(Number(catalogProduct.cost_price ?? catalogProduct.last_landed_cost ?? 0) * fxFromProdToItem * 100) / 100;
+  const catalogUnitCost = Math.round(Number(catalogProduct.cost_price ?? (catalogProduct as any).cost_price_aed ?? catalogProduct.last_landed_cost ?? 0) * fxFromProdToItem * 100) / 100;
   const qty = Number(existingItem?.quantity) || 1;
   const populated = isLineItemPopulated(existingItem);
 
@@ -1750,7 +1757,7 @@ export default function SaveToCatalogModal({
   }, [category, attributes]);
 
   const filteredParentProducts = useMemo(() => {
-    const list = (products || []).filter((p) => !p.variant_parent_id);
+    const list = (products || []).filter((p) => !p.is_deleted && !p.variant_parent_id);
     const q = parentSearchQuery.trim().toLowerCase();
     if (!q) return list.slice(0, 40);
     return list
@@ -1944,14 +1951,125 @@ export default function SaveToCatalogModal({
           activeWorkspaceId: activeWorkspace?.id || activeWorkspaceId
         });
 
-        if (onSaved) onSaved(res.createdVariantProduct);
-        if (onProductSaved) onProductSaved(res.createdVariantProduct);
+        if (res?.createdVariantProduct) {
+          if (onSaved) onSaved(res.createdVariantProduct);
+          if (onProductSaved) onProductSaved(res.createdVariantProduct);
+          onClose();
+        }
+        return;
+      }
+
+      const targetWsId = activeWorkspace?.id || activeWorkspaceId || 'ws_default';
+      const normSku = sku.trim().toLowerCase();
+      const normName = name.trim().toLowerCase();
+      const normBrand = brandMake.trim().toLowerCase();
+
+      const existingMatch = (products || []).find((p) => {
+        if (p.is_deleted) return false;
+        const pWsId = p.workspace_id || (p as any).workspaceId || 'ws_default';
+        if (pWsId !== targetWsId) return false;
+        if (normSku && (p.sku || '').trim().toLowerCase() === normSku) {
+          return true;
+        }
+        if (
+          normName &&
+          (p.name || '').trim().toLowerCase() === normName &&
+          (p.brand_make || '').trim().toLowerCase() === normBrand
+        ) {
+          return true;
+        }
+        return false;
+      });
+
+      if (existingMatch && existingMatch.id) {
+        const mergedAttrsMap = new Map<string, ProductAttribute>();
+        (existingMatch.attributes || []).forEach((a) => {
+          if (a?.key) mergedAttrsMap.set(a.key.trim().toLowerCase(), a);
+        });
+        cleanAttrs.forEach((a) => {
+          if (a?.key) mergedAttrsMap.set(a.key.trim().toLowerCase(), a);
+        });
+        const mergedAttributes = Array.from(mergedAttrsMap.values());
+
+        const updatedPayload: Partial<Product> = {
+          name: name.trim() || existingMatch.name,
+          description: finalCompiledDescription || existingMatch.description,
+          product_type: category || existingMatch.product_type || 'General Equipment',
+          sku: existingMatch.sku || sku.trim() || undefined,
+          brand_make: brandMake.trim() || existingMatch.brand_make || undefined,
+          model_part_no: modelPartNo.trim() || existingMatch.model_part_no || undefined,
+          unit: (unit || '').trim() || existingMatch.unit || 'Nos',
+          unit_price: numSell !== undefined ? numSell : existingMatch.unit_price,
+          cost_price: numCost !== undefined ? numCost : existingMatch.cost_price,
+          currency: 'AED',
+          default_availability: leadTime.trim() || existingMatch.default_availability || undefined,
+          country_of_origin: countryOfOrigin.trim() || existingMatch.country_of_origin || undefined,
+          hs_code: hsCode.trim() || existingMatch.hs_code || undefined,
+          image_url: imageUrl.trim() || existingMatch.image_url || undefined,
+          ...(secondaryImageUrl.trim()
+            ? { secondary_image_url: secondaryImageUrl.trim() }
+            : existingMatch.secondary_image_url
+            ? { secondary_image_url: existingMatch.secondary_image_url }
+            : {}),
+          ...(imageCaption.trim()
+            ? { image_caption: imageCaption.trim() }
+            : existingMatch.image_caption
+            ? { image_caption: existingMatch.image_caption }
+            : {}),
+          ...(secondaryImageCaption.trim()
+            ? { secondary_image_caption: secondaryImageCaption.trim() }
+            : existingMatch.secondary_image_caption
+            ? { secondary_image_caption: existingMatch.secondary_image_caption }
+            : {}),
+          ...(imageAdjustments
+            ? { image_adjustments: imageAdjustments }
+            : existingMatch.image_adjustments
+            ? { image_adjustments: existingMatch.image_adjustments }
+            : {}),
+          datasheet_attachment: datasheetAttachment || existingMatch.datasheet_attachment || undefined,
+          attributes: mergedAttributes,
+          ...(isComposite ? { is_composite_set: true } : {}),
+          ...(scaledSubComponents ? { sub_components: scaledSubComponents } : {}),
+          ...(lineItem.package_pricing_mode ? { package_pricing_mode: lineItem.package_pricing_mode } : {}),
+          ...(lineItem.option_scope_notes ? { option_scope_notes: lineItem.option_scope_notes } : {}),
+          search_terms: searchTerms,
+          updatedAt: new Date().toISOString()
+        };
+
+        await safeUpdateDoc('products', existingMatch.id, updatedPayload);
+        const updatedProduct: Product = {
+          ...existingMatch,
+          ...updatedPayload,
+          id: existingMatch.id
+        } as Product;
+
+        const nextProductsList = (products || []).map((p) =>
+          p.id === existingMatch.id ? updatedProduct : p
+        );
+        if (setProducts) {
+          setProducts(nextProductsList);
+        }
+        try {
+          if (typeof window !== 'undefined' && window.localStorage) {
+            window.localStorage.setItem('omni_products', JSON.stringify(nextProductsList));
+          }
+        } catch (_) {}
+
+        if (triggerToast) {
+          triggerToast(
+            `Updated existing Catalog SKU "${updatedProduct.sku || updatedProduct.name}" instead of creating a duplicate.`,
+            'success'
+          );
+        }
+
+        if (onSaved) onSaved(updatedProduct);
+        if (onProductSaved) onProductSaved(updatedProduct);
         onClose();
         return;
       }
 
       const productPayload: Partial<Product> = {
-        workspace_id: activeWorkspace?.id || activeWorkspaceId || 'ws_default',
+        workspace_id: targetWsId,
         name: name.trim(),
         description: finalCompiledDescription,
         product_type: category || 'General Equipment',

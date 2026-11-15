@@ -17,11 +17,11 @@ import {
   ImageAdjustmentConfig
 } from '../types';
 import { safeAddDoc, safeUpdateDoc } from '../firebase';
-import { saveToLocalStore } from '../services/db';
+import { MetadataRepository } from '../services/repositories/MetadataRepository';
 import { generateProductSearchTerms } from '../utils/defaults';
 import { UNIVERSAL_UNITS, UNIVERSAL_CATEGORIES } from '../constants';
 import { processStockGrn, processStockAdjustment, subscribeStockMovements } from '../services/inventoryService';
-import { uploadWorkspaceMediaAsset, deleteFromStorageBucket, formatByteSize } from '../services/attachmentStorage';
+import { uploadWorkspaceMediaAsset, deleteFromStorageBucket, formatByteSize, sanitizeFirestorePayload } from '../services/attachmentStorage';
 import CompositePackageEditor from './quotations/CompositePackageEditor';
 import { recalculateCompositeItemTotals } from '../utils/compositeBomUtils';
 import LineItemImageOptionsPopover from './common/LineItemImageOptionsPopover';
@@ -171,6 +171,7 @@ export default function ProductManager({
   const [imageUploadProgress, setImageUploadProgress] = useState<number | null>(null);
   const [isUploadingDatasheet, setIsUploadingDatasheet] = useState(false);
   const [datasheetUploadProgress, setDatasheetUploadProgress] = useState<number | null>(null);
+  const [pendingDeletedStorageUrls, setPendingDeletedStorageUrls] = useState<string[]>([]);
 
   // Tab 3: Inventory & Logistics
   const [formIsInventoried, setFormIsInventoried] = useState<boolean>(false);
@@ -669,6 +670,7 @@ export default function ProductManager({
     setIsUploadingImage(true);
     setImageUploadProgress(10);
     try {
+      const oldImageUrl = formImageUrl;
       const uploaded = await uploadWorkspaceMediaAsset(
         file,
         'products/images',
@@ -677,10 +679,12 @@ export default function ProductManager({
           compressImage: true,
           maxDimension: 800,
           quality: 0.78,
-          previousUrlToDelete: formImageUrl || undefined,
           onProgress: (pct) => setImageUploadProgress(pct)
         }
       );
+      if (oldImageUrl && oldImageUrl !== uploaded.url) {
+        setPendingDeletedStorageUrls((prev) => Array.from(new Set([...prev, oldImageUrl])));
+      }
       setFormImageUrl(uploaded.url);
       if (triggerToast) {
         triggerToast(
@@ -707,6 +711,7 @@ export default function ProductManager({
     setIsUploadingDatasheet(true);
     setDatasheetUploadProgress(10);
     try {
+      const oldDatasheetUrl = formDatasheetAttachment?.url;
       const uploaded = await uploadWorkspaceMediaAsset(
         file,
         'products/datasheets',
@@ -716,10 +721,12 @@ export default function ProductManager({
           maxDimension: 1200,
           quality: 0.78,
           pdfCompressionPreset: 'standard',
-          previousUrlToDelete: formDatasheetAttachment?.url,
           onProgress: (pct) => setDatasheetUploadProgress(pct)
         }
       );
+      if (oldDatasheetUrl && oldDatasheetUrl !== uploaded.url) {
+        setPendingDeletedStorageUrls((prev) => Array.from(new Set([...prev, oldDatasheetUrl])));
+      }
       const attachment: Attachment = {
         id: `ds_${Date.now()}`,
         name: file.name,
@@ -809,7 +816,12 @@ export default function ProductManager({
     setSearchInput('');
     setCategoryFilter('All');
     setStockFilter('All');
+    setCurrentPage(1);
   };
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchInput, categoryFilter, stockFilter, groupVariantsByFamily]);
 
   // Pagination details
   const totalItems = orderedFilteredProducts.length;
@@ -817,6 +829,12 @@ export default function ProductManager({
     if (itemsPerPage === 'All') return 1;
     return Math.ceil(totalItems / itemsPerPage) || 1;
   }, [totalItems, itemsPerPage]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(Math.max(1, totalPages));
+    }
+  }, [currentPage, totalPages]);
 
   const paginatedProducts = useMemo(() => {
     if (itemsPerPage === 'All') return orderedFilteredProducts;
@@ -827,6 +845,7 @@ export default function ProductManager({
   // CRUD handlers
   const openAddModal = () => {
     setEditingProduct(null);
+    setPendingDeletedStorageUrls([]);
     setFormVariantParentId(null);
     setFormProductFamily('');
     setIsCreatingCategory(false);
@@ -867,6 +886,7 @@ export default function ProductManager({
 
   const openEditModal = (p: Product) => {
     setEditingProduct(p);
+    setPendingDeletedStorageUrls([]);
     setFormVariantParentId(p.variant_parent_id || null);
     setFormProductFamily(p.product_family || '');
     setIsCreatingCategory(false);
@@ -917,6 +937,7 @@ export default function ProductManager({
     const nextVariantSku = baseSku ? `${baseSku}-V${siblingCount + 1}` : '';
 
     setEditingProduct(null);
+    setPendingDeletedStorageUrls([]);
     setFormVariantParentId(p.variant_parent_id || p.id || null);
     setFormProductFamily(p.product_family || baseName);
     setIsCreatingCategory(false);
@@ -968,6 +989,7 @@ export default function ProductManager({
   // 1-Click Duplicate / Clone Product for standalone copies
   const openDuplicateModal = (p: Product) => {
     setEditingProduct(null);
+    setPendingDeletedStorageUrls([]);
     setFormVariantParentId(null);
     setFormProductFamily('');
     setIsCreatingCategory(false);
@@ -1036,7 +1058,10 @@ export default function ProductManager({
 
     if (!activeWorkspace?.id) {
       setIsSubmitting(false);
-      throw new Error('Critical Error: Active workspace context lost. Cannot save record.');
+      if (triggerToast) {
+        triggerToast('Active workspace context lost. Cannot save product.', 'error');
+      }
+      return;
     }
 
     setIsSubmitting(true);
@@ -1085,6 +1110,25 @@ export default function ProductManager({
         ? computedBomTotals.unitCostPrice
         : fallbackCost;
 
+    const liveExistingProduct =
+      editingProduct?.id
+        ? products.find((p) => p.id === editingProduct.id) || editingProduct
+        : editingProduct;
+
+    const didUserChangeStockOnHand =
+      !editingProduct ||
+      Number(formStockOnHand ?? 0) !== Number(editingProduct.stock_on_hand ?? 0);
+
+    const resolvedStockOnHand = formIsInventoried
+      ? didUserChangeStockOnHand
+        ? Number(formStockOnHand || 0)
+        : Number(liveExistingProduct?.stock_on_hand ?? formStockOnHand ?? 0)
+      : undefined;
+
+    const resolvedStockReserved = liveExistingProduct
+      ? Number(liveExistingProduct.stock_reserved || 0)
+      : 0;
+
     const data: Partial<Product> = {
       workspace_id: activeWorkspace.id,
       name: formName.trim(),
@@ -1112,8 +1156,8 @@ export default function ProductManager({
       attributes: cleanAttributes,
       search_terms: searchTerms,
       is_inventoried: formIsInventoried,
-      stock_on_hand: formIsInventoried ? Number(formStockOnHand || 0) : undefined,
-      stock_reserved: editingProduct ? editingProduct.stock_reserved || 0 : 0,
+      stock_on_hand: resolvedStockOnHand,
+      stock_reserved: resolvedStockReserved,
       reorder_level: formIsInventoried ? Number(formReorderLevel || 0) : undefined,
       storage_location: formIsInventoried && formStorageLocation.trim() ? formStorageLocation.trim() : undefined,
       hs_code: formHsCode.trim() || undefined,
@@ -1126,33 +1170,58 @@ export default function ProductManager({
     };
 
     try {
+      let savedTargetId = editingProduct?.id || '';
       if (editingProduct && editingProduct.id) {
-        const updatedProd: Product = { ...editingProduct, ...data } as Product;
-        await safeUpdateDoc('products', editingProduct.id, data);
+        const updatedProd: Product = { ...liveExistingProduct, ...data, id: editingProduct.id } as Product;
+        const sanitizedPayload = sanitizeFirestorePayload(updatedProd);
+        await safeUpdateDoc('products', editingProduct.id, sanitizedPayload);
         const nextList = products.map((p) => (p.id === editingProduct.id ? updatedProd : p));
         if (setProducts) {
           setProducts(nextList);
         }
-        try {
-          await saveToLocalStore('products', nextList);
-          localStorage.setItem('omni_products', JSON.stringify(nextList));
-        } catch (_) {}
+        await MetadataRepository.upsertLocalProduct(updatedProd).catch(() => {});
+        savedTargetId = editingProduct.id;
       } else {
-        const res = await safeAddDoc('products', {
+        const tempId = 'prod_' + Date.now();
+        const sanitizedCreate = sanitizeFirestorePayload({
           ...data,
+          id: tempId,
           createdAt: new Date().toISOString()
         });
-        const newId = res?.id || 'prod_' + Date.now();
+        const { id: _ignoreId, ...createPayload } = sanitizedCreate;
+        const res = await safeAddDoc('products', createPayload);
+        const newId = res?.id || tempId;
         const newProd: Product = { id: newId, ...data } as Product;
         const nextList = [newProd, ...products.filter((p) => p.id !== newId)];
         if (setProducts) {
           setProducts(nextList);
         }
-        try {
-          await saveToLocalStore('products', nextList);
-          localStorage.setItem('omni_products', JSON.stringify(nextList));
-        } catch (_) {}
+        await MetadataRepository.upsertLocalProduct(newProd).catch(() => {});
+        savedTargetId = newId;
       }
+
+      // Now that the product save succeeded, flush any deferred media deletions that are not referenced by another active product
+      if (pendingDeletedStorageUrls.length > 0) {
+        const activeFinalUrls = new Set(
+          [formImageUrl.trim(), formSecondaryImageUrl.trim(), formDatasheetAttachment?.url || ''].filter(Boolean)
+        );
+        for (const oldUrl of pendingDeletedStorageUrls) {
+          if (!oldUrl || activeFinalUrls.has(oldUrl)) continue;
+          const stillReferencedElsewhere = products.some(
+            (p) =>
+              p.id !== savedTargetId &&
+              !p.is_deleted &&
+              (p.image_url === oldUrl ||
+                p.secondary_image_url === oldUrl ||
+                p.datasheet_attachment?.url === oldUrl)
+          );
+          if (!stillReferencedElsewhere) {
+            deleteFromStorageBucket(oldUrl, (activeWorkspace as any)?.settings || activeWorkspace).catch(() => {});
+          }
+        }
+        setPendingDeletedStorageUrls([]);
+      }
+
       if (triggerToast) {
         triggerToast(
           editingProduct
@@ -1203,25 +1272,20 @@ export default function ProductManager({
         try {
           const deletedAtIso = new Date().toISOString();
           const deletedByName = user?.full_name || user?.username || 'Unknown';
-          const nextList = products.map((prod) =>
-            prod.id === targetId
-              ? {
-                  ...prod,
-                  is_deleted: true,
-                  deleted: true,
-                  deleted_at: deletedAtIso,
-                  deleted_by_uid: user?.uid,
-                  deleted_by_name: deletedByName
-                }
-              : prod
-          );
+          const deletedProd: Product = {
+            ...p,
+            id: targetId,
+            is_deleted: true,
+            deleted: true,
+            deleted_at: deletedAtIso,
+            deleted_by_uid: user?.uid,
+            deleted_by_name: deletedByName
+          };
+          const nextList = products.map((prod) => (prod.id === targetId ? deletedProd : prod));
           if (setProducts) {
             setProducts(nextList);
           }
-          try {
-            await saveToLocalStore('products', nextList);
-            localStorage.setItem('omni_products', JSON.stringify(nextList));
-          } catch (_) {}
+          await MetadataRepository.upsertLocalProduct(deletedProd).catch(() => {});
           await safeUpdateDoc('products', targetId, {
             is_deleted: true,
             deleted: true,
@@ -2876,14 +2940,16 @@ export default function ProductManager({
                               value={attr.key ?? ''}
                               onChange={(e) => {
                                 const nextKey = e.target.value;
-                                setFormAttributes((prev) => {
-                                  const next = prev.map((a, i) => (i === index ? { ...a, key: nextKey } : a));
-                                  const prevCompiled = compileDescriptionWithSpecs(formName, '', prev);
-                                  if (!formDescription.trim() || formDescription.trim() === formName.trim() || formDescription.trim() === prevCompiled.trim()) {
-                                    setFormDescription(compileDescriptionWithSpecs(formName, '', next));
-                                  }
-                                  return next;
-                                });
+                                const next = formAttributes.map((a, i) => (i === index ? { ...a, key: nextKey } : a));
+                                const prevCompiled = compileDescriptionWithSpecs(formName, '', formAttributes);
+                                setFormAttributes(next);
+                                if (
+                                  !formDescription.trim() ||
+                                  formDescription.trim() === formName.trim() ||
+                                  formDescription.trim() === prevCompiled.trim()
+                                ) {
+                                  setFormDescription(compileDescriptionWithSpecs(formName, '', next));
+                                }
                               }}
                               className="w-32 sm:w-44 shrink-0 bg-slate-50/80 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl py-1.5 px-3 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500"
                             />
@@ -2893,29 +2959,33 @@ export default function ProductManager({
                               value={attr.value ?? ''}
                               onChange={(e) => {
                                 const nextVal = e.target.value;
-                                setFormAttributes((prev) => {
-                                  const next = prev.map((a, i) => (i === index ? { ...a, value: nextVal } : a));
-                                  const prevCompiled = compileDescriptionWithSpecs(formName, '', prev);
-                                  if (!formDescription.trim() || formDescription.trim() === formName.trim() || formDescription.trim() === prevCompiled.trim()) {
-                                    setFormDescription(compileDescriptionWithSpecs(formName, '', next));
-                                  }
-                                  return next;
-                                });
+                                const next = formAttributes.map((a, i) => (i === index ? { ...a, value: nextVal } : a));
+                                const prevCompiled = compileDescriptionWithSpecs(formName, '', formAttributes);
+                                setFormAttributes(next);
+                                if (
+                                  !formDescription.trim() ||
+                                  formDescription.trim() === formName.trim() ||
+                                  formDescription.trim() === prevCompiled.trim()
+                                ) {
+                                  setFormDescription(compileDescriptionWithSpecs(formName, '', next));
+                                }
                               }}
                               className="flex-1 min-w-0 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl py-1.5 px-3 text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:border-blue-500"
                             />
                             <button
                               type="button"
-                              onClick={() =>
-                                setFormAttributes((prev) => {
-                                  const next = prev.filter((_, i) => i !== index);
-                                  const prevCompiled = compileDescriptionWithSpecs(formName, '', prev);
-                                  if (!formDescription.trim() || formDescription.trim() === formName.trim() || formDescription.trim() === prevCompiled.trim()) {
-                                    setFormDescription(compileDescriptionWithSpecs(formName, '', next));
-                                  }
-                                  return next;
-                                })
-                              }
+                              onClick={() => {
+                                const next = formAttributes.filter((_, i) => i !== index);
+                                const prevCompiled = compileDescriptionWithSpecs(formName, '', formAttributes);
+                                setFormAttributes(next);
+                                if (
+                                  !formDescription.trim() ||
+                                  formDescription.trim() === formName.trim() ||
+                                  formDescription.trim() === prevCompiled.trim()
+                                ) {
+                                  setFormDescription(compileDescriptionWithSpecs(formName, '', next));
+                                }
+                              }}
                               className="p-1.5 text-slate-400 hover:text-rose-500 transition rounded-lg shrink-0 cursor-pointer"
                               title="Remove Attribute"
                             >
@@ -3008,13 +3078,13 @@ export default function ProductManager({
                         onChange={(patch) => {
                           if ('image_url' in patch) {
                             if (formImageUrl && formImageUrl !== patch.image_url) {
-                              deleteFromStorageBucket(formImageUrl).catch(() => {});
+                              setPendingDeletedStorageUrls((prev) => Array.from(new Set([...prev, formImageUrl])));
                             }
                             setFormImageUrl(patch.image_url || '');
                           }
                           if ('secondary_image_url' in patch) {
                             if (formSecondaryImageUrl && formSecondaryImageUrl !== patch.secondary_image_url) {
-                              deleteFromStorageBucket(formSecondaryImageUrl).catch(() => {});
+                              setPendingDeletedStorageUrls((prev) => Array.from(new Set([...prev, formSecondaryImageUrl])));
                             }
                             setFormSecondaryImageUrl(patch.secondary_image_url || '');
                           }
@@ -3084,12 +3154,14 @@ export default function ProductManager({
                               type="button"
                               onClick={() => {
                                 if (formDatasheetAttachment?.url) {
-                                  deleteFromStorageBucket(formDatasheetAttachment.url).catch(() => {});
+                                  setPendingDeletedStorageUrls((prev) =>
+                                    Array.from(new Set([...prev, formDatasheetAttachment.url]))
+                                  );
                                 }
                                 setFormDatasheetAttachment(undefined);
                               }}
                               className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition cursor-pointer"
-                              title="Remove Datasheet & Delete from Cloud Bucket"
+                              title="Remove Datasheet"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -3833,6 +3905,7 @@ export default function ProductManager({
                     <option value="STOCK_OUT">Stock Out (Dispatches)</option>
                     <option value="STOCK_RESERVE">Stock Reserved</option>
                     <option value="STOCK_RELEASE">Stock Released</option>
+                    <option value="RETURN_TO_VENDOR">Return to Vendor (MRN)</option>
                     <option value="ADJUSTMENT">Adjustments &amp; Recounts</option>
                   </select>
                 </div>
@@ -3870,6 +3943,7 @@ export default function ProductManager({
                         const isStockOut = m.movement_type === 'STOCK_OUT';
                         const isReserve = m.movement_type === 'STOCK_RESERVE';
                         const isRelease = m.movement_type === 'STOCK_RELEASE';
+                        const isReturnToVendor = m.movement_type === 'RETURN_TO_VENDOR';
 
                         const linkedProd = products.find((p) => p.id === m.product_id);
                         const resolvedProductName =
@@ -3895,6 +3969,8 @@ export default function ProductManager({
                                     ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
                                     : isStockOut
                                     ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300'
+                                    : isReturnToVendor
+                                    ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300'
                                     : isReserve
                                     ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
                                     : isRelease
@@ -3902,7 +3978,7 @@ export default function ProductManager({
                                     : 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-300'
                                 }`}
                               >
-                                <span>{m.movement_type.replace('_', ' ')}</span>
+                                <span>{m.movement_type.replace(/_/g, ' ')}</span>
                               </span>
                             </td>
                             <td className="py-2.5 px-2.5 font-mono font-semibold text-slate-800 dark:text-slate-200 truncate" title={m.reference_number || m.reference_id || ''}>

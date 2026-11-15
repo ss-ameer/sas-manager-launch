@@ -4,6 +4,7 @@ import {
   recalculateCompositeItemTotals,
   parseBulkSubComponentsText,
 } from '../../utils/compositeBomUtils';
+import { resolveToAedMultiplier } from '../SaveToCatalogModal';
 import { buildCatalogVariantAnalysisMap } from '../../utils/productVariantFormat';
 import {
   Layers,
@@ -322,14 +323,16 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
   const convertFromCatalogAed = (amountAed?: number): number => {
     const val = Number(amountAed) || 0;
     if (val <= 0) return 0;
-    return currency === 'USD'
-      ? Math.round((val / AED_TO_USD_RATE) * 100) / 100
+    const fxMultiplier = resolveToAedMultiplier(currency || 'AED');
+    return fxMultiplier > 0 && fxMultiplier !== 1
+      ? Math.round((val / fxMultiplier) * 100) / 100
       : Math.round(val * 100) / 100;
   };
 
   /**
    * Commits sub-component changes without wiping the parent line item's selling price
-   * when all sub-items are zero-price / included accessories.
+   * in lump_sum mode when sub-items are zero-price / included accessories, while syncing
+   * parent unit_price and cost_price in itemized mode (including when zeroed out).
    */
   const commitComponents = (
     nextComponents: LineItemComponent[],
@@ -345,20 +348,29 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
     const totals = recalculateCompositeItemTotals(nextComponents, effectiveParentQty);
 
     const hasPricedSubItems = totals.unitSellingPrice > 0;
+    const allSubsExplicitIncluded =
+      nextComponents.length > 0 && nextComponents.every((c) => Boolean(c.is_included_accessory));
     const resolvedMode: 'itemized' | 'lump_sum' =
-      nextMode || (hasPricedSubItems ? 'itemized' : 'lump_sum');
+      nextMode ||
+      (packagePricingMode === 'itemized' && !allSubsExplicitIncluded
+        ? 'itemized'
+        : hasPricedSubItems
+        ? 'itemized'
+        : 'lump_sum');
 
     const currentParentUnitPrice = Number(item?.unit_price) || 0;
     const currentParentCostPrice = Number(item?.cost_price) || 0;
 
-    // Preserve parent price if sub-items are all Included (0.00) or unless sub-items have prices and parent was 0 / forced sync
     const shouldUpdateParentPrice =
       forceSyncParentPrice ||
+      (resolvedMode === 'itemized' && !allSubsExplicitIncluded) ||
       (hasPricedSubItems && (currentParentUnitPrice <= 0 || packagePricingMode === 'itemized'));
 
     const nextUnitPrice = shouldUpdateParentPrice ? totals.unitSellingPrice : currentParentUnitPrice;
     const nextTotalPrice = Math.round(effectiveParentQty * nextUnitPrice * 100) / 100;
-    const nextCostPrice = totals.unitCostPrice > 0 ? totals.unitCostPrice : currentParentCostPrice;
+    const shouldUpdateParentCost =
+      totals.unitCostPrice > 0 || (resolvedMode === 'itemized' && !allSubsExplicitIncluded);
+    const nextCostPrice = shouldUpdateParentCost ? totals.unitCostPrice : currentParentCostPrice;
 
     onChange({
       is_composite_set: nextCompositeFlag,
@@ -373,7 +385,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
             total_price: nextTotalPrice,
           }
         : {}),
-      ...(totals.unitCostPrice > 0 ? { cost_price: nextCostPrice } : {}),
+      ...(shouldUpdateParentCost ? { cost_price: nextCostPrice } : {}),
     });
   };
 

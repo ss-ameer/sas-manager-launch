@@ -96,6 +96,7 @@ import SaveToCatalogModal, {
   compileDescriptionWithSpecs,
   isLineItemPopulated,
   linkLineItemToCatalogProductNonDestructive,
+  resolveToAedMultiplier,
   CatalogSyncMenu
 } from './SaveToCatalogModal';
 import { useEnquiryDisclosureState } from '../hooks/useEnquiryDisclosureState';
@@ -1165,6 +1166,10 @@ export default function EnquiryForm({
           country_of_origin: p.country_of_origin || '',
           hs_code: p.hs_code || '',
           image_url: p.image_url || '',
+          secondary_image_url: p.secondary_image_url,
+          image_caption: p.image_caption,
+          secondary_image_caption: p.secondary_image_caption,
+          image_adjustments: p.image_adjustments,
           datasheet_attachment: p.datasheet_attachment,
           is_inventoried: p.is_inventoried,
           stock_on_hand: p.stock_on_hand,
@@ -1176,6 +1181,7 @@ export default function EnquiryForm({
           unit_price_aed: p.unit_price,
           cost_price_aed: p.cost_price ?? p.cost_price_aed,
           lead_time_note: defaultLeadTime,
+          default_availability: p.default_availability || defaultLeadTime,
           attributes: p.attributes || [],
           is_composite_set: p.is_composite_set,
           sub_components: p.sub_components,
@@ -2693,18 +2699,32 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       };
     }
 
+    const getSignedLineValue = (item: LineItem): number => {
+      const qty = Number(item.quantity) || 0;
+      const unitPrice = Number(item.unit_price) || 0;
+      const rawLineVal =
+        item.total_price !== undefined ? Number(item.total_price) || 0 : qty * unitPrice;
+      const isDiscount =
+        item.item_type === 'discount' ||
+        (item as any).classification === 'Discount / Rebate';
+      return isDiscount ? -Math.abs(rawLineVal) : rawLineVal;
+    };
+
     const baselineItems = items.filter((item) => {
       if (!item) return false;
       const des = ((item as any).option_designation || item.option || '').trim();
-      return des === 'Default / Included' || des === 'Option A' || des === '' || (!item.option && !(item as any).option_designation);
+      return (
+        des === 'Default / Included' ||
+        des === 'Baseline / All' ||
+        des === 'Option A' ||
+        des === '' ||
+        (!item.option && !(item as any).option_designation)
+      );
     });
 
-    const baseTotal = baselineItems.reduce((sum, item) => {
+    let baseTotal = baselineItems.reduce((sum, item) => {
       if (!item) return sum;
-      const qty = Number(item.quantity) || 0;
-      const unitPrice = Number(item.unit_price) || 0;
-      const lineVal = item.total_price !== undefined ? (Number(item.total_price) || 0) : (qty * unitPrice);
-      return sum + lineVal;
+      return sum + getSignedLineValue(item);
     }, 0);
 
     const optionTotals: Record<string, number> = {};
@@ -2713,16 +2733,24 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     items.forEach((item) => {
       if (!item) return;
       const des = ((item as any).option_designation || item.option || '').trim();
-      const qty = Number(item.quantity) || 0;
-      const unitPrice = Number(item.unit_price) || 0;
-      const lineVal = item.total_price !== undefined ? (Number(item.total_price) || 0) : (qty * unitPrice);
+      const lineVal = getSignedLineValue(item);
 
-      if (des === 'Optional / Add-On' || des.toLowerCase().includes('optional') || des.toLowerCase().includes('add-on')) {
+      if (
+        des === 'Optional / Add-On' ||
+        des.toLowerCase().includes('optional') ||
+        des.toLowerCase().includes('add-on')
+      ) {
         optionalAddonsTotal += lineVal;
       } else if (des.startsWith('Option ') && des !== 'Option A') {
         optionTotals[des] = (optionTotals[des] || 0) + lineVal;
       }
     });
+
+    // If all rows are assigned to alternative options (e.g., Option B / Option C) with no baseline items,
+    // fall back to the first active option total so baseTotal matches the summary card.
+    if (baselineItems.length === 0 && Object.keys(optionTotals).length > 0) {
+      baseTotal = Object.values(optionTotals)[0] || 0;
+    }
 
     return {
       baseTotal: Number((baseTotal || 0).toFixed(2)) || 0,
@@ -2753,15 +2781,21 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
   };
 
   const handleAddCatalogItem = (item: any) => {
-    const isUsd = formCurrency === 'USD';
-    const rawPrice = item.unit_price_aed !== undefined && item.unit_price_aed > 0
-      ? (isUsd ? item.unit_price_aed / 3.6725 : item.unit_price_aed)
-      : 0;
+    const fxRate = resolveToAedMultiplier(formCurrency || 'AED');
+    const rawPrice =
+      item.unit_price_aed !== undefined && item.unit_price_aed > 0
+        ? fxRate > 0 && fxRate !== 1
+          ? item.unit_price_aed / fxRate
+          : item.unit_price_aed
+        : 0;
     const price = Math.round(rawPrice * 100) / 100;
 
-    const rawCost = item.cost_price_aed !== undefined && item.cost_price_aed > 0
-      ? (isUsd ? item.cost_price_aed / 3.6725 : item.cost_price_aed)
-      : 0;
+    const rawCost =
+      item.cost_price_aed !== undefined && item.cost_price_aed > 0
+        ? fxRate > 0 && fxRate !== 1
+          ? item.cost_price_aed / fxRate
+          : item.cost_price_aed
+        : 0;
     const costPrice = rawCost > 0 ? Math.round(rawCost * 100) / 100 : undefined;
 
     const clonedSubComponents =
@@ -2771,11 +2805,19 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             id: `comp_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 5)}`,
             unit_price:
               sc.unit_price !== undefined
-                ? Math.round((isUsd ? Number(sc.unit_price) / 3.6725 : Number(sc.unit_price)) * 100) / 100
+                ? Math.round(
+                    (fxRate > 0 && fxRate !== 1
+                      ? Number(sc.unit_price) / fxRate
+                      : Number(sc.unit_price)) * 100
+                  ) / 100
                 : 0,
             cost_price:
               sc.cost_price !== undefined
-                ? Math.round((isUsd ? Number(sc.cost_price) / 3.6725 : Number(sc.cost_price)) * 100) / 100
+                ? Math.round(
+                    (fxRate > 0 && fxRate !== 1
+                      ? Number(sc.cost_price) / fxRate
+                      : Number(sc.cost_price)) * 100
+                  ) / 100
                 : undefined
           }))
         : undefined;
@@ -2825,6 +2867,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         bomRollup && bomRollup.unitSellingPrice > 0 ? bomRollup.unitSellingPrice : price;
       const resolvedNewCostPrice =
         bomRollup && bomRollup.unitCostPrice > 0 ? bomRollup.unitCostPrice : costPrice;
+      const resolvedLeadTime = item.lead_time_note || item.default_availability || '';
       const newItem: LineItem = {
         product_id: item.id || undefined,
         sku: item.sku || undefined,
@@ -2848,7 +2891,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         image_adjustments: item.image_adjustments || undefined,
         datasheet_attachment: item.datasheet_attachment || undefined,
         include_datasheet_in_quote: item.datasheet_attachment ? true : undefined,
-        lead_time_note: item.lead_time_note || '',
+        lead_time_note: resolvedLeadTime,
         option: 'Default / Included',
         attributes: item.attributes || [],
         ...(item.is_composite_set ? { is_composite_set: true } : {}),
@@ -4969,7 +5012,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             const updatedQuoteLineItems = cleanLineItems.map((li, idx) => {
               const existingQuoteItem =
                 (li.id && activeDraftQuote.line_items?.find((qi) => qi.id === li.id)) ||
-                activeDraftQuote.line_items?.[idx];
+                (!li.id &&
+                  li.product_id &&
+                  activeDraftQuote.line_items?.find(
+                    (qi, qIdx) => qi.product_id === li.product_id && qIdx === idx
+                  ));
               const qty = Number(li.quantity) || 1;
               const uPrice = Number(li.unit_price) || 0;
               const tPrice =
@@ -4987,20 +5034,37 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 existingQuoteItem?.availability ||
                 li.lead_time_note ||
                 'Ex-Stock / Standard';
+              const resolvedOpt = String(
+                (li as any).option_designation || li.option || existingQuoteItem?.option || ''
+              ).trim();
+              const resolvedIsOptional =
+                (li as any).is_optional !== undefined
+                  ? Boolean((li as any).is_optional)
+                  : resolvedOpt.toLowerCase().includes('optional') ||
+                    resolvedOpt.toLowerCase().includes('add-on') ||
+                    /^option\s+[b-z]/i.test(resolvedOpt);
               return {
                 ...(existingQuoteItem || {}),
                 id: existingQuoteItem?.id || li.id || `item_${idx}`,
+                sn: idx + 1,
                 item_name: li.item_name || existingQuoteItem?.item_name || `Item ${idx + 1}`,
                 description: li.description ?? existingQuoteItem?.description ?? '',
                 quantity: qty,
                 unit: li.unit || existingQuoteItem?.unit || 'pcs',
                 unit_price: uPrice,
-                cost_price: li.cost_price,
+                cost_price: li.cost_price ?? existingQuoteItem?.cost_price,
                 total_price: tPrice,
+                line_total: tPrice,
                 availability: deliveryVal,
                 lead_time_note: deliveryVal,
                 product_id: li.product_id,
                 sku: li.sku,
+                product_sku: (li as any).product_sku ?? li.sku ?? existingQuoteItem?.product_sku,
+                variant_id: (li as any).variant_id ?? existingQuoteItem?.variant_id,
+                variant_name: (li as any).variant_name ?? existingQuoteItem?.variant_name,
+                product_type: li.product_type ?? (existingQuoteItem as any)?.product_type,
+                item_type: li.item_type ?? existingQuoteItem?.item_type,
+                charge_type: li.charge_type ?? (existingQuoteItem as any)?.charge_type,
                 brand_make: li.brand_make || existingQuoteItem?.brand_make,
                 model_part_no: li.model_part_no || existingQuoteItem?.model_part_no,
                 country_of_origin: li.country_of_origin || existingQuoteItem?.country_of_origin,
@@ -5009,18 +5073,44 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 secondary_image_url: li.secondary_image_url || existingQuoteItem?.secondary_image_url,
                 image_caption: li.image_caption ?? existingQuoteItem?.image_caption,
                 secondary_image_caption: li.secondary_image_caption ?? existingQuoteItem?.secondary_image_caption,
+                image_adjustments: li.image_adjustments ?? existingQuoteItem?.image_adjustments,
+                image_display_override: li.image_display_override ?? existingQuoteItem?.image_display_override,
+                image_size_override: li.image_size_override ?? existingQuoteItem?.image_size_override,
+                image_aspect_override: li.image_aspect_override ?? existingQuoteItem?.image_aspect_override,
                 datasheet_attachment: li.datasheet_attachment || existingQuoteItem?.datasheet_attachment,
-                option: li.option || existingQuoteItem?.option,
-                option_group: li.option || existingQuoteItem?.option_group,
+                include_datasheet_in_quote:
+                  li.include_datasheet_in_quote ?? existingQuoteItem?.include_datasheet_in_quote ?? true,
+                option: resolvedOpt || undefined,
+                option_group:
+                  resolvedOpt && resolvedOpt !== 'Default / Included' && resolvedOpt !== 'Baseline / All'
+                    ? resolvedOpt
+                    : undefined,
                 option_scope_notes: li.option_scope_notes ?? existingQuoteItem?.option_scope_notes,
-                is_composite_set: li.is_composite_set,
-                sub_components: li.sub_components,
-                package_pricing_mode: li.package_pricing_mode,
+                is_optional: resolvedIsOptional,
+                is_composite_set: li.is_composite_set ?? existingQuoteItem?.is_composite_set,
+                sub_components: li.sub_components ?? existingQuoteItem?.sub_components,
+                package_pricing_mode: li.package_pricing_mode ?? existingQuoteItem?.package_pricing_mode,
                 specifications: li.specifications,
-                attributes:
-                  Array.isArray(li.attributes) && li.attributes.length > 0
-                    ? li.attributes
-                    : existingQuoteItem?.attributes
+                attributes: Array.isArray(li.attributes)
+                  ? li.attributes
+                  : existingQuoteItem?.attributes,
+                technical_attributes:
+                  (li as any).technical_attributes ?? (existingQuoteItem as any)?.technical_attributes,
+                visible_attributes:
+                  (li as any).visible_attributes ?? existingQuoteItem?.visible_attributes,
+                hidden_attributes:
+                  (li as any).hidden_attributes ?? existingQuoteItem?.hidden_attributes,
+                attribute_order: li.attribute_order ?? existingQuoteItem?.attribute_order,
+                attribute_line_breaks_after:
+                  li.attribute_line_breaks_after ?? existingQuoteItem?.attribute_line_breaks_after,
+                attribute_full_width_keys:
+                  li.attribute_full_width_keys ?? existingQuoteItem?.attribute_full_width_keys,
+                row_note: li.row_note ?? existingQuoteItem?.row_note,
+                row_highlight: li.row_highlight ?? existingQuoteItem?.row_highlight,
+                row_bold: li.row_bold ?? existingQuoteItem?.row_bold,
+                hide_row_price: li.hide_row_price ?? existingQuoteItem?.hide_row_price,
+                page_break_after: li.page_break_after ?? existingQuoteItem?.page_break_after,
+                row_spacer_after_mm: li.row_spacer_after_mm ?? existingQuoteItem?.row_spacer_after_mm
               };
             });
             const resolvedTaxMode = taxMode || activeDraftQuote.tax_mode || 'taxes_extra';
@@ -5028,7 +5118,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               updatedQuoteLineItems as any,
               activeDraftQuote.freight_amount || 0,
               resolvedTaxMode,
-              activeDraftQuote.tax_rate_percent ?? 5
+              activeDraftQuote.tax_rate_percent ?? 5,
+              activeDraftQuote.option_display_mode
             );
             const assignedRep = resolveSalespersonName(updatedDoc);
             const rawSyncedRef = (updatedDoc.quote_ref_no || quoteRefNo || '').trim();
@@ -7642,22 +7733,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    const itemInAed = {
-                                      ...item,
-                                      unit_price:
-                                        formCurrency === 'USD'
-                                          ? Number(((Number(item.unit_price) || 0) * 3.6725).toFixed(2))
-                                          : item.unit_price,
-                                      cost_price:
-                                        item.cost_price !== undefined
-                                          ? formCurrency === 'USD'
-                                            ? Number((Number(item.cost_price) * 3.6725).toFixed(2))
-                                            : item.cost_price
-                                          : undefined
-                                    };
                                     setSaveToCatalogState({
                                       isOpen: true,
-                                      item: itemInAed,
+                                      item,
                                       itemIndex: index
                                     });
                                   }}
@@ -10983,19 +11061,42 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         onSaved={(newProduct) => {
           const idx = saveToCatalogState.itemIndex;
           if (idx >= 0 && idx < lineItems.length) {
+            const fxRate = resolveToAedMultiplier(formCurrency || 'AED');
             setLineItems((prev) => {
               const next = [...prev];
               const current = next[idx];
               const unitPriceInFormCurrency =
-                formCurrency === 'USD'
-                  ? Number(((newProduct.unit_price || 0) / 3.6725).toFixed(2))
+                fxRate > 0 && fxRate !== 1
+                  ? Number(((newProduct.unit_price || 0) / fxRate).toFixed(2))
                   : newProduct.unit_price || 0;
               const costPriceInFormCurrency =
                 newProduct.cost_price !== undefined
-                  ? formCurrency === 'USD'
-                    ? Number((newProduct.cost_price / 3.6725).toFixed(2))
+                  ? fxRate > 0 && fxRate !== 1
+                    ? Number((newProduct.cost_price / fxRate).toFixed(2))
                     : newProduct.cost_price
                   : current.cost_price;
+              const resolvedLead =
+                newProduct.default_availability ||
+                (newProduct as any).lead_time_note ||
+                current.lead_time_note;
+              const scaledSubs =
+                Array.isArray(newProduct.sub_components) && newProduct.sub_components.length > 0
+                  ? newProduct.sub_components.map((sc) => ({
+                      ...sc,
+                      unit_price:
+                        sc.unit_price !== undefined
+                          ? fxRate > 0 && fxRate !== 1
+                            ? Number((Number(sc.unit_price) / fxRate).toFixed(2))
+                            : Number(sc.unit_price)
+                          : 0,
+                      cost_price:
+                        sc.cost_price !== undefined
+                          ? fxRate > 0 && fxRate !== 1
+                            ? Number((Number(sc.cost_price) / fxRate).toFixed(2))
+                            : Number(sc.cost_price)
+                          : undefined
+                    }))
+                  : current.sub_components;
               next[idx] = {
                 ...current,
                 product_id: newProduct.id,
@@ -11014,10 +11115,19 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 country_of_origin: newProduct.country_of_origin || current.country_of_origin,
                 hs_code: newProduct.hs_code || current.hs_code,
                 image_url: newProduct.image_url || current.image_url,
+                secondary_image_url: newProduct.secondary_image_url || current.secondary_image_url,
+                image_caption: newProduct.image_caption ?? current.image_caption,
+                secondary_image_caption: newProduct.secondary_image_caption ?? current.secondary_image_caption,
+                image_adjustments: newProduct.image_adjustments ?? current.image_adjustments,
                 datasheet_attachment: newProduct.datasheet_attachment || current.datasheet_attachment,
                 include_datasheet_in_quote:
                   newProduct.datasheet_attachment || current.datasheet_attachment ? true : undefined,
-                lead_time_note: newProduct.default_availability || current.lead_time_note,
+                lead_time_note: resolvedLead,
+                availability: resolvedLead,
+                is_composite_set: newProduct.is_composite_set ?? current.is_composite_set,
+                sub_components: scaledSubs,
+                package_pricing_mode: newProduct.package_pricing_mode ?? current.package_pricing_mode,
+                option_scope_notes: newProduct.option_scope_notes ?? current.option_scope_notes,
                 attributes:
                   newProduct.attributes && newProduct.attributes.length > 0
                     ? newProduct.attributes

@@ -558,9 +558,21 @@ export default function App() {
 
   const refreshProducts = async () => {
     try {
-      const freshProds = await MetadataRepository.fetchProductsOnce();
+      const freshProds = await MetadataRepository.fetchProductsOnce(activeWorkspace?.id, true);
       if (freshProds && freshProds.length > 0) {
-        setProducts(freshProds);
+        setProducts((prev) => {
+          const mapById = new Map<string, Product>();
+          for (const p of prev || []) {
+            if (p?.id) mapById.set(p.id, p);
+          }
+          for (const fp of freshProds) {
+            if (fp?.id) {
+              const old = mapById.get(fp.id);
+              mapById.set(fp.id, old ? { ...old, ...fp } : fp);
+            }
+          }
+          return Array.from(mapById.values());
+        });
       }
     } catch (err) {
       console.error('Failed to refresh products:', err);

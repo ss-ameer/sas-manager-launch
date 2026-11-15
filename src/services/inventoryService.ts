@@ -12,11 +12,11 @@ import {
   Quotation,
   PurchaseOrderReceivingStatus
 } from '../types';
-import { safeAddDoc, safeUpdateDoc, db } from '../firebase';
-import { doc, getDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
+import { safeAddDoc, safeUpdateDoc, safeGetDoc, safeGetDocs, db } from '../firebase';
+import { collection, query, where, onSnapshot, limit } from 'firebase/firestore';
 import { MetadataRepository } from './repositories/MetadataRepository';
 import { QuotationRepository } from './repositories/QuotationRepository';
-import { saveToLocalStore, getFromLocalStore } from './db';
+import { getFromLocalStore } from './db';
 import { isOptionActiveForInventoryAndBaseline } from '../utils/compositeBomUtils';
 
 export { isOptionActiveForInventoryAndBaseline };
@@ -172,10 +172,9 @@ export async function reserveEnquiryStock(
     }
 
     try {
-      const prodRef = doc(db, 'products', reqItem.product_id);
-      const prodSnap = await getDoc(prodRef);
+      const prodSnap = await safeGetDoc('products', reqItem.product_id);
 
-      if (!prodSnap.exists()) {
+      if (!prodSnap || !prodSnap.exists()) {
         result.skippedCount++;
         continue;
       }
@@ -205,17 +204,12 @@ export async function reserveEnquiryStock(
         updatedAt: nowIso
       });
 
-      try {
-        const cachedProducts = await MetadataRepository.fetchProductsOnce(wsId);
-        if (cachedProducts && cachedProducts.length > 0) {
-          const updatedCached = cachedProducts.map((p) =>
-            p.id === reqItem.product_id ? { ...p, stock_reserved: newReserved } : p
-          );
-          await saveToLocalStore('products', updatedCached);
-        }
-      } catch (cacheErr) {
-        // Non-critical local cache update
-      }
+      await MetadataRepository.upsertLocalProduct({
+        ...prodData,
+        id: reqItem.product_id,
+        stock_reserved: newReserved,
+        updatedAt: nowIso
+      }).catch(() => {});
 
       const movement: StockMovement = {
         workspace_id: wsId,
@@ -295,10 +289,9 @@ export async function releaseEnquiryStock(
     }
 
     try {
-      const prodRef = doc(db, 'products', reqItem.product_id);
-      const prodSnap = await getDoc(prodRef);
+      const prodSnap = await safeGetDoc('products', reqItem.product_id);
 
-      if (!prodSnap.exists()) {
+      if (!prodSnap || !prodSnap.exists()) {
         result.skippedCount++;
         continue;
       }
@@ -323,6 +316,13 @@ export async function releaseEnquiryStock(
         stock_reserved: newReserved,
         updatedAt: nowIso
       });
+
+      await MetadataRepository.upsertLocalProduct({
+        ...prodData,
+        id: reqItem.product_id,
+        stock_reserved: newReserved,
+        updatedAt: nowIso
+      }).catch(() => {});
 
       const movement: StockMovement = {
         workspace_id: wsId,
@@ -406,6 +406,35 @@ export async function dispatchProjectStock(
     'System';
   const userUid = user?.uid;
 
+  // Determine if this project or its source enquiry actually holds an active stock reservation
+  // so dispatching an unreserved project never subtracts from other enquiries' stock_reserved!
+  let hasActiveReservation = Boolean((project as any).stock_reserved);
+  const enqReservedQtyByProduct = new Map<string, number>();
+
+  if (project.enquiry_id) {
+    try {
+      const enqSnap = await safeGetDoc('enquiries', project.enquiry_id);
+      if (enqSnap && enqSnap.exists()) {
+        const enqData = enqSnap.data() as Enquiry;
+        if (enqData.stock_reserved) {
+          hasActiveReservation = true;
+          const enqReqs = extractEffectiveStockRequirements(
+            enqData.line_items || [],
+            enqData.proposal_option
+          );
+          for (const er of enqReqs) {
+            if (er.product_id) {
+              enqReservedQtyByProduct.set(
+                er.product_id,
+                (enqReservedQtyByProduct.get(er.product_id) || 0) + (Number(er.quantity) || 0)
+              );
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
   for (const reqItem of requirements) {
     if (!reqItem.product_id) {
       result.skippedCount++;
@@ -413,10 +442,9 @@ export async function dispatchProjectStock(
     }
 
     try {
-      const prodRef = doc(db, 'products', reqItem.product_id);
-      const prodSnap = await getDoc(prodRef);
+      const prodSnap = await safeGetDoc('products', reqItem.product_id);
 
-      if (!prodSnap.exists()) {
+      if (!prodSnap || !prodSnap.exists()) {
         result.skippedCount++;
         continue;
       }
@@ -437,13 +465,26 @@ export async function dispatchProjectStock(
       const currentReserved = Number(prodData.stock_reserved) || 0;
 
       const newOnHand = Math.max(0, currentOnHand - qty);
-      const newReserved = Math.max(0, currentReserved - qty);
+      const maxReservedToRelease = hasActiveReservation
+        ? enqReservedQtyByProduct.has(reqItem.product_id)
+          ? Math.min(qty, enqReservedQtyByProduct.get(reqItem.product_id)!)
+          : qty
+        : 0;
+      const newReserved = Math.max(0, currentReserved - maxReservedToRelease);
 
       await safeUpdateDoc('products', reqItem.product_id, {
         stock_on_hand: newOnHand,
         stock_reserved: newReserved,
         updatedAt: nowIso
       });
+
+      await MetadataRepository.upsertLocalProduct({
+        ...prodData,
+        id: reqItem.product_id,
+        stock_on_hand: newOnHand,
+        stock_reserved: newReserved,
+        updatedAt: nowIso
+      }).catch(() => {});
 
       const movement: StockMovement = {
         workspace_id: wsId,
@@ -477,6 +518,12 @@ export async function dispatchProjectStock(
   }
 
   const hasDeductedPhysicalStock = result.dispatchedCount > 0;
+  if (hasDeductedPhysicalStock && hasActiveReservation && project.enquiry_id) {
+    await safeUpdateDoc('enquiries', project.enquiry_id, {
+      stock_reserved: false,
+      updatedAt: nowIso
+    }).catch(() => {});
+  }
   if (project.id) {
     await safeUpdateDoc('projects', project.id, {
       status: 'Delivered',
@@ -522,16 +569,23 @@ export async function processStockGrn(
   const userUid = user?.uid;
 
   try {
-    const prodRef = doc(db, 'products', data.product_id);
-    const prodSnap = await getDoc(prodRef);
-
-    let previousOnHand = 0;
+    if (!data.product_id) {
+      throw new Error('Product ID is required to receive stock.');
+    }
+    const prodSnap = await safeGetDoc('products', data.product_id);
     let prodData: Product | null = null;
 
-    if (prodSnap.exists()) {
-      prodData = prodSnap.data() as Product;
-      previousOnHand = Number(prodData.stock_on_hand) || 0;
+    if (prodSnap && prodSnap.exists()) {
+      prodData = { id: prodSnap.id, ...(prodSnap.data() as Product) };
+    } else {
+      prodData = await getProductLiveOrLocal(data.product_id);
     }
+
+    if (!prodData || !(prodData.name || prodData.description || prodData.sku)) {
+      throw new Error(`Catalog product (${data.product_id}) was not found. Cannot process GRN on a non-existent product.`);
+    }
+
+    const previousOnHand = Number(prodData.stock_on_hand) || 0;
 
     const qty = Number(data.quantity) || 0;
     if (qty <= 0) {
@@ -563,6 +617,11 @@ export async function processStockGrn(
     }
 
     await safeUpdateDoc('products', data.product_id, updatePayload);
+    await MetadataRepository.upsertLocalProduct({
+      ...prodData,
+      ...updatePayload,
+      id: data.product_id
+    }).catch(() => {});
 
     // Build immutable STOCK_IN audit record
     const movement: StockMovement = {
@@ -623,16 +682,23 @@ export async function processStockAdjustment(
   const nowIso = new Date().toISOString();
 
   try {
-    const prodRef = doc(db, 'products', data.product_id);
-    const prodSnap = await getDoc(prodRef);
-
-    let previousOnHand = 0;
-    let prodData: Partial<Product> = {};
-
-    if (prodSnap.exists()) {
-      prodData = prodSnap.data() as Product;
-      previousOnHand = Number(prodData.stock_on_hand) || 0;
+    if (!data.product_id) {
+      throw new Error('Product ID is required to adjust stock.');
     }
+    const prodSnap = await safeGetDoc('products', data.product_id);
+    let prodData: Product | null = null;
+
+    if (prodSnap && prodSnap.exists()) {
+      prodData = { id: prodSnap.id, ...(prodSnap.data() as Product) };
+    } else {
+      prodData = await getProductLiveOrLocal(data.product_id);
+    }
+
+    if (!prodData || !(prodData.name || prodData.description || prodData.sku)) {
+      throw new Error(`Catalog product (${data.product_id}) was not found. Cannot adjust stock on a non-existent product.`);
+    }
+
+    const previousOnHand = Number(prodData.stock_on_hand) || 0;
 
     const inputQty = Number(data.target_or_delta_qty);
     if (isNaN(inputQty) || inputQty < 0) {
@@ -670,6 +736,11 @@ export async function processStockAdjustment(
     }
 
     await safeUpdateDoc('products', data.product_id, updatePayload);
+    await MetadataRepository.upsertLocalProduct({
+      ...prodData,
+      ...updatePayload,
+      id: data.product_id
+    }).catch(() => {});
 
     const modeLabels: Record<string, string> = {
       OPENING_STOCK: 'Opening Stock Balance',
@@ -725,9 +796,8 @@ export async function processStockAdjustment(
  */
 export async function fetchStockMovements(workspaceId: string): Promise<StockMovement[]> {
   try {
-    const coll = collection(db, 'stock_movements');
-    const q = query(coll, where('workspace_id', '==', workspaceId));
-    const snap = await getDocs(q);
+    const snap = await safeGetDocs('stock_movements', where('workspace_id', '==', workspaceId), limit(500));
+    if (!snap || snap.empty) return [];
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as StockMovement));
     return list.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   } catch (err) {
@@ -812,7 +882,7 @@ export function subscribeStockMovements(
   if (!stockMovementsUnsubs.has(wsId)) {
     try {
       const coll = collection(db, 'stock_movements');
-      const q = query(coll, where('workspace_id', '==', wsId));
+      const q = query(coll, where('workspace_id', '==', wsId), limit(500));
       const unsub = onSnapshot(
         q,
         (snap) => {
@@ -855,9 +925,8 @@ export function subscribeStockMovements(
 async function getProductLiveOrLocal(productId: string): Promise<Product | null> {
   if (!productId) return null;
   try {
-    const prodRef = doc(db, 'products', productId);
-    const prodSnap = await getDoc(prodRef);
-    if (prodSnap.exists()) {
+    const prodSnap = await safeGetDoc('products', productId);
+    if (prodSnap && prodSnap.exists()) {
       return { id: prodSnap.id, ...(prodSnap.data() as Product) };
     }
   } catch (_) {}
@@ -952,6 +1021,11 @@ export async function processPoBatchGrn(
         }
 
         await safeUpdateDoc('products', line.product_id, productUpdate);
+        await MetadataRepository.upsertLocalProduct({
+          ...(prodData || {}),
+          ...productUpdate,
+          id: line.product_id
+        }).catch(() => {});
         updatedProducts.push({
           productId: line.product_id,
           newOnHand,
@@ -1182,6 +1256,12 @@ export async function processVendorReturnStockDeduction(
         stock_on_hand: newOnHand,
         updatedAt: nowIso
       });
+      await MetadataRepository.upsertLocalProduct({
+        ...prodData,
+        id: item.product_id,
+        stock_on_hand: newOnHand,
+        updatedAt: nowIso
+      }).catch(() => {});
 
       updatedProducts.push({ productId: item.product_id, newOnHand });
 
@@ -1299,6 +1379,7 @@ export async function reconcileProcurementDocumentStockOnLifecycleChange(
       stock_on_hand: newOnHand,
       updated_at: nowIso
     });
+    await MetadataRepository.upsertLocalProduct(updatedProduct).catch(() => {});
     updatedProducts.push(updatedProduct);
 
     const movement: Omit<StockMovement, 'id'> = {

@@ -6,7 +6,8 @@ import { where } from 'firebase/firestore';
 import {
   hasInlineBase64Payload,
   sanitizeFirestorePayload,
-  rehydrateDocumentBlobsSync
+  rehydrateDocumentBlobsSync,
+  rehydrateDocumentBlobsFromLocal
 } from '../attachmentStorage';
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -18,6 +19,13 @@ export class MetadataRepository {
 
   private static normalizeProduct(raw: any): Product {
     return rehydrateDocumentBlobsSync(raw) as Product;
+  }
+
+  private static filterProductsForWorkspace(list: Product[], workspaceId?: string): Product[] {
+    if (!workspaceId) return list;
+    return list.filter(
+      (p: any) => !p.workspace_id || p.workspace_id === workspaceId || p.workspaceId === workspaceId
+    );
   }
 
   private static syncProductsToLocalStorage(products: Product[]): void {
@@ -33,22 +41,105 @@ export class MetadataRepository {
     } catch (_) {}
   }
 
-  public static async syncProductListToStores(products: Product[]): Promise<void> {
-    const cleanDocs = (products || []).map((p) => this.normalizeProduct(p));
-    await saveToLocalStore(this.PRODUCT_STORE, cleanDocs);
-    this.syncProductsToLocalStorage(cleanDocs);
-    this.productsCache.set('__all__', { data: cleanDocs, fetchedAt: Date.now() });
-    const byWs = new Map<string, Product[]>();
-    for (const p of cleanDocs) {
-      const ws = (p as any).workspace_id || (p as any).workspaceId;
-      if (ws) {
-        if (!byWs.has(ws)) byWs.set(ws, []);
-        byWs.get(ws)!.push(p);
-      }
+  private static async loadExistingFullProductList(): Promise<Product[]> {
+    const cachedAll = this.productsCache.get('__all__');
+    if (cachedAll && Array.isArray(cachedAll.data) && cachedAll.data.length > 0) {
+      return cachedAll.data;
     }
-    byWs.forEach((list, ws) => {
-      this.productsCache.set(ws, { data: list, fetchedAt: Date.now() });
+    try {
+      const local = await getFromLocalStore<Product>(this.PRODUCT_STORE);
+      if (local && local.length > 0) {
+        return local.map((p) => this.normalizeProduct(p));
+      }
+    } catch (_) {}
+    try {
+      const raw = typeof window !== 'undefined' ? window.localStorage?.getItem(this.PRODUCT_LS_KEY) : null;
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.map((p) => this.normalizeProduct(p));
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  private static rebuildCachesFromFullList(fullList: Product[]): void {
+    const now = Date.now();
+    this.productsCache.set('__all__', { data: fullList, fetchedAt: now });
+    const wsIds = new Set<string>();
+    for (const p of fullList) {
+      const ws = (p as any).workspace_id || (p as any).workspaceId;
+      if (ws) wsIds.add(ws);
+    }
+    wsIds.forEach((ws) => {
+      this.productsCache.set(ws, {
+        data: this.filterProductsForWorkspace(fullList, ws),
+        fetchedAt: now
+      });
     });
+  }
+
+  public static invalidateCache(workspaceId?: string): void {
+    if (workspaceId) {
+      this.productsCache.delete(workspaceId);
+      this.productsCache.delete('__all__');
+    } else {
+      this.productsCache.clear();
+    }
+  }
+
+  public static InvalidateCache(workspaceId?: string): void {
+    this.invalidateCache(workspaceId);
+  }
+
+  public static async syncProductListToStores(
+    products: Product[],
+    workspaceId?: string,
+    replaceAll = false
+  ): Promise<Product[]> {
+    const incomingDocs = (products || []).map((p) => this.normalizeProduct(p));
+    let mergedAll: Product[];
+
+    if (replaceAll) {
+      mergedAll = incomingDocs;
+    } else {
+      const existingAll = await this.loadExistingFullProductList();
+      const mapById = new Map<string, Product>();
+      for (const ep of existingAll) {
+        if (ep?.id) mapById.set(ep.id, ep);
+      }
+      for (const ip of incomingDocs) {
+        if (ip?.id) {
+          const prev = mapById.get(ip.id);
+          mapById.set(ip.id, prev ? { ...prev, ...ip } : ip);
+        }
+      }
+      mergedAll = Array.from(mapById.values());
+    }
+
+    await saveToLocalStore(this.PRODUCT_STORE, mergedAll);
+    this.syncProductsToLocalStorage(mergedAll);
+    this.rebuildCachesFromFullList(mergedAll);
+    if (workspaceId) {
+      this.productsCache.set(workspaceId, {
+        data: this.filterProductsForWorkspace(mergedAll, workspaceId),
+        fetchedAt: Date.now()
+      });
+    }
+    return mergedAll;
+  }
+
+  public static async upsertLocalProduct(
+    productOrPatch: Partial<Product> & { id?: string }
+  ): Promise<Product | null> {
+    if (!productOrPatch?.id) return null;
+    const existingAll = await this.loadExistingFullProductList();
+    const existing = existingAll.find((p) => p.id === productOrPatch.id);
+    const merged: Product = this.normalizeProduct({
+      ...(existing || {}),
+      ...productOrPatch
+    });
+    await this.syncProductListToStores([merged], (merged as any).workspace_id || (merged as any).workspaceId);
+    return merged;
   }
 
   // Static Metadata - fetched once on boot, cached in memory (24h TTL) + IndexedDB
@@ -65,11 +156,8 @@ export class MetadataRepository {
         const local = await getFromLocalStore<Product>(this.PRODUCT_STORE);
         if (local && local.length > 0) {
           const normalizedLocal = local.map((p) => this.normalizeProduct(p));
-          const filtered = workspaceId
-            ? normalizedLocal.filter(
-                (p: any) => !p.workspace_id || p.workspace_id === workspaceId || p.workspaceId === workspaceId
-              )
-            : normalizedLocal;
+          this.rebuildCachesFromFullList(normalizedLocal);
+          const filtered = this.filterProductsForWorkspace(normalizedLocal, workspaceId);
           if (filtered.length > 0) {
             this.productsCache.set(cacheKey, { data: filtered, fetchedAt: Date.now() });
             return filtered;
@@ -83,14 +171,8 @@ export class MetadataRepository {
         ? await safeGetDocs('products', where('workspace_id', '==', workspaceId))
         : await safeGetDocs('products');
       if (!snap || snap.empty) {
-        const local = await getFromLocalStore<Product>(this.PRODUCT_STORE);
-        if (local && local.length > 0) return local.map((p) => this.normalizeProduct(p));
-        try {
-          const raw = typeof window !== 'undefined' ? window.localStorage.getItem(this.PRODUCT_LS_KEY) : null;
-          return raw ? JSON.parse(raw) : [];
-        } catch (_) {
-          return [];
-        }
+        const existingAll = await this.loadExistingFullProductList();
+        return this.filterProductsForWorkspace(existingAll, workspaceId);
       }
 
       const compactionFlagKey = 'sas_enterprise_4kib_compacted_products_v1';
@@ -126,41 +208,33 @@ export class MetadataRepository {
         }
       }
 
-      await this.syncProductListToStores(docs);
-      this.productsCache.set(cacheKey, { data: docs, fetchedAt: Date.now() });
-      return docs;
+      // Warm any IndexedDB-backed product blobs asynchronously in the background
+      Promise.all(docs.map((p) => rehydrateDocumentBlobsFromLocal(p))).catch(() => {});
+
+      const mergedAll = await this.syncProductListToStores(docs, workspaceId, !workspaceId);
+      const result = this.filterProductsForWorkspace(mergedAll, workspaceId);
+      this.productsCache.set(cacheKey, { data: result, fetchedAt: Date.now() });
+      return result;
     } catch (e) {
-      const local = await getFromLocalStore<Product>(this.PRODUCT_STORE);
-      if (local && local.length > 0) return local.map((p) => this.normalizeProduct(p));
-      try {
-        const raw = typeof window !== 'undefined' ? window.localStorage.getItem(this.PRODUCT_LS_KEY) : null;
-        return raw ? JSON.parse(raw) : [];
-      } catch (_) {
-        return [];
-      }
+      const existingAll = await this.loadExistingFullProductList();
+      return this.filterProductsForWorkspace(existingAll, workspaceId);
     }
   }
 
   public static async saveProduct(product: Product): Promise<void> {
     const sanitizedForCloud = sanitizeFirestorePayload(product);
-    const hydratedProduct = this.normalizeProduct(sanitizedForCloud);
-    const current = await getFromLocalStore<Product>(this.PRODUCT_STORE);
-    const idx = current.findIndex((p) => p.id === hydratedProduct.id);
-    let updated: Product[];
-    if (idx >= 0) {
-      updated = [...current];
-      updated[idx] = hydratedProduct;
-    } else {
-      updated = [hydratedProduct, ...current];
-    }
-    await this.syncProductListToStores(updated);
+    const hydratedProduct = this.normalizeProduct({ ...product, ...sanitizedForCloud, image_url: product.image_url || sanitizedForCloud.image_url, secondary_image_url: product.secondary_image_url || sanitizedForCloud.secondary_image_url, datasheet_attachment: product.datasheet_attachment || sanitizedForCloud.datasheet_attachment });
+    await this.syncProductListToStores(
+      [hydratedProduct],
+      (hydratedProduct as any).workspace_id || (hydratedProduct as any).workspaceId
+    );
     if (hydratedProduct.id) {
       await syncEngine.enqueue('products', 'set', hydratedProduct.id, sanitizedForCloud);
     }
   }
 
   public static async softDeleteProduct(id: string, user?: { uid: string; name: string }): Promise<void> {
-    const current = await getFromLocalStore<Product>(this.PRODUCT_STORE);
+    const current = await this.loadExistingFullProductList();
     const idx = current.findIndex((p) => p.id === id);
     if (idx === -1) return;
 
@@ -177,7 +251,7 @@ export class MetadataRepository {
   }
 
   public static async restoreProduct(id: string): Promise<void> {
-    const current = await getFromLocalStore<Product>(this.PRODUCT_STORE);
+    const current = await this.loadExistingFullProductList();
     const idx = current.findIndex((p) => p.id === id);
     if (idx === -1) return;
 
@@ -194,9 +268,9 @@ export class MetadataRepository {
   }
 
   public static async purgeProductPermanent(id: string): Promise<void> {
-    const current = await getFromLocalStore<Product>(this.PRODUCT_STORE);
+    const current = await this.loadExistingFullProductList();
     const updated = current.filter((p) => p.id !== id);
-    await this.syncProductListToStores(updated);
+    await this.syncProductListToStores(updated, undefined, true);
     await syncEngine.enqueue('products', 'delete', id);
   }
 

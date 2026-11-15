@@ -45,7 +45,8 @@ import SaveToCatalogModal, {
   compileDescriptionWithSpecs,
   isLineItemPopulated,
   linkLineItemToCatalogProductNonDestructive,
-  CatalogSyncMenu
+  CatalogSyncMenu,
+  resolveToAedMultiplier
 } from './SaveToCatalogModal';
 import CompositePackageEditor from './quotations/CompositePackageEditor';
 import { cloneLineItemToNextOption, recalculateCompositeItemTotals, isOptionActiveForInventoryAndBaseline } from '../utils/compositeBomUtils';
@@ -917,46 +918,66 @@ export default function EnquiryDetail({
     return (targetEnq.line_items || []).map((li, idx) => {
       const qty = Number(li.quantity) || 1;
       const rate = Number(li.unit_price) || 0;
+      const computedLineTotal =
+        li.total_price !== undefined && li.total_price !== null
+          ? QuotationRepository.roundCurrency(Number(li.total_price) || 0)
+          : QuotationRepository.roundCurrency(qty * rate);
       const rawOpt = String((li as any).option_designation || li.option || '').trim();
       const isOptionalOrAlt =
-        rawOpt.toLowerCase().includes('optional') ||
-        rawOpt.toLowerCase().includes('add-on') ||
-        /option\s+[b-z]/i.test(rawOpt);
+        typeof (li as any).is_optional === 'boolean' && !rawOpt
+          ? (li as any).is_optional
+          : rawOpt.toLowerCase().includes('optional') ||
+            rawOpt.toLowerCase().includes('add-on') ||
+            /option\s+[b-z]/i.test(rawOpt);
+      const resolvedAvail =
+        (li.lead_time_note && li.lead_time_note !== 'Ex-Stock / Standard' ? li.lead_time_note : '') ||
+        ((li as any).availability && (li as any).availability !== 'Ex-Stock / Standard' ? (li as any).availability : '') ||
+        currentEnquiry.delivery_period ||
+        li.lead_time_note ||
+        (li as any).availability ||
+        'Ex-Stock / Standard';
       return {
-        id: li.id || `item_${idx}`,
+        id: li.id || `item_${idx + 1}`,
         sn: idx + 1,
         product_id: li.product_id,
-        sku: li.sku,
+        sku: li.sku || (li as any).product_sku,
+        product_sku: (li as any).product_sku || li.sku,
+        product_type: li.product_type,
+        variant_id: (li as any).variant_id,
+        variant_name: (li as any).variant_name,
+        item_type: li.item_type,
+        charge_type: (li as any).charge_type,
         item_name: li.item_name || li.product_type || `Item #${idx + 1}`,
         description: li.description || '',
         quantity: qty,
         unit: li.unit || 'pcs',
         unit_price: rate,
         cost_price: li.cost_price,
-        total_price: QuotationRepository.roundCurrency(qty * rate),
-        line_total: QuotationRepository.roundCurrency(qty * rate),
+        total_price: computedLineTotal,
+        line_total: computedLineTotal,
         brand_make: li.brand_make,
         model_part_no: li.model_part_no,
         country_of_origin: li.country_of_origin,
         hs_code: li.hs_code,
-        availability:
-          (li.lead_time_note && li.lead_time_note !== 'Ex-Stock / Standard' ? li.lead_time_note : '') ||
-          ((li as any).availability && (li as any).availability !== 'Ex-Stock / Standard' ? (li as any).availability : '') ||
-          currentEnquiry.delivery_period ||
-          li.lead_time_note ||
-          (li as any).availability ||
-          'Ex-Stock / Standard',
-        lead_time_note:
-          (li.lead_time_note && li.lead_time_note !== 'Ex-Stock / Standard' ? li.lead_time_note : '') ||
-          ((li as any).availability && (li as any).availability !== 'Ex-Stock / Standard' ? (li as any).availability : '') ||
-          currentEnquiry.delivery_period ||
-          li.lead_time_note ||
-          (li as any).availability ||
-          'Ex-Stock / Standard',
+        availability: resolvedAvail,
+        lead_time_note: resolvedAvail,
         option: rawOpt || undefined,
         option_group: rawOpt && rawOpt !== 'Default / Included' && rawOpt !== 'Baseline / All' ? rawOpt : undefined,
+        option_scope_notes: li.option_scope_notes,
         is_optional: isOptionalOrAlt,
-        attributes: li.attributes || [],
+        attributes: Array.isArray(li.attributes) ? li.attributes : [],
+        technical_attributes: (li as any).technical_attributes,
+        visible_attributes: (li as any).visible_attributes,
+        hidden_attributes: (li as any).hidden_attributes,
+        attribute_order: (li as any).attribute_order,
+        attribute_line_breaks_after: (li as any).attribute_line_breaks_after,
+        attribute_full_width_keys: (li as any).attribute_full_width_keys,
+        row_note: (li as any).row_note,
+        row_highlight: (li as any).row_highlight,
+        row_bold: (li as any).row_bold,
+        hide_row_price: (li as any).hide_row_price,
+        page_break_after: (li as any).page_break_after,
+        row_spacer_after_mm: (li as any).row_spacer_after_mm,
         image_url: li.image_url,
         secondary_image_url: li.secondary_image_url,
         image_caption: li.image_caption,
@@ -1082,12 +1103,26 @@ export default function EnquiryDetail({
 
         const mergedItems = liveEnqItems
           ? liveEnqItems.map((li, idx) => {
-              const existingQi =
-                (li.id && q.line_items?.find((old) => old.id === li.id)) || q.line_items?.[idx];
+              const existingQi = li.id ? q.line_items?.find((old) => old.id === li.id) : undefined;
               return {
                 ...(existingQi || {}),
                 ...li,
-                id: existingQi?.id || li.id || `item_${idx + 1}`
+                id: existingQi?.id || li.id || `item_${idx + 1}`,
+                attributes: Array.isArray(li.attributes) ? li.attributes : existingQi?.attributes || [],
+                visible_attributes: li.visible_attributes ?? existingQi?.visible_attributes,
+                hidden_attributes: li.hidden_attributes ?? existingQi?.hidden_attributes,
+                attribute_order: li.attribute_order ?? existingQi?.attribute_order,
+                attribute_line_breaks_after: li.attribute_line_breaks_after ?? existingQi?.attribute_line_breaks_after,
+                attribute_full_width_keys: li.attribute_full_width_keys ?? existingQi?.attribute_full_width_keys,
+                page_break_after: li.page_break_after ?? existingQi?.page_break_after,
+                row_spacer_after_mm: li.row_spacer_after_mm ?? existingQi?.row_spacer_after_mm,
+                row_note: li.row_note ?? existingQi?.row_note,
+                row_highlight: li.row_highlight ?? existingQi?.row_highlight,
+                row_bold: li.row_bold ?? existingQi?.row_bold,
+                hide_row_price: li.hide_row_price ?? existingQi?.hide_row_price,
+                image_display_override: li.image_display_override ?? existingQi?.image_display_override,
+                image_size_override: li.image_size_override ?? existingQi?.image_size_override,
+                image_aspect_override: li.image_aspect_override ?? existingQi?.image_aspect_override
               };
             })
           : q.line_items;
@@ -2690,17 +2725,28 @@ export default function EnquiryDetail({
           const syncedDrafts: Quotation[] = [];
           for (const dq of draftQuotes) {
             const mergedItems: QuotationLineItem[] = mappedQuoteItems.map((freshIt, idx) => {
-              const prevIt =
-                (dq.line_items || []).find(
-                  (oldIt) =>
-                    (oldIt.id && freshIt.id && oldIt.id === freshIt.id) ||
-                    (oldIt.product_id && freshIt.product_id && oldIt.product_id === freshIt.product_id && oldIt.sn === idx + 1)
-                ) || (dq.line_items || [])[idx];
+              const prevIt = freshIt.id
+                ? (dq.line_items || []).find((oldIt) => oldIt.id === freshIt.id)
+                : undefined;
               return {
                 ...(prevIt || {}),
                 ...freshIt,
-                page_break_after: prevIt?.page_break_after,
-                visible_attributes: prevIt?.visible_attributes
+                id: prevIt?.id || freshIt.id || `item_${idx + 1}`,
+                attributes: Array.isArray(freshIt.attributes) ? freshIt.attributes : prevIt?.attributes || [],
+                visible_attributes: freshIt.visible_attributes ?? prevIt?.visible_attributes,
+                hidden_attributes: freshIt.hidden_attributes ?? prevIt?.hidden_attributes,
+                attribute_order: freshIt.attribute_order ?? prevIt?.attribute_order,
+                attribute_line_breaks_after: freshIt.attribute_line_breaks_after ?? prevIt?.attribute_line_breaks_after,
+                attribute_full_width_keys: freshIt.attribute_full_width_keys ?? prevIt?.attribute_full_width_keys,
+                page_break_after: freshIt.page_break_after ?? prevIt?.page_break_after,
+                row_spacer_after_mm: freshIt.row_spacer_after_mm ?? prevIt?.row_spacer_after_mm,
+                row_note: freshIt.row_note ?? prevIt?.row_note,
+                row_highlight: freshIt.row_highlight ?? prevIt?.row_highlight,
+                row_bold: freshIt.row_bold ?? prevIt?.row_bold,
+                hide_row_price: freshIt.hide_row_price ?? prevIt?.hide_row_price,
+                image_display_override: freshIt.image_display_override ?? prevIt?.image_display_override,
+                image_size_override: freshIt.image_size_override ?? prevIt?.image_size_override,
+                image_aspect_override: freshIt.image_aspect_override ?? prevIt?.image_aspect_override
               };
             });
             const totals = QuotationRepository.calculateTotals(
@@ -2907,62 +2953,39 @@ export default function EnquiryDetail({
     if (quotations.length === 0) return;
     setIsSyncingQuoteItems(true);
     try {
-      const mappedQuoteItems: QuotationLineItem[] = (currentEnquiry.line_items || []).map((li, idx) => {
-        const rawOpt = String((li as any).option_designation || li.option || '').trim();
-        const isOptionalOrAlt =
-          rawOpt.toLowerCase().includes('optional') ||
-          rawOpt.toLowerCase().includes('add-on') ||
-          /option\s+[b-z]/i.test(rawOpt);
-        const parsed = parseLineItemTitleAndSpec(li.item_name, li.description);
+      const baseMappedItems = buildBaseLineItemsFromSource(null, currentEnquiry);
+      const targetDraft = quotations.find((q) => q.status === 'Draft') || quotations[0];
+      const mappedQuoteItems: QuotationLineItem[] = baseMappedItems.map((freshIt, idx) => {
+        const prevIt = freshIt.id
+          ? (targetDraft?.line_items || []).find((oldIt) => oldIt.id === freshIt.id)
+          : undefined;
         return {
-          id: li.id || `item_${idx + 1}`,
-          sn: idx + 1,
-          product_id: li.product_id,
-          sku: li.sku,
-          item_name: parsed.title || li.product_type || `Item ${idx + 1}`,
-          description: parsed.spec || '',
-          brand_make: li.brand_make,
-          model_part_no: li.model_part_no,
-          country_of_origin: li.country_of_origin,
-          hs_code: li.hs_code,
-          availability:
-            (li.lead_time_note && li.lead_time_note !== 'Ex-Stock / Standard' ? li.lead_time_note : '') ||
-            currentEnquiry.delivery_period ||
-            li.lead_time_note ||
-            'Ex-Stock / Standard',
-          quantity: Number(li.quantity) || 1,
-          unit: li.unit || 'Nos',
-          unit_price: Number(li.unit_price) || 0,
-          line_total: Number(li.total_price) || (Number(li.quantity) || 1) * (Number(li.unit_price) || 0),
-          is_optional: isOptionalOrAlt,
-          option_group: rawOpt && rawOpt !== 'Default / Included' && rawOpt !== 'Baseline / All' ? rawOpt : undefined,
-          attributes: li.attributes || [],
-          image_url: li.image_url,
-          secondary_image_url: li.secondary_image_url,
-          image_caption: li.image_caption,
-          secondary_image_caption: li.secondary_image_caption,
-          image_adjustments: li.image_adjustments,
-          image_display_override: li.image_display_override,
-          image_size_override: li.image_size_override,
-          image_aspect_override: li.image_aspect_override,
-          datasheet_attachment: li.datasheet_attachment,
-          include_datasheet_in_quote: li.include_datasheet_in_quote !== false,
-          ...(li.is_composite_set ? { is_composite_set: true } : {}),
-          ...(Array.isArray(li.sub_components) && li.sub_components.length > 0
-            ? { sub_components: li.sub_components }
-            : {}),
-          ...(li.package_pricing_mode ? { package_pricing_mode: li.package_pricing_mode } : {}),
-          ...(li.option_scope_notes ? { option_scope_notes: li.option_scope_notes } : {})
+          ...(prevIt || {}),
+          ...freshIt,
+          id: prevIt?.id || freshIt.id || `item_${idx + 1}`,
+          attributes: Array.isArray(freshIt.attributes) ? freshIt.attributes : prevIt?.attributes || [],
+          visible_attributes: freshIt.visible_attributes ?? prevIt?.visible_attributes,
+          hidden_attributes: freshIt.hidden_attributes ?? prevIt?.hidden_attributes,
+          attribute_order: freshIt.attribute_order ?? prevIt?.attribute_order,
+          attribute_line_breaks_after: freshIt.attribute_line_breaks_after ?? prevIt?.attribute_line_breaks_after,
+          attribute_full_width_keys: freshIt.attribute_full_width_keys ?? prevIt?.attribute_full_width_keys,
+          page_break_after: freshIt.page_break_after ?? prevIt?.page_break_after,
+          row_spacer_after_mm: freshIt.row_spacer_after_mm ?? prevIt?.row_spacer_after_mm,
+          row_note: freshIt.row_note ?? prevIt?.row_note,
+          row_highlight: freshIt.row_highlight ?? prevIt?.row_highlight,
+          row_bold: freshIt.row_bold ?? prevIt?.row_bold,
+          hide_row_price: freshIt.hide_row_price ?? prevIt?.hide_row_price,
+          image_display_override: freshIt.image_display_override ?? prevIt?.image_display_override,
+          image_size_override: freshIt.image_size_override ?? prevIt?.image_size_override,
+          image_aspect_override: freshIt.image_aspect_override ?? prevIt?.image_aspect_override
         };
       });
-
-      const targetDraft = quotations.find((q) => q.status === 'Draft') || quotations[0];
 
       if (mode === 'sync_draft' && targetDraft?.id) {
         const totals = QuotationRepository.calculateTotals(
           mappedQuoteItems,
           targetDraft.freight_amount || 0,
-          targetDraft.tax_mode || 'tax_calculated',
+          targetDraft.tax_mode || currentEnquiry.tax_mode || 'taxes_extra',
           targetDraft.tax_rate_percent ?? 5
         );
         const updatedQuote: Quotation = {
@@ -7277,7 +7300,7 @@ export default function EnquiryDetail({
                                   title="Non-destructively link this item to an existing Catalog SKU (keeps your custom quote price & specs intact)"
                                 >
                                   <option value="">🔗 Link SKU...</option>
-                                  {(products || []).map((p) => (
+                                  {(products || []).filter((p) => !p.is_deleted).map((p) => (
                                     <option key={p.id} value={p.id}>
                                       {p.sku ? `[${p.sku}] ` : ''}
                                       {p.name}
@@ -9742,6 +9765,29 @@ export default function EnquiryDetail({
         onProductSaved={async (newProduct) => {
           const idx = saveToCatalogState.itemIndex;
           if (idx < 0) return;
+          const fxMult = resolveToAedMultiplier(currentEnquiry.currency || 'AED');
+          const resolvedCatalogCostAed = Number(
+            newProduct.cost_price ?? (newProduct as any).cost_price_aed ?? newProduct.last_landed_cost ?? 0
+          );
+          const convertedCost =
+            resolvedCatalogCostAed > 0
+              ? fxMult !== 1
+                ? Math.round((resolvedCatalogCostAed / fxMult) * 100) / 100
+                : resolvedCatalogCostAed
+              : undefined;
+          const convertedSubComponents = Array.isArray(newProduct.sub_components)
+            ? newProduct.sub_components.map((sc) => ({
+                ...sc,
+                unit_price: fxMult !== 1 ? Math.round((Number(sc.unit_price || 0) / fxMult) * 100) / 100 : sc.unit_price,
+                cost_price:
+                  sc.cost_price !== undefined
+                    ? fxMult !== 1
+                      ? Math.round((Number(sc.cost_price || 0) / fxMult) * 100) / 100
+                      : sc.cost_price
+                    : undefined
+              }))
+            : undefined;
+
           if (saveToCatalogState.isFromDraft) {
             setDraftLineItems((prev) => {
               const next = [...prev];
@@ -9754,13 +9800,22 @@ export default function EnquiryDetail({
                   product_type: newProduct.product_type || next[idx].product_type,
                   description: newProduct.description || next[idx].description,
                   unit: newProduct.unit || next[idx].unit,
+                  cost_price: convertedCost ?? next[idx].cost_price,
                   brand_make: newProduct.brand_make || next[idx].brand_make,
                   model_part_no: newProduct.model_part_no || next[idx].model_part_no,
                   country_of_origin: newProduct.country_of_origin || next[idx].country_of_origin,
                   hs_code: newProduct.hs_code || next[idx].hs_code,
                   lead_time_note: newProduct.default_availability || next[idx].lead_time_note,
                   image_url: newProduct.image_url || next[idx].image_url,
+                  secondary_image_url: newProduct.secondary_image_url || next[idx].secondary_image_url,
+                  image_caption: newProduct.image_caption || next[idx].image_caption,
+                  secondary_image_caption: newProduct.secondary_image_caption || next[idx].secondary_image_caption,
+                  image_adjustments: newProduct.image_adjustments || next[idx].image_adjustments,
                   datasheet_attachment: newProduct.datasheet_attachment || next[idx].datasheet_attachment,
+                  include_datasheet_in_quote:
+                    newProduct.datasheet_attachment ? next[idx].include_datasheet_in_quote !== false : next[idx].include_datasheet_in_quote,
+                  is_composite_set: newProduct.is_composite_set ?? next[idx].is_composite_set,
+                  sub_components: convertedSubComponents || next[idx].sub_components,
                   attributes:
                     newProduct.attributes && newProduct.attributes.length > 0
                       ? newProduct.attributes
@@ -9772,6 +9827,7 @@ export default function EnquiryDetail({
           } else if (currentEnquiry.id && currentEnquiry.line_items) {
             const nextItems = [...currentEnquiry.line_items];
             if (nextItems[idx]) {
+              const targetItemId = nextItems[idx].id;
               nextItems[idx] = {
                 ...nextItems[idx],
                 product_id: newProduct.id,
@@ -9780,6 +9836,7 @@ export default function EnquiryDetail({
                 product_type: newProduct.product_type || nextItems[idx].product_type,
                 description: newProduct.description || nextItems[idx].description,
                 unit: newProduct.unit || nextItems[idx].unit,
+                cost_price: convertedCost ?? nextItems[idx].cost_price,
                 brand_make: newProduct.brand_make || nextItems[idx].brand_make,
                 model_part_no: newProduct.model_part_no || nextItems[idx].model_part_no,
                 country_of_origin: newProduct.country_of_origin || nextItems[idx].country_of_origin,
@@ -9791,27 +9848,71 @@ export default function EnquiryDetail({
                 secondary_image_caption: newProduct.secondary_image_caption || nextItems[idx].secondary_image_caption,
                 image_adjustments: newProduct.image_adjustments || nextItems[idx].image_adjustments,
                 datasheet_attachment: newProduct.datasheet_attachment || nextItems[idx].datasheet_attachment,
+                include_datasheet_in_quote:
+                  newProduct.datasheet_attachment ? nextItems[idx].include_datasheet_in_quote !== false : nextItems[idx].include_datasheet_in_quote,
+                is_composite_set: newProduct.is_composite_set ?? nextItems[idx].is_composite_set,
+                sub_components: convertedSubComponents || nextItems[idx].sub_components,
                 attributes:
                   newProduct.attributes && newProduct.attributes.length > 0
                     ? newProduct.attributes
                     : nextItems[idx].attributes
               };
-                const updatedEnq = { ...currentEnquiry, line_items: nextItems, updatedAt: new Date().toISOString() };
-                setCurrentEnquiry(updatedEnq);
-                setDraftLineItems(nextItems);
-                if (onUpdateEnquiry) onUpdateEnquiry(updatedEnq);
-                if (setEnquiries) setEnquiries((prev) => prev.map((e) => (e.id === currentEnquiry.id ? updatedEnq : e)));
-                try {
-                  const strippedNextItems = stripCatalogRedundantLineItemMedia(nextItems, [newProduct, ...(products || [])]);
-                  await safeUpdateDoc('enquiries', currentEnquiry.id, { line_items: strippedNextItems, updatedAt: updatedEnq.updatedAt });
-                  await EnquiryRepository.save(updatedEnq);
-                } catch (err) {
-                  console.warn('Failed linking saved product back to enquiry line item:', err);
+              const updatedEnq = { ...currentEnquiry, line_items: nextItems, updatedAt: new Date().toISOString() };
+              setCurrentEnquiry(updatedEnq);
+              setDraftLineItems(nextItems);
+              if (onUpdateEnquiry) onUpdateEnquiry(updatedEnq);
+              if (setEnquiries) setEnquiries((prev) => prev.map((e) => (e.id === currentEnquiry.id ? updatedEnq : e)));
+              try {
+                const strippedNextItems = stripCatalogRedundantLineItemMedia(nextItems, [newProduct, ...(products || [])]);
+                await safeUpdateDoc('enquiries', currentEnquiry.id, { line_items: strippedNextItems, updatedAt: updatedEnq.updatedAt });
+                await EnquiryRepository.save(updatedEnq);
+
+                // Also sync catalog link onto any active Draft quotation for this enquiry
+                const draftQuotes = quotations.filter(
+                  (q) =>
+                    !q.is_deleted &&
+                    (!q.document_type || q.document_type === 'quotation') &&
+                    String(q.status || 'Draft').toLowerCase() === 'draft'
+                );
+                for (const dq of draftQuotes) {
+                  if (!dq.id || !Array.isArray(dq.line_items)) continue;
+                  const updatedQItems = dq.line_items.map((qi, qIdx) => {
+                    const isMatch = (targetItemId && qi.id === targetItemId) || (!targetItemId && qIdx === idx);
+                    if (!isMatch) return qi;
+                    return {
+                      ...qi,
+                      product_id: newProduct.id,
+                      sku: newProduct.sku || qi.sku,
+                      product_sku: newProduct.sku || qi.product_sku,
+                      product_type: newProduct.product_type || qi.product_type,
+                      cost_price: convertedCost ?? qi.cost_price,
+                      image_url: newProduct.image_url || qi.image_url,
+                      secondary_image_url: newProduct.secondary_image_url || qi.secondary_image_url,
+                      image_caption: newProduct.image_caption || qi.image_caption,
+                      secondary_image_caption: newProduct.secondary_image_caption || qi.secondary_image_caption,
+                      image_adjustments: newProduct.image_adjustments || qi.image_adjustments,
+                      datasheet_attachment: newProduct.datasheet_attachment || qi.datasheet_attachment,
+                      attributes:
+                        newProduct.attributes && newProduct.attributes.length > 0
+                          ? newProduct.attributes
+                          : qi.attributes
+                    };
+                  });
+                  await QuotationRepository.updateQuotation(dq.id, {
+                    line_items: updatedQItems,
+                    updated_at: updatedEnq.updatedAt
+                  }).catch(() => {});
+                  setQuotations((prev) =>
+                    prev.map((q) => (q.id === dq.id ? { ...q, line_items: updatedQItems } : q))
+                  );
                 }
+              } catch (err) {
+                console.warn('Failed linking saved product back to enquiry line item:', err);
               }
             }
-          }}
-        />
+          }
+        }}
+      />
 
       {lightboxItemState && (
         <ImageLightboxModal

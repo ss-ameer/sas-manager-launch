@@ -1245,7 +1245,7 @@ export async function resolveAttachmentUrl(att: Attachment | null | undefined): 
 function sanitizeAttachmentObject(att: any, index: number, prefix: string): any {
   if (!att || typeof att !== 'object') return att;
   const nextAtt = { ...att };
-  const url = nextAtt.url || '';
+  const url = nextAtt.url || nextAtt.data || '';
 
   if (typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
     nextAtt.isLocal = false;
@@ -1253,6 +1253,7 @@ function sanitizeAttachmentObject(att: any, index: number, prefix: string): any 
     const key = offloadDataUriToLocalStore(url, nextAtt.storageKey || nextAtt.id, `${prefix}_${index}`);
     nextAtt.storageKey = key;
     nextAtt.url = '';
+    if ('data' in nextAtt) delete nextAtt.data;
     nextAtt.isLocal = true;
   }
 
@@ -1385,6 +1386,94 @@ export function sanitizeFirestorePayload(payload: any): any {
 
   const copy = { ...payload };
   const docPrefix = String(copy.id || copy.quote_number || copy.bill_number || 'doc').replace(/[^a-zA-Z0-9_-]/g, '_');
+
+  // 0. Top-level Product / Entity media fields (image_url, secondary_image_url, datasheet_url, datasheet_attachment, sub_components, spec_variants)
+  if (
+    typeof copy.image_url === 'string' &&
+    copy.image_url.startsWith('data:') &&
+    copy.image_url.length > INLINE_DATA_URI_MAX_BYTES
+  ) {
+    copy.image_storage_key = offloadDataUriToLocalStore(
+      copy.image_url,
+      copy.image_storage_key,
+      `${docPrefix}_prod_img`
+    );
+    copy.image_url = '';
+  }
+
+  if (
+    typeof copy.secondary_image_url === 'string' &&
+    copy.secondary_image_url.startsWith('data:') &&
+    copy.secondary_image_url.length > INLINE_DATA_URI_MAX_BYTES
+  ) {
+    copy.secondary_image_storage_key = offloadDataUriToLocalStore(
+      copy.secondary_image_url,
+      copy.secondary_image_storage_key,
+      `${docPrefix}_prod_sec_img`
+    );
+    copy.secondary_image_url = '';
+  }
+
+  if (
+    typeof copy.datasheet_url === 'string' &&
+    copy.datasheet_url.startsWith('data:') &&
+    copy.datasheet_url.length > INLINE_DATA_URI_MAX_BYTES
+  ) {
+    copy.datasheet_storage_key = offloadDataUriToLocalStore(
+      copy.datasheet_url,
+      copy.datasheet_storage_key,
+      `${docPrefix}_prod_ds`
+    );
+    copy.datasheet_url = '';
+  }
+
+  if (copy.datasheet_attachment && typeof copy.datasheet_attachment === 'object') {
+    copy.datasheet_attachment = sanitizeAttachmentObject(
+      copy.datasheet_attachment,
+      0,
+      `${docPrefix}_prod_ds_att`
+    );
+  }
+
+  if (Array.isArray(copy.sub_components)) {
+    copy.sub_components = copy.sub_components.map((sub: any, sIdx: number) => {
+      if (!sub || typeof sub !== 'object') return sub;
+      const nextSub = { ...sub };
+      if (
+        typeof nextSub.image_url === 'string' &&
+        nextSub.image_url.startsWith('data:') &&
+        nextSub.image_url.length > INLINE_DATA_URI_MAX_BYTES
+      ) {
+        nextSub.image_storage_key = offloadDataUriToLocalStore(
+          nextSub.image_url,
+          nextSub.image_storage_key,
+          `${docPrefix}_sub_${sIdx}_img`
+        );
+        nextSub.image_url = '';
+      }
+      return nextSub;
+    });
+  }
+
+  if (Array.isArray(copy.spec_variants)) {
+    copy.spec_variants = copy.spec_variants.map((v: any, vIdx: number) => {
+      if (!v || typeof v !== 'object') return v;
+      const nextVar = { ...v };
+      if (
+        typeof nextVar.image_url === 'string' &&
+        nextVar.image_url.startsWith('data:') &&
+        nextVar.image_url.length > INLINE_DATA_URI_MAX_BYTES
+      ) {
+        nextVar.image_storage_key = offloadDataUriToLocalStore(
+          nextVar.image_url,
+          nextVar.image_storage_key,
+          `${docPrefix}_var_${vIdx}_img`
+        );
+        nextVar.image_url = '';
+      }
+      return nextVar;
+    });
+  }
 
   // 1. Plural attachments[] (Enquiries)
   if (Array.isArray(copy.attachments)) {
@@ -1563,6 +1652,41 @@ export function rehydrateDocumentBlobsSync<T>(docData: T): T {
     return next;
   };
 
+  // Top-level Product / Entity media fields
+  if (!copy.image_url && copy.image_storage_key) {
+    const u = getCachedBlobSync(copy.image_storage_key);
+    if (u) copy.image_url = u;
+  }
+  if (!copy.secondary_image_url && copy.secondary_image_storage_key) {
+    const u = getCachedBlobSync(copy.secondary_image_storage_key);
+    if (u) copy.secondary_image_url = u;
+  }
+  if (!copy.datasheet_url && copy.datasheet_storage_key) {
+    const u = getCachedBlobSync(copy.datasheet_storage_key);
+    if (u) copy.datasheet_url = u;
+  }
+  if (copy.datasheet_attachment && typeof copy.datasheet_attachment === 'object') {
+    copy.datasheet_attachment = hydrateAttSync(copy.datasheet_attachment);
+  }
+  if (Array.isArray(copy.sub_components)) {
+    copy.sub_components = copy.sub_components.map((sub: any) => {
+      if (sub && !sub.image_url && sub.image_storage_key) {
+        const u = getCachedBlobSync(sub.image_storage_key);
+        if (u) return { ...sub, image_url: u };
+      }
+      return sub;
+    });
+  }
+  if (Array.isArray(copy.spec_variants)) {
+    copy.spec_variants = copy.spec_variants.map((v: any) => {
+      if (v && !v.image_url && v.image_storage_key) {
+        const u = getCachedBlobSync(v.image_storage_key);
+        if (u) return { ...v, image_url: u };
+      }
+      return v;
+    });
+  }
+
   if (Array.isArray(copy.attachments)) {
     copy.attachments = copy.attachments.map(hydrateAttSync);
   }
@@ -1646,6 +1770,45 @@ export async function rehydrateDocumentBlobsFromLocal<T>(docData: T): Promise<T>
     }
     return next;
   };
+
+  // Top-level Product / Entity media fields
+  if (!copy.image_url && copy.image_storage_key) {
+    const u = await resolveKey(copy.image_storage_key);
+    if (u) copy.image_url = u;
+  }
+  if (!copy.secondary_image_url && copy.secondary_image_storage_key) {
+    const u = await resolveKey(copy.secondary_image_storage_key);
+    if (u) copy.secondary_image_url = u;
+  }
+  if (!copy.datasheet_url && copy.datasheet_storage_key) {
+    const u = await resolveKey(copy.datasheet_storage_key);
+    if (u) copy.datasheet_url = u;
+  }
+  if (copy.datasheet_attachment && typeof copy.datasheet_attachment === 'object') {
+    copy.datasheet_attachment = await hydrateAttAsync(copy.datasheet_attachment);
+  }
+  if (Array.isArray(copy.sub_components)) {
+    copy.sub_components = await Promise.all(
+      copy.sub_components.map(async (sub: any) => {
+        if (sub && !sub.image_url && sub.image_storage_key) {
+          const u = await resolveKey(sub.image_storage_key);
+          if (u) return { ...sub, image_url: u };
+        }
+        return sub;
+      })
+    );
+  }
+  if (Array.isArray(copy.spec_variants)) {
+    copy.spec_variants = await Promise.all(
+      copy.spec_variants.map(async (v: any) => {
+        if (v && !v.image_url && v.image_storage_key) {
+          const u = await resolveKey(v.image_storage_key);
+          if (u) return { ...v, image_url: u };
+        }
+        return v;
+      })
+    );
+  }
 
   if (Array.isArray(copy.attachments)) {
     copy.attachments = await Promise.all(copy.attachments.map(hydrateAttAsync));
@@ -1750,7 +1913,23 @@ export async function purgeEntityStorageAssets(
   } else if (entityType === 'product') {
     if (entity.image_url) urlsToDelete.add(entity.image_url);
     if (entity.secondary_image_url) urlsToDelete.add(entity.secondary_image_url);
+    if (entity.datasheet_url) urlsToDelete.add(entity.datasheet_url);
+    if (entity.image_storage_key) keysToDelete.add(entity.image_storage_key);
+    if (entity.secondary_image_storage_key) keysToDelete.add(entity.secondary_image_storage_key);
+    if (entity.datasheet_storage_key) keysToDelete.add(entity.datasheet_storage_key);
     collectAttachment(entity.datasheet_attachment);
+    if (Array.isArray(entity.sub_components)) {
+      entity.sub_components.forEach((sub: any) => {
+        if (sub?.image_url) urlsToDelete.add(sub.image_url);
+        if (sub?.image_storage_key) keysToDelete.add(sub.image_storage_key);
+      });
+    }
+    if (Array.isArray(entity.spec_variants)) {
+      entity.spec_variants.forEach((v: any) => {
+        if (v?.image_url) urlsToDelete.add(v.image_url);
+        if (v?.image_storage_key) keysToDelete.add(v.image_storage_key);
+      });
+    }
   } else if (entityType === 'supplier_bill') {
     collectAttachment(entity.attachment);
   }
@@ -1774,6 +1953,28 @@ export function hasInlineBase64Payload(obj: any): boolean {
   if (!obj || typeof obj !== 'object') return false;
 
   const checkVal = (v: any): boolean => typeof v === 'string' && v.startsWith('data:');
+  const checkOversizedVal = (v: any): boolean =>
+    typeof v === 'string' && v.startsWith('data:') && v.length > INLINE_DATA_URI_MAX_BYTES;
+
+  // Top-level Product / Entity media fields
+  if (checkOversizedVal(obj.image_url) || checkOversizedVal(obj.secondary_image_url) || checkOversizedVal(obj.datasheet_url)) {
+    return true;
+  }
+  if (obj.datasheet_attachment && typeof obj.datasheet_attachment === 'object') {
+    if (checkOversizedVal(obj.datasheet_attachment.url) || checkOversizedVal(obj.datasheet_attachment.data)) {
+      return true;
+    }
+  }
+  if (Array.isArray(obj.sub_components)) {
+    for (const sub of obj.sub_components) {
+      if (sub && checkOversizedVal(sub.image_url)) return true;
+    }
+  }
+  if (Array.isArray(obj.spec_variants)) {
+    for (const v of obj.spec_variants) {
+      if (v && checkOversizedVal(v.image_url)) return true;
+    }
+  }
 
   if (checkVal(obj.company_logo_url) || checkVal(obj.company_seal_url) || checkVal(obj.signature_image_url)) {
     return true;
