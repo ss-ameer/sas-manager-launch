@@ -10,7 +10,6 @@ import {
   dataUrlToFile,
   uploadWorkspaceMediaAsset,
   stripCatalogRedundantLineItemMedia,
-  rehydrateLineItemsFromCatalog,
   rehydrateDocumentBlobsFromLocal
 } from '../services/attachmentStorage';
 import mammoth from 'mammoth';
@@ -97,7 +96,10 @@ import SaveToCatalogModal, {
   isLineItemPopulated,
   linkLineItemToCatalogProductNonDestructive,
   resolveToAedMultiplier,
-  CatalogSyncMenu
+  CatalogSyncMenu,
+  resolveEffectiveCatalogProduct,
+  deriveSuggestedVariantLabel,
+  rehydrateLineItemsFromCatalog
 } from './SaveToCatalogModal';
 import { useEnquiryDisclosureState } from '../hooks/useEnquiryDisclosureState';
 import { EnquiryMetadataSummaryBar } from './enquiry/EnquiryMetadataSummaryBar';
@@ -1145,62 +1147,92 @@ export default function EnquiryForm({
   const [isCreatingContactInline, setIsCreatingContactInline] = useState(false);
 
   const combinedCatalog = React.useMemo(() => {
-    return (products || [])
-      .filter((p) => !p.is_deleted)
-      .map((p) => {
-        const defaultLeadTime =
-          p.default_availability?.trim() ||
-          ((p as any).lead_time_note?.trim()
-            ? (p as any).lead_time_note
-            : p.is_inventoried && (p.stock_on_hand || 0) - (p.stock_reserved || 0) > 0
-            ? 'Ex-Stock'
-            : '');
-        const cleanUnit =
-          !p.unit || String(p.unit).toLowerCase() === 'custom unit' ? ('Nos' as UnitType) : p.unit;
-        return {
-          id: p.id,
-          name: p.name || p.product_type,
-          sku: p.sku || '',
-          brand_make: p.brand_make || '',
-          model_part_no: p.model_part_no || '',
-          country_of_origin: p.country_of_origin || '',
-          hs_code: p.hs_code || '',
-          image_url: p.image_url || '',
-          secondary_image_url: p.secondary_image_url,
-          image_caption: p.image_caption,
-          secondary_image_caption: p.secondary_image_caption,
-          image_adjustments: p.image_adjustments,
-          datasheet_attachment: p.datasheet_attachment,
-          is_inventoried: p.is_inventoried,
-          stock_on_hand: p.stock_on_hand,
-          stock_reserved: p.stock_reserved,
-          reorder_level: p.reorder_level,
-          product_type: p.product_type,
-          description: p.description,
-          unit: cleanUnit,
-          unit_price_aed: p.unit_price,
-          cost_price_aed: p.cost_price ?? p.cost_price_aed,
-          lead_time_note: defaultLeadTime,
-          default_availability: p.default_availability || defaultLeadTime,
-          attributes: p.attributes || [],
-          is_composite_set: p.is_composite_set,
-          sub_components: p.sub_components,
-          package_pricing_mode: p.package_pricing_mode,
-          option_scope_notes: p.option_scope_notes,
-        };
-      });
+    const activeProducts = (products || []).filter((p) => !p.is_deleted);
+    const childrenByParentId = new Map<string, Product[]>();
+    for (const prod of activeProducts) {
+      const parentId = (prod as any).parent_product_id || prod.variant_parent_id;
+      if (parentId && parentId !== prod.id) {
+        const list = childrenByParentId.get(parentId) || [];
+        list.push(prod);
+        childrenByParentId.set(parentId, list);
+      }
+    }
+
+    return activeProducts.map((rawP) => {
+      const p = resolveEffectiveCatalogProduct(rawP, activeProducts);
+      const childVariants = (p.id ? childrenByParentId.get(p.id) || [] : []).map((cv) =>
+        resolveEffectiveCatalogProduct(cv, activeProducts)
+      );
+      const defaultLeadTime =
+        p.default_availability?.trim() ||
+        ((p as any).lead_time_note?.trim()
+          ? (p as any).lead_time_note
+          : p.is_inventoried && (p.stock_on_hand || 0) - (p.stock_reserved || 0) > 0
+          ? 'Ex-Stock'
+          : '');
+      const cleanUnit =
+        !p.unit || String(p.unit).toLowerCase() === 'custom unit' ? ('Nos' as UnitType) : p.unit;
+      return {
+        id: p.id,
+        name: p.name || p.product_type,
+        sku: p.sku || '',
+        brand_make: p.brand_make || '',
+        model_part_no: p.model_part_no || '',
+        country_of_origin: p.country_of_origin || '',
+        hs_code: p.hs_code || '',
+        image_url: p.image_url || '',
+        secondary_image_url: p.secondary_image_url,
+        image_caption: p.image_caption,
+        secondary_image_caption: p.secondary_image_caption,
+        image_adjustments: p.image_adjustments,
+        datasheet_attachment: p.datasheet_attachment,
+        is_inventoried: p.is_inventoried,
+        stock_on_hand: p.stock_on_hand,
+        stock_reserved: p.stock_reserved,
+        reorder_level: p.reorder_level,
+        product_type: p.product_type,
+        description: p.description || '',
+        unit: cleanUnit,
+        unit_price_aed: p.unit_price,
+        cost_price_aed: p.cost_price ?? p.cost_price_aed,
+        lead_time_note: defaultLeadTime,
+        default_availability: p.default_availability || defaultLeadTime,
+        attributes: p.attributes || [],
+        is_composite_set: p.is_composite_set,
+        sub_components: p.sub_components,
+        package_pricing_mode: p.package_pricing_mode,
+        option_scope_notes: p.option_scope_notes,
+        parent_product_id: (p as any).parent_product_id || p.variant_parent_id,
+        variant_parent_id: p.variant_parent_id || (p as any).parent_product_id,
+        variant_label: (p as any).variant_label as string | undefined,
+        has_variants: Boolean((p as any).has_variants) || childVariants.length > 0,
+        childVariants
+      };
+    });
   }, [products]);
 
   const filteredCatalog = React.useMemo(() => {
     const q = catalogSearch.toLowerCase().trim();
-    return combinedCatalog.filter((item) => {
-      const matchesSearch =
+    const matched = combinedCatalog.filter((item) => {
+      const selfMatches =
         !q ||
         (item.name || '').toLowerCase().includes(q) ||
-        item.description.toLowerCase().includes(q) ||
+        (item.description || '').toLowerCase().includes(q) ||
         (item.sku || '').toLowerCase().includes(q) ||
         (item.brand_make || '').toLowerCase().includes(q) ||
-        (item.model_part_no || '').toLowerCase().includes(q);
+        (item.model_part_no || '').toLowerCase().includes(q) ||
+        (item.variant_label || '').toLowerCase().includes(q) ||
+        (item.attributes || []).some((a) => `${a.key} ${a.value}`.toLowerCase().includes(q));
+      const childMatches =
+        Boolean(q) &&
+        (item.childVariants || []).some(
+          (cv) =>
+            (cv.name || '').toLowerCase().includes(q) ||
+            (cv.sku || '').toLowerCase().includes(q) ||
+            (String((cv as any).variant_label || '')).toLowerCase().includes(q) ||
+            (cv.attributes || []).some((a) => `${a.key} ${a.value}`.toLowerCase().includes(q))
+        );
+      const matchesSearch = selfMatches || childMatches;
       const matchesCategory =
         catalogCategory === 'All' ||
         item.product_type === catalogCategory ||
@@ -1212,6 +1244,14 @@ export default function EnquiryForm({
         (catalogStockFilter === 'in_stock' && Boolean(item.is_inventoried) && avail > 0) ||
         (catalogStockFilter === 'low_stock' && isLow);
       return matchesSearch && matchesCategory && matchesStock;
+    });
+
+    const matchedIds = new Set(matched.map((m) => m.id).filter(Boolean));
+    return matched.filter((m) => {
+      if (m.parent_product_id && matchedIds.has(m.parent_product_id)) {
+        return false;
+      }
+      return true;
     });
   }, [combinedCatalog, catalogSearch, catalogCategory, catalogStockFilter]);
 
@@ -2899,7 +2939,32 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     setLineItems([...lineItems, newItem]);
   };
 
-  const handleAddCatalogItem = (item: any) => {
+  const handleAddCatalogItem = (
+    rawItem: any,
+    options?: { isBaseTemplate?: boolean }
+  ) => {
+    const isBaseTemplate = Boolean(options?.isBaseTemplate);
+    const matchedCatalogProd = (products || []).find((p) => p.id === rawItem.id);
+    const effCatalogProd = matchedCatalogProd
+      ? resolveEffectiveCatalogProduct(matchedCatalogProd, products)
+      : null;
+    const item = effCatalogProd
+      ? {
+          ...rawItem,
+          ...effCatalogProd,
+          name: effCatalogProd.name || rawItem.name || effCatalogProd.product_type,
+          unit:
+            !effCatalogProd.unit || String(effCatalogProd.unit).toLowerCase() === 'custom unit'
+              ? ('Nos' as UnitType)
+              : effCatalogProd.unit,
+          unit_price_aed: effCatalogProd.unit_price ?? rawItem.unit_price_aed,
+          cost_price_aed:
+            effCatalogProd.cost_price ?? effCatalogProd.cost_price_aed ?? rawItem.cost_price_aed,
+          lead_time_note:
+            effCatalogProd.default_availability || rawItem.lead_time_note || ''
+        }
+      : rawItem;
+
     const fxRate = resolveToAedMultiplier(formCurrency || 'AED');
     const rawPrice =
       item.unit_price_aed !== undefined && item.unit_price_aed > 0
@@ -2946,7 +3011,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const existingTarget = lineItems[linkingLineIndex];
       const wasPopulated = isLineItemPopulated(existingTarget);
       const fullCatalogProd: Product =
-        (products || []).find((p) => p.id === item.id) ||
+        effCatalogProd ||
         ({
           ...item,
           unit_price: item.unit_price ?? item.unit_price_aed ?? 0,
@@ -2957,17 +3022,35 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       setLineItems((prev) => {
         const next = [...prev];
         const current = next[linkingLineIndex];
-        next[linkingLineIndex] = linkLineItemToCatalogProductNonDestructive(
+        const linked = linkLineItemToCatalogProductNonDestructive(
           current,
           fullCatalogProd,
           formCurrency,
-          false
+          false,
+          products
         );
+        next[linkingLineIndex] = isBaseTemplate
+          ? ({
+              ...linked,
+              product_id: undefined,
+              sku: undefined,
+              template_parent_id: fullCatalogProd.id,
+              attributes: (fullCatalogProd.attributes || []).map((a) => ({
+                key: String(a.key || '').trim(),
+                value: String(a.value ?? '').trim()
+              }))
+            } as any)
+          : linked;
         return next;
       });
       if (triggerToast) {
         const skuLabel = fullCatalogProd.sku || fullCatalogProd.name || 'Catalog SKU';
-        if (wasPopulated) {
+        if (isBaseTemplate) {
+          triggerToast(
+            `Applied Base Template "${fullCatalogProd.name}" with shared parent specs ready to customize.`,
+            'info'
+          );
+        } else if (wasPopulated) {
           triggerToast(
             `Linked to SKU ${skuLabel} — kept your custom quote price & specs intact. Use the SKU Sync menu to Save as Variant, Push to Catalog, or Pull Catalog Defaults.`,
             'info'
@@ -2987,13 +3070,25 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const resolvedNewCostPrice =
         bomRollup && bomRollup.unitCostPrice > 0 ? bomRollup.unitCostPrice : costPrice;
       const resolvedLeadTime = item.lead_time_note || item.default_availability || '';
+      const effectiveAttributes = (item.attributes || []).map((a: any) => ({
+        key: String(a.key || '').trim(),
+        value: String(a.value ?? '').trim()
+      }));
       const newItem: LineItem = {
-        product_id: item.id || undefined,
-        sku: item.sku || undefined,
+        product_id: isBaseTemplate ? undefined : item.id || undefined,
+        sku: isBaseTemplate ? undefined : item.sku || undefined,
         item_name: item.name,
         item_type: 'product',
         product_type: item.product_type,
-        description: item.description,
+        description:
+          compileDescriptionWithSpecs(
+            item.name || '',
+            item.description || '',
+            effectiveAttributes.filter((a: ProductAttribute) => a.key && a.value)
+          ) ||
+          item.description ||
+          item.name ||
+          '',
         quantity: 1,
         unit: item.unit,
         unit_price: resolvedNewUnitPrice,
@@ -3012,13 +3107,20 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         include_datasheet_in_quote: item.datasheet_attachment ? true : undefined,
         lead_time_note: resolvedLeadTime,
         option: 'Default / Included',
-        attributes: item.attributes || [],
+        attributes: effectiveAttributes,
         ...(item.is_composite_set ? { is_composite_set: true } : {}),
         ...(bomRollup ? { sub_components: bomRollup.normalizedComponents } : {}),
         ...(item.package_pricing_mode ? { package_pricing_mode: item.package_pricing_mode } : {}),
-        ...(item.option_scope_notes ? { option_scope_notes: item.option_scope_notes } : {})
+        ...(item.option_scope_notes ? { option_scope_notes: item.option_scope_notes } : {}),
+        ...(isBaseTemplate && item.id ? ({ template_parent_id: item.id } as any) : {})
       };
       setLineItems((prev) => [...prev, newItem]);
+      if (isBaseTemplate && triggerToast) {
+        triggerToast(
+          `Inserted Custom / Base Template "${item.name}" with shared parent specs ready to customize.`,
+          'info'
+        );
+      }
     }
     setShowCatalogModal(false);
   };
@@ -10758,6 +10860,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                   <span className="inline-block px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 rounded text-[9px] font-mono uppercase font-bold whitespace-nowrap">
                                     {item.product_type}
                                   </span>
+                                  {item.childVariants && item.childVariants.length > 0 && (
+                                    <span className="inline-block px-2 py-0.5 rounded text-[9px] font-mono font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 whitespace-nowrap">
+                                      Parent Family • {item.childVariants.length} Variant{item.childVariants.length === 1 ? '' : 's'}
+                                    </span>
+                                  )}
                                   {item.is_composite_set && Array.isArray(item.sub_components) && item.sub_components.length > 0 && (
                                     <span className="inline-block px-2 py-0.5 rounded text-[9px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 whitespace-nowrap">
                                       Kit / BOM ({item.sub_components.length} parts)
@@ -10823,19 +10930,85 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             {item.description}
                           </p>
 
-                          {item.attributes && item.attributes.filter((a) => a.key && a.value).length > 0 && (
+                          {item.attributes && item.attributes.filter((a) => a.key).length > 0 && (
                             <div className="flex flex-wrap gap-1 pt-0.5">
                               {item.attributes
-                                .filter((a) => a.key && a.value)
-                                .slice(0, 3)
-                                .map((attr, aIdx) => (
-                                  <span
-                                    key={aIdx}
-                                    className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-mono border border-slate-200/80 dark:border-slate-700"
+                                .filter((a) => a.key)
+                                .slice(0, 4)
+                                .map((attr, aIdx) => {
+                                  const cleanVal = String(attr.value || '').replace(/^[•▪▸\-*]\s*/, '').trim();
+                                  return (
+                                    <span
+                                      key={aIdx}
+                                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono border ${
+                                        !cleanVal
+                                          ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
+                                      }`}
+                                    >
+                                      {attr.key}: {cleanVal || '(Fill on Quote)'}
+                                    </span>
+                                  );
+                                })}
+                            </div>
+                          )}
+
+                          {((item.childVariants && item.childVariants.length > 0) ||
+                            item.has_variants ||
+                            (item.attributes || []).some((a) => a.key && !String(a.value ?? '').trim())) && (
+                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[9px] font-mono uppercase tracking-wider text-slate-400 font-semibold">
+                                Variants:
+                              </span>
+                              {(item.childVariants || []).map((cv: Product) => {
+                                const cvLabel =
+                                  (cv as any).variant_label ||
+                                  deriveSuggestedVariantLabel(cv.attributes || [], item as unknown as Product) ||
+                                  cv.sku ||
+                                  cv.name;
+                                const cvPriceAed = Number(cv.unit_price) || 0;
+                                const cvConverted =
+                                  formCurrency === 'USD' ? cvPriceAed / 3.6725 : cvPriceAed;
+                                return (
+                                  <button
+                                    key={cv.id}
+                                    type="button"
+                                    onClick={() =>
+                                      handleAddCatalogItem({
+                                        ...cv,
+                                        unit:
+                                          !cv.unit || String(cv.unit).toLowerCase() === 'custom unit'
+                                            ? ('Nos' as UnitType)
+                                            : cv.unit,
+                                        unit_price_aed: cv.unit_price,
+                                        cost_price_aed: cv.cost_price ?? cv.cost_price_aed
+                                      })
+                                    }
+                                    className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 hover:text-white border border-indigo-200 dark:border-indigo-800 text-[10px] font-mono font-semibold transition cursor-pointer"
+                                    title={`Insert variant ${cv.name} (${cv.sku || 'No SKU'}) with inherited parent specs`}
                                   >
-                                    {attr.key}: {String(attr.value || '').replace(/^[•▪▸\-*]\s*/, '').trim()}
-                                  </span>
-                                ))}
+                                    {cvLabel}
+                                    {cvPriceAed > 0
+                                      ? ` — ${formCurrency} ${cvConverted.toLocaleString(undefined, {
+                                          maximumFractionDigits: 0
+                                        })}`
+                                      : ''}
+                                  </button>
+                                );
+                              })}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleAddCatalogItem(
+                                    { ...item, unit: cleanUom as UnitType },
+                                    { isBaseTemplate: true }
+                                  )
+                                }
+                                className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-600 text-amber-800 dark:text-amber-300 hover:text-white border border-amber-200 dark:border-amber-800 text-[10px] font-sans font-semibold transition cursor-pointer"
+                                title="Insert base template with shared parent specs & blank keys ready to customize for this RFQ"
+                              >
+                                ✨ Custom / Base Template
+                              </button>
                             </div>
                           )}
 
@@ -10854,7 +11027,16 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                         <button
                           type="button"
-                          onClick={() => handleAddCatalogItem({ ...item, unit: cleanUom as UnitType })}
+                          onClick={() =>
+                            handleAddCatalogItem(
+                              { ...item, unit: cleanUom as UnitType },
+                              ((item.childVariants && item.childVariants.length > 0) ||
+                                (item.attributes || []).some((a) => a.key && !String(a.value ?? '').trim())) &&
+                                priceAed === 0
+                                ? { isBaseTemplate: true }
+                                : undefined
+                            )
+                          }
                           className="mt-4 w-full py-2 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 hover:bg-blue-600 hover:text-white border border-blue-200/80 dark:border-blue-800/80 text-xs font-semibold rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" />

@@ -536,19 +536,245 @@ export function isLineItemPopulated(item: any): boolean {
   return hasRealName || hasPrice || hasLeadTime || hasDesc || hasAttrs || hasSubComponents;
 }
 
+let latestKnownCatalogProducts: Product[] = [];
+
+function getFallbackCatalogProducts(explicitProducts?: Product[]): Product[] {
+  if (Array.isArray(explicitProducts) && explicitProducts.length > 0) {
+    latestKnownCatalogProducts = explicitProducts;
+    return explicitProducts;
+  }
+  if (latestKnownCatalogProducts.length > 0) {
+    return latestKnownCatalogProducts;
+  }
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const raw = window.localStorage.getItem('omni_products');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          latestKnownCatalogProducts = parsed;
+          return parsed;
+        }
+      }
+    }
+  } catch (_) {}
+  return [];
+}
+
+/**
+ * Merges parent base attributes with variant override/specific attributes:
+ * 1. All shared base attributes from the parent (e.g., MOC: FRP, Design Code: ASME) are inherited first in order.
+ * 2. Any matching attribute key in variantAttributes overrides the parent's value.
+ * 3. Any additional variant-specific attributes (e.g., Dimensions: 48" x 72") are appended.
+ */
+export function mergeParentAndVariantAttributes(
+  parentAttributes?: ProductAttribute[] | null,
+  variantAttributes?: ProductAttribute[] | null
+): ProductAttribute[] {
+  const pAttrs = Array.isArray(parentAttributes)
+    ? parentAttributes.filter((a) => a && String(a.key ?? '').trim() !== '')
+    : [];
+  const vAttrs = Array.isArray(variantAttributes)
+    ? variantAttributes.filter((a) => a && String(a.key ?? '').trim() !== '')
+    : [];
+
+  if (pAttrs.length === 0) {
+    return vAttrs.map((a) => ({ key: String(a.key).trim(), value: String(a.value ?? '').trim() }));
+  }
+  if (vAttrs.length === 0) {
+    return pAttrs.map((a) => ({ key: String(a.key).trim(), value: String(a.value ?? '').trim() }));
+  }
+
+  const merged: ProductAttribute[] = pAttrs.map((pa) => ({
+    key: String(pa.key).trim(),
+    value: String(pa.value ?? '').trim()
+  }));
+
+  const keyIndexMap = new Map<string, number>();
+  merged.forEach((attr, idx) => {
+    keyIndexMap.set(attr.key.toLowerCase(), idx);
+  });
+
+  for (const va of vAttrs) {
+    const cleanKey = String(va.key).trim();
+    const cleanVal = String(va.value ?? '').trim();
+    const lowerKey = cleanKey.toLowerCase();
+    const existingIdx = keyIndexMap.get(lowerKey);
+    if (existingIdx !== undefined) {
+      if (cleanVal !== '' || merged[existingIdx].value === '') {
+        merged[existingIdx] = {
+          key: merged[existingIdx].key,
+          value: cleanVal
+        };
+      }
+    } else {
+      keyIndexMap.set(lowerKey, merged.length);
+      merged.push({ key: cleanKey, value: cleanVal });
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Resolves a Catalog Product with full Parent-to-Variant attribute and media inheritance.
+ * When `product.parent_product_id` or `product.variant_parent_id` is set and the parent exists in `allProducts`:
+ * - Merges `parent.attributes` (base defaults) + `product.attributes` (variant overrides & additions).
+ * - Falls back to parent's `image_url`, `secondary_image_url`, `datasheet_url`, `datasheet_attachment`,
+ *   `brand_make`, `country_of_origin`, `product_type`, and `product_family` when unset on the variant.
+ */
+export function resolveEffectiveCatalogProduct(
+  product: Product,
+  allProducts?: Product[]
+): Product {
+  if (!product) return product;
+  const catalogList = getFallbackCatalogProducts(allProducts);
+  const parentId = (product as any).parent_product_id || product.variant_parent_id || null;
+  if (!parentId || catalogList.length === 0) {
+    return product;
+  }
+
+  const parent = catalogList.find(
+    (p) => p && !p.is_deleted && p.id === parentId && p.id !== product.id
+  );
+  if (!parent) {
+    return product;
+  }
+
+  const mergedAttributes = mergeParentAndVariantAttributes(parent.attributes, product.attributes);
+
+  const resolved: Product = {
+    ...product,
+    variant_parent_id: parent.id,
+    product_type:
+      product.product_type && product.product_type !== 'Other' && product.product_type !== 'Custom'
+        ? product.product_type
+        : parent.product_type || product.product_type,
+    product_family: product.product_family || parent.product_family || parent.name || null,
+    brand_make: product.brand_make?.trim() ? product.brand_make : parent.brand_make,
+    country_of_origin: product.country_of_origin?.trim()
+      ? product.country_of_origin
+      : parent.country_of_origin,
+    hs_code: product.hs_code?.trim() ? product.hs_code : parent.hs_code,
+    default_availability: product.default_availability?.trim()
+      ? product.default_availability
+      : parent.default_availability,
+    image_url: product.image_url?.trim() ? product.image_url : parent.image_url,
+    secondary_image_url: product.secondary_image_url?.trim()
+      ? product.secondary_image_url
+      : parent.secondary_image_url,
+    image_caption: product.image_caption?.trim() ? product.image_caption : parent.image_caption,
+    secondary_image_caption: product.secondary_image_caption?.trim()
+      ? product.secondary_image_caption
+      : parent.secondary_image_caption,
+    image_adjustments: product.image_adjustments || parent.image_adjustments,
+    datasheet_url: product.datasheet_url?.trim() ? product.datasheet_url : parent.datasheet_url,
+    datasheet_attachment: product.datasheet_attachment?.url
+      ? product.datasheet_attachment
+      : parent.datasheet_attachment || product.datasheet_attachment,
+    attributes: mergedAttributes
+  };
+  (resolved as any).parent_product_id = parent.id;
+  if ((product as any).variant_label) {
+    (resolved as any).variant_label = (product as any).variant_label;
+  }
+  return resolved;
+}
+
+/**
+ * Rehydrates catalog-linked line items (`item.product_id`) in memory using `catalogProducts`,
+ * automatically resolving parent-to-variant attribute & media inheritance via `resolveEffectiveCatalogProduct`.
+ */
+export function rehydrateLineItemsFromCatalog(
+  lineItems: any[] | undefined,
+  catalogProducts?: Product[]
+): any[] {
+  if (!Array.isArray(lineItems)) return [];
+  const list = getFallbackCatalogProducts(catalogProducts);
+  if (!Array.isArray(list) || list.length === 0) {
+    return lineItems;
+  }
+  const productMap = new Map<string, Product>();
+  for (const p of list) {
+    if (p?.id) productMap.set(p.id, p);
+  }
+  return lineItems.map((li) => {
+    if (!li || typeof li !== 'object') return li;
+
+    const hydratedSubComponents = Array.isArray(li.sub_components)
+      ? li.sub_components.map((sub: any) => {
+          if (!sub || !sub.product_id) return sub;
+          const rawSubProd = productMap.get(sub.product_id);
+          if (!rawSubProd) return sub;
+          const effSubProd = resolveEffectiveCatalogProduct(rawSubProd, list);
+          return {
+            ...sub,
+            image_url: sub.image_url || effSubProd.image_url,
+            brand_make: sub.brand_make || effSubProd.brand_make,
+            model_part_no: sub.model_part_no || effSubProd.model_part_no,
+            country_of_origin: sub.country_of_origin || effSubProd.country_of_origin,
+            attributes:
+              Array.isArray(sub.attributes) && sub.attributes.length > 0
+                ? mergeParentAndVariantAttributes(effSubProd.attributes, sub.attributes)
+                : effSubProd.attributes
+          };
+        })
+      : li.sub_components;
+
+    if (!li.product_id) {
+      return hydratedSubComponents !== li.sub_components
+        ? { ...li, sub_components: hydratedSubComponents }
+        : li;
+    }
+    const rawCatProd = productMap.get(li.product_id);
+    if (!rawCatProd) {
+      return hydratedSubComponents !== li.sub_components
+        ? { ...li, sub_components: hydratedSubComponents }
+        : li;
+    }
+    const catProd = resolveEffectiveCatalogProduct(rawCatProd, list);
+    const parentId = (rawCatProd as any).parent_product_id || rawCatProd.variant_parent_id;
+    const parentProd = parentId ? productMap.get(parentId) : undefined;
+    const resolvedAttrs =
+      Array.isArray(li.attributes) && li.attributes.length > 0
+        ? parentProd
+          ? mergeParentAndVariantAttributes(parentProd.attributes, li.attributes)
+          : li.attributes
+        : catProd.attributes
+        ? [...catProd.attributes]
+        : li.attributes;
+
+    return {
+      ...li,
+      brand_make: li.brand_make || catProd.brand_make,
+      country_of_origin: li.country_of_origin || catProd.country_of_origin,
+      image_url: li.image_url || catProd.image_url,
+      secondary_image_url: li.secondary_image_url || catProd.secondary_image_url,
+      datasheet_attachment: li.datasheet_attachment?.url
+        ? li.datasheet_attachment
+        : catProd.datasheet_attachment || li.datasheet_attachment,
+      attributes: resolvedAttrs,
+      ...(hydratedSubComponents !== undefined ? { sub_components: hydratedSubComponents } : {})
+    };
+  });
+}
+
 /**
  * Non-destructively links an existing line item to a Catalog Product:
+ * - Resolves `catalogProduct` through `resolveEffectiveCatalogProduct` first so variants inherit parent attributes & media.
  * - If the line item is already populated (has name, price > 0, lead time, description, or attributes),
  *   ALL existing non-empty values on the line item are preserved intact! Only missing/blank fields
- *   (like image_url, brand_make, category, sku) are backfilled from the catalog product.
- * - If the line item is a brand-new blank row, it populates all default fields from the catalog product.
+ *   (like image_url, brand_make, category, sku, and missing parent base attributes) are backfilled.
+ * - If the line item is a brand-new blank row, it populates all default fields from the resolved catalog product.
  */
 export function linkLineItemToCatalogProductNonDestructive(
   existingItem: any,
-  catalogProduct: Product,
+  rawCatalogProduct: Product,
   currency?: string,
-  isVendorCostDoc?: boolean
+  isVendorCostDoc?: boolean,
+  allProducts?: Product[]
 ): any {
+  const catalogProduct = resolveEffectiveCatalogProduct(rawCatalogProduct, allProducts);
   const effectiveCurrency = String(currency || existingItem?.currency || 'AED').toUpperCase();
   const prodCurrency = String(catalogProduct?.currency || 'AED').toUpperCase();
   const fxFromProdToItem =
@@ -630,7 +856,11 @@ export function linkLineItemToCatalogProductNonDestructive(
           : undefined,
       lead_time_note: keepLead ? existingItem.lead_time_note : (catalogProduct.default_availability || existingItem.lead_time_note || ''),
       availability: keepLead ? (existingItem.availability || existingItem.lead_time_note) : (catalogProduct.default_availability || existingItem.availability || ''),
-      attributes: hasExistingAttrs ? existingItem.attributes : (catalogProduct.attributes ? [...catalogProduct.attributes] : []),
+      attributes: hasExistingAttrs
+        ? mergeParentAndVariantAttributes(catalogProduct.attributes, existingItem.attributes)
+        : catalogProduct.attributes
+        ? [...catalogProduct.attributes]
+        : [],
       ...(hasExistingSubs
         ? {}
         : scaledCatalogSubs
@@ -697,11 +927,18 @@ export function linkLineItemToCatalogProductNonDestructive(
  */
 export function pullCatalogDefaultsToLineItem(
   existingItem: any,
-  catalogProduct: Product,
+  rawCatalogProduct: Product,
   currency?: string,
   specVariant?: ProductSpecVariant | Product | null,
-  isVendorCostDoc?: boolean
+  isVendorCostDoc?: boolean,
+  allProducts?: Product[]
 ): any {
+  const catalogProduct = resolveEffectiveCatalogProduct(rawCatalogProduct, allProducts);
+  const resolvedVariantProduct =
+    specVariant && (specVariant as Product).product_type
+      ? resolveEffectiveCatalogProduct(specVariant as Product, allProducts)
+      : null;
+
   const effectiveCurrency = String(currency || existingItem?.currency || 'AED').toUpperCase();
   const prodCurrency = String(catalogProduct?.currency || 'AED').toUpperCase();
   const fxFromProdToItem =
@@ -716,10 +953,11 @@ export function pullCatalogDefaultsToLineItem(
   const qty = Number(existingItem?.quantity) || 1;
   const resolvedRate = isVendorCostDoc ? (scaledCost || scaledSell) : scaledSell;
 
-  const sourceAttrs =
-    specVariant && Array.isArray(specVariant.attributes) && specVariant.attributes.length > 0
-      ? specVariant.attributes
-      : catalogProduct.attributes || [];
+  const sourceAttrs = resolvedVariantProduct
+    ? resolvedVariantProduct.attributes || []
+    : specVariant && Array.isArray(specVariant.attributes) && specVariant.attributes.length > 0
+    ? mergeParentAndVariantAttributes(catalogProduct.attributes, specVariant.attributes)
+    : catalogProduct.attributes || [];
 
   const sourceSubs =
     specVariant && Array.isArray(specVariant.sub_components) && specVariant.sub_components.length > 0
@@ -1007,10 +1245,14 @@ export async function saveLineItemAsSpecVariant(params: {
 
   const nextSpecVariants = [...existingVariants, newVariantEntry];
 
-  // 1. Update parent product's spec_variants array
-  const parentPatch: Partial<Product> = {
+  // 1. Update parent product's spec_variants array & has_variants flag
+  const rootParentId = (parentProduct as any).parent_product_id || parentProduct.variant_parent_id || parentProduct.id;
+  const familyName = (parentProduct.product_family || parentProduct.name || '').trim();
+  const parentPatch: Partial<Product> & Record<string, any> = {
     spec_variants: nextSpecVariants,
     variants: nextSpecVariants,
+    has_variants: true,
+    product_family: familyName || parentProduct.name,
     updatedAt: new Date().toISOString()
   };
   await safeUpdateDoc('products', parentProduct.id, parentPatch);
@@ -1020,8 +1262,6 @@ export async function saveLineItemAsSpecVariant(params: {
   };
 
   // 2. Also create a sibling Variant Product record in 'products' so ProductManager & Catalog pickers surface it
-  const rootParentId = parentProduct.variant_parent_id || parentProduct.id;
-  const familyName = (parentProduct.product_family || parentProduct.name || '').trim();
   const variantProductName = (item.item_name || parentProduct.name || familyName).trim();
   const searchTerms = generateProductSearchTerms(
     variantProductName,
@@ -1030,7 +1270,9 @@ export async function saveLineItemAsSpecVariant(params: {
     cleanVariantLabel
   );
 
-  const variantProductPayload: Partial<Product> = {
+  const mergedVariantAndParentAttrs = mergeParentAndVariantAttributes(parentProduct.attributes, finalAttrs);
+
+  const variantProductPayload: Partial<Product> & Record<string, any> = {
     workspace_id: parentProduct.workspace_id || activeWorkspaceId || 'ws_default',
     name: variantProductName,
     description: compiledDesc || variantProductName,
@@ -1051,8 +1293,10 @@ export async function saveLineItemAsSpecVariant(params: {
     secondary_image_caption: item.secondary_image_caption || parentProduct.secondary_image_caption || undefined,
     image_adjustments: item.image_adjustments || parentProduct.image_adjustments || undefined,
     datasheet_attachment: item.datasheet_attachment || parentProduct.datasheet_attachment || undefined,
-    attributes: finalAttrs,
+    attributes: mergedVariantAndParentAttrs,
     variant_parent_id: rootParentId,
+    parent_product_id: rootParentId,
+    variant_label: cleanVariantLabel,
     product_family: familyName || variantProductName,
     ...(scaledSubComponents ? { is_composite_set: true, sub_components: scaledSubComponents } : {}),
     ...(item.package_pricing_mode ? { package_pricing_mode: item.package_pricing_mode } : {}),
@@ -1757,7 +2001,9 @@ export default function SaveToCatalogModal({
   }, [category, attributes]);
 
   const filteredParentProducts = useMemo(() => {
-    const list = (products || []).filter((p) => !p.is_deleted && !p.variant_parent_id);
+    const list = (products || []).filter(
+      (p) => !p.is_deleted && !p.variant_parent_id && !(p as any).parent_product_id
+    );
     const q = parentSearchQuery.trim().toLowerCase();
     if (!q) return list.slice(0, 40);
     return list
@@ -1775,6 +2021,45 @@ export default function SaveToCatalogModal({
     () => (products || []).find((p) => p.id === selectedParentProductId) || null,
     [products, selectedParentProductId]
   );
+
+  // Detect Suggested Parent Product when opening SaveToCatalogModal from a Base Template or matching Parent Family
+  const suggestedParentProduct = useMemo(() => {
+    if (!lineItem || !Array.isArray(products) || products.length === 0) return null;
+    const activeParents = products.filter(
+      (p) => !p.is_deleted && !p.variant_parent_id && !(p as any).parent_product_id
+    );
+    const explicitParentId =
+      (lineItem as any).template_parent_id ||
+      (lineItem as any).parent_product_id ||
+      (lineItem as any).variant_parent_id ||
+      (lineItem as any).product_id;
+    if (explicitParentId) {
+      const directMatch = products.find((p) => !p.is_deleted && p.id === explicitParentId);
+      if (directMatch) {
+        const rootId = (directMatch as any).parent_product_id || directMatch.variant_parent_id || directMatch.id;
+        const rootProd = products.find((p) => !p.is_deleted && p.id === rootId) || directMatch;
+        return rootProd;
+      }
+    }
+    const cleanTitle = (name || lineItem.item_name || lineItem.title || '').trim().toLowerCase();
+    const cleanBrand = (brandMake || lineItem.brand_make || '').trim().toLowerCase();
+    if (!cleanTitle) return null;
+
+    // 1. Exact or prefix title/family match
+    const familyMatch = activeParents.find((p) => {
+      const pName = (p.name || '').trim().toLowerCase();
+      const pFam = (p.product_family || '').trim().toLowerCase();
+      if (!pName && !pFam) return false;
+      if (pName === cleanTitle || (pFam && pFam === cleanTitle)) return true;
+      if (pName.length >= 6 && (cleanTitle.startsWith(pName) || pName.startsWith(cleanTitle))) {
+        if (!cleanBrand || !p.brand_make || p.brand_make.trim().toLowerCase() === cleanBrand) {
+          return true;
+        }
+      }
+      return false;
+    });
+    return familyMatch || null;
+  }, [lineItem, products, name, brandMake]);
 
   if (!isOpen || !lineItem) return null;
 
@@ -1876,7 +2161,7 @@ export default function SaveToCatalogModal({
     try {
       const cleanAttrs = attributes
         .map((a) => ({ key: (a.key ?? '').trim(), value: (a.value ?? '').trim() }))
-        .filter((a) => a.key !== '' && a.value !== '');
+        .filter((a) => a.key !== '');
 
       const searchTerms = generateProductSearchTerms(
         name.trim(),
@@ -2191,6 +2476,49 @@ export default function SaveToCatalogModal({
 
         {/* Body */}
         <div className="p-6 space-y-4 overflow-y-auto flex-1 font-sans">
+          {/* 1-Click Suggested Parent Banner when item matches a Parent Family or Base Template */}
+          {suggestedParentProduct && (saveMode !== 'spec_variant' || selectedParentProductId !== suggestedParentProduct.id) && (
+            <div className="p-3 rounded-xl bg-violet-50 dark:bg-violet-950/40 border border-violet-200 dark:border-violet-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <div className="p-1.5 rounded-lg bg-violet-600 text-white shrink-0 mt-0.5">
+                  <GitBranch className="w-3.5 h-3.5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-violet-950 dark:text-violet-200">
+                    Link as a Variant of {suggestedParentProduct.name}?
+                  </div>
+                  <p className="text-[11px] text-violet-700 dark:text-violet-300 leading-snug">
+                    Inherits shared base specs ({(suggestedParentProduct.attributes || []).length} attrs) &amp; media from{' '}
+                    <span className="font-mono font-semibold">{suggestedParentProduct.sku || suggestedParentProduct.name}</span> while saving your custom RFQ dimensions &amp; price.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSaveMode('spec_variant');
+                  setSelectedParentProductId(suggestedParentProduct.id || '');
+                  setCategory(suggestedParentProduct.product_type || category);
+                  if (suggestedParentProduct.brand_make && !brandMake) {
+                    setBrandMake(suggestedParentProduct.brand_make);
+                  }
+                  const suggestedLbl = deriveSuggestedVariantLabel(lineItem, suggestedParentProduct);
+                  setVariantLabel(suggestedLbl);
+                  const baseSku = (suggestedParentProduct.sku || 'SKU').replace(/-V\d+$/i, '').trim();
+                  const suffix =
+                    suggestedLbl
+                      .replace(/[^A-Za-z0-9]/g, '')
+                      .slice(0, 6)
+                      .toUpperCase() || `V${(suggestedParentProduct.spec_variants?.length || 0) + 1}`;
+                  setSku(`${baseSku}-${suffix}`);
+                }}
+                className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shrink-0 cursor-pointer shadow-2xs transition"
+              >
+                Link as Variant
+              </button>
+            </div>
+          )}
+
           {/* 2-Option Mode Switcher: New Catalog Product vs Attach as Spec Variant */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-1.5 rounded-xl bg-slate-100 border border-slate-200">
             <button

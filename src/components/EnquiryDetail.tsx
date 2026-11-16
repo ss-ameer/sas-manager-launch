@@ -26,7 +26,6 @@ import {
   prepareAttachmentsForSave,
   getAttachmentStorageKey,
   stripCatalogRedundantLineItemMedia,
-  rehydrateLineItemsFromCatalog,
   rehydrateDocumentBlobsFromLocal
 } from '../services/attachmentStorage';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
@@ -47,7 +46,10 @@ import SaveToCatalogModal, {
   isLineItemPopulated,
   linkLineItemToCatalogProductNonDestructive,
   CatalogSyncMenu,
-  resolveToAedMultiplier
+  resolveToAedMultiplier,
+  resolveEffectiveCatalogProduct,
+  deriveSuggestedVariantLabel,
+  rehydrateLineItemsFromCatalog
 } from './SaveToCatalogModal';
 import CompositePackageEditor from './quotations/CompositePackageEditor';
 import { cloneLineItemToNextOption, recalculateCompositeItemTotals, isOptionActiveForInventoryAndBaseline } from '../utils/compositeBomUtils';
@@ -2688,7 +2690,12 @@ export default function EnquiryDetail({
     setDraftLineItems((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  const handleQuickAddCatalogProduct = (p: Product) => {
+  const handleQuickAddCatalogProduct = (
+    rawProd: Product,
+    options?: { isBaseTemplate?: boolean }
+  ) => {
+    const p = resolveEffectiveCatalogProduct(rawProd, products);
+    const isBaseTemplate = Boolean(options?.isBaseTemplate);
     const enqCurrency = String(currentEnquiry.currency || 'AED').toUpperCase();
     const prodCurrency = String(p.currency || 'AED').toUpperCase();
     const fxFromProdToEnq =
@@ -2727,14 +2734,27 @@ export default function EnquiryDetail({
     const resolvedCostPrice =
       bomRollup && bomRollup.unitCostPrice > 0 ? bomRollup.unitCostPrice : costPrice;
 
+    const effectiveAttributes = (p.attributes || []).map((a) => ({
+      key: String(a.key || '').trim(),
+      value: String(a.value ?? '').trim()
+    }));
+
     const newItem: LineItem = {
       id: `li_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      product_id: p.id,
-      sku: p.sku || undefined,
+      product_id: isBaseTemplate ? undefined : p.id,
+      sku: isBaseTemplate ? undefined : p.sku || undefined,
       item_name: p.name || p.product_type,
       item_type: 'product',
       product_type: p.product_type || 'Other',
-      description: compileDescriptionWithSpecs(p.name || '', p.description || '', p.attributes || []) || p.description || p.name || '',
+      description:
+        compileDescriptionWithSpecs(
+          p.name || '',
+          p.description || '',
+          effectiveAttributes.filter((a) => a.key && a.value)
+        ) ||
+        p.description ||
+        p.name ||
+        '',
       quantity: 1,
       unit: p.unit || (p.is_composite_set ? 'SET' : 'Nos'),
       unit_price: resolvedUnitPrice,
@@ -2753,18 +2773,24 @@ export default function EnquiryDetail({
       include_datasheet_in_quote: p.datasheet_attachment ? true : undefined,
       lead_time_note: defaultLead,
       option: activeOptionTab !== 'ALL' ? activeOptionTab : 'Default / Included',
-      attributes: p.attributes ? [...p.attributes] : [],
+      attributes: effectiveAttributes,
       ...(p.is_composite_set ? { is_composite_set: true } : {}),
       ...(bomRollup ? { sub_components: bomRollup.normalizedComponents } : {}),
       ...(p.package_pricing_mode ? { package_pricing_mode: p.package_pricing_mode } : {}),
-      ...(p.option_scope_notes ? { option_scope_notes: p.option_scope_notes } : {})
+      ...(p.option_scope_notes ? { option_scope_notes: p.option_scope_notes } : {}),
+      ...(isBaseTemplate && p.id ? ({ template_parent_id: p.id } as any) : {})
     };
 
     setDraftLineItems((prev) => [...prev, newItem]);
     setIsInlineEditingItems(true);
     setShowQuickCatalogPicker(false);
     if (triggerToast) {
-      triggerToast(`Added "${p.name || p.product_type}" to Line Items. Click Save Items to persist.`, 'info');
+      triggerToast(
+        isBaseTemplate
+          ? `Inserted Custom / Base Template "${p.name || p.product_type}" with shared specs ready to customize.`
+          : `Added "${p.name || p.product_type}" to Line Items. Click Save Items to persist.`,
+        'info'
+      );
     }
   };
 
@@ -7233,44 +7259,90 @@ export default function EnquiryDetail({
                       );
                     })()}
 
-                    <div className="max-h-64 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="max-h-72 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {(() => {
                         const variantAnalysisMap = catalogVariantAnalysisMap;
-                        return (products || [])
-                          .filter((p) => {
-                            if (p.is_deleted) return false;
-                            if (quickCatalogCategory !== 'ALL' && (p.product_type || 'Other') !== quickCatalogCategory) return false;
-                            const avail = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
-                            const isLow = Boolean(p.is_inventoried) && avail <= (p.reorder_level || 0);
-                            if (quickCatalogStockFilter === 'in_stock' && (!p.is_inventoried || avail <= 0)) return false;
-                            if (quickCatalogStockFilter === 'low_stock' && !isLow) return false;
+                        const activeProducts = (products || []).filter((p) => !p.is_deleted);
+                        const childrenByParentId = new Map<string, Product[]>();
+                        for (const prod of activeProducts) {
+                          const parentId = (prod as any).parent_product_id || prod.variant_parent_id;
+                          if (parentId && parentId !== prod.id) {
+                            const list = childrenByParentId.get(parentId) || [];
+                            list.push(prod);
+                            childrenByParentId.set(parentId, list);
+                          }
+                        }
 
-                            const q = quickCatalogSearch.toLowerCase().trim();
-                            if (!q) return true;
+                        const q = quickCatalogSearch.toLowerCase().trim();
+                        const matchedList = activeProducts.filter((rawP) => {
+                          const p = resolveEffectiveCatalogProduct(rawP, activeProducts);
+                          if (quickCatalogCategory !== 'ALL' && (p.product_type || 'Other') !== quickCatalogCategory) return false;
+                          const avail = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
+                          const isLow = Boolean(p.is_inventoried) && avail <= (p.reorder_level || 0);
+                          if (quickCatalogStockFilter === 'in_stock' && (!p.is_inventoried || avail <= 0)) return false;
+                          if (quickCatalogStockFilter === 'low_stock' && !isLow) return false;
+
+                          if (!q) return true;
+                          const selfMatches =
+                            (p.name || '').toLowerCase().includes(q) ||
+                            (p.sku || '').toLowerCase().includes(q) ||
+                            (p.brand_make || '').toLowerCase().includes(q) ||
+                            (p.model_part_no || '').toLowerCase().includes(q) ||
+                            (p.description || '').toLowerCase().includes(q) ||
+                            (String((p as any).variant_label || '')).toLowerCase().includes(q) ||
+                            (p.attributes || []).some((a) => `${a.key} ${a.value}`.toLowerCase().includes(q));
+                          if (selfMatches) return true;
+                          const childList = p.id ? childrenByParentId.get(p.id) || [] : [];
+                          return childList.some((c) => {
+                            const effC = resolveEffectiveCatalogProduct(c, activeProducts);
                             return (
-                              (p.name || '').toLowerCase().includes(q) ||
-                              (p.sku || '').toLowerCase().includes(q) ||
-                              (p.brand_make || '').toLowerCase().includes(q) ||
-                              (p.model_part_no || '').toLowerCase().includes(q) ||
-                              (p.description || '').toLowerCase().includes(q) ||
-                              (p.attributes || []).some((a) => `${a.key} ${a.value}`.toLowerCase().includes(q))
+                              (effC.name || '').toLowerCase().includes(q) ||
+                              (effC.sku || '').toLowerCase().includes(q) ||
+                              (String((effC as any).variant_label || '')).toLowerCase().includes(q) ||
+                              (effC.attributes || []).some((a) => `${a.key} ${a.value}`.toLowerCase().includes(q))
                             );
-                          })
-                          .slice(0, 30)
-                          .map((p) => {
-                            const avail = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
-                            const isLow = Boolean(p.is_inventoried) && avail <= (p.reorder_level || 0);
-                            const sell = Number(p.unit_price) || 0;
-                            const cost = Number(p.cost_price ?? p.cost_price_aed) || 0;
-                            const marginPct = sell > 0 && cost > 0 ? ((sell - cost) / sell) * 100 : null;
-                            const cleanUnit = !p.unit || p.unit === 'Custom Unit' ? 'Nos' : p.unit;
-                            const vInfo = p.id ? variantAnalysisMap.get(p.id) : undefined;
-                            return (
-                              <div
-                                key={p.id}
-                                onClick={() => handleQuickAddCatalogProduct(p)}
-                                className="bg-white hover:bg-blue-50/40 border border-slate-200 hover:border-blue-300 rounded-lg p-2.5 flex items-center justify-between gap-2 cursor-pointer transition"
-                              >
+                          });
+                        });
+
+                        const matchedIds = new Set(matchedList.map((m) => m.id).filter(Boolean));
+                        // Group child variants under their parent card if the parent is present in matchedList
+                        const topLevelList = matchedList.filter((m) => {
+                          const parentId = (m as any).parent_product_id || m.variant_parent_id;
+                          if (parentId && matchedIds.has(parentId)) {
+                            return false;
+                          }
+                          return true;
+                        });
+
+                        return topLevelList.slice(0, 30).map((rawP) => {
+                          const p = resolveEffectiveCatalogProduct(rawP, activeProducts);
+                          const childVariants = (p.id ? childrenByParentId.get(p.id) || [] : []).map((cv) =>
+                            resolveEffectiveCatalogProduct(cv, activeProducts)
+                          );
+                          const hasBlankTemplateAttrs = (p.attributes || []).some(
+                            (a) => a.key && !String(a.value ?? '').trim()
+                          );
+                          const isParentOrTemplate =
+                            childVariants.length > 0 || Boolean((p as any).has_variants) || hasBlankTemplateAttrs;
+                          const avail = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
+                          const isLow = Boolean(p.is_inventoried) && avail <= (p.reorder_level || 0);
+                          const sell = Number(p.unit_price) || 0;
+                          const cost = Number(p.cost_price ?? p.cost_price_aed) || 0;
+                          const marginPct = sell > 0 && cost > 0 ? ((sell - cost) / sell) * 100 : null;
+                          const cleanUnit = !p.unit || p.unit === 'Custom Unit' ? 'Nos' : p.unit;
+                          const vInfo = p.id ? variantAnalysisMap.get(p.id) : undefined;
+                          return (
+                            <div
+                              key={p.id}
+                              onClick={() =>
+                                handleQuickAddCatalogProduct(
+                                  p,
+                                  isParentOrTemplate && sell === 0 ? { isBaseTemplate: true } : undefined
+                                )
+                              }
+                              className="bg-white hover:bg-blue-50/40 border border-slate-200 hover:border-blue-300 rounded-lg p-2.5 flex flex-col justify-between gap-2 cursor-pointer transition"
+                            >
+                              <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-2.5 min-w-0">
                                   {p.image_url ? (
                                     <img
@@ -7287,7 +7359,12 @@ export default function EnquiryDetail({
                                   <div className="min-w-0">
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                       <div className="text-xs font-bold text-slate-800 truncate">{p.name || p.product_type}</div>
-                                      {vInfo?.isVariant && (
+                                      {childVariants.length > 0 && (
+                                        <span className="text-[9px] font-mono font-bold bg-purple-50 text-purple-700 border border-purple-200 px-1.5 py-0.2 rounded whitespace-nowrap shrink-0">
+                                          Parent Family • {childVariants.length} Variant{childVariants.length === 1 ? '' : 's'}
+                                        </span>
+                                      )}
+                                      {vInfo?.isVariant && childVariants.length === 0 && (
                                         <span className="text-[9px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.2 rounded whitespace-nowrap shrink-0">
                                           Variant • {vInfo.siblingCount} SKUs
                                         </span>
@@ -7314,33 +7391,18 @@ export default function EnquiryDetail({
                                           {p.default_availability || 'Order / Non-Stock'}
                                         </span>
                                       )}
-                                      {vInfo?.isVariant ? (
-                                        <>
-                                          {vInfo.differentiatingAttributes.slice(0, 3).map((attr, aIdx) => (
-                                            <span
-                                              key={`diff-${aIdx}`}
-                                              className="text-[9px] font-mono font-bold bg-indigo-100/90 border border-indigo-300 text-indigo-900 px-1.5 py-0.2 rounded truncate max-w-[130px]"
-                                              title={`Differentiating Variant Spec — ${attr.key}: ${attr.value}`}
-                                            >
-                                              {attr.key}: {attr.value}
-                                            </span>
-                                          ))}
-                                          {vInfo.sharedAttributes.slice(0, 2).map((attr, aIdx) => (
-                                            <span
-                                              key={`shared-${aIdx}`}
-                                              className="text-[9px] font-mono bg-slate-50 border border-slate-200 text-slate-500 px-1 py-0.2 rounded truncate max-w-[110px]"
-                                            >
-                                              {attr.key}: {attr.value}
-                                            </span>
-                                          ))}
-                                        </>
-                                      ) : (
-                                        (p.attributes || []).slice(0, 3).map((attr, aIdx) => (
-                                          <span key={aIdx} className="text-[9px] font-mono bg-slate-50 border border-slate-200 text-slate-600 px-1 rounded truncate max-w-[110px]">
-                                            {attr.key}: {attr.value}
-                                          </span>
-                                        ))
-                                      )}
+                                      {(p.attributes || []).slice(0, 3).map((attr, aIdx) => (
+                                        <span
+                                          key={aIdx}
+                                          className={`text-[9px] font-mono px-1 rounded truncate max-w-[120px] ${
+                                            !attr.value
+                                              ? 'bg-amber-50 border border-amber-200 text-amber-700'
+                                              : 'bg-slate-50 border border-slate-200 text-slate-600'
+                                          }`}
+                                        >
+                                          {attr.key}: {attr.value || '(Fill on Quote)'}
+                                        </span>
+                                      ))}
                                     </div>
                                   </div>
                                 </div>
@@ -7356,8 +7418,48 @@ export default function EnquiryDetail({
                                   <span className="text-[10px] text-blue-600 font-sans font-semibold">+ Add</span>
                                 </div>
                               </div>
-                            );
-                          });
+
+                              {isParentOrTemplate && (
+                                <div
+                                  className="pt-1.5 border-t border-slate-100 flex items-center gap-1.5 flex-wrap"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <span className="text-[9px] font-mono uppercase tracking-wider text-slate-400 font-semibold">
+                                    Variants:
+                                  </span>
+                                  {childVariants.map((cv) => {
+                                    const cvLabel =
+                                      (cv as any).variant_label ||
+                                      deriveSuggestedVariantLabel(cv.attributes || [], p) ||
+                                      cv.sku ||
+                                      cv.name;
+                                    const cvPrice = Number(cv.unit_price) || 0;
+                                    return (
+                                      <button
+                                        key={cv.id}
+                                        type="button"
+                                        onClick={() => handleQuickAddCatalogProduct(cv)}
+                                        className="px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white border border-indigo-200 text-[10px] font-mono font-semibold transition cursor-pointer"
+                                        title={`Insert variant ${cv.name} (${cv.sku || 'No SKU'}) with inherited parent specs`}
+                                      >
+                                        {cvLabel}
+                                        {cvPrice > 0 ? ` — AED ${cvPrice.toLocaleString()}` : ''}
+                                      </button>
+                                    );
+                                  })}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleQuickAddCatalogProduct(p, { isBaseTemplate: true })}
+                                    className="px-2 py-0.5 rounded-md bg-amber-50 hover:bg-amber-600 text-amber-800 hover:text-white border border-amber-200 text-[10px] font-sans font-semibold transition cursor-pointer"
+                                    title="Insert base template with shared parent specs & blank keys ready to customize for this RFQ"
+                                  >
+                                    ✨ Custom / Base Template
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        });
                       })()}
                     </div>
                   </div>

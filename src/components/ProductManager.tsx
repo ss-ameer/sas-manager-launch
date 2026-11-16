@@ -57,7 +57,9 @@ import {
   Cloud,
   HardDrive,
   ShoppingBag,
-  GitFork
+  GitFork,
+  Link2,
+  Unlink
 } from 'lucide-react';
 import SearchResultCounter from './common/SearchResultCounter';
 import HoverScrollText from './common/HoverScrollText';
@@ -68,7 +70,12 @@ import {
   resolveProductFamilyDisplayName,
   formatProductVariantSelectorLabel
 } from '../utils/productVariantFormat';
-import { compileDescriptionWithSpecs } from './SaveToCatalogModal';
+import {
+  compileDescriptionWithSpecs,
+  resolveEffectiveCatalogProduct,
+  mergeParentAndVariantAttributes,
+  deriveSuggestedVariantLabel
+} from './SaveToCatalogModal';
 import { canManageWorkspace, isAdmin } from '../utils/permissions';
 
 const UNIVERSAL_QUICK_ATTRIBUTES = [
@@ -140,7 +147,10 @@ export default function ProductManager({
   const [activeFormTab, setActiveFormTab] = useState<'overview' | 'specs_media' | 'inventory'>('overview');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [formVariantParentId, setFormVariantParentId] = useState<string | null>(null);
+  const [formVariantLabel, setFormVariantLabel] = useState<string>('');
   const [formProductFamily, setFormProductFamily] = useState<string>('');
+  const [quickLinkVariantTargetId, setQuickLinkVariantTargetId] = useState<string | null>(null);
+  const [quickLinkParentSearch, setQuickLinkParentSearch] = useState<string>('');
 
   // Tab 1: Overview & Pricing
   const [formName, setFormName] = useState('');
@@ -847,6 +857,7 @@ export default function ProductManager({
     setEditingProduct(null);
     setPendingDeletedStorageUrls([]);
     setFormVariantParentId(null);
+    setFormVariantLabel('');
     setFormProductFamily('');
     setIsCreatingCategory(false);
     setNewCategoryInput('');
@@ -887,7 +898,9 @@ export default function ProductManager({
   const openEditModal = (p: Product) => {
     setEditingProduct(p);
     setPendingDeletedStorageUrls([]);
-    setFormVariantParentId(p.variant_parent_id || null);
+    const resolvedParentId = (p as any).parent_product_id || p.variant_parent_id || null;
+    setFormVariantParentId(resolvedParentId);
+    setFormVariantLabel((p as any).variant_label || '');
     setFormProductFamily(p.product_family || '');
     setIsCreatingCategory(false);
     setNewCategoryInput('');
@@ -927,62 +940,169 @@ export default function ProductManager({
     setShowFormModal(true);
   };
 
-  // 1-Click "+ Add Spec Variant": Keeps exact base product name (I1), links variant_parent_id & product_family,
-  // clones existing spec attribute keys/values (S1, S2, S3), and opens directly on Tab 2 (Specs)
+  // 1-Click "+ Add Variant": Pre-links parent_product_id = parent.id, displays parent's shared attributes
+  // as an "Inherited from Parent (Base Specs)" preview strip, and pre-populates any blank template keys
   const openSpecVariantModal = (p: Product) => {
-    const baseName = (p.name || p.description || '').replace(/\s*\(copy\)\s*$/i, '').trim();
-    const familyKey = resolveProductFamilyKey(p);
-    const siblingCount = activeCatalogProducts.filter((item) => resolveProductFamilyKey(item) === familyKey).length;
-    const baseSku = (p.sku || '').replace(/-V\d+$/i, '').trim();
+    const rootParentId = (p as any).parent_product_id || p.variant_parent_id || p.id || null;
+    const parentProd = activeCatalogProducts.find((item) => item.id === rootParentId) || p;
+    const baseName = (parentProd.name || parentProd.description || '').replace(/\s*\(copy\)\s*$/i, '').trim();
+    const familyKey = resolveProductFamilyKey(parentProd);
+    const siblingCount = activeCatalogProducts.filter(
+      (item) =>
+        resolveProductFamilyKey(item) === familyKey ||
+        item.variant_parent_id === rootParentId ||
+        (item as any).parent_product_id === rootParentId
+    ).length;
+    const baseSku = (parentProd.sku || '').replace(/-V\d+$/i, '').trim();
     const nextVariantSku = baseSku ? `${baseSku}-V${siblingCount + 1}` : '';
+
+    const blankTemplateKeys = (parentProd.attributes || [])
+      .filter((a) => a && a.key.trim() !== '' && a.value.trim() === '')
+      .map((a) => ({ key: a.key.trim(), value: '' }));
 
     setEditingProduct(null);
     setPendingDeletedStorageUrls([]);
-    setFormVariantParentId(p.variant_parent_id || p.id || null);
-    setFormProductFamily(p.product_family || baseName);
+    setFormVariantParentId(rootParentId);
+    setFormVariantLabel('');
+    setFormProductFamily(parentProd.product_family || baseName);
     setIsCreatingCategory(false);
     setNewCategoryInput('');
     setIsCreatingUnit(false);
     setNewUnitInput('');
     setActiveFormTab('specs_media');
     setFormName(baseName);
-    setFormProductType(p.product_type || productCategories[0] || 'General Equipment');
-    setFormDescription(compileDescriptionWithSpecs(baseName, p.description || '', p.attributes || []) || p.description || '');
-    setFormUnit(p.unit && p.unit !== 'Custom Unit' ? p.unit : 'Nos');
-    setFormUnitPrice(p.unit_price ?? undefined);
-    setFormCostPrice(p.cost_price ?? undefined);
-    setFormIsCompositeSet(Boolean(p.is_composite_set));
-    setFormSubComponents((p.sub_components || []).map((c, idx) => ({ ...c, id: `comp_${Date.now()}_${idx}` })));
-    setFormPackagePricingMode(p.package_pricing_mode || 'itemized');
-    setFormOptionScopeNotes(p.option_scope_notes || '');
-    setFormSku(nextVariantSku);
-    setFormBrandMake(p.brand_make || '');
-    setFormModelPartNo(p.model_part_no || '');
-    setFormDefaultAvailability(p.default_availability || '');
-    setFormImageUrl(p.image_url || '');
-    setFormSecondaryImageUrl(p.secondary_image_url || '');
-    setFormImageCaption(p.image_caption || '');
-    setFormSecondaryImageCaption(p.secondary_image_caption || '');
-    setFormImageAdjustments(p.image_adjustments);
-    setFormDatasheetAttachment(p.datasheet_attachment);
-    setFormAttributes(
-      p.attributes && p.attributes.length > 0
-        ? p.attributes.map((a) => ({ ...a }))
-        : [{ key: '', value: '' }]
+    setFormProductType(parentProd.product_type || productCategories[0] || 'General Equipment');
+    setFormDescription(
+      compileDescriptionWithSpecs(baseName, parentProd.description || '', parentProd.attributes || []) ||
+        parentProd.description ||
+        ''
     );
-    setFormIsInventoried(Boolean(p.is_inventoried));
+    setFormUnit(parentProd.unit && parentProd.unit !== 'Custom Unit' ? parentProd.unit : 'Nos');
+    setFormUnitPrice(parentProd.unit_price ?? undefined);
+    setFormCostPrice(parentProd.cost_price ?? undefined);
+    setFormIsCompositeSet(Boolean(parentProd.is_composite_set));
+    setFormSubComponents((parentProd.sub_components || []).map((c, idx) => ({ ...c, id: `comp_${Date.now()}_${idx}` })));
+    setFormPackagePricingMode(parentProd.package_pricing_mode || 'itemized');
+    setFormOptionScopeNotes(parentProd.option_scope_notes || '');
+    setFormSku(nextVariantSku);
+    setFormBrandMake(parentProd.brand_make || '');
+    setFormModelPartNo(parentProd.model_part_no || '');
+    setFormDefaultAvailability(parentProd.default_availability || '');
+    setFormImageUrl(parentProd.image_url || '');
+    setFormSecondaryImageUrl(parentProd.secondary_image_url || '');
+    setFormImageCaption(parentProd.image_caption || '');
+    setFormSecondaryImageCaption(parentProd.secondary_image_caption || '');
+    setFormImageAdjustments(parentProd.image_adjustments);
+    setFormDatasheetAttachment(parentProd.datasheet_attachment);
+    setFormAttributes(
+      blankTemplateKeys.length > 0 ? blankTemplateKeys : [{ key: 'Dimensions / Size', value: '' }]
+    );
+    setFormIsInventoried(Boolean(parentProd.is_inventoried));
     setFormStockOnHand(0);
-    setFormReorderLevel(p.reorder_level ?? 0);
-    setFormStorageLocation(p.storage_location || '');
-    setFormHsCode(p.hs_code || '');
-    setFormCountryOfOrigin(p.country_of_origin || '');
-    setFormGrossWeightKg(p.gross_weight_kg ?? undefined);
+    setFormReorderLevel(parentProd.reorder_level ?? 0);
+    setFormStorageLocation(parentProd.storage_location || '');
+    setFormHsCode(parentProd.hs_code || '');
+    setFormCountryOfOrigin(parentProd.country_of_origin || '');
+    setFormGrossWeightKg(parentProd.gross_weight_kg ?? undefined);
     setShowFormModal(true);
     if (triggerToast) {
       triggerToast(
-        `Creating Spec Variant for "${baseName}". Edit the differing specification value & SKU below, then click Register Spec Variant.`,
+        `Adding Variant under "${baseName}". Shared base specs are inherited automatically—enter your Variant Label, SKU, and differentiating specs.`,
         'info'
       );
+    }
+  };
+
+  // 1-Click Make Variant Of (converts any existing standalone item into a child variant of a chosen parent)
+  const handleMakeProductVariantOf = async (childProd: Product, parentProd: Product) => {
+    if (!childProd.id || !parentProd.id || childProd.id === parentProd.id) return;
+    const rootParentId = (parentProd as any).parent_product_id || parentProd.variant_parent_id || parentProd.id;
+    const familyName = (parentProd.product_family || parentProd.name || '').trim();
+    const suggestedLabel =
+      (childProd as any).variant_label ||
+      deriveSuggestedVariantLabel(
+        {
+          item_name: childProd.name,
+          model_part_no: childProd.model_part_no,
+          attributes: childProd.attributes
+        },
+        parentProd
+      );
+    const mergedAttrs = mergeParentAndVariantAttributes(parentProd.attributes, childProd.attributes);
+    const nowIso = new Date().toISOString();
+
+    const childPatch: Partial<Product> & Record<string, any> = {
+      variant_parent_id: rootParentId,
+      parent_product_id: rootParentId,
+      variant_label: suggestedLabel,
+      product_family: familyName || childProd.product_family || parentProd.name,
+      attributes: mergedAttrs,
+      updatedAt: nowIso
+    };
+    const parentPatch: Partial<Product> & Record<string, any> = {
+      has_variants: true,
+      product_family: familyName || parentProd.name,
+      updatedAt: nowIso
+    };
+
+    try {
+      const updatedChild = { ...childProd, ...childPatch } as Product;
+      const updatedParent = { ...parentProd, ...parentPatch } as Product;
+      await safeUpdateDoc('products', childProd.id, sanitizeFirestorePayload(updatedChild));
+      await safeUpdateDoc('products', parentProd.id, sanitizeFirestorePayload(updatedParent));
+      const nextList = products.map((item) => {
+        if (item.id === childProd.id) return updatedChild;
+        if (item.id === parentProd.id) return updatedParent;
+        return item;
+      });
+      if (setProducts) setProducts(nextList);
+      await MetadataRepository.upsertLocalProduct(updatedChild).catch(() => {});
+      await MetadataRepository.upsertLocalProduct(updatedParent).catch(() => {});
+      setQuickLinkVariantTargetId(null);
+      setQuickLinkParentSearch('');
+      if (triggerToast) {
+        triggerToast(
+          `Linked "${childProd.name}" as a Variant (${suggestedLabel}) of "${parentProd.name}".`,
+          'success'
+        );
+      }
+    } catch (err: any) {
+      if (triggerToast) {
+        triggerToast(`Failed to link variant: ${err?.message || 'Error'}`, 'error');
+      }
+    }
+  };
+
+  // 1-Click Detach Variant as Standalone Product
+  const handleDetachProductVariant = async (variantProd: Product) => {
+    if (!variantProd.id) return;
+    const nowIso = new Date().toISOString();
+    const resolvedStandalone = resolveEffectiveCatalogProduct(variantProd, activeCatalogProducts);
+    const patch: Partial<Product> & Record<string, any> = {
+      variant_parent_id: null,
+      parent_product_id: null,
+      variant_label: null,
+      product_family: null,
+      attributes: resolvedStandalone.attributes || variantProd.attributes || [],
+      image_url: resolvedStandalone.image_url || variantProd.image_url,
+      brand_make: resolvedStandalone.brand_make || variantProd.brand_make,
+      country_of_origin: resolvedStandalone.country_of_origin || variantProd.country_of_origin,
+      updatedAt: nowIso
+    };
+    try {
+      const updatedProd = { ...variantProd, ...patch } as Product;
+      await safeUpdateDoc('products', variantProd.id, sanitizeFirestorePayload(updatedProd));
+      const nextList = products.map((item) => (item.id === variantProd.id ? updatedProd : item));
+      if (setProducts) setProducts(nextList);
+      await MetadataRepository.upsertLocalProduct(updatedProd).catch(() => {});
+      setQuickLinkVariantTargetId(null);
+      if (triggerToast) {
+        triggerToast(`Detached "${variantProd.name}" as a standalone product.`, 'info');
+      }
+    } catch (err: any) {
+      if (triggerToast) {
+        triggerToast(`Failed to detach variant: ${err?.message || 'Error'}`, 'error');
+      }
     }
   };
 
@@ -1066,24 +1186,46 @@ export default function ProductManager({
 
     setIsSubmitting(true);
 
-    const cleanAttributes: ProductAttribute[] = formAttributes
+    // Allow saving attribute keys with empty values (placeholder template keys to be filled in per RFQ)
+    const rawCleanAttributes: ProductAttribute[] = formAttributes
       .map((a) => ({ key: a.key.trim(), value: a.value.trim() }))
-      .filter((a) => a.key !== '' && a.value !== '');
+      .filter((a) => a.key !== '');
+
+    const linkedParentProduct = formVariantParentId
+      ? activeCatalogProducts.find((p) => p.id === formVariantParentId && p.id !== editingProduct?.id)
+      : null;
+
+    const cleanAttributes: ProductAttribute[] = linkedParentProduct
+      ? mergeParentAndVariantAttributes(linkedParentProduct.attributes, rawCleanAttributes)
+      : rawCleanAttributes;
 
     const resolvedBrand =
       formBrandMake.trim() ||
       cleanAttributes.find((a) => /^(brand|make|manufacturer)$/i.test(a.key))?.value ||
+      linkedParentProduct?.brand_make ||
       undefined;
     const resolvedModel =
       formModelPartNo.trim() ||
       cleanAttributes.find((a) => /^(model|model no|part no)$/i.test(a.key))?.value ||
       undefined;
 
+    const resolvedVariantLabel = formVariantParentId
+      ? formVariantLabel.trim() ||
+        deriveSuggestedVariantLabel(
+          {
+            item_name: formName.trim(),
+            model_part_no: resolvedModel,
+            attributes: rawCleanAttributes
+          },
+          linkedParentProduct
+        )
+      : null;
+
     const searchTerms = generateProductSearchTerms(
       formName.trim(),
       formProductType,
       formSku.trim(),
-      resolvedBrand || resolvedModel
+      resolvedBrand || resolvedModel || resolvedVariantLabel || undefined
     );
 
     const fallbackSell =
@@ -1129,7 +1271,11 @@ export default function ProductManager({
       ? Number(liveExistingProduct.stock_reserved || 0)
       : 0;
 
-    const data: Partial<Product> = {
+    const resolvedFamilyName = linkedParentProduct
+      ? (linkedParentProduct.product_family || linkedParentProduct.name || formProductFamily || formName).trim()
+      : (formProductFamily || formName).trim();
+
+    const data: Partial<Product> & Record<string, any> = {
       workspace_id: activeWorkspace.id,
       name: formName.trim(),
       product_type: formProductType || 'General',
@@ -1142,17 +1288,19 @@ export default function ProductManager({
       package_pricing_mode: formIsCompositeSet ? formPackagePricingMode : undefined,
       option_scope_notes: formIsCompositeSet && formOptionScopeNotes.trim() ? formOptionScopeNotes.trim() : undefined,
       sku: formSku.trim() || undefined,
-      variant_parent_id: formVariantParentId || undefined,
-      product_family: (formProductFamily || formName).trim() || undefined,
+      variant_parent_id: formVariantParentId || null,
+      parent_product_id: formVariantParentId || null,
+      variant_label: resolvedVariantLabel,
+      product_family: resolvedFamilyName || undefined,
       brand_make: resolvedBrand,
       model_part_no: resolvedModel,
       default_availability: formDefaultAvailability.trim() || undefined,
-      image_url: formImageUrl.trim() || undefined,
-      secondary_image_url: formSecondaryImageUrl.trim() || undefined,
-      image_caption: formImageCaption.trim() || undefined,
-      secondary_image_caption: formSecondaryImageCaption.trim() || undefined,
-      image_adjustments: formImageAdjustments || undefined,
-      datasheet_attachment: formDatasheetAttachment || undefined,
+      image_url: formImageUrl.trim() || linkedParentProduct?.image_url || undefined,
+      secondary_image_url: formSecondaryImageUrl.trim() || linkedParentProduct?.secondary_image_url || undefined,
+      image_caption: formImageCaption.trim() || linkedParentProduct?.image_caption || undefined,
+      secondary_image_caption: formSecondaryImageCaption.trim() || linkedParentProduct?.secondary_image_caption || undefined,
+      image_adjustments: formImageAdjustments || linkedParentProduct?.image_adjustments || undefined,
+      datasheet_attachment: formDatasheetAttachment || linkedParentProduct?.datasheet_attachment || undefined,
       attributes: cleanAttributes,
       search_terms: searchTerms,
       is_inventoried: formIsInventoried,
@@ -1160,8 +1308,8 @@ export default function ProductManager({
       stock_reserved: resolvedStockReserved,
       reorder_level: formIsInventoried ? Number(formReorderLevel || 0) : undefined,
       storage_location: formIsInventoried && formStorageLocation.trim() ? formStorageLocation.trim() : undefined,
-      hs_code: formHsCode.trim() || undefined,
-      country_of_origin: formCountryOfOrigin.trim() || undefined,
+      hs_code: formHsCode.trim() || linkedParentProduct?.hs_code || undefined,
+      country_of_origin: formCountryOfOrigin.trim() || linkedParentProduct?.country_of_origin || undefined,
       gross_weight_kg:
         typeof formGrossWeightKg === 'number' && !isNaN(formGrossWeightKg) && formGrossWeightKg >= 0
           ? formGrossWeightKg
@@ -1171,11 +1319,27 @@ export default function ProductManager({
 
     try {
       let savedTargetId = editingProduct?.id || '';
+      let updatedParentObj: Product | null = null;
+      if (linkedParentProduct && linkedParentProduct.id) {
+        const parentUpdatePatch: Partial<Product> & Record<string, any> = {
+          has_variants: true,
+          product_family: resolvedFamilyName || linkedParentProduct.name,
+          updatedAt: new Date().toISOString()
+        };
+        updatedParentObj = { ...linkedParentProduct, ...parentUpdatePatch } as Product;
+        await safeUpdateDoc('products', linkedParentProduct.id, sanitizeFirestorePayload(updatedParentObj)).catch(() => {});
+        await MetadataRepository.upsertLocalProduct(updatedParentObj).catch(() => {});
+      }
+
       if (editingProduct && editingProduct.id) {
         const updatedProd: Product = { ...liveExistingProduct, ...data, id: editingProduct.id } as Product;
         const sanitizedPayload = sanitizeFirestorePayload(updatedProd);
         await safeUpdateDoc('products', editingProduct.id, sanitizedPayload);
-        const nextList = products.map((p) => (p.id === editingProduct.id ? updatedProd : p));
+        const nextList = products.map((p) => {
+          if (p.id === editingProduct.id) return updatedProd;
+          if (updatedParentObj && p.id === updatedParentObj.id) return updatedParentObj;
+          return p;
+        });
         if (setProducts) {
           setProducts(nextList);
         }
@@ -1192,7 +1356,12 @@ export default function ProductManager({
         const res = await safeAddDoc('products', createPayload);
         const newId = res?.id || tempId;
         const newProd: Product = { id: newId, ...data } as Product;
-        const nextList = [newProd, ...products.filter((p) => p.id !== newId)];
+        const nextList = [
+          newProd,
+          ...products
+            .filter((p) => p.id !== newId)
+            .map((p) => (updatedParentObj && p.id === updatedParentObj.id ? updatedParentObj : p))
+        ];
         if (setProducts) {
           setProducts(nextList);
         }
@@ -1532,7 +1701,19 @@ export default function ProductManager({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans text-sm">
-                    {paginatedProducts.map((p, rowIdx) => {
+                    {paginatedProducts.map((rawProd, rowIdx) => {
+                      const p = resolveEffectiveCatalogProduct(rawProd, activeCatalogProducts);
+                      const parentId = (rawProd as any).parent_product_id || rawProd.variant_parent_id || null;
+                      const linkedParent = parentId
+                        ? activeCatalogProducts.find((cand) => cand.id === parentId)
+                        : null;
+                      const childVariantsCount = activeCatalogProducts.filter(
+                        (cand) =>
+                          cand.id !== p.id &&
+                          ((cand as any).parent_product_id === p.id || cand.variant_parent_id === p.id)
+                      ).length;
+                      const explicitVariantLabel = (rawProd as any).variant_label || '';
+
                       const availableQty = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
                       const isLowStock = Boolean(p.is_inventoried) && availableQty <= (p.reorder_level || 0);
                       const sellPrice = p.unit_price || 0;
@@ -1556,7 +1737,7 @@ export default function ProductManager({
                       const hasStructuredAttrs = orderedAttrs.length > 0;
                       const visibleAttrs = orderedAttrs.slice(0, 2);
                       const remainingAttrCount = Math.max(0, orderedAttrs.length - visibleAttrs.length);
-                      const allSpecsTooltip = orderedAttrs.map((a) => `${a.key}: ${a.value || '—'}`).join(' • ');
+                      const allSpecsTooltip = orderedAttrs.map((a) => `${a.key}: ${a.value || '(Template Blank)'}`).join(' • ');
 
                       // Deduplicated single-line subtitle when no structured attributes exist
                       const rawDesc = (p.description || '').trim();
@@ -1679,6 +1860,21 @@ export default function ProductManager({
                                     >
                                       {productTitle}
                                     </span>
+                                    {linkedParent && (
+                                      <span
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-violet-50 dark:bg-violet-950/50 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800 shrink-0"
+                                        title={`Child Variant of ${linkedParent.name} (${linkedParent.sku || 'Parent'})`}
+                                      >
+                                        <GitFork className="w-2.5 h-2.5" />
+                                        <span>{explicitVariantLabel || `Variant of ${linkedParent.sku || linkedParent.name}`}</span>
+                                      </span>
+                                    )}
+                                    {!linkedParent && (childVariantsCount > 0 || (rawProd as any).has_variants) && (
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0">
+                                        <GitFork className="w-2.5 h-2.5" />
+                                        <span>Parent ({childVariantsCount} Variant{childVariantsCount === 1 ? '' : 's'})</span>
+                                      </span>
+                                    )}
                                     {p.is_composite_set && p.sub_components && p.sub_components.length > 0 ? (
                                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 shrink-0">
                                         <Layers className="w-2.5 h-2.5" />
@@ -1881,8 +2077,8 @@ export default function ProductManager({
                               )}
                             </td>
 
-                            {/* 6. ACTIONS (Compact Icon Buttons, Never Clips) */}
-                            <td className="py-3 pl-2 pr-3 w-[116px] text-right whitespace-nowrap align-middle" onClick={(e) => e.stopPropagation()}>
+                            {/* 6. ACTIONS (Compact Buttons + [+ Variant] & [🔗 Make Variant Of...]) */}
+                            <td className="py-3 pl-2 pr-3 w-[170px] text-right whitespace-nowrap align-middle relative" onClick={(e) => e.stopPropagation()}>
                               <div className="inline-flex items-center justify-end gap-1">
                                 {isEditable ? (
                                   <>
@@ -1890,7 +2086,45 @@ export default function ProductManager({
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        openEditModal(p);
+                                        openSpecVariantModal(rawProd);
+                                      }}
+                                      className="h-7 px-2 rounded-lg inline-flex items-center justify-center gap-1 text-[10.5px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50/80 dark:bg-indigo-950/50 hover:bg-indigo-600 hover:text-white border border-indigo-200 dark:border-indigo-800 transition cursor-pointer shrink-0"
+                                      title="Add Child Variant inheriting this product's base attributes & media"
+                                    >
+                                      <Plus className="w-3 h-3" />
+                                      <span>Variant</span>
+                                    </button>
+                                    {linkedParent ? (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDetachProductVariant(rawProd);
+                                        }}
+                                        className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-violet-600 dark:text-violet-400 hover:text-amber-700 hover:bg-amber-50 border border-violet-200/80 hover:border-amber-300 transition cursor-pointer shrink-0"
+                                        title={`Detach from "${linkedParent.name}" as Standalone Product`}
+                                      >
+                                        <Unlink className="w-3.5 h-3.5" />
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setQuickLinkVariantTargetId((prev) => (prev === rawProd.id ? null : rawProd.id || null));
+                                          setQuickLinkParentSearch('');
+                                        }}
+                                        className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-violet-600 hover:bg-violet-50 border border-transparent hover:border-violet-200 transition cursor-pointer shrink-0"
+                                        title="🔗 Make Variant Of... (Link this standalone item under an existing Parent Product)"
+                                      >
+                                        <Link2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openEditModal(rawProd);
                                       }}
                                       className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-transparent hover:border-blue-200/80 dark:hover:border-blue-800/60 transition cursor-pointer shrink-0"
                                       title="Inspect / Edit Product"
@@ -1902,19 +2136,7 @@ export default function ProductManager({
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        openSpecVariantModal(p);
-                                      }}
-                                      className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 border border-transparent hover:border-indigo-200/80 dark:hover:border-indigo-800/60 transition cursor-pointer shrink-0"
-                                      title="Add Spec Variant"
-                                      aria-label="Add Spec Variant"
-                                    >
-                                      <GitFork className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleDeleteProduct(p);
+                                        handleDeleteProduct(rawProd);
                                       }}
                                       className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-transparent hover:border-rose-200 dark:hover:border-rose-800/60 transition cursor-pointer shrink-0"
                                       title="Move to Recycle Bin"
@@ -1927,6 +2149,68 @@ export default function ProductManager({
                                   <span className="text-xs text-slate-400 italic">Viewer</span>
                                 )}
                               </div>
+
+                              {/* Inline 1-Click "Make Variant Of..." Popover */}
+                              {quickLinkVariantTargetId === rawProd.id && (
+                                <div
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="absolute right-3 top-full mt-1 w-72 rounded-xl bg-white dark:bg-slate-900 border border-violet-200 dark:border-violet-800 shadow-2xl p-2.5 z-50 text-left space-y-2"
+                                >
+                                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
+                                    <span className="text-[11px] font-bold text-violet-950 dark:text-violet-200 flex items-center gap-1">
+                                      <Link2 className="w-3 h-3 text-violet-600" />
+                                      <span>Make Variant Of Parent Product</span>
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setQuickLinkVariantTargetId(null)}
+                                      className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                  <input
+                                    type="text"
+                                    autoFocus
+                                    value={quickLinkParentSearch}
+                                    onChange={(e) => setQuickLinkParentSearch(e.target.value)}
+                                    placeholder="Search parent product..."
+                                    className="w-full px-2.5 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-violet-500"
+                                  />
+                                  <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                                    {activeCatalogProducts
+                                      .filter(
+                                        (cand) =>
+                                          cand.id !== rawProd.id &&
+                                          !cand.variant_parent_id &&
+                                          !(cand as any).parent_product_id &&
+                                          (!quickLinkParentSearch.trim() ||
+                                            `${cand.name} ${cand.sku} ${cand.brand_make}`
+                                              .toLowerCase()
+                                              .includes(quickLinkParentSearch.trim().toLowerCase()))
+                                      )
+                                      .slice(0, 20)
+                                      .map((cand) => (
+                                        <button
+                                          key={cand.id}
+                                          type="button"
+                                          onClick={() => handleMakeProductVariantOf(rawProd, cand)}
+                                          className="w-full text-left px-2 py-1.5 hover:bg-violet-50 dark:hover:bg-violet-950/40 rounded-lg transition cursor-pointer flex items-center justify-between gap-2"
+                                        >
+                                          <div className="min-w-0">
+                                            <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">
+                                              {cand.name}
+                                            </div>
+                                            <div className="text-[10px] font-mono text-slate-500 truncate">
+                                              {cand.sku || cand.product_type}
+                                            </div>
+                                          </div>
+                                          <span className="text-[10px] font-bold text-violet-600 shrink-0">Link →</span>
+                                        </button>
+                                      ))}
+                                  </div>
+                                </div>
+                              )}
                             </td>
                           </tr>
                         </React.Fragment>
@@ -2234,80 +2518,153 @@ export default function ProductManager({
 
               {/* Calm Tinted Scroll Canvas with Numbered Chapter Cards */}
               <div className="p-5 sm:p-6 bg-slate-50/80 dark:bg-slate-950/70 overflow-y-auto flex-1 font-sans space-y-5">
-                {/* Spec Variant Quick Setup Banner (Surfaced at Top when creating a Spec Variant) */}
-                {formVariantParentId && !editingProduct && (
-                  <div className="p-4 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/70 space-y-3">
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <span className="text-xs font-bold text-indigo-950 dark:text-indigo-200 flex items-center gap-1.5">
-                        <GitFork className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                        <span>Spec Variant Quick Setup — {formName}</span>
-                      </span>
-                      <span className="text-[11px] text-indigo-700 dark:text-indigo-300">
-                        Adjust differing specification attribute(s), SKU, price, or opening stock below
-                      </span>
+                {/* PARENT FAMILY / VARIANT LINK CONTROL & INHERITED BASE SPECS STRIP */}
+                {(() => {
+                  const selectedParent = formVariantParentId
+                    ? activeCatalogProducts.find((cand) => cand.id === formVariantParentId && cand.id !== editingProduct?.id)
+                    : null;
+                  const parentOptions = activeCatalogProducts.filter(
+                    (cand) =>
+                      cand.id !== editingProduct?.id &&
+                      !cand.variant_parent_id &&
+                      !(cand as any).parent_product_id
+                  );
+                  return (
+                    <div className="p-4 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/35 border border-indigo-200/80 dark:border-indigo-800/70 space-y-3">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-xs font-bold text-indigo-950 dark:text-indigo-200 flex items-center gap-1.5">
+                          <Link2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                          <span>
+                            {selectedParent
+                              ? `Linked as Child Variant of "${selectedParent.name}"`
+                              : 'Parent Family / Variant Link (🔗 Make Variant Of...)'}
+                          </span>
+                        </span>
+                        {selectedParent ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFormVariantParentId(null);
+                              setFormVariantLabel('');
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 hover:bg-amber-50 text-amber-700 border border-amber-300 text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                          >
+                            <Unlink className="w-3 h-3" />
+                            <span>Detach as Standalone</span>
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-indigo-700 dark:text-indigo-300">
+                            Optional: Link this item under an existing Parent Product to inherit shared base specs &amp; media
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                        <div className="sm:col-span-7">
+                          <label className="block text-[10px] font-mono uppercase font-bold text-indigo-900 dark:text-indigo-300 mb-1">
+                            Parent Product (🔗 Make Variant Of...)
+                          </label>
+                          <select
+                            value={formVariantParentId || ''}
+                            onChange={(e) => {
+                              const nextParentId = e.target.value || null;
+                              setFormVariantParentId(nextParentId);
+                              if (nextParentId) {
+                                const pMatch = activeCatalogProducts.find((c) => c.id === nextParentId);
+                                if (pMatch) {
+                                  setFormProductFamily(pMatch.product_family || pMatch.name || '');
+                                  if (!formName.trim()) setFormName(pMatch.name || '');
+                                  if (!formBrandMake.trim() && pMatch.brand_make) setFormBrandMake(pMatch.brand_make);
+                                  if (!formCountryOfOrigin.trim() && pMatch.country_of_origin) setFormCountryOfOrigin(pMatch.country_of_origin);
+                                  if (!formVariantLabel.trim()) {
+                                    setFormVariantLabel(
+                                      deriveSuggestedVariantLabel(
+                                        {
+                                          item_name: formName,
+                                          model_part_no: formModelPartNo,
+                                          attributes: formAttributes
+                                        },
+                                        pMatch
+                                      )
+                                    );
+                                  }
+                                }
+                              }
+                            }}
+                            className="w-full rounded-xl border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+                          >
+                            <option value="">— Standalone / Master Parent Product —</option>
+                            {parentOptions.map((po) => (
+                              <option key={po.id} value={po.id}>
+                                {po.name} {po.sku ? `(${po.sku})` : ''} {po.brand_make ? `• ${po.brand_make}` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="sm:col-span-5">
+                          <label className="block text-[10px] font-mono uppercase font-bold text-indigo-900 dark:text-indigo-300 mb-1">
+                            Variant Label (e.g. &ldquo;48&quot; x 72&quot;&rdquo; or &ldquo;15LPH @ 3 Bar&rdquo;)
+                          </label>
+                          <input
+                            type="text"
+                            value={formVariantLabel}
+                            onChange={(e) => setFormVariantLabel(e.target.value)}
+                            placeholder='e.g. 48" x 72" or 15LPH @ 3 Bar'
+                            className="w-full rounded-xl border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Inherited from Parent (Base Specs) Preview Strip */}
+                      {selectedParent && Array.isArray(selectedParent.attributes) && selectedParent.attributes.length > 0 && (
+                        <div className="pt-2 border-t border-indigo-200/70 dark:border-indigo-800/60 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-mono uppercase font-bold text-indigo-800 dark:text-indigo-300">
+                              Inherited from Parent (Base Specs — {selectedParent.attributes.length})
+                            </span>
+                            <span className="text-[10px] text-indigo-600 dark:text-indigo-400">
+                              Click any base spec chip below to override or fill its value on this variant
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {selectedParent.attributes.map((pa, pIdx) => {
+                              const overridden = formAttributes.find(
+                                (fa) => fa.key.trim().toLowerCase() === pa.key.trim().toLowerCase() && fa.value.trim() !== ''
+                              );
+                              return (
+                                <button
+                                  key={pIdx}
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveFormTab('specs_media');
+                                    setFormAttributes((prev) => {
+                                      const exists = prev.some(
+                                        (fa) => fa.key.trim().toLowerCase() === pa.key.trim().toLowerCase()
+                                      );
+                                      if (exists) return prev;
+                                      return [...prev, { key: pa.key, value: pa.value || '' }];
+                                    });
+                                    document.getElementById('product-chapter-3')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                  }}
+                                  className={`px-2 py-0.5 rounded-md text-[10.5px] font-mono border transition cursor-pointer ${
+                                    overridden
+                                      ? 'bg-indigo-600 text-white border-indigo-600 font-bold'
+                                      : pa.value.trim() === ''
+                                      ? 'bg-amber-50 text-amber-800 border-amber-300 font-semibold'
+                                      : 'bg-white dark:bg-slate-900 text-indigo-900 dark:text-indigo-200 border-indigo-200 dark:border-indigo-700 hover:border-indigo-400'
+                                  }`}
+                                  title="Click to customize or override this attribute on the variant"
+                                >
+                                  {pa.key}: {overridden ? `${overridden.value} (Overridden)` : pa.value || '[Template Blank — Click to Fill]'}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                      <div>
-                        <label className="block text-[10px] font-mono uppercase font-bold text-indigo-900 dark:text-indigo-300 mb-1">
-                          Variant SKU Code
-                        </label>
-                        <input
-                          type="text"
-                          value={formSku}
-                          onChange={(e) => setFormSku(e.target.value)}
-                          placeholder="e.g. SKU-1042-V2"
-                          className="w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-mono uppercase font-bold text-indigo-900 dark:text-indigo-300 mb-1">
-                          Selling Price (AED)
-                        </label>
-                        <input
-                          type="number"
-                          min={0}
-                          step="any"
-                          value={formUnitPrice ?? ''}
-                          onChange={(e) => setFormUnitPrice(e.target.value !== '' ? Number(e.target.value) : undefined)}
-                          placeholder="0.00"
-                          className="w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-mono font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-mono uppercase font-bold text-indigo-900 dark:text-indigo-300 mb-1">
-                          Base Cost (AED)
-                        </label>
-                        <input
-                          type="number"
-                          min={0}
-                          step="any"
-                          value={formCostPrice ?? ''}
-                          onChange={(e) => setFormCostPrice(e.target.value !== '' ? Number(e.target.value) : undefined)}
-                          placeholder="0.00"
-                          className="w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-mono uppercase font-bold text-indigo-900 dark:text-indigo-300 mb-1">
-                          Opening Stock ({formUnit || 'Nos'})
-                        </label>
-                        <input
-                          type="number"
-                          min={0}
-                          step="any"
-                          value={formIsInventoried ? (formStockOnHand ?? 0) : ''}
-                          onChange={(e) => {
-                            const val = e.target.value !== '' ? Number(e.target.value) : 0;
-                            setFormIsInventoried(val > 0 || formIsInventoried);
-                            setFormStockOnHand(val);
-                          }}
-                          placeholder="Non-Stock (0)"
-                          className="w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* CHAPTER 1: CORE PRODUCT IDENTITY & SKU */}
                 <div
