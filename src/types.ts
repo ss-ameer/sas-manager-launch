@@ -419,6 +419,12 @@ export interface LineItemComponent {
   is_included_accessory?: boolean;
   product_id?: string;
   sku?: string;
+  brand_make?: string;
+  model_part_no?: string;
+  country_of_origin?: string;
+  attributes?: ProductAttribute[];
+  show_attributes?: boolean;
+  show_image?: boolean;
   image_url?: string;
   image_caption?: string;
   image_adjustments?: ImageAdjustmentConfig;
@@ -1678,6 +1684,7 @@ export interface QuotationPresetColumns {
   lineItemImageBgFill?: 'transparent' | 'white' | 'slate';
   lineItemImageFrame?: 'card' | 'rounded' | 'minimal' | 'shadow';
   bomSubComponentImageMode?: 'off' | 'small' | 'match_parent';
+  showBomSubComponentAttributes?: boolean;
   photoScheduleColumns?: 2 | 3;
   photoScheduleNewPage?: boolean;
 }

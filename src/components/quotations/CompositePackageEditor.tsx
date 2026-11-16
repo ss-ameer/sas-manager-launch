@@ -114,6 +114,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
   const [catalogSearchQuery, setCatalogSearchQuery] = useState<string>('');
   const [expandedRowNotes, setExpandedRowNotes] = useState<Record<string, boolean>>({});
   const [expandedFormatRows, setExpandedFormatRows] = useState<Record<string, boolean>>({});
+  const [expandedSpecRows, setExpandedSpecRows] = useState<Record<string, boolean>>({});
   const [showScopeNotes, setShowScopeNotes] = useState<boolean>(Boolean(optionScopeNotes && optionScopeNotes.trim()));
   const [showCostInputs, setShowCostInputs] = useState<boolean>(false);
   const [lightboxSubComp, setLightboxSubComp] = useState<LineItemComponent | null>(null);
@@ -140,6 +141,13 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
 
   const toggleNoteRow = (compId: string) => {
     setExpandedRowNotes((prev) => ({
+      ...prev,
+      [compId]: !prev[compId],
+    }));
+  };
+
+  const toggleSpecRow = (compId: string) => {
+    setExpandedSpecRows((prev) => ({
       ...prev,
       [compId]: !prev[compId],
     }));
@@ -490,6 +498,51 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
     commitComponents([...subComponents, newComp]);
   };
 
+  const extractCleanDescAndAttributesFromProduct = (
+    prod: Product
+  ): { cleanDesc: string; attributes: Array<{ key: string; value: string }> } => {
+    const baseAttrs: Array<{ key: string; value: string }> = Array.isArray(prod.attributes)
+      ? prod.attributes
+          .filter((a) => a && (a.key?.trim() || a.value?.trim()))
+          .map((a) => ({
+            key: String(a.key || '').trim(),
+            value: String(a.value || '').replace(/^[•▪▸\-*]\s*/, '').trim(),
+          }))
+      : [];
+    const seenKeys = new Set(baseAttrs.map((a) => a.key.toLowerCase()));
+    const rawDesc = String(prod.description || '').trim();
+    if (!rawDesc) {
+      return { cleanDesc: '', attributes: baseAttrs };
+    }
+
+    const keptLines: string[] = [];
+    rawDesc.split(/\r?\n/).forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      if (/^specs?\s*:/i.test(trimmed)) {
+        const specBody = trimmed.replace(/^specs?\s*:\s*/i, '');
+        specBody.split(/\s*[|;•]\s*/).forEach((seg) => {
+          const kv = seg.match(/^([^:=]+)[:=]\s*(.+)$/);
+          if (kv) {
+            const k = kv[1].trim();
+            const v = kv[2].replace(/^[•▪▸\-*]\s*/, '').trim();
+            if (k && v && !seenKeys.has(k.toLowerCase())) {
+              seenKeys.add(k.toLowerCase());
+              baseAttrs.push({ key: k, value: v });
+            }
+          }
+        });
+        return;
+      }
+      keptLines.push(trimmed);
+    });
+
+    return {
+      cleanDesc: keptLines.join('\n'),
+      attributes: baseAttrs,
+    };
+  };
+
   const handleSelectCatalogProductForSub = (
     prod: Product,
     targetId: string | 'NEW'
@@ -497,13 +550,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
     const snapUnitPrice = convertFromCatalogAed(prod.unit_price);
     const snapCostPrice = convertFromCatalogAed(prod.cost_price ?? prod.cost_price_aed);
     const cleanUnit = !prod.unit || prod.unit === 'Custom Unit' ? 'Nos' : prod.unit;
-    const specSummary = [
-      prod.brand_make ? `Brand: ${prod.brand_make}` : '',
-      prod.model_part_no ? `Model: ${prod.model_part_no}` : '',
-      prod.description || '',
-    ]
-      .filter(Boolean)
-      .join(' · ');
+    const { cleanDesc, attributes: hydratedAttrs } = extractCleanDescAndAttributesFromProduct(prod);
 
     if (targetId === 'NEW') {
       const nextIdx = subComponents.length + 1;
@@ -514,8 +561,14 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
         product_id: prod.id,
         sku: prod.sku,
         item_name: prod.name || prod.product_type || 'Catalog Item',
-        remark: specSummary,
-        description: prod.description || '',
+        remark: '',
+        description: cleanDesc,
+        brand_make: prod.brand_make || undefined,
+        model_part_no: prod.model_part_no || undefined,
+        country_of_origin: prod.country_of_origin || undefined,
+        attributes: hydratedAttrs,
+        show_attributes: true,
+        show_image: true,
         image_url: prod.image_url,
         image_caption: prod.image_caption,
         image_adjustments: prod.image_adjustments,
@@ -535,15 +588,27 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
         const uPrice = snapUnitPrice;
         const isAcc = uPrice <= 0;
         const tot = isAcc ? 0 : Math.round(qty * uPrice * 100) / 100;
+        const mergedAttrs = [...(Array.isArray(c.attributes) ? c.attributes : [])];
+        hydratedAttrs.forEach((ha) => {
+          if (!mergedAttrs.some((ma) => ma.key.trim().toLowerCase() === ha.key.trim().toLowerCase())) {
+            mergedAttrs.push(ha);
+          }
+        });
         return {
           ...c,
           product_id: prod.id,
           sku: prod.sku,
           item_name: prod.name || c.item_name,
-          remark: c.remark || specSummary,
-          image_url: c.image_url || prod.image_url,
-          image_caption: c.image_caption || prod.image_caption,
-          image_adjustments: c.image_adjustments || prod.image_adjustments,
+          description: cleanDesc || c.description || '',
+          brand_make: prod.brand_make || c.brand_make,
+          model_part_no: prod.model_part_no || c.model_part_no,
+          country_of_origin: prod.country_of_origin || c.country_of_origin,
+          attributes: mergedAttrs,
+          show_attributes: c.show_attributes !== false,
+          show_image: c.show_image !== false,
+          image_url: prod.image_url || c.image_url,
+          image_caption: prod.image_caption || c.image_caption,
+          image_adjustments: prod.image_adjustments || c.image_adjustments,
           unit: cleanUnit,
           cost_price: snapCostPrice,
           unit_price: uPrice,
@@ -557,6 +622,11 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
 
     setShowCatalogPickerForRow(null);
     setCatalogSearchQuery('');
+  };
+
+  const handleUpdateSubPatch = (id: string, patch: Partial<LineItemComponent>) => {
+    const updated = subComponents.map((c) => (c.id === id ? { ...c, ...patch } : c));
+    commitComponents(updated);
   };
 
   const handleUpdateSub = (id: string, field: keyof LineItemComponent, value: any) => {
@@ -908,9 +978,23 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
           const isNoteOpen = Boolean(expandedRowNotes[comp.id] || hasNote);
           const activeFmtCount = getActiveFormatCount(comp);
           const isFmtOpen = Boolean(expandedFormatRows[comp.id]);
-          const linkedProduct = comp.product_id
-            ? activeCatalogProducts.find((p) => p.id === comp.product_id)
-            : undefined;
+          const isSpecOpen = Boolean(expandedSpecRows[comp.id]);
+          const linkedProduct =
+            comp.product_id
+              ? activeCatalogProducts.find((p) => p.id === comp.product_id)
+              : comp.sku
+              ? activeCatalogProducts.find((p) => p.sku && p.sku.toLowerCase() === comp.sku!.toLowerCase())
+              : undefined;
+          const effectiveThumbUrl = comp.image_url || linkedProduct?.image_url;
+          const effectiveBrand = comp.brand_make || linkedProduct?.brand_make || '';
+          const effectiveModel = comp.model_part_no || linkedProduct?.model_part_no || '';
+          const effectiveAttrs =
+            Array.isArray(comp.attributes) && comp.attributes.length > 0
+              ? comp.attributes
+              : Array.isArray(linkedProduct?.attributes)
+              ? linkedProduct!.attributes
+              : [];
+          const specCount = effectiveAttrs.filter((a) => a && (a.key?.trim() || a.value?.trim())).length;
 
           return (
             <div
@@ -922,6 +1006,53 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                 <span className="w-5 text-[10px] font-mono font-bold text-slate-400 text-center shrink-0">
                   {idx + 1}.
                 </span>
+
+                {/* Compact Thumbnail Badge or Photo Upload Trigger */}
+                {effectiveThumbUrl ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setLightboxSubComp({
+                        ...comp,
+                        image_url: effectiveThumbUrl,
+                      })
+                    }
+                    className={`w-7 h-7 rounded-md border bg-white dark:bg-slate-900 overflow-hidden flex items-center justify-center shrink-0 cursor-pointer relative group ${
+                      comp.show_image === false
+                        ? 'opacity-40 border-slate-300'
+                        : 'border-slate-200 dark:border-slate-700 hover:border-blue-400'
+                    }`}
+                    title={
+                      comp.show_image === false
+                        ? 'Sub-item photo hidden on quotation (click to inspect)'
+                        : 'Sub-item photo (click to inspect / zoom)'
+                    }
+                  >
+                    <img
+                      src={effectiveThumbUrl}
+                      alt={comp.item_name || `Sub #${idx + 1}`}
+                      className="w-full h-full object-contain p-0.5"
+                      referrerPolicy="no-referrer"
+                    />
+                  </button>
+                ) : (
+                  <label
+                    className="w-7 h-7 rounded-md border border-dashed border-slate-300 dark:border-slate-700 hover:border-blue-400 bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-blue-600 shrink-0 cursor-pointer transition"
+                    title="Upload sub-item photo"
+                  >
+                    <ImageIcon className="w-3.5 h-3.5" />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = '';
+                        if (f) handleUploadSubImage(comp.id, f);
+                      }}
+                    />
+                  </label>
+                )}
 
                 {/* Qty */}
                 <input
@@ -950,8 +1081,33 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                   value={comp.item_name ?? ''}
                   onChange={(e) => handleUpdateSub(comp.id, 'item_name', e.target.value)}
                   placeholder="Included item or component name (e.g. Top and Bottom Distribution System, Vacuum Breaker)"
-                  className="flex-1 min-w-[160px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1 text-xs font-medium text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                  className="flex-1 min-w-[140px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1 text-xs font-medium text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
                 />
+
+                {/* Brand / Model Compact Badge (when present) */}
+                {(effectiveBrand || effectiveModel) && (
+                  <span
+                    onClick={() => toggleSpecRow(comp.id)}
+                    className="hidden md:inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[10px] font-mono truncate max-w-[130px] shrink-0 cursor-pointer hover:border-blue-300"
+                    title={`${[effectiveBrand, effectiveModel].filter(Boolean).join(' · ')} — click to edit specs`}
+                  >
+                    {[effectiveBrand, effectiveModel].filter(Boolean).join(' · ')}
+                  </span>
+                )}
+
+                {/* [Specs (N)] Toggle Button */}
+                <button
+                  type="button"
+                  onClick={() => toggleSpecRow(comp.id)}
+                  className={`px-2 py-1 rounded-md border text-[10px] font-mono font-semibold flex items-center gap-1 shrink-0 transition cursor-pointer ${
+                    isSpecOpen || specCount > 0
+                      ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800'
+                      : 'bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-800 border-slate-200 dark:border-slate-700'
+                  }`}
+                  title="View or edit sub-item technical attributes, Brand/Model, and quote visibility"
+                >
+                  <span>Specs ({specCount})</span>
+                </button>
 
                 {/* Optional Cost Input (Only when Sub-Item Costs toggle is active) */}
                 {showCostInputs && (
@@ -1073,6 +1229,134 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                   </button>
                 </div>
               </div>
+
+              {/* Expandable Sub-Item Technical Specifications & Brand/Model/Photo Controls */}
+              {isSpecOpen && (
+                <div className="pl-6 pt-1.5 pb-1 space-y-2 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/60 dark:bg-slate-800/30 rounded-lg p-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[10px] font-mono uppercase tracking-wider font-bold text-indigo-700 dark:text-indigo-300">
+                      Sub-Item #{idx + 1} Technical Specs &amp; Metadata
+                    </span>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <label className="inline-flex items-center gap-1.5 text-[10.5px] font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={comp.show_attributes !== false}
+                          onChange={(e) => handleUpdateSub(comp.id, 'show_attributes', e.target.checked)}
+                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span>Show Specs on Quote</span>
+                      </label>
+                      <label className="inline-flex items-center gap-1.5 text-[10.5px] font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={comp.show_image !== false}
+                          onChange={(e) => handleUpdateSub(comp.id, 'show_image', e.target.checked)}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span>Show Photo on Quote</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const baseAttrs = Array.isArray(comp.attributes)
+                            ? [...comp.attributes]
+                            : [...effectiveAttrs];
+                          baseAttrs.push({ key: '', value: '' });
+                          handleUpdateSub(comp.id, 'attributes', baseAttrs);
+                        }}
+                        className="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold cursor-pointer transition"
+                      >
+                        + Add Spec
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Brand / Model / Origin / Photo URL Quick Inputs */}
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-1.5">
+                    <input
+                      type="text"
+                      value={comp.brand_make ?? linkedProduct?.brand_make ?? ''}
+                      onChange={(e) => handleUpdateSub(comp.id, 'brand_make', e.target.value)}
+                      placeholder="Brand / Make"
+                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-[11px] text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:outline-none"
+                    />
+                    <input
+                      type="text"
+                      value={comp.model_part_no ?? linkedProduct?.model_part_no ?? ''}
+                      onChange={(e) => handleUpdateSub(comp.id, 'model_part_no', e.target.value)}
+                      placeholder="Model / Part No."
+                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-[11px] font-mono text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:outline-none"
+                    />
+                    <input
+                      type="text"
+                      value={comp.country_of_origin ?? linkedProduct?.country_of_origin ?? ''}
+                      onChange={(e) => handleUpdateSub(comp.id, 'country_of_origin', e.target.value)}
+                      placeholder="Origin (e.g. Italy, UAE)"
+                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-[11px] text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:outline-none"
+                    />
+                    <input
+                      type="text"
+                      value={comp.image_url ?? ''}
+                      onChange={(e) =>
+                        handleUpdateSubPatch(comp.id, {
+                          image_url: e.target.value,
+                          show_image: true,
+                        })
+                      }
+                      placeholder={linkedProduct?.image_url ? 'Using Catalog Photo (or paste URL)' : 'Paste Photo URL...'}
+                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-[11px] font-mono text-slate-700 dark:text-slate-300 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+
+                  {/* Key:Value Attribute Pairs */}
+                  {effectiveAttrs.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      {effectiveAttrs.map((attr, aIdx) => (
+                        <div key={aIdx} className="flex items-center gap-1">
+                          <input
+                            type="text"
+                            value={attr.key ?? ''}
+                            placeholder="Spec Key (e.g. MOC, Size)"
+                            onChange={(e) => {
+                              const nextAttrs = [...effectiveAttrs];
+                              nextAttrs[aIdx] = { ...nextAttrs[aIdx], key: e.target.value };
+                              handleUpdateSub(comp.id, 'attributes', nextAttrs);
+                            }}
+                            className="w-2/5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-[11px] font-mono font-semibold text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:outline-none"
+                          />
+                          <input
+                            type="text"
+                            value={attr.value ?? ''}
+                            placeholder="Value (e.g. FRP, 48x72)"
+                            onChange={(e) => {
+                              const nextAttrs = [...effectiveAttrs];
+                              nextAttrs[aIdx] = { ...nextAttrs[aIdx], value: e.target.value };
+                              handleUpdateSub(comp.id, 'attributes', nextAttrs);
+                            }}
+                            className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-[11px] text-slate-700 dark:text-slate-300 focus:border-blue-500 focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const nextAttrs = effectiveAttrs.filter((_, i) => i !== aIdx);
+                              handleUpdateSub(comp.id, 'attributes', nextAttrs);
+                            }}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
+                            title="Remove spec attribute"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-slate-400 italic">
+                      No technical attributes yet. Click "+ Add Spec" above to add key:value specifications (e.g. MOC: FRP, Size: 48&quot; x 72&quot;).
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Optional Collapsible Spec / Application Note Row */}
               {isNoteOpen && (

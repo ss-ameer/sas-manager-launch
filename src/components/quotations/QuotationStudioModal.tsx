@@ -1069,11 +1069,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     showUom: true,
     showLineTotal: true,
     showItemAttributes: true,
+    showBomSubComponentAttributes: true,
     attributeDisplayFormat: 'grid_2col_balanced',
     hiddenAttributeKeys: [],
     showLineItemImages: false,
     lineItemImageLayout: 'inline',
     lineItemImageSize: 'md',
+    bomSubComponentImageMode: 'small',
     ...(profile?.visible_columns || {}),
     ...((editingQuotation as any)?.visible_columns || {})
   }));
@@ -4667,10 +4669,39 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         item.sub_components ??
         matchedCatalogProduct?.sub_components;
       const normalizedSubComponents = Array.isArray(rawSubComponents)
-        ? rawSubComponents.map((sub, sIdx) => ({
-            ...sub,
-            id: sub.id || `${itemKey}_sub_${sIdx}`
-          }))
+        ? rawSubComponents.map((sub, sIdx) => {
+            const matchedSubProd = workspaceProducts.find(
+              (p) =>
+                (sub.product_id && p.id === sub.product_id) ||
+                (sub.sku && p.sku && p.sku.toLowerCase() === sub.sku.toLowerCase()) ||
+                (sub.item_name &&
+                  (p.name || p.description || '').trim().toLowerCase() === sub.item_name.trim().toLowerCase())
+            );
+            const subAttrs =
+              Array.isArray(sub.attributes) && sub.attributes.length > 0
+                ? sub.attributes
+                : Array.isArray(matchedSubProd?.attributes) && matchedSubProd.attributes.length > 0
+                ? matchedSubProd.attributes
+                    .filter((a) => a && String(a.key || '').trim() && String(a.value || '').trim())
+                    .map((a) => ({
+                      key: String(a.key).replace(/^\s*[-•*]\s*/, '').trim(),
+                      value: String(a.value).trim()
+                    }))
+                : undefined;
+            return {
+              ...sub,
+              id: sub.id || `${itemKey}_sub_${sIdx}`,
+              product_id: sub.product_id || matchedSubProd?.id,
+              sku: sub.sku || matchedSubProd?.sku,
+              brand_make: sub.brand_make || matchedSubProd?.brand_make,
+              model_part_no: sub.model_part_no || matchedSubProd?.model_part_no,
+              country_of_origin: sub.country_of_origin || matchedSubProd?.country_of_origin,
+              image_url: sub.image_url || matchedSubProd?.image_url,
+              attributes: subAttrs,
+              show_attributes: sub.show_attributes !== false,
+              show_image: sub.show_image !== false
+            };
+          })
         : undefined;
 
       const matchingEnquiryItem =
@@ -5319,10 +5350,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         [newId]: prod.id!
       }));
     }
-    if (hydratedRow.image_url) {
+    if (
+      hydratedRow.image_url ||
+      (Array.isArray(hydratedRow.sub_components) &&
+        hydratedRow.sub_components.some((s: any) => s.image_url && s.show_image !== false))
+    ) {
       setVisibleColumns((prev) => ({
         ...prev,
-        showLineItemImages: true
+        showLineItemImages: true,
+        bomSubComponentImageMode: prev.bomSubComponentImageMode === 'off' ? 'small' : (prev.bomSubComponentImageMode || 'small')
       }));
     }
 
@@ -7652,7 +7688,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       if ((pCols.lineItemImageFrame || 'card') !== (visibleColumns.lineItemImageFrame || 'card')) return true;
       if ((pCols.lineItemImageObjectFit || 'contain') !== (visibleColumns.lineItemImageObjectFit || 'contain')) return true;
       if ((pCols.lineItemImageBgFill || 'white') !== (visibleColumns.lineItemImageBgFill || 'white')) return true;
-      if ((pCols.bomSubComponentImageMode || 'off') !== (visibleColumns.bomSubComponentImageMode || 'off')) return true;
+      if ((pCols.bomSubComponentImageMode || 'small') !== (visibleColumns.bomSubComponentImageMode || 'small')) return true;
+      if ((pCols.showBomSubComponentAttributes !== false) !== (visibleColumns.showBomSubComponentAttributes !== false)) return true;
       if ((pCols.photoScheduleColumns || 3) !== (visibleColumns.photoScheduleColumns || 3)) return true;
       if (Boolean(pCols.photoScheduleNewPage) !== Boolean(visibleColumns.photoScheduleNewPage)) return true;
       if ((pCols.showUnitPrice !== false) !== (visibleColumns.showUnitPrice !== false)) return true;
@@ -19135,38 +19172,73 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               </div>
                             </div>
 
-                            {/* 4. BOM Sub-Component Images Mode */}
-                            <div>
-                              <label className="block text-[9.5px] font-mono font-bold text-slate-500 uppercase mb-1">
-                                BOM Sub-Component (1.1..1.N) Photos
-                              </label>
-                              <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
-                                {[
-                                  { id: 'off' as const, label: 'Hidden' },
-                                  { id: 'small' as const, label: 'Small (30px)' },
-                                  { id: 'match_parent' as const, label: 'Match Parent' }
-                                ].map((bm) => {
-                                  const isSel = (visibleColumns.bomSubComponentImageMode || 'small') === bm.id;
-                                  return (
-                                    <button
-                                      key={bm.id}
-                                      type="button"
-                                      onClick={() =>
-                                        setVisibleColumns((prev) => ({
-                                          ...prev,
-                                          bomSubComponentImageMode: bm.id
-                                        }))
-                                      }
-                                      className={`py-1 px-1 rounded-lg text-[10px] font-semibold transition cursor-pointer whitespace-nowrap ${
-                                        isSel
-                                          ? 'bg-blue-600 text-white shadow-2xs'
-                                          : 'text-slate-600 hover:bg-white'
-                                      }`}
-                                    >
-                                      {bm.label}
-                                    </button>
-                                  );
-                                })}
+                            {/* 4. BOM Sub-Component Images Mode & Sub-Item Specs Toggle */}
+                            <div className="space-y-2">
+                              <div>
+                                <label className="block text-[9.5px] font-mono font-bold text-slate-500 uppercase mb-1">
+                                  BOM Sub-Component (1.1..1.N) Photos
+                                </label>
+                                <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                                  {[
+                                    { id: 'off' as const, label: 'Hidden' },
+                                    { id: 'small' as const, label: 'Small (30px)' },
+                                    { id: 'match_parent' as const, label: 'Match Parent' }
+                                  ].map((bm) => {
+                                    const isSel = (visibleColumns.bomSubComponentImageMode || 'small') === bm.id;
+                                    return (
+                                      <button
+                                        key={bm.id}
+                                        type="button"
+                                        onClick={() =>
+                                          setVisibleColumns((prev) => ({
+                                            ...prev,
+                                            bomSubComponentImageMode: bm.id
+                                          }))
+                                        }
+                                        className={`py-1 px-1 rounded-lg text-[10px] font-semibold transition cursor-pointer whitespace-nowrap ${
+                                          isSel
+                                            ? 'bg-blue-600 text-white shadow-2xs'
+                                            : 'text-slate-600 hover:bg-white'
+                                        }`}
+                                      >
+                                        {bm.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className="block text-[9.5px] font-mono font-bold text-slate-500 uppercase mb-1">
+                                  BOM Sub-Item Specs
+                                </label>
+                                <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                                  {[
+                                    { id: true, label: 'Shown' },
+                                    { id: false, label: 'Hidden' }
+                                  ].map((opt) => {
+                                    const isSel = (visibleColumns.showBomSubComponentAttributes !== false) === opt.id;
+                                    return (
+                                      <button
+                                        key={String(opt.id)}
+                                        type="button"
+                                        onClick={() =>
+                                          setVisibleColumns((prev) => ({
+                                            ...prev,
+                                            showBomSubComponentAttributes: opt.id
+                                          }))
+                                        }
+                                        className={`py-1 px-1 rounded-lg text-[10px] font-semibold transition cursor-pointer whitespace-nowrap ${
+                                          isSel
+                                            ? 'bg-blue-600 text-white shadow-2xs'
+                                            : 'text-slate-600 hover:bg-white'
+                                        }`}
+                                      >
+                                        {opt.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -19310,6 +19382,19 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                           showLineItemImages: true
                                         }));
                                       }
+                                    }
+                                    if (
+                                      Array.isArray(patch.sub_components) &&
+                                      patch.sub_components.some((s: any) => s.image_url && s.show_image !== false)
+                                    ) {
+                                      setVisibleColumns((prev) => ({
+                                        ...prev,
+                                        showLineItemImages: true,
+                                        bomSubComponentImageMode:
+                                          prev.bomSubComponentImageMode === 'off'
+                                            ? 'small'
+                                            : prev.bomSubComponentImageMode || 'small'
+                                      }));
                                     }
                                     handleUpdateTopItemRowOption(itemKey, patch);
                                   }}

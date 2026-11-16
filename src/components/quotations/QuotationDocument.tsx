@@ -413,7 +413,8 @@ export function splitLineItemsIntoChunks(
   const baseImgLayout = colCfg.lineItemImageLayout || 'inline_left';
   const baseImgSize = colCfg.lineItemImageSize || 'md';
   const customWidthPx = colCfg.lineItemImageCustomWidthPx || 72;
-  const bomSubImgMode = colCfg.bomSubComponentImageMode || 'off';
+  const bomSubImgMode = colCfg.bomSubComponentImageMode || 'small';
+  const showSubAttrsGlobal = colCfg.showBomSubComponentAttributes !== false;
   const showAttrs = colCfg.showItemAttributes !== false;
   const attrFormat = colCfg.attributeDisplayFormat || 'grid_2col_balanced';
   const hiddenAttrKeys = new Set(
@@ -563,6 +564,13 @@ export function splitLineItemsIntoChunks(
 
   const estimateSubRowHeightMm = (sub: {
     item_name?: string;
+    description?: string;
+    brand_make?: string;
+    model_part_no?: string;
+    country_of_origin?: string;
+    attributes?: Array<{ key: string; value: string }>;
+    show_attributes?: boolean;
+    show_image?: boolean;
     technical_highlight?: string;
     remark?: string;
     row_note?: string;
@@ -570,6 +578,23 @@ export function splitLineItemsIntoChunks(
     image_url?: string;
   }): number => {
     const nameLines = Math.max(1, countWrappedLines(sub.item_name || '', 68));
+    const descClean = String(sub.description || '')
+      .split(/\r?\n/)
+      .filter((l) => !/^specs?\s*:/i.test(l.trim()))
+      .join('\n')
+      .trim();
+    const descLines =
+      descClean && descClean.toLowerCase() !== String(sub.item_name || '').trim().toLowerCase()
+        ? countWrappedLines(descClean, 68)
+        : 0;
+    const hasMeta = Boolean(sub.brand_make || sub.model_part_no || sub.country_of_origin);
+    const metaMm = hasMeta ? 3.4 : 0;
+    const validSubAttrs =
+      showSubAttrsGlobal && sub.show_attributes !== false && Array.isArray(sub.attributes)
+        ? sub.attributes.filter((a) => a && a.key?.trim() && a.value?.trim())
+        : [];
+    const subAttrMm =
+      validSubAttrs.length > 0 ? 2.2 + Math.ceil(validSubAttrs.length / 2) * 3.8 : 0;
     const highlightLines = sub.technical_highlight
       ? countWrappedLines(sub.technical_highlight, 68)
       : 0;
@@ -580,10 +605,13 @@ export function splitLineItemsIntoChunks(
     const baseSubMm =
       7.5 +
       Math.max(0, nameLines - 1) * 3.4 +
+      descLines * 3.3 +
+      metaMm +
+      subAttrMm +
       highlightLines * 3.4 +
       remarkMm +
       noteMm;
-    const subHasImg = bomSubImgMode !== 'off' && Boolean(sub.image_url);
+    const subHasImg = bomSubImgMode !== 'off' && sub.show_image !== false && Boolean(sub.image_url);
     return (subHasImg ? Math.max(baseSubMm, 11.5) : baseSubMm) + spacerMm;
   };
 
@@ -1566,7 +1594,7 @@ export function resolveTableColumnLayout(
       : Math.min(260, Math.max(24, Number(cfg.lineItemImageCustomWidthPx) || 72));
 
   const autoCollapseEmptyCol = cfg.lineItemImageAutoCollapseColumn !== false;
-  const bomSubImgMode = cfg.bomSubComponentImageMode || 'off';
+  const bomSubImgMode = cfg.bomSubComponentImageMode || 'small';
 
   const anyItemNeedsImageColumn = (() => {
     if (!Array.isArray(itemsInTable) || itemsInTable.length === 0) {
@@ -1582,7 +1610,7 @@ export function resolveTableColumnLayout(
       const hasSubImg =
         bomSubImgMode !== 'off' &&
         Array.isArray(it.sub_components) &&
-        it.sub_components.some((s) => Boolean(s.image_url));
+        it.sub_components.some((s) => s.show_image !== false && Boolean(s.image_url));
       return hasParentImg || hasSubImg;
     });
   })();
@@ -3329,7 +3357,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   const lineItemImageObjectFit = columnConfig.lineItemImageObjectFit || 'contain';
   const lineItemImageBgFill = columnConfig.lineItemImageBgFill || 'transparent';
   const lineItemImageFrame = columnConfig.lineItemImageFrame || 'card';
-  const bomSubComponentImageMode = columnConfig.bomSubComponentImageMode || 'off';
+  const bomSubComponentImageMode = columnConfig.bomSubComponentImageMode || 'small';
+  const showBomSubComponentAttributes = columnConfig.showBomSubComponentAttributes !== false;
   const photoScheduleColumns = columnConfig.photoScheduleColumns || 2;
   const photoScheduleNewPage = Boolean(columnConfig.photoScheduleNewPage);
   const attributeDisplayFormat = columnConfig.attributeDisplayFormat || 'grid_2col_balanced';
@@ -12420,7 +12449,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                     ? sub.row_spacer_after_mm
                                     : 0;
                                 const showSubImg =
-                                  bomSubComponentImageMode !== 'off' && Boolean(sub.image_url);
+                                  bomSubComponentImageMode !== 'off' &&
+                                  sub.show_image !== false &&
+                                  Boolean(sub.image_url);
                                 const subImgPx =
                                   bomSubComponentImageMode === 'match_parent'
                                     ? Math.min(lineItemImagePx, 56)
@@ -12440,6 +12471,66 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                       printColorAdjust: 'exact'
                                     }
                                   : {};
+
+                                // Resolve sub-component clean description & structured attributes
+                                const resolvedSubAttrs: Array<{ key: string; value: string }> = [];
+                                const subSeenKeys = new Set<string>();
+                                if (Array.isArray(sub.attributes)) {
+                                  sub.attributes.forEach((a) => {
+                                    const k = String(a?.key || '').trim();
+                                    const v = String(a?.value || '').replace(/^[•▪▸\-*]\s*/, '').trim();
+                                    if (k && v && !subSeenKeys.has(k.toLowerCase())) {
+                                      subSeenKeys.add(k.toLowerCase());
+                                      resolvedSubAttrs.push({ key: k, value: v });
+                                    }
+                                  });
+                                }
+                                if (sub.specifications && typeof sub.specifications === 'object') {
+                                  Object.entries(sub.specifications).forEach(([kRaw, vRaw]) => {
+                                    const k = String(kRaw || '').trim();
+                                    const v = String(vRaw || '').replace(/^[•▪▸\-*]\s*/, '').trim();
+                                    if (k && v && !subSeenKeys.has(k.toLowerCase())) {
+                                      subSeenKeys.add(k.toLowerCase());
+                                      resolvedSubAttrs.push({ key: k, value: v });
+                                    }
+                                  });
+                                }
+                                const subDescLines: string[] = [];
+                                if (sub.description && sub.description.trim()) {
+                                  sub.description.split(/\r?\n/).forEach((line) => {
+                                    const trimmed = line.trim();
+                                    if (!trimmed) return;
+                                    if (/^specs?\s*:/i.test(trimmed)) {
+                                      const body = trimmed.replace(/^specs?\s*:\s*/i, '');
+                                      body.split(/\s*[|;•]\s*/).forEach((seg) => {
+                                        const kv = seg.match(/^([^:=]+)[:=]\s*(.+)$/);
+                                        if (kv) {
+                                          const k = kv[1].trim();
+                                          const v = kv[2].replace(/^[•▪▸\-*]\s*/, '').trim();
+                                          if (k && v && !subSeenKeys.has(k.toLowerCase())) {
+                                            subSeenKeys.add(k.toLowerCase());
+                                            resolvedSubAttrs.push({ key: k, value: v });
+                                          }
+                                        }
+                                      });
+                                      return;
+                                    }
+                                    subDescLines.push(trimmed);
+                                  });
+                                }
+                                const cleanSubDesc = subDescLines.join('\n').trim();
+                                const showSubDesc =
+                                  Boolean(cleanSubDesc) &&
+                                  cleanSubDesc.toLowerCase() !== String(sub.item_name || '').trim().toLowerCase();
+                                const subMetaParts = [
+                                  sub.brand_make ? `Brand: ${sub.brand_make}` : '',
+                                  sub.model_part_no ? `Model: ${sub.model_part_no}` : '',
+                                  sub.country_of_origin ? `Origin: ${sub.country_of_origin}` : ''
+                                ].filter(Boolean);
+                                const showSubAttrsBlock =
+                                  showBomSubComponentAttributes &&
+                                  sub.show_attributes !== false &&
+                                  resolvedSubAttrs.length > 0;
 
                                 const renderSubImageCell = () => (
                                   <td className="py-1.5 px-1.5 text-center align-top">
@@ -12494,6 +12585,29 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                             <div className={`${tableFontSize} ${sub.row_bold ? 'font-bold text-slate-950' : 'font-medium text-slate-800'} leading-snug`}>
                                               {sub.item_name}
                                             </div>
+                                            {subMetaParts.length > 0 && (
+                                              <div className={`${tableSubSize} font-mono text-slate-500 mt-0.5 leading-tight`}>
+                                                {subMetaParts.join(' · ')}
+                                              </div>
+                                            )}
+                                            {showSubDesc && (
+                                              <div className={`${tableSubSize} text-slate-600 mt-0.5 leading-snug whitespace-pre-line font-normal`}>
+                                                {renderResolvedQuotationText(cleanSubDesc, tokenContext)}
+                                              </div>
+                                            )}
+                                            {showSubAttrsBlock && (
+                                              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 bg-slate-50/80 border border-slate-200/80 rounded px-2 py-1">
+                                                {resolvedSubAttrs.map((attr, aIdx) => (
+                                                  <div
+                                                    key={aIdx}
+                                                    className={`${tableSubSize} leading-tight text-slate-700 break-words`}
+                                                  >
+                                                    <span className="font-semibold text-slate-900">{attr.key}:</span>{' '}
+                                                    <span className="font-normal">{attr.value}</span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            )}
                                             {sub.remark && (
                                               <div className={`${tableSubSize} font-bold text-slate-700 mt-0.5`}>
                                                 Remark : {renderResolvedQuotationText(sub.remark, tokenContext)}
