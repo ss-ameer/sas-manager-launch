@@ -922,13 +922,17 @@ export default function EnquiryDetail({
         li.total_price !== undefined && li.total_price !== null
           ? QuotationRepository.roundCurrency(Number(li.total_price) || 0)
           : QuotationRepository.roundCurrency(qty * rate);
-      const rawOpt = String((li as any).option_designation || li.option || '').trim();
+      const rawOpt = String(
+        (li as any).option_designation ||
+          li.item_option ||
+          li.option ||
+          (li as any).option_group ||
+          ''
+      ).trim();
       const isOptionalOrAlt =
-        typeof (li as any).is_optional === 'boolean' && !rawOpt
-          ? (li as any).is_optional
-          : rawOpt.toLowerCase().includes('optional') ||
-            rawOpt.toLowerCase().includes('add-on') ||
-            /option\s+[b-z]/i.test(rawOpt);
+        rawOpt.toLowerCase().includes('optional') ||
+        rawOpt.toLowerCase().includes('add-on') ||
+        (Boolean((li as any).is_optional) && !/^option\s+[a-z0-9]/i.test(rawOpt));
       const resolvedAvail =
         (li.lead_time_note && li.lead_time_note !== 'Ex-Stock / Standard' ? li.lead_time_note : '') ||
         ((li as any).availability && (li as any).availability !== 'Ex-Stock / Standard' ? (li as any).availability : '') ||
@@ -2579,11 +2583,16 @@ export default function EnquiryDetail({
   };
 
   const handleQuickAddCatalogProduct = (p: Product) => {
-    const isUSD = currentEnquiry.currency === 'USD';
+    const enqCurrency = String(currentEnquiry.currency || 'AED').toUpperCase();
+    const prodCurrency = String(p.currency || 'AED').toUpperCase();
+    const fxFromProdToEnq =
+      enqCurrency === prodCurrency
+        ? 1
+        : resolveToAedMultiplier(prodCurrency) / resolveToAedMultiplier(enqCurrency);
     const rawSell = Number(p.unit_price) || 0;
-    const unitPrice = rawSell > 0 ? Math.round((isUSD ? rawSell / 3.6725 : rawSell) * 100) / 100 : 0;
+    const unitPrice = rawSell > 0 ? Math.round(rawSell * fxFromProdToEnq * 100) / 100 : 0;
     const rawCost = Number(p.cost_price ?? p.cost_price_aed) || 0;
-    const costPrice = rawCost > 0 ? Math.round((isUSD ? rawCost / 3.6725 : rawCost) * 100) / 100 : undefined;
+    const costPrice = rawCost > 0 ? Math.round(rawCost * fxFromProdToEnq * 100) / 100 : undefined;
     const availStock = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
     const defaultLead =
       p.default_availability?.trim() ||
@@ -2596,11 +2605,11 @@ export default function EnquiryDetail({
             id: `comp_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 5)}`,
             unit_price:
               sc.unit_price !== undefined
-                ? Math.round((isUSD ? Number(sc.unit_price) / 3.6725 : Number(sc.unit_price)) * 100) / 100
+                ? Math.round(Number(sc.unit_price) * fxFromProdToEnq * 100) / 100
                 : 0,
             cost_price:
               sc.cost_price !== undefined
-                ? Math.round((isUSD ? Number(sc.cost_price) / 3.6725 : Number(sc.cost_price)) * 100) / 100
+                ? Math.round(Number(sc.cost_price) * fxFromProdToEnq * 100) / 100
                 : undefined
           }))
         : undefined;
@@ -2676,22 +2685,48 @@ export default function EnquiryDetail({
     if (!currentEnquiry.id) return;
     setIsSavingInlineItems(true);
     try {
-      // Calculate updated baseline package total
+      // Calculate updated baseline package total (excluding Optional / Add-On items and respecting VAT Inclusive mode)
       let baselineSum = 0;
+      const altTotalsMap: Record<string, number> = {};
       draftLineItems.forEach((li) => {
-        const opt = ((li as any).option_designation || li.option || 'Default / Included').trim();
-        const isBaseline = !opt || opt === 'Default / Included' || opt === 'Option A' || opt.startsWith('Option A ');
+        const opt = String(
+          (li as any).option_designation ||
+            li.item_option ||
+            li.option ||
+            (li as any).option_group ||
+            (li.is_optional ? 'Optional / Add-On' : 'Default / Included')
+        ).trim();
+        const isOptAddOn =
+          opt === 'Optional / Add-On' ||
+          /optional|add-on/i.test(opt) ||
+          (Boolean(li.is_optional) && !/^option\s+[a-z0-9]/i.test(opt));
+        if (isOptAddOn) return;
+        const isDisc = li.item_type === 'discount' || (li as any).classification === 'Discount / Rebate';
+        const lineTot = Number(li.total_price) || (Number(li.quantity) || 0) * (Number(li.unit_price) || 0);
+        const signedVal = isDisc ? -Math.abs(lineTot) : lineTot;
+        const isBaseline =
+          !opt ||
+          opt === 'Default / Included' ||
+          opt === 'Baseline / All' ||
+          opt === 'Option A' ||
+          opt.startsWith('Option A ');
         if (isBaseline) {
-          const isDisc = li.item_type === 'discount' || (li as any).classification === 'Discount / Rebate';
-          const lineTot = Number(li.total_price) || (Number(li.quantity) || 0) * (Number(li.unit_price) || 0);
-          baselineSum += isDisc ? -Math.abs(lineTot) : lineTot;
+          baselineSum += signedVal;
+        } else {
+          altTotalsMap[opt] = (altTotalsMap[opt] || 0) + signedVal;
         }
       });
+      if (baselineSum === 0 && Object.keys(altTotalsMap).length > 0) {
+        baselineSum = Object.values(altTotalsMap)[0] || 0;
+      }
 
-      const isUSD = currentEnquiry.currency === 'USD';
+      const enqTaxMode = normalizeEnquiryTaxMode((currentEnquiry.tax_mode as string) || 'taxes_extra');
+      const netBaselineInCurrency =
+        enqTaxMode === 'tax_calculated' ? baselineSum / 1.05 : baselineSum;
+      const fxToAed = resolveToAedMultiplier(currentEnquiry.currency || 'AED');
       const nextValueAed = currentEnquiry.is_lump_sum
         ? currentEnquiry.value_aed
-        : Math.max(0, Math.round((isUSD ? baselineSum * 3.6725 : baselineSum) * 100) / 100);
+        : Math.max(0, Math.round(netBaselineInCurrency * fxToAed * 100) / 100);
 
       const now = new Date().toISOString();
       const strippedLineItems = stripCatalogRedundantLineItemMedia(draftLineItems, products);
@@ -2753,7 +2788,8 @@ export default function EnquiryDetail({
               mergedItems,
               dq.freight_amount || 0,
               dq.tax_mode || 'taxes_extra',
-              dq.tax_rate_percent ?? 5
+              dq.tax_rate_percent ?? 5,
+              dq.option_display_mode
             );
             const nextDraft: Quotation = {
               ...dq,
@@ -4183,8 +4219,17 @@ export default function EnquiryDetail({
     let optionalCount = 0;
 
     items.forEach((item) => {
-      const rawOpt = ((item as any).option_designation || item.option || '').trim();
-      const optKey = (!rawOpt || rawOpt === 'Default / Included') ? 'Default / Included' : rawOpt;
+      const rawOpt = String(
+        (item as any).option_designation ||
+          item.item_option ||
+          item.option ||
+          (item as any).option_group ||
+          (item.is_optional ? 'Optional / Add-On' : '')
+      ).trim();
+      const optKey =
+        !rawOpt || rawOpt === 'Default / Included' || rawOpt === 'Baseline / All'
+          ? 'Default / Included'
+          : rawOpt;
       const isDisc = item.item_type === 'discount' || (item as any).classification === 'Discount / Rebate';
       const rawPrice = Number(item.total_price !== undefined ? item.total_price : ((Number(item.quantity) || 0) * (Number(item.unit_price) || 0))) || 0;
       const price = isDisc ? -Math.abs(rawPrice) : rawPrice;
@@ -4196,8 +4241,16 @@ export default function EnquiryDetail({
       groupMap[optKey].total += price;
       groupMap[optKey].items.push(item);
 
-      const isOptional = optKey === 'Optional / Add-On' || optKey.toLowerCase().includes('optional') || optKey.toLowerCase().includes('add-on');
-      const isBaseline = optKey === 'Default / Included' || optKey === 'Baseline / All' || optKey === 'Option A' || optKey.startsWith('Option A ');
+      const isOptional =
+        optKey === 'Optional / Add-On' ||
+        optKey.toLowerCase().includes('optional') ||
+        optKey.toLowerCase().includes('add-on') ||
+        (Boolean(item.is_optional) && !/^option\s+[a-z0-9]/i.test(optKey));
+      const isBaseline =
+        optKey === 'Default / Included' ||
+        optKey === 'Baseline / All' ||
+        optKey === 'Option A' ||
+        optKey.startsWith('Option A ');
 
       if (isOptional) {
         optionalTotal += price;
@@ -4213,6 +4266,14 @@ export default function EnquiryDetail({
         alternativeTotals[optKey].total += price;
       }
     });
+
+    if (baselineCount === 0 && Object.keys(alternativeTotals).length > 0) {
+      const firstAlt = Object.values(alternativeTotals)[0];
+      if (firstAlt) {
+        baselineTotal = firstAlt.total;
+        baselineCount = firstAlt.count;
+      }
+    }
 
     const detectedOptions = Object.keys(groupMap);
     const hasMultipleOptions = Object.keys(alternativeTotals).length > 0 || optionalTotal > 0 || detectedOptions.length > 1;
@@ -5467,22 +5528,24 @@ export default function EnquiryDetail({
                       effectiveTaxMode === 'vat_excluded_extra' ||
                       effectiveTaxMode === 'vat_hidden';
                     const rawGrossOrSubAed = activeQ
-                      ? (activeQ.currency === 'USD' ? Number(activeQ.subtotal || 0) * 3.6725 : Number(activeQ.subtotal || 0))
+                      ? Number(activeQ.subtotal || 0) * resolveToAedMultiplier(activeQ.currency || 'AED')
                       : hasLineItems && !currentEnquiry.is_lump_sum
-                      ? (isUSD ? optionAnalysis.baselineTotal * 3.6725 : optionAnalysis.baselineTotal)
+                      ? optionAnalysis.baselineTotal * resolveToAedMultiplier(currentEnquiry.currency || 'AED')
                       : Number(currentEnquiry.value_aed || 0);
-                    const subtotalAed =
-                      !activeQ && effectiveTaxMode === 'tax_calculated'
-                        ? Math.round((rawGrossOrSubAed / 1.05) * 100) / 100
-                        : rawGrossOrSubAed;
                     const vatAed = isZeroVatMode
                       ? 0
                       : activeQ && activeQ.tax_amount !== undefined
-                      ? (activeQ.currency === 'USD' ? Number(activeQ.tax_amount || 0) * 3.6725 : Number(activeQ.tax_amount || 0))
+                      ? Number(activeQ.tax_amount || 0) * resolveToAedMultiplier(activeQ.currency || 'AED')
                       : effectiveTaxMode === 'tax_calculated'
-                      ? Math.max(0, Math.round((rawGrossOrSubAed - subtotalAed) * 100) / 100)
-                      : Math.round(subtotalAed * 0.05 * 100) / 100;
-                    const grandTotalAed = isZeroVatMode ? subtotalAed : subtotalAed + vatAed;
+                      ? Math.max(0, Math.round((rawGrossOrSubAed - rawGrossOrSubAed / 1.05) * 100) / 100)
+                      : Math.round(rawGrossOrSubAed * 0.05 * 100) / 100;
+                    const subtotalAed =
+                      effectiveTaxMode === 'tax_calculated'
+                        ? Math.max(0, Math.round((rawGrossOrSubAed - vatAed) * 100) / 100)
+                        : Math.round(rawGrossOrSubAed * 100) / 100;
+                    const grandTotalAed = isZeroVatMode
+                      ? subtotalAed
+                      : Math.round((subtotalAed + vatAed) * 100) / 100;
                     const grandTotalSubLabel =
                       effectiveTaxMode === 'vat_excluded_extra'
                         ? 'Grand Total (VAT Excluded — 5% Extra)'

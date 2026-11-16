@@ -2712,13 +2712,25 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
     const baselineItems = items.filter((item) => {
       if (!item) return false;
-      const des = ((item as any).option_designation || item.option || '').trim();
+      const des = String(
+        (item as any).option_designation ||
+          item.item_option ||
+          item.option ||
+          (item as any).option_group ||
+          ((item as any).is_optional ? 'Optional / Add-On' : '')
+      ).trim();
+      const isOptAddOn =
+        des === 'Optional / Add-On' ||
+        des.toLowerCase().includes('optional') ||
+        des.toLowerCase().includes('add-on') ||
+        (Boolean((item as any).is_optional) && !/^option\s+[a-z0-9]/i.test(des));
+      if (isOptAddOn) return false;
       return (
         des === 'Default / Included' ||
         des === 'Baseline / All' ||
         des === 'Option A' ||
-        des === '' ||
-        (!item.option && !(item as any).option_designation)
+        des.startsWith('Option A ') ||
+        des === ''
       );
     });
 
@@ -2732,16 +2744,29 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
     items.forEach((item) => {
       if (!item) return;
-      const des = ((item as any).option_designation || item.option || '').trim();
+      const des = String(
+        (item as any).option_designation ||
+          item.item_option ||
+          item.option ||
+          (item as any).option_group ||
+          ((item as any).is_optional ? 'Optional / Add-On' : '')
+      ).trim();
       const lineVal = getSignedLineValue(item);
-
-      if (
+      const isOptAddOn =
         des === 'Optional / Add-On' ||
         des.toLowerCase().includes('optional') ||
-        des.toLowerCase().includes('add-on')
-      ) {
+        des.toLowerCase().includes('add-on') ||
+        (Boolean((item as any).is_optional) && !/^option\s+[a-z0-9]/i.test(des));
+
+      if (isOptAddOn) {
         optionalAddonsTotal += lineVal;
-      } else if (des.startsWith('Option ') && des !== 'Option A') {
+      } else if (
+        des &&
+        des !== 'Default / Included' &&
+        des !== 'Baseline / All' &&
+        des !== 'Option A' &&
+        !des.startsWith('Option A ')
+      ) {
         optionTotals[des] = (optionTotals[des] || 0) + lineVal;
       }
     });
@@ -5035,14 +5060,17 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 li.lead_time_note ||
                 'Ex-Stock / Standard';
               const resolvedOpt = String(
-                (li as any).option_designation || li.option || existingQuoteItem?.option || ''
+                (li as any).option_designation ||
+                  li.item_option ||
+                  li.option ||
+                  existingQuoteItem?.option ||
+                  existingQuoteItem?.option_group ||
+                  ''
               ).trim();
               const resolvedIsOptional =
-                (li as any).is_optional !== undefined
-                  ? Boolean((li as any).is_optional)
-                  : resolvedOpt.toLowerCase().includes('optional') ||
-                    resolvedOpt.toLowerCase().includes('add-on') ||
-                    /^option\s+[b-z]/i.test(resolvedOpt);
+                resolvedOpt.toLowerCase().includes('optional') ||
+                resolvedOpt.toLowerCase().includes('add-on') ||
+                (Boolean((li as any).is_optional) && !/^option\s+[a-z0-9]/i.test(resolvedOpt));
               return {
                 ...(existingQuoteItem || {}),
                 id: existingQuoteItem?.id || li.id || `item_${idx}`,

@@ -1226,15 +1226,32 @@ export class QuotationRepository {
       : null;
 
     const rawSubtotal = calcTotals
-      ? calcTotals.subtotal
+      ? quotation.tax_mode === 'tax_calculated'
+        ? this.roundCurrency(calcTotals.subtotal - calcTotals.tax_amount)
+        : calcTotals.subtotal
+      : quotation.tax_mode === 'tax_calculated' && quotation.tax_amount
+      ? this.roundCurrency(Number(quotation.subtotal ?? quotation.grand_total ?? 0) - Number(quotation.tax_amount || 0))
       : Number(quotation.subtotal ?? quotation.grand_total ?? 0);
     const rawGrandTotal = calcTotals
       ? calcTotals.grand_total
       : Number(quotation.grand_total ?? quotation.subtotal ?? 0);
 
-    const isUSD = quotation.currency === 'USD';
-    const subtotalAed = this.roundCurrency(isUSD ? rawSubtotal * 3.6725 : rawSubtotal);
-    const grandTotalAed = this.roundCurrency(isUSD ? rawGrandTotal * 3.6725 : rawGrandTotal);
+    const fxRates: Record<string, number> = {
+      AED: 1,
+      USD: 3.6725,
+      EUR: 4.0,
+      GBP: 4.65,
+      SAR: 0.979,
+      QAR: 1.008,
+      KWD: 11.95,
+      OMR: 9.54,
+      BHD: 9.74,
+      INR: 0.044,
+      CNY: 0.51
+    };
+    const fxToAed = fxRates[String(quotation.currency || 'AED').trim().toUpperCase()] ?? 1;
+    const subtotalAed = this.roundCurrency(rawSubtotal * fxToAed);
+    const grandTotalAed = this.roundCurrency(rawGrandTotal * fxToAed);
 
     const canonicalRef = this.sanitizeCanonicalQuoteRef(
       quotation.formatted_quote_ref || quotation.quote_number || ''
@@ -1260,6 +1277,12 @@ export class QuotationRepository {
             qi.option ||
             qi.option_group ||
             (qi.is_optional ? 'Optional / Add-On' : 'Default / Included');
+          const isBaselineOpt =
+            !optGroup || optGroup === 'Default / Included' || optGroup === 'Baseline / All';
+          const isStrictlyOptional =
+            optGroup === 'Optional / Add-On' ||
+            /optional|add-on/i.test(optGroup) ||
+            (Boolean(qi.is_optional) && !/^option\s+[a-z0-9]/i.test(optGroup));
           return {
             id: qi.id || `item_${idx + 1}`,
             product_id: qi.product_id,
@@ -1290,10 +1313,11 @@ export class QuotationRepository {
               ...(deliveryVal ? { Delivery: deliveryVal, 'Lead Time': deliveryVal } : {})
             },
             option: optGroup,
-            option_group: qi.option_group ?? (optGroup !== 'Default / Included' && optGroup !== 'Baseline / All' ? optGroup : undefined),
+            item_option: isBaselineOpt ? '' : optGroup,
+            option_group: qi.option_group ?? (isBaselineOpt ? undefined : optGroup),
             option_designation: optGroup,
             option_scope_notes: qi.option_scope_notes,
-            is_optional: qi.is_optional,
+            is_optional: isStrictlyOptional,
             attributes: Array.isArray(qi.attributes) ? qi.attributes : [],
             technical_attributes: (qi as any).technical_attributes,
             visible_attributes: qi.visible_attributes,

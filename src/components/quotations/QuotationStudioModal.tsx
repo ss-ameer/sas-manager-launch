@@ -5289,7 +5289,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       (documentType as string) === 'material_return' ||
       documentType === 'debit_note';
     const activeDocCurrency =
-      editingQuotation?.currency || enquiry?.currency || 'AED';
+      editingQuotation?.currency ||
+      (enquiry?.currency as string) ||
+      activeBankAccount?.currency ||
+      'AED';
 
     const blankRow: QuotationLineItem = {
       id: newId,
@@ -6494,7 +6497,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         ? `${quotationIssueDate}T12:00:00.000Z`
         : editingQuotation?.created_at || new Date().toISOString(),
       valid_until: validUntilDate,
-      currency: (enquiry.currency as string) || activeBankAccount?.currency || 'AED',
+      currency:
+        editingQuotation?.currency ||
+        (enquiry.currency as string) ||
+        activeBankAccount?.currency ||
+        'AED',
       preset_id: selectedPresetId || undefined,
       presentation_preset: presets.find((p) => p.id === selectedPresetId) || undefined
     };
