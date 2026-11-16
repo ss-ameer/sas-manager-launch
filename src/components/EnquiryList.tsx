@@ -669,8 +669,8 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
         })()}
       </td>
 
-      {/* 3. QUOTE REF NO (Single Clean Monospace Badge) */}
-      <td className="py-3 px-2.5 whitespace-nowrap overflow-hidden align-middle">
+      {/* 3. QUOTE REF NO (Single Clean Monospace Badge — Full Reference Without Premature Truncation) */}
+      <td className="py-3 px-2 whitespace-nowrap align-middle">
         {(() => {
           const quoteDoc = e.attachments?.find((att) =>
             att.name?.startsWith('QT-') && att.name?.endsWith('.pdf')
@@ -710,17 +710,17 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
 
             return (
               <span
-                className={`inline-flex items-center gap-1.5 font-mono text-xs font-medium px-2 py-0.5 rounded-md border max-w-full truncate ${badgeColorClass}`}
+                className={`inline-flex items-center gap-1.5 font-mono text-[11.5px] tracking-tight font-medium px-2 py-0.5 rounded-md border whitespace-nowrap ${badgeColorClass}`}
                 title={`Formal Quotation (${quoteStatus}): ${formalRef}${canonicalEnquiryRef && canonicalEnquiryRef !== formalRef ? ` • Enquiry Ref: ${canonicalEnquiryRef}` : ''}`}
               >
-                <span className="truncate">{formalRef}</span>
+                <span>{formalRef}</span>
               </span>
             );
           }
 
           return (
             <span
-              className="font-mono text-xs font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700/60 inline-block max-w-full truncate"
+              className="font-mono text-[11.5px] tracking-tight font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700/60 inline-block whitespace-nowrap"
               title={displayRef}
             >
               {displayRef}
@@ -2740,9 +2740,9 @@ export default function EnquiryList({
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-3 w-[25%] 2xl:w-[20%] truncate bg-slate-50 dark:bg-slate-900">Company Account</th>
+                  <th className="py-2.5 px-3 w-[22.5%] 2xl:w-[18.5%] truncate bg-slate-50 dark:bg-slate-900">Company Account</th>
                   <th className="hidden 2xl:table-cell py-2.5 px-2.5 w-[13%] truncate bg-slate-50 dark:bg-slate-900">Contact / Location</th>
-                  <th className="py-2.5 px-2.5 w-[20%] 2xl:w-[17%] truncate bg-slate-50 dark:bg-slate-900">Quote Ref No</th>
+                  <th className="py-2.5 px-2 w-[23%] 2xl:w-[19%] truncate bg-slate-50 dark:bg-slate-900">Quote Ref No</th>
                   <th className="py-2.5 px-1.5 w-[5.5%] 2xl:w-[5%] text-center truncate bg-slate-50 dark:bg-slate-900">Rep</th>
                   <th onClick={() => handleSort('enquiry_date')} className="py-2.5 px-2 w-[9.5%] 2xl:w-[8.5%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition whitespace-nowrap bg-slate-50 dark:bg-slate-900">
                     <div className="flex items-center space-x-1">
@@ -2750,8 +2750,8 @@ export default function EnquiryList({
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-2 w-[12.5%] 2xl:w-[11.5%] truncate bg-slate-50 dark:bg-slate-900">Status</th>
-                  <th onClick={() => handleSort('value_aed')} className="py-2.5 pl-2 pr-5 w-[13.5%] 2xl:w-[12%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">
+                  <th className="py-2.5 px-2 w-[12%] 2xl:w-[11%] truncate bg-slate-50 dark:bg-slate-900">Status</th>
+                  <th onClick={() => handleSort('value_aed')} className="py-2.5 pl-2 pr-5 w-[13%] 2xl:w-[11.5%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">
                     <div className="flex items-center space-x-1 justify-end">
                       <span>Value</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />

@@ -14,6 +14,7 @@ import { useActivityLauncher, InitiateActivityOptions } from '../context/Activit
 import { useEntityEdit } from '../context/EntityEditContext';
 import { getWhatsAppUrl } from '../utils/defaults';
 import FilePreviewModal from './common/FilePreviewModal';
+import mammoth from 'mammoth';
 import {
   resolveAttachmentUrl,
   deleteFromSupabaseStorage,
@@ -195,7 +196,112 @@ export default function EnquiryDetail({
   const [isExpandedWidth, setIsExpandedWidth] = useState(false);
   const [expandedItemIndices, setExpandedItemIndices] = useState<Record<number, boolean>>({});
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
+  const [docxPreviewHtml, setDocxPreviewHtml] = useState<string>('');
+  const [docxPreviewLoading, setDocxPreviewLoading] = useState<boolean>(false);
+  const [docxPreviewError, setDocxPreviewError] = useState<string | null>(null);
   const [promotingAttachmentKey, setPromotingAttachmentKey] = useState<string | null>(null);
+
+  const isDocxOrTextAttachment = useMemo(() => {
+    if (!previewAttachment) return false;
+    const name = (previewAttachment.name || '').toLowerCase();
+    const mime = (previewAttachment.type || '').toLowerCase();
+    return (
+      mime.includes('wordprocessingml') ||
+      mime.includes('msword') ||
+      name.endsWith('.docx') ||
+      mime.startsWith('text/') ||
+      name.endsWith('.txt') ||
+      name.endsWith('.csv') ||
+      name.endsWith('.eml')
+    );
+  }, [previewAttachment]);
+
+  useEffect(() => {
+    if (!previewAttachment || !isDocxOrTextAttachment) {
+      setDocxPreviewHtml('');
+      setDocxPreviewLoading(false);
+      setDocxPreviewError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setDocxPreviewLoading(true);
+    setDocxPreviewError(null);
+    setDocxPreviewHtml('');
+
+    (async () => {
+      try {
+        const f = previewAttachment as any;
+        let url =
+          f.url ||
+          f.fileUrl ||
+          f.downloadURL ||
+          f.downloadUrl ||
+          f.file_url ||
+          f.dataUrl ||
+          f.src ||
+          '';
+        if (!url) {
+          url = (await resolveAttachmentUrl(previewAttachment)) || '';
+        }
+        if (!url) {
+          throw new Error('Attachment data is stored on the uploader device and could not be loaded.');
+        }
+
+        const name = (previewAttachment.name || '').toLowerCase();
+        const mime = (previewAttachment.type || '').toLowerCase();
+        const isDocx = mime.includes('wordprocessingml') || name.endsWith('.docx');
+
+        let arrayBuffer: ArrayBuffer;
+        if (url.startsWith('data:')) {
+          const commaIdx = url.indexOf(',');
+          const b64 = commaIdx >= 0 ? url.slice(commaIdx + 1) : url;
+          const binary = atob(b64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+          }
+          arrayBuffer = bytes.buffer;
+        } else {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP ${res.status} while loading document.`);
+          arrayBuffer = await res.arrayBuffer();
+        }
+
+        if (isDocx) {
+          const htmlRes = await mammoth.convertToHtml({ arrayBuffer });
+          const cleanedHtml = (htmlRes.value || '').replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '').trim();
+          if (cleanedHtml) {
+            if (!cancelled) setDocxPreviewHtml(cleanedHtml);
+          } else {
+            const rawRes = await mammoth.extractRawText({ arrayBuffer });
+            const escaped = (rawRes.value || 'Empty Word document.')
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;');
+            if (!cancelled) setDocxPreviewHtml(`<pre class="whitespace-pre-wrap font-sans text-xs leading-relaxed">${escaped}</pre>`);
+          }
+        } else {
+          const text = new TextDecoder('utf-8').decode(arrayBuffer);
+          const escaped = (text || 'Empty text document.')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+          if (!cancelled) setDocxPreviewHtml(`<pre class="whitespace-pre-wrap font-mono text-xs leading-relaxed">${escaped}</pre>`);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setDocxPreviewError(err?.message || 'Unable to parse document preview.');
+        }
+      } finally {
+        if (!cancelled) setDocxPreviewLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [previewAttachment, isDocxOrTextAttachment]);
   const [deletingAttachmentKey, setDeletingAttachmentKey] = useState<string | null>(null);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [activeOptionTab, setActiveOptionTab] = useState<string>('ALL');
@@ -2729,7 +2835,17 @@ export default function EnquiryDetail({
         : Math.max(0, Math.round(netBaselineInCurrency * fxToAed * 100) / 100);
 
       const now = new Date().toISOString();
-      const strippedLineItems = stripCatalogRedundantLineItemMedia(draftLineItems, products);
+      const sanitizedDraftItems = draftLineItems.map((li) => ({
+        ...li,
+        attributes: Array.isArray(li.attributes)
+          ? li.attributes.map((a) => ({
+              ...a,
+              key: (a.key || '').trim(),
+              value: String(a.value || '').replace(/^[•▪▸\-*]\s*/, '').trim()
+            }))
+          : li.attributes
+      }));
+      const strippedLineItems = stripCatalogRedundantLineItemMedia(sanitizedDraftItems, products);
       const updatedPayload: Partial<Enquiry> = {
         line_items: strippedLineItems,
         value_aed: nextValueAed,
@@ -4709,17 +4825,17 @@ export default function EnquiryDetail({
       {/* Unified Commercial Documents Hub Table */}
       {filteredHubDocuments.length > 0 ? (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
-          <div className="overflow-x-auto">
+          <div className="w-full overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-100/80 border-b border-slate-200 text-[10px] font-mono uppercase tracking-wider text-slate-500">
-                  <th className="py-2.5 px-3 font-bold">Type</th>
+                  <th className="py-2.5 px-2.5 font-bold whitespace-nowrap">Type</th>
                   <th className="py-2.5 px-3 font-bold">Reference Code</th>
-                  <th className="py-2.5 px-3 font-bold">Rev #</th>
-                  <th className="py-2.5 px-3 font-bold">Created Date</th>
-                  <th className="py-2.5 px-3 font-bold text-right">Total Amount</th>
-                  <th className="py-2.5 px-3 font-bold">Status</th>
-                  <th className="py-2.5 px-3 font-bold text-right">Actions</th>
+                  <th className="py-2.5 px-2 font-bold whitespace-nowrap">Rev #</th>
+                  <th className="py-2.5 px-2.5 font-bold whitespace-nowrap">Created Date</th>
+                  <th className="py-2.5 px-2.5 font-bold text-right whitespace-nowrap">Total Amount</th>
+                  <th className="py-2.5 px-2 font-bold whitespace-nowrap">Status</th>
+                  <th className="py-2.5 px-3 font-bold text-right whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -4783,17 +4899,17 @@ export default function EnquiryDetail({
                           : ''
                       }`}
                     >
-                      <td className="py-2.5 px-3 whitespace-nowrap">
+                      <td className="py-2.5 px-2.5 whitespace-nowrap">
                         <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-mono font-bold ${badgeClass}`}
+                          className={`inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-mono font-bold ${badgeClass}`}
                         >
                           {badgeLabel}
                         </span>
                       </td>
 
-                      <td className="py-2.5 px-3">
+                      <td className="py-2.5 px-3 min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="font-mono font-bold text-slate-900">
+                          <span className="font-mono font-bold text-slate-900 text-[11.5px] break-all sm:break-normal">
                             {q.formatted_quote_ref}
                           </span>
                           {isBaselineVirtual && (
@@ -4814,9 +4930,9 @@ export default function EnquiryDetail({
                         )}
                       </td>
 
-                      <td className="py-2.5 px-3 whitespace-nowrap font-mono">
+                      <td className="py-2.5 px-2 whitespace-nowrap font-mono">
                         {isQuoteDoc ? (
-                          <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[10.5px] font-bold">
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 text-[10px] font-bold">
                             R{q.revision_number || 1}
                           </span>
                         ) : (
@@ -4824,24 +4940,24 @@ export default function EnquiryDetail({
                         )}
                       </td>
 
-                      <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[11px] text-slate-600">
+                      <td className="py-2.5 px-2.5 whitespace-nowrap font-mono text-[11px] text-slate-600">
                         {formattedDate}
                       </td>
 
-                      <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono">
+                      <td className="py-2.5 px-2.5 whitespace-nowrap text-right font-mono">
                         {docType === 'delivery_note' || docType === 'material_return_note' ? (
-                          <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                          <span className="text-[10.5px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
                             Unpriced • {(q.line_items || []).length} item(s)
                           </span>
                         ) : docType === 'receipt' ? (
-                          <span className="font-bold text-emerald-800">
+                          <span className="font-bold text-emerald-800 text-[11.5px]">
                             {q.currency || 'AED'}{' '}
                             {Number(
                               q.receipt_metadata?.amount_received ?? q.grand_total ?? 0
                             ).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                           </span>
                         ) : (
-                          <span className="font-bold text-slate-900">
+                          <span className="font-bold text-slate-900 text-[11.5px]">
                             {isMaskedForBasic
                               ? 'AED ***'
                               : `${q.currency || 'AED'} ${Number(q.grand_total || 0).toLocaleString(
@@ -4852,20 +4968,20 @@ export default function EnquiryDetail({
                         )}
                       </td>
 
-                      <td className="py-2.5 px-3 whitespace-nowrap">
+                      <td className="py-2.5 px-2 whitespace-nowrap">
                         {isApproved && isQuoteDoc ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-emerald-100 text-emerald-800 border-emerald-300">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-emerald-100 text-emerald-800 border-emerald-300">
                             <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                             Approved
                           </span>
                         ) : isDeclined ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-rose-50 text-rose-700 border-rose-200">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-rose-50 text-rose-700 border-rose-200">
                             <XCircle className="w-3 h-3 text-rose-600" />
                             Declined
                           </span>
                         ) : (
                           <span
-                            className={`inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                            className={`inline-block text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                               isSent
                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                 : isSuperseded
@@ -4879,14 +4995,14 @@ export default function EnquiryDetail({
                       </td>
 
                       <td className="py-2.5 px-3 whitespace-nowrap text-right">
-                        <div className="inline-flex items-center justify-end gap-1.5">
+                        <div className="inline-flex items-center justify-end gap-1">
                           {linkedEnqId && linkedEnqId !== currentEnquiry.id && onSelectEnquiry ? (
                             <button
                               type="button"
                               onClick={() => onSelectEnquiry(linkedEnqId)}
-                              className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[11px] font-semibold rounded-lg transition cursor-pointer"
+                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-semibold rounded-lg transition cursor-pointer"
                             >
-                              Switch Sheet
+                              Switch
                             </button>
                           ) : (
                             <button
@@ -4895,10 +5011,10 @@ export default function EnquiryDetail({
                                 setEditingQuotation(isBaselineVirtual ? resolvePrimarySavedQuotation() : q);
                                 setIsQuotationStudioOpen(true);
                               }}
-                              className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
+                              className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
                               title="Open in Quotation Studio"
                             >
-                              <Edit2 className="w-3 h-3" />
+                              <Edit2 className="w-3 h-3 shrink-0" />
                               <span>Open in Studio</span>
                             </button>
                           )}
@@ -4908,10 +5024,10 @@ export default function EnquiryDetail({
                             onClick={() => {
                               void handleOutsideQuickPrint(q);
                             }}
-                            className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
+                            className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
                             title="Print or Save as PDF"
                           >
-                            <Printer className="w-3 h-3 text-slate-500" />
+                            <Printer className="w-3 h-3 text-slate-500 shrink-0" />
                             <span>Print</span>
                           </button>
 
@@ -4919,10 +5035,10 @@ export default function EnquiryDetail({
                             <button
                               type="button"
                               onClick={() => handleCreateQuotationRevision(q)}
-                              className="px-2 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
+                              className="px-2 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
                               title={`Fork Revision R${(q.revision_number || 1) + 1}`}
                             >
-                              <GitFork className="w-3 h-3" />
+                              <GitFork className="w-3 h-3 shrink-0" />
                               <span>+Rev</span>
                             </button>
                           )}
@@ -4932,7 +5048,7 @@ export default function EnquiryDetail({
                               <button
                                 type="button"
                                 onClick={() => promptAcceptQuotation(q)}
-                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg transition cursor-pointer"
+                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition cursor-pointer"
                                 title="Accept Commercial Offer & Win Enquiry"
                               >
                                 Accept
@@ -4940,7 +5056,7 @@ export default function EnquiryDetail({
                               <button
                                 type="button"
                                 onClick={() => openDeclineModal(q)}
-                                className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-semibold rounded-lg transition cursor-pointer"
+                                className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold rounded-lg transition cursor-pointer"
                                 title="Mark Quotation as Declined"
                               >
                                 Decline
@@ -4952,7 +5068,7 @@ export default function EnquiryDetail({
                             <button
                               type="button"
                               onClick={() => promptDeleteQuotation(q)}
-                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer shrink-0"
                               title={isDraft ? 'Discard Draft Document' : 'Move Document to Recycle Bin'}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -5424,11 +5540,29 @@ export default function EnquiryDetail({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className={`p-4 rounded-xl border flex flex-col justify-between ${getStatusStyle(currentEnquiry.status)}`}>
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-wrap">
                       <span className="w-2 h-2 rounded-full bg-current shrink-0" />
                       <span className="text-[10px] font-mono uppercase tracking-widest font-bold opacity-80 truncate">
                         Pipeline Status
                       </span>
+                      {normalizeEnquiryStatus(currentEnquiry.status) === 'Active' &&
+                        unifiedHubDocuments.some(
+                          (q) => (q.document_type || 'quotation') === 'quotation' && !q.is_deleted && q.status === 'Sent'
+                        ) && (
+                          <button
+                            type="button"
+                            disabled={!canEditEnquiry(user, activeWorkspace, currentEnquiry) || isUpdatingStatus}
+                            onClick={() => {
+                              if (canEditEnquiry(user, activeWorkspace, currentEnquiry)) {
+                                void handleStatusTransition('Sent / Pending Client');
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 hover:bg-indigo-200/80 text-indigo-800 border border-indigo-300 shrink-0 transition cursor-pointer"
+                            title="Quotation is marked Sent — click to sync Pipeline Status to 'Sent / Pending Client'"
+                          >
+                            <span>Quoted (Sent)</span>
+                          </button>
+                        )}
                       {currentEnquiry.stock_reserved && (
                         <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0">
                           <Boxes className="w-3 h-3" />
@@ -6733,32 +6867,32 @@ export default function EnquiryDetail({
                         )}
                       </div>
 
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200/80 text-xs font-mono tabular-nums">
-                        <div className="bg-white border border-slate-200/80 rounded-lg px-2.5 py-1.5">
-                          <span className="text-[10px] text-slate-400 uppercase block">Total Cost (Excl. VAT)</span>
-                          <span className="font-semibold text-slate-700">
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 pt-2 border-t border-slate-200/80 text-xs font-mono tabular-nums">
+                        <div className="min-w-0 bg-white border border-slate-200/80 rounded-lg px-2.5 py-1.5">
+                          <span className="text-[10px] text-slate-400 uppercase block truncate">Total Cost (Excl. VAT)</span>
+                          <span className="font-semibold text-slate-700 block truncate">
                             {hasAnyCost ? `${currSymbol}${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
                           </span>
                         </div>
-                        <div className="bg-white border border-slate-200/80 rounded-lg px-2.5 py-1.5">
-                          <span className="text-[10px] text-slate-400 uppercase block">Subtotal (Excl. VAT)</span>
-                          <span className="font-bold text-slate-900">
+                        <div className="min-w-0 bg-white border border-slate-200/80 rounded-lg px-2.5 py-1.5">
+                          <span className="text-[10px] text-slate-400 uppercase block truncate">Subtotal (Excl. VAT)</span>
+                          <span className="font-bold text-slate-900 block truncate">
                             {currSymbol}{subtotalExclVat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         </div>
-                        <div className="bg-white border border-slate-200/80 rounded-lg px-2.5 py-1.5">
-                          <span className="text-[10px] text-slate-400 uppercase block">
+                        <div className="min-w-0 bg-white border border-slate-200/80 rounded-lg px-2.5 py-1.5">
+                          <span className="text-[10px] text-slate-400 uppercase block truncate">
                             {vatBoxTitle}
                           </span>
-                          <span className="font-semibold text-slate-700">
+                          <span className="font-semibold text-slate-700 block truncate">
                             {currSymbol}{vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         </div>
-                        <div className="bg-blue-50/60 border border-blue-200 rounded-lg px-2.5 py-1.5">
-                          <span className="text-[10px] text-blue-600 uppercase font-bold block">
+                        <div className="min-w-0 bg-blue-50/60 border border-blue-200 rounded-lg px-2.5 py-1.5">
+                          <span className="text-[10px] text-blue-600 uppercase font-bold block truncate">
                             {grandTotalBoxTitle}
                           </span>
-                          <span className="font-bold text-blue-700">
+                          <span className="font-bold text-blue-700 block truncate">
                             {currSymbol}{grandTotalVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         </div>
@@ -8149,12 +8283,21 @@ export default function EnquiryDetail({
                                     {(item.brand_make || matchedProduct?.brand_make) && (
                                       <span className="font-medium text-slate-600">{item.brand_make || matchedProduct?.brand_make}</span>
                                     )}
-                                    {(item.model_part_no || matchedProduct?.model_part_no) && (
-                                      <span>· {item.model_part_no || matchedProduct?.model_part_no}</span>
-                                    )}
-                                    {parsedDisplay.spec && parsedDisplay.spec !== parsedDisplay.title && (
-                                      <span className="truncate max-w-[260px]">· {parsedDisplay.spec}</span>
-                                    )}
+                                    {(() => {
+                                      const modelVal = (item.model_part_no || matchedProduct?.model_part_no || '').trim();
+                                      let specSub = (parsedDisplay.spec && parsedDisplay.spec !== parsedDisplay.title ? parsedDisplay.spec : '').trim();
+                                      if (modelVal && specSub.toLowerCase().startsWith(modelVal.toLowerCase())) {
+                                        specSub = specSub.slice(modelVal.length).replace(/^[\s·,\-–—:]+/, '').trim();
+                                      }
+                                      return (
+                                        <>
+                                          {modelVal && <span>· {modelVal}</span>}
+                                          {specSub && (
+                                            <span className="truncate max-w-[260px]">· {specSub}</span>
+                                          )}
+                                        </>
+                                      );
+                                    })()}
                                     {(() => {
                                       const specCount = (item.attributes || []).filter((a) => a && (a.key?.trim() || a.value?.trim())).length;
                                       const rawLeadTime = (
@@ -8272,11 +8415,14 @@ export default function EnquiryDetail({
                                 <div>
                                   <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block mb-1">Specification Attributes</span>
                                   <div className="flex flex-wrap gap-1.5">
-                                    {item.attributes!.map((attr, attrIdx) => (
-                                      <span key={attrIdx} className="text-[11px] font-mono bg-slate-50 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-md shadow-2xs">
-                                        <span className="font-semibold text-slate-900">{attr.key}:</span> {attr.value || '—'}
-                                      </span>
-                                    ))}
+                                    {item.attributes!.map((attr, attrIdx) => {
+                                      const cleanVal = String(attr.value || '').replace(/^[•▪▸\-*]\s*/, '').trim();
+                                      return (
+                                        <span key={attrIdx} className="text-[11px] font-mono bg-slate-50 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-md shadow-2xs">
+                                          <span className="font-semibold text-slate-900">{attr.key}:</span> {cleanVal || '—'}
+                                        </span>
+                                      );
+                                    })}
                                   </div>
                                 </div>
                               )}
@@ -8498,17 +8644,21 @@ export default function EnquiryDetail({
                               </span>
                             </div>
 
-                            {canEditEnquiry(user, activeWorkspace, currentEnquiry) && Boolean(log.before) && (
-                              <button
-                                type="button"
-                                onClick={() => handleRevert(log)}
-                                disabled={reverting}
-                                className="py-1.5 px-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 rounded-lg text-xs font-semibold font-sans transition flex items-center space-x-1.5 shadow-sm cursor-pointer"
-                              >
-                                <RotateCcw className="w-3.5 h-3.5" />
-                                <span>Rollback</span>
-                              </button>
-                            )}
+                            {log.action !== 'create' &&
+                              log.details !== 'Initial enquiry record created' &&
+                              Boolean(log.before) &&
+                              Object.keys(log.before || {}).length > 0 &&
+                              canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRevert(log)}
+                                  disabled={reverting}
+                                  className="py-1.5 px-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 rounded-lg text-xs font-semibold font-sans transition flex items-center space-x-1.5 shadow-sm cursor-pointer"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                  <span>Rollback</span>
+                                </button>
+                              )}
                           </div>
 
                           {businessChanges.length > 0 ? (
@@ -8643,13 +8793,87 @@ export default function EnquiryDetail({
         </div>
       )}
 
-      {/* In-App Attachment Preview Modal */}
-      <FilePreviewModal
-        isOpen={Boolean(previewAttachment)}
-        onClose={() => setPreviewAttachment(null)}
-        file={previewAttachment}
-        onDownload={handleDownloadAttachment}
-      />
+      {/* In-App Attachment Preview Modal (with rich in-app .docx / text rendering) */}
+      {previewAttachment && isDocxOrTextAttachment ? (
+        <div
+          className="fixed inset-0 z-50 flex flex-col bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="h-16 px-4 md:px-6 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between shrink-0 shadow-lg select-none">
+            <div className="flex items-center space-x-3 truncate max-w-[60%]">
+              <div className="p-2 rounded-lg bg-slate-800 text-blue-400 border border-slate-700 shrink-0">
+                <FileText className="w-4 h-4 text-blue-400" />
+              </div>
+              <div className="truncate">
+                <h3 className="text-sm font-semibold text-white truncate" title={previewAttachment.name}>
+                  {previewAttachment.name}
+                </h3>
+                <span className="text-[11px] text-slate-400 font-mono">
+                  In-App Document Preview • {(((previewAttachment.size || 0) / 1024) || 0).toFixed(1)} KB
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => handleDownloadAttachment(previewAttachment)}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 shadow-md transition cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewAttachment(null)}
+                className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition cursor-pointer"
+                title="Close Preview (Esc)"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+          <div
+            className="flex-1 overflow-auto flex justify-center p-4 sm:p-8"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setPreviewAttachment(null);
+            }}
+          >
+            <div className="w-full max-w-4xl bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 sm:p-10 overflow-y-auto max-h-full text-slate-800 font-sans">
+              {docxPreviewLoading ? (
+                <div className="py-20 flex flex-col items-center justify-center space-y-3 text-slate-500">
+                  <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                  <span className="text-xs font-mono">Rendering document contents...</span>
+                </div>
+              ) : docxPreviewError ? (
+                <div className="py-12 text-center space-y-3">
+                  <p className="text-sm font-semibold text-rose-600">{docxPreviewError}</p>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadAttachment(previewAttachment)}
+                    className="inline-flex items-center space-x-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download File</span>
+                  </button>
+                </div>
+              ) : (
+                <div
+                  className="prose prose-slate max-w-none text-xs sm:text-sm leading-relaxed [&_table]:w-full [&_table]:border-collapse [&_table]:my-3 [&_td]:border [&_td]:border-slate-300 [&_td]:p-2 [&_th]:border [&_th]:border-slate-300 [&_th]:bg-slate-100 [&_th]:p-2 [&_p]:mb-2.5 [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mb-2 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mb-2 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mb-1.5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5"
+                  dangerouslySetInnerHTML={{ __html: docxPreviewHtml }}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <FilePreviewModal
+          isOpen={Boolean(previewAttachment)}
+          onClose={() => setPreviewAttachment(null)}
+          file={previewAttachment}
+          onDownload={handleDownloadAttachment}
+        />
+      )}
 
       {/* Collaborators & Access Sharing Modal */}
       <EnquiryCollaboratorsModal

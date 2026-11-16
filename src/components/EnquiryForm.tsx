@@ -1228,7 +1228,7 @@ export default function EnquiryForm({
   const [showGeminiKeyModal, setShowGeminiKeyModal] = useState(false);
   const [selectedAiModel, setSelectedAiModel] = useState<string>(() => {
     const saved = localStorage.getItem('omni_gemini_model_preference');
-    if (!saved || saved.startsWith('gemini-2.5') || saved === 'gemini-3.1-pro') return 'auto';
+    if (!saved || saved.startsWith('gemini-2.5') || saved === 'gemini-3.1-pro' || saved === 'gemini-3.8-flash') return 'auto';
     if (AVAILABLE_GEMINI_MODELS.some((m) => m.id === saved)) return saved;
     return 'auto';
   });
@@ -1298,6 +1298,9 @@ export default function EnquiryForm({
   const [activePreviewUrl, setActivePreviewUrl] = useState<string | null>(null);
   const [previewFileName, setPreviewFileName] = useState<string>('');
   const [previewFileType, setPreviewFileType] = useState<string>('application/pdf');
+  const [docxPreviewHtml, setDocxPreviewHtml] = useState<string>('');
+  const [docxPreviewLoading, setDocxPreviewLoading] = useState<boolean>(false);
+  const [docxPreviewError, setDocxPreviewError] = useState<string | null>(null);
 
   // Smart Paste Text Preview & Layout Sizing states
   const [pastedSourceText, setPastedSourceText] = useState<string | null>(null);
@@ -1856,7 +1859,7 @@ export default function EnquiryForm({
   };
 
   // Robust media type detection combining mimeType and file extension
-  const mediaType = React.useMemo<'image' | 'pdf' | 'other'>(() => {
+  const mediaType = React.useMemo<'image' | 'pdf' | 'docx' | 'text' | 'other'>(() => {
     const name = (previewFileName || '').toLowerCase();
     const mime = (previewFileType || '').toLowerCase();
     if (
@@ -1877,8 +1880,95 @@ export default function EnquiryForm({
     ) {
       return 'pdf';
     }
+    if (
+      mime.includes('wordprocessingml') ||
+      mime.includes('msword') ||
+      name.endsWith('.docx')
+    ) {
+      return 'docx';
+    }
+    if (
+      mime.startsWith('text/') ||
+      name.endsWith('.txt') ||
+      name.endsWith('.csv') ||
+      name.endsWith('.eml')
+    ) {
+      return 'text';
+    }
     return 'other';
   }, [previewFileName, previewFileType]);
+
+  // Convert .docx or text attachments into formatted in-app HTML preview
+  useEffect(() => {
+    if (!activePreviewUrl || (mediaType !== 'docx' && mediaType !== 'text')) {
+      setDocxPreviewHtml('');
+      setDocxPreviewLoading(false);
+      setDocxPreviewError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setDocxPreviewLoading(true);
+    setDocxPreviewError(null);
+    setDocxPreviewHtml('');
+
+    (async () => {
+      try {
+        let arrayBuffer: ArrayBuffer;
+        if (activePreviewUrl.startsWith('data:')) {
+          const commaIdx = activePreviewUrl.indexOf(',');
+          const b64 = commaIdx >= 0 ? activePreviewUrl.slice(commaIdx + 1) : activePreviewUrl;
+          const binary = atob(b64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+          }
+          arrayBuffer = bytes.buffer;
+        } else {
+          const safeUrl = getSafeBlobUrl(activePreviewUrl);
+          const res = await fetch(safeUrl);
+          if (!res.ok) throw new Error(`HTTP ${res.status} while loading document.`);
+          arrayBuffer = await res.arrayBuffer();
+        }
+
+        if (mediaType === 'docx') {
+          const htmlRes = await mammoth.convertToHtml({ arrayBuffer });
+          const cleanedHtml = (htmlRes.value || '').replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '').trim();
+          if (cleanedHtml) {
+            if (!cancelled) setDocxPreviewHtml(cleanedHtml);
+          } else {
+            const rawRes = await mammoth.extractRawText({ arrayBuffer });
+            const escaped = (rawRes.value || 'Empty Word document.')
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;');
+            if (!cancelled) {
+              setDocxPreviewHtml(`<pre class="whitespace-pre-wrap font-sans text-xs leading-relaxed">${escaped}</pre>`);
+            }
+          }
+        } else {
+          const text = new TextDecoder('utf-8').decode(arrayBuffer);
+          const escaped = (text || 'Empty text document.')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+          if (!cancelled) {
+            setDocxPreviewHtml(`<pre class="whitespace-pre-wrap font-mono text-xs leading-relaxed">${escaped}</pre>`);
+          }
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setDocxPreviewError(err?.message || 'Unable to parse document preview.');
+        }
+      } finally {
+        if (!cancelled) setDocxPreviewLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activePreviewUrl, mediaType]);
 
   // Admin New Product Category states
   const [newCategoryModal, setNewCategoryModal] = useState(false);
@@ -2615,7 +2705,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             lead_time_note: normalizedLeadTime,
             ...(cleanedSubs ? { sub_components: cleanedSubs } : {}),
             option: item.option || (item as any).option_designation || 'Default / Included',
-            attributes: item.attributes || []
+            attributes: (item.attributes || []).map((a) => ({
+              ...a,
+              key: (a.key || '').trim(),
+              value: String(a.value || '').replace(/^[•▪▸\-*]\s*/, '').trim()
+            }))
           };
         }),
         products
@@ -3872,7 +3966,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
         rawExtracted.forEach((attr: any) => {
           if (!attr || !attr.key) return;
-          const val = attr.value !== undefined && attr.value !== null ? String(attr.value).trim() : '';
+          const val =
+            attr.value !== undefined && attr.value !== null
+              ? String(attr.value).replace(/^[•▪▸\-*]\s*/, '').trim()
+              : '';
           if (!val) return;
           const canonicalKey = normalizeAttributeKey(String(attr.key));
           if (!canonicalKey) return;
@@ -4772,7 +4869,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       const cleanAttr: ProductAttribute[] = isServiceOrFee
         ? []
         : (item.attributes || [])
-            .map((a) => ({ key: normalizeAttributeKey(a.key.trim()), value: a.value.trim() }))
+            .map((a) => ({
+              key: normalizeAttributeKey(a.key.trim()),
+              value: String(a.value || '').replace(/^[•▪▸\-*]\s*/, '').trim()
+            }))
             .filter((a) => a.key !== '' && a.value !== '');
       const optDes = ((item as any).option_designation || item.option || 'Default / Included').trim();
       const resolvedDelivery = isServiceOrFee
@@ -5494,6 +5594,33 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     <div className="w-full h-full flex flex-col min-h-0">
                       <PdfViewer pdfUrl={getSafeBlobUrl(activePreviewUrl)} />
                     </div>
+                  ) : mediaType === 'docx' || mediaType === 'text' ? (
+                    <div className="w-full h-full flex flex-col min-h-0 bg-white rounded-xl border border-slate-200 shadow-xs overflow-y-auto p-5 text-slate-800">
+                      {docxPreviewLoading ? (
+                        <div className="flex-1 flex flex-col items-center justify-center space-y-2.5 text-slate-500 py-12">
+                          <Loader2 className="w-7 h-7 animate-spin text-blue-600" />
+                          <span className="text-xs font-mono">Rendering document preview...</span>
+                        </div>
+                      ) : docxPreviewError ? (
+                        <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-3">
+                          <FileText className="w-10 h-10 text-slate-400" />
+                          <p className="text-xs font-semibold text-rose-600">{docxPreviewError}</p>
+                          <a
+                            href={getSafeBlobUrl(activePreviewUrl)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs rounded-lg transition shadow-xs"
+                          >
+                            <span>Open in New Tab</span>
+                          </a>
+                        </div>
+                      ) : (
+                        <div
+                          className="prose prose-slate max-w-none text-xs leading-relaxed [&_table]:w-full [&_table]:border-collapse [&_table]:my-2.5 [&_td]:border [&_td]:border-slate-300 [&_td]:p-1.5 [&_th]:border [&_th]:border-slate-300 [&_th]:bg-slate-100 [&_th]:p-1.5 [&_p]:mb-2 [&_h1]:text-base [&_h1]:font-bold [&_h1]:mb-1.5 [&_h2]:text-sm [&_h2]:font-bold [&_h2]:mb-1.5 [&_h3]:text-xs [&_h3]:font-bold [&_h3]:mb-1 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4"
+                          dangerouslySetInnerHTML={{ __html: docxPreviewHtml }}
+                        />
+                      )}
+                    </div>
                   ) : (
                     <div className="text-center p-8 bg-white rounded-2xl border border-slate-150 shadow-sm max-w-md">
                       <FileText className="w-12 h-12 text-slate-400 mx-auto mb-3" />
@@ -5899,7 +6026,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                               {attrs.length > 0 ? (
                                                 attrs.map((attr, aIdx) => (
                                                   <span key={aIdx} className="bg-white border border-slate-200 px-2 py-0.5 rounded-md text-slate-700 font-sans shadow-2xs">
-                                                    <strong className="text-slate-900 font-semibold">{attr.key}:</strong> {attr.value || 'N/A'}
+                                                    <strong className="text-slate-900 font-semibold">{attr.key}:</strong> {String(attr.value || '').replace(/^[•▪▸\-*]\s*/, '').trim() || 'N/A'}
                                                   </span>
                                                 ))
                                               ) : (
@@ -9388,7 +9515,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         </div>
 
                         <select
-                          value={selectedAiModel}
+                          value={selectedAiModel === 'gemini-3.8-flash' ? 'auto' : selectedAiModel}
                           onChange={(e) => {
                             const val = e.target.value;
                             setSelectedAiModel(val);
@@ -9396,13 +9523,19 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           }}
                           title="Select Gemini Engine"
                           aria-label="Select Gemini Engine"
-                          className="text-xs bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1.5 font-medium text-slate-700 dark:text-slate-200 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                          className="relative z-50 text-xs bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1.5 font-medium text-slate-700 dark:text-slate-200 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
                         >
-                          {AVAILABLE_GEMINI_MODELS.map((model) => (
-                            <option key={model.id} value={model.id}>
-                              {model.label}
-                            </option>
-                          ))}
+                          {AVAILABLE_GEMINI_MODELS.map((model) => {
+                            const normalizedModel =
+                              model.id === 'gemini-3.8-flash' || model.label.includes('3.8 Flash')
+                                ? { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (Complex Reasoning)' }
+                                : model;
+                            return (
+                              <option key={normalizedModel.id} value={normalizedModel.id}>
+                                {normalizedModel.label}
+                              </option>
+                            );
+                          })}
                         </select>
 
                         {isExtracting && (
@@ -10700,7 +10833,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     key={aIdx}
                                     className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-mono border border-slate-200/80 dark:border-slate-700"
                                   >
-                                    {attr.key}: {attr.value}
+                                    {attr.key}: {String(attr.value || '').replace(/^[•▪▸\-*]\s*/, '').trim()}
                                   </span>
                                 ))}
                             </div>
