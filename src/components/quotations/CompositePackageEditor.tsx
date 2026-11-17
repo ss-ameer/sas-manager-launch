@@ -4,7 +4,11 @@ import {
   recalculateCompositeItemTotals,
   parseBulkSubComponentsText,
 } from '../../utils/compositeBomUtils';
-import { resolveToAedMultiplier } from '../SaveToCatalogModal';
+import {
+  resolveToAedMultiplier,
+  resolveEffectiveCatalogProduct,
+  deriveSuggestedVariantLabel,
+} from '../SaveToCatalogModal';
 import { buildCatalogVariantAnalysisMap } from '../../utils/productVariantFormat';
 import {
   Layers,
@@ -544,10 +548,15 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
   };
 
   const handleSelectCatalogProductForSub = (
-    prod: Product,
-    targetId: string | 'NEW'
+    rawProd: Product,
+    targetId: string | 'NEW',
+    options?: { isBaseTemplate?: boolean }
   ) => {
-    const snapUnitPrice = convertFromCatalogAed(prod.unit_price);
+    const prod = resolveEffectiveCatalogProduct(rawProd, activeCatalogProducts);
+    const isBaseTemplate = Boolean(options?.isBaseTemplate);
+    const snapUnitPrice = convertFromCatalogAed(
+      (prod as any).default_unit_price ?? prod.unit_price
+    );
     const snapCostPrice = convertFromCatalogAed(prod.cost_price ?? prod.cost_price_aed);
     const cleanUnit = !prod.unit || prod.unit === 'Custom Unit' ? 'Nos' : prod.unit;
     const { cleanDesc, attributes: hydratedAttrs } = extractCleanDescAndAttributesFromProduct(prod);
@@ -555,16 +564,17 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
     if (targetId === 'NEW') {
       const nextIdx = subComponents.length + 1;
       const isAcc = snapUnitPrice <= 0;
+      const newCompId = `sub_${Date.now()}_${nextIdx}`;
       const newComp: LineItemComponent = {
-        id: `sub_${Date.now()}_${nextIdx}`,
+        id: newCompId,
         sn: isAcc ? undefined : String(subComponents.filter((c) => !c.is_included_accessory).length + 1),
-        product_id: prod.id,
-        sku: prod.sku,
+        product_id: isBaseTemplate ? undefined : prod.id,
+        sku: isBaseTemplate ? undefined : prod.sku,
         item_name: prod.name || prod.product_type || 'Catalog Item',
         remark: '',
         description: cleanDesc,
         brand_make: prod.brand_make || undefined,
-        model_part_no: prod.model_part_no || undefined,
+        model_part_no: isBaseTemplate ? undefined : prod.model_part_no || undefined,
         country_of_origin: prod.country_of_origin || undefined,
         attributes: hydratedAttrs,
         show_attributes: true,
@@ -580,6 +590,12 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
         line_total: snapUnitPrice,
         is_included_accessory: isAcc,
       };
+      if (isBaseTemplate && prod.id) {
+        (newComp as any).template_parent_id = prod.id;
+      }
+      if (isBaseTemplate && hydratedAttrs.length > 0) {
+        setExpandedSpecRows((prev) => ({ ...prev, [newCompId]: true }));
+      }
       commitComponents([...subComponents, newComp]);
     } else {
       const updated = subComponents.map((c) => {
@@ -590,18 +606,23 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
         const tot = isAcc ? 0 : Math.round(qty * uPrice * 100) / 100;
         const mergedAttrs = [...(Array.isArray(c.attributes) ? c.attributes : [])];
         hydratedAttrs.forEach((ha) => {
-          if (!mergedAttrs.some((ma) => ma.key.trim().toLowerCase() === ha.key.trim().toLowerCase())) {
+          const existingIdx = mergedAttrs.findIndex(
+            (ma) => ma.key.trim().toLowerCase() === ha.key.trim().toLowerCase()
+          );
+          if (existingIdx === -1) {
             mergedAttrs.push(ha);
+          } else if (!mergedAttrs[existingIdx].value?.trim() && ha.value?.trim()) {
+            mergedAttrs[existingIdx] = ha;
           }
         });
-        return {
+        const nextComp: LineItemComponent = {
           ...c,
-          product_id: prod.id,
-          sku: prod.sku,
+          product_id: isBaseTemplate ? undefined : prod.id,
+          sku: isBaseTemplate ? undefined : prod.sku,
           item_name: prod.name || c.item_name,
           description: cleanDesc || c.description || '',
           brand_make: prod.brand_make || c.brand_make,
-          model_part_no: prod.model_part_no || c.model_part_no,
+          model_part_no: isBaseTemplate ? c.model_part_no : prod.model_part_no || c.model_part_no,
           country_of_origin: prod.country_of_origin || c.country_of_origin,
           attributes: mergedAttrs,
           show_attributes: c.show_attributes !== false,
@@ -616,7 +637,14 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
           line_total: tot,
           is_included_accessory: isAcc,
         };
+        if (isBaseTemplate && prod.id) {
+          (nextComp as any).template_parent_id = prod.id;
+        }
+        return nextComp;
       });
+      if (isBaseTemplate && hydratedAttrs.length > 0 && targetId !== 'NEW') {
+        setExpandedSpecRows((prev) => ({ ...prev, [targetId]: true }));
+      }
       commitComponents(updated);
     }
 
@@ -685,19 +713,22 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
 
   const filteredPickerProducts = useMemo(() => {
     const q = catalogSearchQuery.trim().toLowerCase();
-    return activeCatalogProducts
-      .filter((p) => {
-        if (!q) return true;
-        return (
-          (p.name || '').toLowerCase().includes(q) ||
-          (p.sku || '').toLowerCase().includes(q) ||
-          (p.brand_make || '').toLowerCase().includes(q) ||
-          (p.model_part_no || '').toLowerCase().includes(q) ||
-          (p.product_type || '').toLowerCase().includes(q) ||
-          (p.description || '').toLowerCase().includes(q)
-        );
-      })
-      .slice(0, 20);
+    return activeCatalogProducts.filter((p) => {
+      if (!q) return true;
+      const attrText = Array.isArray(p.attributes)
+        ? p.attributes.map((a) => `${a.key || ''} ${a.value || ''}`).join(' ')
+        : '';
+      return (
+        (p.name || '').toLowerCase().includes(q) ||
+        (p.sku || '').toLowerCase().includes(q) ||
+        (p.brand_make || '').toLowerCase().includes(q) ||
+        (p.model_part_no || '').toLowerCase().includes(q) ||
+        (p.product_type || '').toLowerCase().includes(q) ||
+        (p.description || '').toLowerCase().includes(q) ||
+        ((p as any).variant_label || (p as any).variant_name || '').toLowerCase().includes(q) ||
+        attrText.toLowerCase().includes(q)
+      );
+    });
   }, [activeCatalogProducts, catalogSearchQuery]);
 
   const totals = recalculateCompositeItemTotals(subComponents, parentQuantity);
@@ -912,56 +943,174 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
               autoFocus
             />
           </div>
-          <div className="max-h-48 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+          <div className="max-h-56 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5">
             {(() => {
               const variantAnalysisMap = buildCatalogVariantAnalysisMap(activeCatalogProducts);
-              return filteredPickerProducts.map((prod) => {
-                const avail = (prod.stock_on_hand || 0) - (prod.stock_reserved || 0);
-                const priceConv = convertFromCatalogAed(prod.unit_price);
-                const cleanUnit = !prod.unit || prod.unit === 'Custom Unit' ? 'Nos' : prod.unit;
-                const vInfo = prod.id ? variantAnalysisMap.get(prod.id) : undefined;
+              const childrenByParentId = new Map<string, Product[]>();
+              activeCatalogProducts.forEach((prod) => {
+                const parentId = (prod as any).parent_product_id || prod.variant_parent_id;
+                if (parentId) {
+                  const list = childrenByParentId.get(parentId) || [];
+                  list.push(prod);
+                  childrenByParentId.set(parentId, list);
+                }
+              });
+
+              const matchingIds = new Set(filteredPickerProducts.map((p) => p.id));
+              const topLevelRows = activeCatalogProducts
+                .filter((prod) => {
+                  const parentId = (prod as any).parent_product_id || prod.variant_parent_id;
+                  if (parentId && activeCatalogProducts.some((cand) => cand.id === parentId)) {
+                    return false;
+                  }
+                  if (matchingIds.has(prod.id)) return true;
+                  const children = prod.id ? childrenByParentId.get(prod.id) || [] : [];
+                  return children.some((c) => matchingIds.has(c.id));
+                })
+                .slice(0, 30);
+
+              if (topLevelRows.length === 0) {
                 return (
-                  <button
+                  <div className="col-span-full py-4 text-center text-xs text-slate-400">
+                    No matching catalog products found.
+                  </div>
+                );
+              }
+
+              return topLevelRows.map((prod) => {
+                const effectiveProd = resolveEffectiveCatalogProduct(prod, activeCatalogProducts);
+                const avail = (effectiveProd.stock_on_hand || 0) - (effectiveProd.stock_reserved || 0);
+                const priceConv = convertFromCatalogAed(
+                  (effectiveProd as any).default_unit_price ?? effectiveProd.unit_price
+                );
+                const cleanUnit =
+                  !effectiveProd.unit || effectiveProd.unit === 'Custom Unit'
+                    ? 'Nos'
+                    : effectiveProd.unit;
+                const vInfo = prod.id ? variantAnalysisMap.get(prod.id) : undefined;
+                const childVariants = prod.id ? childrenByParentId.get(prod.id) || [] : [];
+                const isParentFamily =
+                  childVariants.length > 0 ||
+                  Boolean(prod.has_variants) ||
+                  (Array.isArray(prod.attributes) &&
+                    prod.attributes.some((a) => a.key?.trim() && !a.value?.trim()));
+
+                return (
+                  <div
                     key={prod.id}
-                    type="button"
-                    onClick={() => handleSelectCatalogProductForSub(prod, showCatalogPickerForRow)}
-                    className="text-left p-2 rounded-lg bg-white dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-slate-800/80 border border-slate-200 dark:border-slate-700 hover:border-blue-400 flex items-center justify-between gap-2 transition cursor-pointer"
+                    className={`rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-blue-400 transition p-2 flex flex-col gap-1.5 ${
+                      isParentFamily ? 'sm:col-span-2' : ''
+                    }`}
                   >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <div className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
-                          {prod.name || prod.product_type}
+                    <button
+                      type="button"
+                      onClick={() => handleSelectCatalogProductForSub(prod, showCatalogPickerForRow)}
+                      className="w-full text-left flex items-center justify-between gap-2 cursor-pointer group"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <div className="text-xs font-bold text-slate-800 dark:text-slate-100 group-hover:text-blue-700 truncate">
+                            {prod.name || prod.product_type}
+                          </div>
+                          {isParentFamily ? (
+                            <span className="text-[9px] font-mono font-bold bg-purple-50 text-purple-700 border border-purple-200 px-1.5 py-0.2 rounded">
+                              {childVariants.length > 0
+                                ? `Parent Family (${childVariants.length} Variants)`
+                                : 'Base Template'}
+                            </span>
+                          ) : (
+                            vInfo?.isVariant && (
+                              <span className="text-[9px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.2 rounded">
+                                Variant
+                              </span>
+                            )
+                          )}
                         </div>
-                        {vInfo?.isVariant && (
-                          <span className="text-[9px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.2 rounded">
-                            Variant
+                        <div className="text-[10px] font-mono text-slate-500 truncate">
+                          {[
+                            effectiveProd.sku ? `SKU: ${effectiveProd.sku}` : '',
+                            effectiveProd.brand_make,
+                            effectiveProd.model_part_no,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ') || effectiveProd.product_type}
+                        </div>
+                        {effectiveProd.is_inventoried && (
+                          <span className="inline-block text-[9.5px] font-mono font-bold text-emerald-700 mt-0.5">
+                            Avail: {avail} {cleanUnit}
                           </span>
                         )}
                       </div>
-                      <div className="text-[10px] font-mono text-slate-500 truncate">
-                        {[prod.sku ? `SKU: ${prod.sku}` : '', prod.brand_make, prod.model_part_no]
-                          .filter(Boolean)
-                          .join(' · ') || prod.product_type}
+                      <div className="text-right font-mono tabular-nums shrink-0">
+                        {priceConv > 0 ? (
+                          <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 block">
+                            {currency}{' '}
+                            {priceConv.toLocaleString(undefined, {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-sans text-slate-400 block">Included</span>
+                        )}
+                        <span className="text-[10px] text-blue-600 font-sans font-semibold block">
+                          Select
+                        </span>
                       </div>
-                      {prod.is_inventoried && (
-                        <span className="inline-block text-[9.5px] font-mono font-bold text-emerald-700 mt-0.5">
-                          Avail: {avail} {cleanUnit}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-right font-mono tabular-nums shrink-0">
-                      {priceConv > 0 ? (
-                        <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 block">
-                          {currency} {priceConv.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-sans text-slate-400 block">Included</span>
-                      )}
-                      <span className="text-[10px] text-blue-600 font-sans font-semibold block">
-                        Select
-                      </span>
-                    </div>
-                  </button>
+                    </button>
+
+                    {isParentFamily && (
+                      <div className="pl-2 border-l-2 border-purple-200 flex flex-wrap items-center gap-1 pt-1 border-t border-slate-100 dark:border-slate-800">
+                        {childVariants.map((cv) => {
+                          const resolvedCv = resolveEffectiveCatalogProduct(
+                            cv,
+                            activeCatalogProducts
+                          );
+                          const cvLabel =
+                            (cv as any).variant_label ||
+                            (cv as any).variant_name ||
+                            deriveSuggestedVariantLabel(cv.attributes, prod) ||
+                            cv.sku ||
+                            cv.name;
+                          const cvPrice = convertFromCatalogAed(
+                            (resolvedCv as any).default_unit_price ?? resolvedCv.unit_price
+                          );
+                          return (
+                            <button
+                              key={cv.id}
+                              type="button"
+                              onClick={() =>
+                                handleSelectCatalogProductForSub(cv, showCatalogPickerForRow)
+                              }
+                              className="px-2 py-0.5 rounded-md bg-indigo-50/90 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 text-[10px] font-semibold transition cursor-pointer flex items-center gap-1"
+                              title={`Select variant ${cvLabel} (inherits shared parent specs)`}
+                            >
+                              <span>{cvLabel}</span>
+                              <span className="font-mono text-[9.5px] text-indigo-600">
+                                — {currency}{' '}
+                                {cvPrice.toLocaleString(undefined, {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}
+                              </span>
+                            </button>
+                          );
+                        })}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleSelectCatalogProductForSub(prod, showCatalogPickerForRow, {
+                              isBaseTemplate: true,
+                            })
+                          }
+                          className="px-2 py-0.5 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-semibold transition cursor-pointer"
+                          title="Insert shared base attributes & image as a custom template sub-item to fill in for this Set"
+                        >
+                          ✨ Custom / Base Template
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 );
               });
             })()}
@@ -979,12 +1128,15 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
           const activeFmtCount = getActiveFormatCount(comp);
           const isFmtOpen = Boolean(expandedFormatRows[comp.id]);
           const isSpecOpen = Boolean(expandedSpecRows[comp.id]);
-          const linkedProduct =
+          const rawLinkedProduct =
             comp.product_id
               ? activeCatalogProducts.find((p) => p.id === comp.product_id)
               : comp.sku
               ? activeCatalogProducts.find((p) => p.sku && p.sku.toLowerCase() === comp.sku!.toLowerCase())
               : undefined;
+          const linkedProduct = rawLinkedProduct
+            ? resolveEffectiveCatalogProduct(rawLinkedProduct, activeCatalogProducts)
+            : undefined;
           const effectiveThumbUrl = comp.image_url || linkedProduct?.image_url;
           const effectiveBrand = comp.brand_make || linkedProduct?.brand_make || '';
           const effectiveModel = comp.model_part_no || linkedProduct?.model_part_no || '';

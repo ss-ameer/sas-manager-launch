@@ -73,7 +73,9 @@ import SaveToCatalogModal, {
   syncLineItemToCatalogProduct,
   isLineItemPopulated,
   linkLineItemToCatalogProductNonDestructive,
-  CatalogSyncMenu
+  CatalogSyncMenu,
+  resolveEffectiveCatalogProduct,
+  deriveSuggestedVariantLabel
 } from '../SaveToCatalogModal';
 import CompositePackageEditor from './CompositePackageEditor';
 import LineItemImageOptionsPopover from '../common/LineItemImageOptionsPopover';
@@ -4609,11 +4611,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
     return baseItems.map((item, idx) => {
       const itemKey = item.id || `item_${idx}`;
-      const isExplicitlyUnlinked = itemLinkedProductIds[itemKey] === '';
+      const isExplicitlyUnlinked =
+        itemLinkedProductIds[itemKey] === '' ||
+        (Boolean((item as any).template_parent_id) && !item.product_id && !itemLinkedProductIds[itemKey]);
       const effectiveProductId = isExplicitlyUnlinked
         ? undefined
         : itemLinkedProductIds[itemKey] || item.product_id;
-      const matchedCatalogProduct = isExplicitlyUnlinked
+      const rawMatchedCatalogProduct = isExplicitlyUnlinked
         ? undefined
         : workspaceProducts.find(
             (p) =>
@@ -4622,6 +4626,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               (item.item_name &&
                 (p.name || p.description || '').trim().toLowerCase() === item.item_name.trim().toLowerCase())
           );
+      const matchedCatalogProduct = rawMatchedCatalogProduct
+        ? resolveEffectiveCatalogProduct(rawMatchedCatalogProduct, workspaceProducts)
+        : undefined;
 
       const customVisible = itemVisibleAttributes[itemKey] ?? item.visible_attributes;
       const compOverride = itemCompositeOverrides[itemKey] || {};
@@ -4670,13 +4677,20 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         matchedCatalogProduct?.sub_components;
       const normalizedSubComponents = Array.isArray(rawSubComponents)
         ? rawSubComponents.map((sub, sIdx) => {
-            const matchedSubProd = workspaceProducts.find(
-              (p) =>
-                (sub.product_id && p.id === sub.product_id) ||
-                (sub.sku && p.sku && p.sku.toLowerCase() === sub.sku.toLowerCase()) ||
-                (sub.item_name &&
-                  (p.name || p.description || '').trim().toLowerCase() === sub.item_name.trim().toLowerCase())
-            );
+            const isSubTemplateUnlinked =
+              Boolean((sub as any).template_parent_id) && !sub.product_id;
+            const rawMatchedSubProd = isSubTemplateUnlinked
+              ? undefined
+              : workspaceProducts.find(
+                  (p) =>
+                    (sub.product_id && p.id === sub.product_id) ||
+                    (sub.sku && p.sku && p.sku.toLowerCase() === sub.sku.toLowerCase()) ||
+                    (sub.item_name &&
+                      (p.name || p.description || '').trim().toLowerCase() === sub.item_name.trim().toLowerCase())
+                );
+            const matchedSubProd = rawMatchedSubProd
+              ? resolveEffectiveCatalogProduct(rawMatchedSubProd, workspaceProducts)
+              : undefined;
             const subAttrs =
               Array.isArray(sub.attributes) && sub.attributes.length > 0
                 ? sub.attributes
@@ -5293,6 +5307,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     const q = studioCatalogSearchQuery.trim().toLowerCase();
     if (!q) return activeList;
     return activeList.filter((p) => {
+      const attrText = Array.isArray(p.attributes)
+        ? p.attributes.map((a) => `${a.key || ''} ${a.value || ''}`).join(' ')
+        : '';
       const hay = [
         p.name,
         p.sku,
@@ -5301,7 +5318,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         p.category,
         p.product_type,
         p.country_of_origin,
-        p.description
+        p.description,
+        p.variant_label,
+        attrText
       ]
         .filter(Boolean)
         .join(' ')
@@ -5310,7 +5329,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     });
   }, [workspaceProducts, studioCatalogSearchQuery]);
 
-  const handleAddCatalogProductToStudio = (prod: Product) => {
+  const handleAddCatalogProductToStudio = (
+    rawProd: Product,
+    options?: { isBaseTemplate?: boolean }
+  ) => {
+    const prod = resolveEffectiveCatalogProduct(rawProd, workspaceProducts);
+    const isBaseTemplate = Boolean(options?.isBaseTemplate);
     const currentList = customStudioLineItems ?? quotationLineItems;
     const newIdx = currentList.length;
     const newId = `st_li_${Date.now()}_${newIdx + 1}`;
@@ -5341,10 +5365,34 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       blankRow,
       prod,
       activeDocCurrency,
-      isVendorCostDoc
+      isVendorCostDoc,
+      workspaceProducts
     );
 
-    if (prod.id) {
+    if (isBaseTemplate) {
+      const templateAttrs = Array.isArray(prod.attributes)
+        ? prod.attributes
+            .filter((a) => a && a.key?.trim())
+            .map((a) => ({
+              key: a.key.trim(),
+              value: (a.value || '').trim()
+            }))
+        : hydratedRow.attributes || [];
+      hydratedRow.product_id = undefined;
+      hydratedRow.sku = undefined;
+      hydratedRow.product_sku = undefined;
+      hydratedRow.variant_id = undefined;
+      hydratedRow.variant_name = undefined;
+      hydratedRow.attributes = templateAttrs;
+      hydratedRow.visible_attributes = templateAttrs.map((a) => a.key);
+      if (prod.id) {
+        (hydratedRow as any).template_parent_id = prod.id;
+      }
+      setItemLinkedProductIds((prev) => ({
+        ...prev,
+        [newId]: ''
+      }));
+    } else if (prod.id) {
       setItemLinkedProductIds((prev) => ({
         ...prev,
         [newId]: prod.id!
@@ -5358,7 +5406,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setVisibleColumns((prev) => ({
         ...prev,
         showLineItemImages: true,
-        bomSubComponentImageMode: prev.bomSubComponentImageMode === 'off' ? 'small' : (prev.bomSubComponentImageMode || 'small')
+        bomSubComponentImageMode:
+          prev.bomSubComponentImageMode === 'off'
+            ? 'small'
+            : prev.bomSubComponentImageMode || 'small'
       }));
     }
 
@@ -5368,9 +5419,136 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     setStudioCatalogPickerLocation(null);
     setStudioCatalogSearchQuery('');
     triggerToast?.(
-      `Added "${prod.name}"${prod.sku ? ` (${prod.sku})` : ''} from catalog`,
+      isBaseTemplate
+        ? `Inserted base template from "${prod.name}" — fill in custom specs & save as variant when ready`
+        : `Added "${prod.name}"${prod.sku ? ` (${prod.sku})` : ''} from catalog`,
       'success'
     );
+  };
+
+  const renderStudioCatalogPopoverItems = () => {
+    const activeProds = workspaceProducts.filter((p) => !p.is_deleted);
+    const childrenByParentId = new Map<string, Product[]>();
+    activeProds.forEach((p) => {
+      const parentId = (p as any).parent_product_id || p.variant_parent_id;
+      if (parentId) {
+        const list = childrenByParentId.get(parentId) || [];
+        list.push(p);
+        childrenByParentId.set(parentId, list);
+      }
+    });
+
+    const matchingIds = new Set(filteredStudioCatalogProducts.map((p) => p.id));
+    const topLevelRows = activeProds
+      .filter((p) => {
+        const parentId = (p as any).parent_product_id || p.variant_parent_id;
+        if (parentId && activeProds.some((cand) => cand.id === parentId)) {
+          return false;
+        }
+        if (matchingIds.has(p.id)) return true;
+        const children = p.id ? childrenByParentId.get(p.id) || [] : [];
+        return children.some((c) => matchingIds.has(c.id));
+      })
+      .slice(0, 40);
+
+    if (topLevelRows.length === 0) {
+      return (
+        <div className="py-4 text-center text-[11px] text-slate-400">
+          No matching catalog products found.
+        </div>
+      );
+    }
+
+    return topLevelRows.map((prod) => {
+      const effectiveProd = resolveEffectiveCatalogProduct(prod, workspaceProducts);
+      const childVariants = prod.id ? childrenByParentId.get(prod.id) || [] : [];
+      const isParentFamily =
+        childVariants.length > 0 ||
+        Boolean(prod.has_variants) ||
+        (Array.isArray(prod.attributes) &&
+          prod.attributes.some((a) => a.key?.trim() && !a.value?.trim()));
+
+      return (
+        <div key={prod.id} className="py-1.5 px-1 space-y-1">
+          <button
+            type="button"
+            onClick={() => handleAddCatalogProductToStudio(prod)}
+            className="w-full text-left px-2 py-1.5 hover:bg-indigo-50/80 rounded-lg transition flex items-start justify-between gap-2 cursor-pointer"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-semibold text-[11px] text-slate-800 truncate">
+                  {formatProductVariantSelectorLabel(prod, workspaceProducts)}
+                </span>
+                {isParentFamily && (
+                  <span className="px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200 text-[9px] font-bold">
+                    {childVariants.length > 0
+                      ? `Parent Family (${childVariants.length} Variants)`
+                      : 'Base Template'}
+                  </span>
+                )}
+              </div>
+              <div className="text-[10px] text-slate-500 font-mono truncate">
+                {[effectiveProd.sku, effectiveProd.brand_make, effectiveProd.model_part_no]
+                  .filter(Boolean)
+                  .join(' • ') ||
+                  (effectiveProd as any).category ||
+                  effectiveProd.product_type ||
+                  'Standard Item'}
+              </div>
+            </div>
+            <span className="shrink-0 font-mono text-[10.5px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+              {effectiveProd.currency || 'AED'}{' '}
+              {Number(
+                (effectiveProd as any).default_unit_price ?? effectiveProd.unit_price ?? 0
+              ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </button>
+
+          {isParentFamily && (
+            <div className="pl-3 pr-1 pb-1 flex flex-wrap items-center gap-1 border-l-2 border-purple-200 ml-2">
+              {childVariants.map((cv) => {
+                const resolvedCv = resolveEffectiveCatalogProduct(cv, workspaceProducts);
+                const cvLabel =
+                  (cv as any).variant_label ||
+                  (cv as any).variant_name ||
+                  deriveSuggestedVariantLabel(cv.attributes, prod) ||
+                  cv.sku ||
+                  cv.name;
+                return (
+                  <button
+                    key={cv.id}
+                    type="button"
+                    onClick={() => handleAddCatalogProductToStudio(cv)}
+                    className="px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 text-[10px] font-semibold transition cursor-pointer flex items-center gap-1"
+                    title={`Insert variant ${cvLabel} (inherits shared parent specs)`}
+                  >
+                    <span>{cvLabel}</span>
+                    <span className="font-mono text-[9.5px] text-indigo-600">
+                      — {resolvedCv.currency || 'AED'}{' '}
+                      {Number(
+                        (resolvedCv as any).default_unit_price ?? resolvedCv.unit_price ?? 0
+                      ).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                      })}
+                    </span>
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => handleAddCatalogProductToStudio(prod, { isBaseTemplate: true })}
+                className="px-2 py-0.5 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-semibold transition cursor-pointer"
+                title="Insert shared base attributes & image as a custom row for this quote (leaves SKU unlinked so you can customize and save as a new variant)"
+              >
+                ✨ Custom / Base Template
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    });
   };
 
   // Choice B1 Price-Restore Memory for switching into/out of Unpriced Submittal / DO Mode
@@ -12094,7 +12272,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               <span>+ From Catalog</span>
                             </button>
                             {studioCatalogPickerLocation === 'sidebar' && (
-                              <div className="absolute right-0 top-full mt-1.5 w-80 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2.5 space-y-2">
+                              <div className="absolute right-0 top-full mt-1.5 w-96 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2.5 space-y-2">
                                 <div className="flex items-center justify-between gap-2 pb-1 border-b border-slate-100">
                                   <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
                                     <Package className="w-3.5 h-3.5 text-indigo-600" />
@@ -12113,42 +12291,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   autoFocus
                                   value={studioCatalogSearchQuery}
                                   onChange={(e) => setStudioCatalogSearchQuery(e.target.value)}
-                                  placeholder="Search SKU, name, brand, model..."
+                                  placeholder="Search SKU, name, brand, model, variant..."
                                   className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-slate-50 focus:bg-white focus:outline-none focus:border-indigo-500"
                                 />
-                                <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
-                                  {filteredStudioCatalogProducts.length === 0 ? (
-                                    <div className="py-4 text-center text-[11px] text-slate-400">
-                                      No matching catalog products found.
-                                    </div>
-                                  ) : (
-                                    filteredStudioCatalogProducts.slice(0, 40).map((prod) => (
-                                      <button
-                                        key={prod.id}
-                                        type="button"
-                                        onClick={() => handleAddCatalogProductToStudio(prod)}
-                                        className="w-full text-left px-2 py-1.5 hover:bg-indigo-50/80 rounded-lg transition flex items-start justify-between gap-2 cursor-pointer"
-                                      >
-                                        <div className="min-w-0 flex-1">
-                                          <div className="font-semibold text-[11px] text-slate-800 truncate">
-                                            {formatProductVariantSelectorLabel(prod, workspaceProducts)}
-                                          </div>
-                                          <div className="text-[10px] text-slate-500 font-mono truncate">
-                                            {[prod.sku, prod.brand_make, prod.model_part_no]
-                                              .filter(Boolean)
-                                              .join(' • ') || prod.category || 'Standard Item'}
-                                          </div>
-                                        </div>
-                                        <span className="shrink-0 font-mono text-[10.5px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
-                                          {prod.currency || 'AED'}{' '}
-                                          {Number(prod.default_unit_price ?? prod.unit_price ?? 0).toLocaleString(
-                                            undefined,
-                                            { minimumFractionDigits: 2, maximumFractionDigits: 2 }
-                                          )}
-                                        </span>
-                                      </button>
-                                    ))
-                                  )}
+                                <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
+                                  {renderStudioCatalogPopoverItems()}
                                 </div>
                               </div>
                             )}
@@ -12253,7 +12400,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                               row,
                                               prod,
                                               liveQuotation.currency,
-                                              isVendorCostDoc
+                                              isVendorCostDoc,
+                                              workspaceProducts
                                             )
                                           : row
                                       )
@@ -17368,7 +17516,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         <span>+ Item</span>
                       </button>
                       {studioCatalogPickerLocation === 'inspector' && (
-                        <div className="absolute right-0 top-full mt-1.5 w-80 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2.5 space-y-2">
+                        <div className="absolute right-0 top-full mt-1.5 w-96 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2.5 space-y-2">
                           <div className="flex items-center justify-between gap-2 pb-1 border-b border-slate-100">
                             <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
                               <Package className="w-3.5 h-3.5 text-indigo-600" />
@@ -17387,42 +17535,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             autoFocus
                             value={studioCatalogSearchQuery}
                             onChange={(e) => setStudioCatalogSearchQuery(e.target.value)}
-                            placeholder="Search SKU, name, brand, model..."
+                            placeholder="Search SKU, name, brand, model, variant..."
                             className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-slate-50 focus:bg-white focus:outline-none focus:border-indigo-500"
                           />
-                          <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
-                            {filteredStudioCatalogProducts.length === 0 ? (
-                              <div className="py-4 text-center text-[11px] text-slate-400">
-                                No matching catalog products found.
-                              </div>
-                            ) : (
-                              filteredStudioCatalogProducts.slice(0, 40).map((prod) => (
-                                <button
-                                  key={prod.id}
-                                  type="button"
-                                  onClick={() => handleAddCatalogProductToStudio(prod)}
-                                  className="w-full text-left px-2 py-1.5 hover:bg-indigo-50/80 rounded-lg transition flex items-start justify-between gap-2 cursor-pointer"
-                                >
-                                  <div className="min-w-0 flex-1">
-                                    <div className="font-semibold text-[11px] text-slate-800 truncate">
-                                      {formatProductVariantSelectorLabel(prod, workspaceProducts)}
-                                    </div>
-                                    <div className="text-[10px] text-slate-500 font-mono truncate">
-                                      {[prod.sku, prod.brand_make, prod.model_part_no]
-                                        .filter(Boolean)
-                                        .join(' • ') || prod.category || 'Standard Item'}
-                                    </div>
-                                  </div>
-                                  <span className="shrink-0 font-mono text-[10.5px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
-                                    {prod.currency || 'AED'}{' '}
-                                    {Number(prod.default_unit_price ?? prod.unit_price ?? 0).toLocaleString(
-                                      undefined,
-                                      { minimumFractionDigits: 2, maximumFractionDigits: 2 }
-                                    )}
-                                  </span>
-                                </button>
-                              ))
-                            )}
+                          <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
+                            {renderStudioCatalogPopoverItems()}
                           </div>
                         </div>
                       )}
@@ -17547,7 +17664,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           documentType === 'debit_note';
 
                         const itemKey = curItem.id || `item_${focusedItemIndex}`;
-                        const matchedProd = workspaceProducts.find((p) => p.id === curItem.product_id);
+                        const rawMatchedProd = curItem.product_id
+                          ? workspaceProducts.find((p) => p.id === curItem.product_id)
+                          : undefined;
+                        const matchedProd = rawMatchedProd
+                          ? resolveEffectiveCatalogProduct(rawMatchedProd, workspaceProducts)
+                          : undefined;
 
                         const updateCurItem = (patch: Partial<QuotationLineItem>) => {
                           const currentList = customStudioLineItems ?? quotationLineItems;
@@ -17749,7 +17871,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       curItem,
                                       prod,
                                       liveQuotation.currency,
-                                      isVendorCostDoc
+                                      isVendorCostDoc,
+                                      workspaceProducts
                                     );
                                     updateCurItem(merged);
                                     if (triggerToast) {
@@ -17984,6 +18107,67 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       </React.Fragment>
                                     );
                                   })}
+                                </div>
+                              )}
+
+                              {Array.isArray(curItem.attributes) && curItem.attributes.length > 0 && (
+                                <div className="pt-2 border-t border-slate-200/80 space-y-1.5">
+                                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                                    Edit Spec Values {(curItem as any).template_parent_id ? '(Base Template)' : ''}
+                                  </span>
+                                  <div className="space-y-1 max-h-40 overflow-y-auto pr-0.5">
+                                    {curItem.attributes.map((attr, attrIdx) => {
+                                      const isBlankTemplate = Boolean(attr.key?.trim() && !attr.value?.trim());
+                                      return (
+                                        <div key={`${attr.key}_${attrIdx}`} className="flex items-center gap-1.5">
+                                          <span
+                                            className={`w-28 shrink-0 truncate text-[10.5px] font-mono font-semibold px-1.5 py-1 rounded border ${
+                                              isBlankTemplate
+                                                ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                                : 'bg-white text-slate-600 border-slate-200'
+                                            }`}
+                                            title={attr.key}
+                                          >
+                                            {attr.key}
+                                          </span>
+                                          <input
+                                            type="text"
+                                            value={attr.value || ''}
+                                            onChange={(e) => {
+                                              const nextVal = e.target.value;
+                                              const nextAttrs = (curItem.attributes || []).map((a, i) =>
+                                                i === attrIdx ? { ...a, value: nextVal } : a
+                                              );
+                                              updateCurItem({ attributes: nextAttrs });
+                                            }}
+                                            placeholder={
+                                              isBlankTemplate
+                                                ? `Enter ${attr.key} for this quote...`
+                                                : 'Value...'
+                                            }
+                                            className={`flex-1 min-w-0 rounded border px-2 py-1 text-xs ${
+                                              isBlankTemplate
+                                                ? 'border-amber-400 bg-amber-50/40 focus:bg-white focus:border-amber-500'
+                                                : 'border-slate-300 bg-white focus:border-blue-500'
+                                            }`}
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const nextAttrs = (curItem.attributes || []).filter(
+                                                (_, i) => i !== attrIdx
+                                              );
+                                              updateCurItem({ attributes: nextAttrs });
+                                            }}
+                                            className="p-1 rounded text-slate-400 hover:text-rose-600 cursor-pointer shrink-0"
+                                            title={`Remove ${attr.key}`}
+                                          >
+                                            <X className="w-3 h-3" />
+                                          </button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
                               )}
 
@@ -19248,13 +19432,21 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         <div className="space-y-2 pt-1">
                           {quotationLineItems.map((item, idx) => {
                             const itemKey = item.id || `item_${idx}`;
-                            const matchedProd = workspaceProducts.find(
-                              (p) =>
-                                (item.product_id && p.id === item.product_id) ||
-                                (item.sku && p.sku && p.sku.toLowerCase() === item.sku.toLowerCase()) ||
-                                (item.item_name &&
-                                  (p.name || p.description || '').trim().toLowerCase() === item.item_name.trim().toLowerCase())
-                            );
+                            const isRowUnlinked =
+                              itemLinkedProductIds[itemKey] === '' ||
+                              (Boolean((item as any).template_parent_id) && !item.product_id && !itemLinkedProductIds[itemKey]);
+                            const rawMatchedProd = isRowUnlinked
+                              ? undefined
+                              : workspaceProducts.find(
+                                  (p) =>
+                                    (item.product_id && p.id === item.product_id) ||
+                                    (item.sku && p.sku && p.sku.toLowerCase() === item.sku.toLowerCase()) ||
+                                    (item.item_name &&
+                                      (p.name || p.description || '').trim().toLowerCase() === item.item_name.trim().toLowerCase())
+                                );
+                            const matchedProd = rawMatchedProd
+                              ? resolveEffectiveCatalogProduct(rawMatchedProd, workspaceProducts)
+                              : undefined;
                             const isTracked = Boolean(matchedProd?.is_inventoried);
                             const currentStock = Math.max(
                               0,
@@ -19287,7 +19479,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         >
                                           {currentStock <= 0
                                             ? 'Out of Stock (0)'
-                                            : `In Stock: ${currentStock} ${matchedProd?.unit || matchedProd?.uom || item.unit || 'pcs'}`}
+                                            : `In Stock: ${currentStock} ${matchedProd?.unit || (matchedProd as any)?.uom || item.unit || 'pcs'}`}
                                         </span>
                                       )}
                                       <button
