@@ -173,23 +173,57 @@ Extract the details accurately into the requested JSON format.${salespersonExclu
 };
 
 export const AVAILABLE_GEMINI_MODELS = [
-  { id: 'auto', label: '⚡ Auto-Cascade (Fast Flash Routing)' },
-  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Fast & Reliable Default)' },
-  { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (High Speed)' },
-  { id: 'gemini-flash-latest', label: 'Gemini Flash Latest (Stable Alias)' },
-  { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
-  { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite (Ultra Fast)' },
-  { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview (Deep Complex BOQ)' },
+  { id: 'auto', label: '⚡ Auto-Cascade (4 Hydrogen → 3.8 Flash → 3.6 Flash)' },
+  { id: 'gemini-4-hydrogen', label: 'Gemini 4 Hydrogen (Fast Frontier Default — Free & Paid)' },
+  { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (High-Speed Agentic & BOQ — Free & Paid)' },
+  { id: 'gemini-4-argon', label: 'Gemini 4 Argon (Deep Frontier Reasoning — Paid Tier)' },
+  { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash (Balanced Multimodal — Replaces 3.5 Flash)' },
+  { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite (Ultra-Fast High-Throughput)' },
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Legacy Stable Fallback)' },
 ];
 
 export const DEFAULT_MODEL_CASCADE = [
-  'gemini-2.5-flash',
-  'gemini-3-flash-preview',
-  'gemini-flash-latest',
+  'gemini-4-hydrogen',
   'gemini-3.8-flash',
-  'gemini-3.1-flash-lite',
-  'gemini-3.1-pro-preview',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-2.5-flash',
 ];
+
+export const DEEP_MODEL_CASCADE = [
+  'gemini-4-argon',
+  'gemini-4-hydrogen',
+  'gemini-3.8-flash',
+  'gemini-3.6-flash',
+];
+
+export function isModernFrontierGeminiModel(modelName: string): boolean {
+  const m = String(modelName || '').toLowerCase().trim();
+  return (
+    m.startsWith('gemini-4-') ||
+    m.startsWith('gemini-3.8-') ||
+    m.startsWith('gemini-3.6-') ||
+    m.startsWith('gemini-3.5-')
+  );
+}
+
+export function buildCompatibleGenerationConfig(
+  modelName: string,
+  _scanMode: 'fast' | 'deep' = 'fast'
+): Record<string, any> {
+  if (isModernFrontierGeminiModel(modelName)) {
+    // Do NOT pass deprecated temperature, topP, topK, or thinkingLevel: 'minimal' to 3.5+, 3.6+, 3.8+, or 4.x models
+    return {
+      responseMimeType: 'application/json',
+      maxOutputTokens: 65536,
+    };
+  }
+  return {
+    temperature: 0.1,
+    responseMimeType: 'application/json',
+    maxOutputTokens: 65536,
+  };
+}
 
 export async function discoverLiveGeminiModels(apiKey: string): Promise<string[]> {
   if (!apiKey) return [];
@@ -215,15 +249,19 @@ export async function discoverLiveGeminiModels(apiKey: string): Promise<string[]
       })
       .map((m) => String(m.name).replace(/^models\//, ''));
 
-    // Prioritize proven Flash models first
+    // Prioritize Gemini 4 Hydrogen -> 3.8 Flash -> 4 Argon -> 3.6 Flash -> 3.5 Flash-Lite -> 2.5 Flash
     candidates.sort((a, b) => {
       const score = (id: string) => {
+        if (id === 'gemini-4-hydrogen') return 140;
+        if (id === 'gemini-3.8-flash') return 135;
+        if (id === 'gemini-4-argon') return 130;
+        if (id === 'gemini-3.6-flash') return 125;
+        if (id === 'gemini-3.5-flash-lite') return 120;
         if (id === 'gemini-2.5-flash') return 110;
-        if (id === 'gemini-3-flash-preview') return 105;
-        if (id === 'gemini-flash-latest') return 100;
-        if (id.includes('flash') && !id.includes('lite')) return 90;
-        if (id.includes('flash-lite')) return 80;
-        if (id.includes('pro')) return 70;
+        if (id.includes('hydrogen')) return 108;
+        if (id.includes('flash') && !id.includes('lite')) return 95;
+        if (id.includes('flash-lite')) return 85;
+        if (id.includes('argon') || id.includes('pro')) return 75;
         return 50;
       };
       return score(b) - score(a);
@@ -266,14 +304,9 @@ export async function extractEnquiryClientSide(
         text: `Document Name: ${fileName}\n\nDocument Plain Text:\n${content}`,
       };
 
-  const generationConfig = {
-    temperature: 0.1,
-    responseMimeType: "application/json",
-  };
-
   const baseCascade =
     scanMode === 'deep'
-      ? ['gemini-2.5-flash', 'gemini-3.1-pro-preview', 'gemini-3-flash-preview', ...DEFAULT_MODEL_CASCADE]
+      ? DEEP_MODEL_CASCADE
       : DEFAULT_MODEL_CASCADE;
 
   const primaryModel = preferredModel && preferredModel !== 'auto' ? preferredModel : baseCascade[0];
@@ -306,6 +339,8 @@ export async function extractEnquiryClientSide(
         model: modelName,
         systemInstruction,
       });
+
+      const generationConfig = buildCompatibleGenerationConfig(modelName, scanMode);
 
       const callPromise = modelWithSystemPrompt.generateContent({
         contents: [

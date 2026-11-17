@@ -31,7 +31,10 @@ export const CreatableCombobox = ({ value, onChange, onCreateOption, options, pl
     return a.localeCompare(b);
   });
   
-  const showCreateOption = inputValue && !options.some((opt: string) => opt.toLowerCase() === inputValue.toLowerCase());
+  const trimmedInput = String(inputValue || '').trim();
+  const showCreateOption =
+    trimmedInput.length > 0 &&
+    !options.some((opt: string) => String(opt || '').trim().toLowerCase() === trimmedInput.toLowerCase());
 
   return (
     <div className="relative w-full" ref={wrapperRef}>
@@ -44,6 +47,15 @@ export const CreatableCombobox = ({ value, onChange, onCreateOption, options, pl
           setIsOpen(true);
         }}
         onFocus={() => setIsOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && showCreateOption) {
+            e.preventDefault();
+            setInputValue(trimmedInput);
+            if (onCreateOption) onCreateOption(trimmedInput);
+            else onChange(trimmedInput);
+            setIsOpen(false);
+          }
+        }}
         className={className}
         placeholder={placeholder}
       />
@@ -68,13 +80,13 @@ export const CreatableCombobox = ({ value, onChange, onCreateOption, options, pl
               className="px-3 py-2 text-sm cursor-pointer bg-blue-900/30 text-blue-400 hover:bg-blue-900/50 border-t border-slate-800"
               onMouseDown={(e) => {
                 e.preventDefault();
-                setInputValue(inputValue);
-                if (onCreateOption) onCreateOption(inputValue);
-                else onChange(inputValue);
+                setInputValue(trimmedInput);
+                if (onCreateOption) onCreateOption(trimmedInput);
+                else onChange(trimmedInput);
                 setIsOpen(false);
               }}
             >
-              Add "{inputValue}"
+              + Create "{trimmedInput}"
             </div>
           )}
         </div>

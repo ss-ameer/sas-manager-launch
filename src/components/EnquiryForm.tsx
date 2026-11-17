@@ -703,7 +703,7 @@ const FormattedNumberInput = ({ value, onChange, className, ...props }: any) => 
   );
 };
 
-const CreatableCombobox = ({ value, onChange, options, placeholder, className }: any) => {
+const CreatableCombobox = ({ value, onChange, onCreateOption, options, placeholder, className }: any) => {
   const [isOpen, setIsOpen] = React.useState(false);
   const [inputValue, setInputValue] = React.useState(value || '');
   const wrapperRef = React.useRef<HTMLDivElement>(null);
@@ -722,20 +722,23 @@ const CreatableCombobox = ({ value, onChange, options, placeholder, className }:
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredOptions = options.filter((opt: string) => 
-    opt.toLowerCase().includes(inputValue.toLowerCase())
+  const filteredOptions = options.filter((opt: string) =>
+    String(opt || '').toLowerCase().includes(String(inputValue || '').toLowerCase())
   );
-  
+
   // Custom sorting to prioritize "starts with"
   filteredOptions.sort((a: string, b: string) => {
-    const aStarts = a.toLowerCase().startsWith(inputValue.toLowerCase());
-    const bStarts = b.toLowerCase().startsWith(inputValue.toLowerCase());
+    const aStarts = a.toLowerCase().startsWith(String(inputValue || '').toLowerCase());
+    const bStarts = b.toLowerCase().startsWith(String(inputValue || '').toLowerCase());
     if (aStarts && !bStarts) return -1;
     if (!aStarts && bStarts) return 1;
     return a.localeCompare(b);
   });
-  
-  const showCreateOption = inputValue && !options.some((opt: string) => opt.toLowerCase() === inputValue.toLowerCase());
+
+  const trimmedInput = String(inputValue || '').trim();
+  const showCreateOption =
+    trimmedInput.length > 0 &&
+    !options.some((opt: string) => String(opt || '').trim().toLowerCase() === trimmedInput.toLowerCase());
 
   return (
     <div className="relative w-full" ref={wrapperRef}>
@@ -748,6 +751,18 @@ const CreatableCombobox = ({ value, onChange, options, placeholder, className }:
           setIsOpen(true);
         }}
         onFocus={() => setIsOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && showCreateOption) {
+            e.preventDefault();
+            setInputValue(trimmedInput);
+            if (onCreateOption) {
+              onCreateOption(trimmedInput);
+            } else {
+              onChange(trimmedInput);
+            }
+            setIsOpen(false);
+          }
+        }}
         className={className}
         placeholder={placeholder}
       />
@@ -772,12 +787,16 @@ const CreatableCombobox = ({ value, onChange, options, placeholder, className }:
               className="px-3 py-2 text-sm cursor-pointer bg-blue-50 text-blue-700 hover:bg-blue-100 border-t border-slate-100"
               onMouseDown={(e) => {
                 e.preventDefault();
-                setInputValue(inputValue);
-                onChange(inputValue);
+                setInputValue(trimmedInput);
+                if (onCreateOption) {
+                  onCreateOption(trimmedInput);
+                } else {
+                  onChange(trimmedInput);
+                }
                 setIsOpen(false);
               }}
             >
-              + Create "{inputValue}"
+              + Create "{trimmedInput}"
             </div>
           )}
           {filteredOptions.length === 0 && !showCreateOption && (
@@ -954,11 +973,48 @@ export default function EnquiryForm({
   ];
   const fallbackUnits = ['Nos', 'M3', 'MT', 'Set', 'LS', 'Kg'];
 
-  const [extraCategories, setExtraCategories] = useState<string[]>([]);
+  // Line items state (hoisted so activeCategories can include all active line item product_types)
+  const [lineItems, setLineItems] = useState<LineItem[]>([]);
+
+  const [localCustomCategories, setLocalCustomCategories] = useState<string[]>(() => {
+    try {
+      const savedCustom = localStorage.getItem('omni_product_categories');
+      const parsedCustom = savedCustom ? JSON.parse(savedCustom) : [];
+      const savedAppCats = localStorage.getItem('omni_categories');
+      const parsedAppCats = savedAppCats ? JSON.parse(savedAppCats) : [];
+      const fromCustom = Array.isArray(parsedCustom)
+        ? parsedCustom.map((c: any) => (typeof c === 'string' ? c.trim() : String(c?.name || '').trim())).filter(Boolean)
+        : [];
+      const fromApp = Array.isArray(parsedAppCats)
+        ? parsedAppCats.map((c: any) => (typeof c === 'string' ? c.trim() : String(c?.name || '').trim())).filter(Boolean)
+        : [];
+      return Array.from(new Set([...fromCustom, ...fromApp]));
+    } catch {
+      return [];
+    }
+  });
 
   const activeSources = enquirySources.length > 0 ? enquirySources : fallbackSources;
   const baseCategories = productCategories.length > 0 ? productCategories : fallbackCategories;
-  const activeCategories = Array.from(new Set([...baseCategories, ...extraCategories]));
+  const activeCategories = React.useMemo(() => {
+    const merged: string[] = [];
+    const seen = new Set<string>();
+    const pushUnique = (val?: string | null) => {
+      const cleaned = String(val || '').trim();
+      if (!cleaned || cleaned === 'Service / Charge') return;
+      const lower = cleaned.toLowerCase();
+      if (!seen.has(lower)) {
+        seen.add(lower);
+        merged.push(cleaned);
+      }
+    };
+    fallbackCategories.forEach(pushUnique);
+    baseCategories.forEach(pushUnique);
+    localCustomCategories.forEach(pushUnique);
+    (products || []).forEach((p) => pushUnique(p?.product_type));
+    (lineItems || []).forEach((li) => pushUnique(li?.product_type));
+    return merged;
+  }, [baseCategories, localCustomCategories, products, lineItems]);
   const activeUnits = units.length > 0 ? units : fallbackUnits;
 
   // Sort states for dropdowns
@@ -1130,8 +1186,6 @@ export default function EnquiryForm({
     setAiConfidence(null);
   };
 
-  // Line items state
-  const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [showCatalogModal, setShowCatalogModal] = useState(false);
   const [linkingLineIndex, setLinkingLineIndex] = useState<number | null>(null);
   const [catalogSearch, setCatalogSearch] = useState('');
@@ -1268,8 +1322,9 @@ export default function EnquiryForm({
   const [showGeminiKeyModal, setShowGeminiKeyModal] = useState(false);
   const [selectedAiModel, setSelectedAiModel] = useState<string>(() => {
     const saved = localStorage.getItem('omni_gemini_model_preference');
-    if (!saved || saved.startsWith('gemini-2.5') || saved === 'gemini-3.1-pro' || saved === 'gemini-3.8-flash') return 'auto';
-    if (AVAILABLE_GEMINI_MODELS.some((m) => m.id === saved)) return saved;
+    if (saved && AVAILABLE_GEMINI_MODELS.some((m) => m.id === saved)) {
+      return saved;
+    }
     return 'auto';
   });
   const [aiScanMode, setAiScanMode] = useState<'fast' | 'deep'>('fast');
@@ -1873,18 +1928,39 @@ export default function EnquiryForm({
     }
   };
 
+  const openPasteTextModal = (prefillText?: string) => {
+    const nextText =
+      prefillText !== undefined
+        ? prefillText
+        : rawTextInput && rawTextInput.trim()
+        ? rawTextInput
+        : pastedSourceText || '';
+    setRawTextInput(nextText);
+    setRawTextModalOpen(true);
+  };
+
   // Auto-detect listener reading clipboard text with graceful fallback
   const handleAutoDetectClipboard = async () => {
     try {
       if (!navigator.clipboard || !navigator.clipboard.readText) {
-        setRawTextModalOpen(true);
-        if (triggerToast) triggerToast('Clipboard auto-read restricted in preview. Paste text below.', 'info');
+        openPasteTextModal(pastedSourceText || undefined);
+        if (triggerToast && !pastedSourceText) {
+          triggerToast('Clipboard auto-read restricted in preview. Paste text below.', 'info');
+        }
         return;
       }
       const text = await navigator.clipboard.readText();
       if (!text || !text.trim()) {
-        setRawTextModalOpen(true);
-        if (triggerToast) triggerToast('Clipboard is empty. Paste text into the box below.', 'info');
+        openPasteTextModal(pastedSourceText || undefined);
+        if (triggerToast && !pastedSourceText) {
+          triggerToast('Clipboard is empty. Paste text into the box below.', 'info');
+        }
+        return;
+      }
+
+      // If the user already has pastedSourceText and the clipboard matches it, open the editor modal so they can tweak it
+      if (pastedSourceText && text.trim() === pastedSourceText.trim()) {
+        openPasteTextModal(pastedSourceText);
         return;
       }
 
@@ -1893,8 +1969,10 @@ export default function EnquiryForm({
     } catch (err: any) {
       // Gracefully fall back to the Raw Text Paste Modal when browser permissions block readText
       console.warn('Clipboard read access restricted by permissions policy:', err?.message || err);
-      setRawTextModalOpen(true);
-      if (triggerToast) triggerToast('Clipboard read blocked by browser policy. Paste text below.', 'info');
+      openPasteTextModal(pastedSourceText || undefined);
+      if (triggerToast && !pastedSourceText) {
+        triggerToast('Clipboard read blocked by browser policy. Paste text below.', 'info');
+      }
     }
   };
 
@@ -4601,7 +4679,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
         );
       }
       setRawTextModalOpen(false);
-      setRawTextInput('');
+      setRawTextInput(textContent);
     } catch (err: any) {
       clearTimeout(textTimeoutId);
       if (userStoppedExtractionRef.current) {
@@ -6224,27 +6302,50 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                   {/* Raw Source Text Display */}
                   <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-2xs space-y-2">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
                       <span className="text-xs font-mono uppercase text-slate-400 font-semibold">
                         Original Copy-Pasted Excel / Text
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (pastedSourceText) {
-                            try {
-                              navigator.clipboard.writeText(pastedSourceText);
-                              if (triggerToast) triggerToast('Copied source text to clipboard!', 'info');
-                            } catch (e) {
-                              if (triggerToast) triggerToast('Unable to write to clipboard in this frame', 'error');
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => openPasteTextModal(pastedSourceText || '')}
+                          className="text-[11px] font-sans font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-lg flex items-center gap-1 transition cursor-pointer"
+                        >
+                          <Pencil className="w-3 h-3" />
+                          <span>Edit Pasted Text</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (pastedSourceText) {
+                              handleExtractFromRawText(pastedSourceText);
                             }
-                          }
-                        }}
-                        className="text-[11px] font-sans font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1"
-                      >
-                        <Copy className="w-3 h-3" />
-                        <span>Copy Source Text</span>
-                      </button>
+                          }}
+                          disabled={isExtracting}
+                          className="text-[11px] font-sans font-semibold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-0.5 rounded-lg flex items-center gap-1 transition disabled:opacity-50 cursor-pointer"
+                        >
+                          <Sparkles className="w-3 h-3 text-blue-600 fill-blue-600" />
+                          <span>Autofill Form</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (pastedSourceText) {
+                              try {
+                                navigator.clipboard.writeText(pastedSourceText);
+                                if (triggerToast) triggerToast('Copied source text to clipboard!', 'info');
+                              } catch (e) {
+                                if (triggerToast) triggerToast('Unable to write to clipboard in this frame', 'error');
+                              }
+                            }
+                          }}
+                          className="text-[11px] font-sans font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded-lg flex items-center gap-1 transition cursor-pointer"
+                        >
+                          <Copy className="w-3 h-3" />
+                          <span>Copy</span>
+                        </button>
+                      </div>
                     </div>
 
                     <pre className="p-3 bg-slate-900 text-emerald-400 rounded-xl font-mono text-[11px] leading-relaxed overflow-x-auto whitespace-pre-wrap max-h-[350px]">
@@ -8457,8 +8558,50 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                         options={sortedCategories}
                                         value={item.product_type}
                                         onChange={(val: string) => handleLineItemChange(index, 'product_type', val)}
-                                        onCreateOption={(val: string) => {
-                                          handleLineItemChange(index, 'product_type', val);
+                                        onCreateOption={async (val: string) => {
+                                          const cleaned = String(val || '').trim();
+                                          if (!cleaned) return;
+                                          handleLineItemChange(index, 'product_type', cleaned);
+                                          const lower = cleaned.toLowerCase();
+                                          setLocalCustomCategories((prev) => {
+                                            const next = prev.some((c) => c.toLowerCase() === lower)
+                                              ? prev
+                                              : [...prev, cleaned];
+                                            try {
+                                              localStorage.setItem(
+                                                'omni_product_categories',
+                                                JSON.stringify(next)
+                                              );
+                                            } catch {}
+                                            return next;
+                                          });
+                                          try {
+                                            const docRef = await safeAddDoc('dropdown_product_categories', {
+                                              name: cleaned,
+                                              workspace_id: activeWorkspace?.id || undefined
+                                            });
+                                            const newOpt: DropdownOption = {
+                                              id: docRef?.id || 'cat_' + Date.now(),
+                                              name: cleaned,
+                                              workspace_id: activeWorkspace?.id || undefined
+                                            };
+                                            if (setProductCategories) {
+                                              setProductCategories((prev) => {
+                                                if (prev.some((c) => c.name.toLowerCase() === lower)) {
+                                                  return prev;
+                                                }
+                                                return [...prev, newOpt];
+                                              });
+                                            }
+                                            if (triggerToast) {
+                                              triggerToast(
+                                                `Saved "${cleaned}" to Product Categories.`,
+                                                'success'
+                                              );
+                                            }
+                                          } catch (err) {
+                                            console.warn('Failed to persist new product category:', err);
+                                          }
                                         }}
                                         className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 rounded-lg py-1.5 px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-sans font-medium"
                                       />
@@ -9600,11 +9743,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                         <button
                           type="button"
-                          onClick={() => setRawTextModalOpen(true)}
+                          onClick={() => openPasteTextModal()}
                           className="inline-flex items-center space-x-1.5 px-2.5 py-1.5 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 font-semibold text-xs rounded-lg border border-emerald-200 dark:border-emerald-800 shadow-2xs transition cursor-pointer"
                         >
                           <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                          <span>Paste Excel / Text</span>
+                          <span>{pastedSourceText ? 'Edit / Paste Excel & Text' : 'Paste Excel / Text'}</span>
                         </button>
 
                         <div className="inline-flex items-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 p-0.5 text-[11px] font-semibold">
@@ -9616,7 +9759,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-2xs'
                                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                             }`}
-                            title="Fast Scan (Gemini 2.5 Flash — best for 1-3 page quotes & RFQs)"
+                            title="Fast Scan (Gemini 4 Hydrogen → 3.8 Flash — best for 1-3 page quotes & RFQs)"
                           >
                             ⚡ Fast Scan
                           </button>
@@ -9628,14 +9771,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-2xs'
                                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                             }`}
-                            title="Deep Scan (180s budget — best for multi-page BOQs & complex tables)"
+                            title="Deep Scan (180s budget, Gemini 4 Argon → 4 Hydrogen — best for multi-page BOQs & complex tables)"
                           >
                             🔍 Deep Scan (180s)
                           </button>
                         </div>
 
                         <select
-                          value={selectedAiModel === 'gemini-3.8-flash' ? 'auto' : selectedAiModel}
+                          value={selectedAiModel}
                           onChange={(e) => {
                             const val = e.target.value;
                             setSelectedAiModel(val);
@@ -9645,17 +9788,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           aria-label="Select Gemini Engine"
                           className="relative z-50 text-xs bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 py-1.5 font-medium text-slate-700 dark:text-slate-200 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
                         >
-                          {AVAILABLE_GEMINI_MODELS.map((model) => {
-                            const normalizedModel =
-                              model.id === 'gemini-3.8-flash' || model.label.includes('3.8 Flash')
-                                ? { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (Complex Reasoning)' }
-                                : model;
-                            return (
-                              <option key={normalizedModel.id} value={normalizedModel.id}>
-                                {normalizedModel.label}
-                              </option>
-                            );
-                          })}
+                          {AVAILABLE_GEMINI_MODELS.map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.label}
+                            </option>
+                          ))}
                         </select>
 
                         {isExtracting && (
@@ -9767,7 +9904,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           </button>
                           <button
                             type="button"
-                            onClick={() => setRawTextModalOpen(true)}
+                            onClick={() => openPasteTextModal()}
                             className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-xl shadow-xs transition cursor-pointer"
                           >
                             <FileSpreadsheet className="w-3.5 h-3.5" />
@@ -9948,43 +10085,81 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         ))}
                       </div>
                     )}
+                    {pastedSourceText && (
+                      <div className="bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800/70 rounded-xl p-3.5 space-y-2.5 shadow-2xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 font-sans truncate">
+                              Pasted RFQ / Excel Source Text
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] font-mono">
+                              {pastedSourceText.split(/\r?\n/).filter(Boolean).length} lines
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => openPasteTextModal(pastedSourceText)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg text-[10px] font-sans font-semibold transition cursor-pointer"
+                              title="Open editor modal to modify pasted RFQ / Excel text"
+                            >
+                              <Pencil className="w-3 h-3" />
+                              <span>Edit Pasted Text</span>
+                            </button>
+                            {isExtracting ? (
+                              <button
+                                type="button"
+                                onClick={handleStopExtraction}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-[10px] font-sans font-bold border border-rose-700 transition cursor-pointer"
+                              >
+                                <X className="w-3 h-3" />
+                                <span>Stop ({extractionElapsedSec}s)</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleExtractFromRawText(pastedSourceText)}
+                                disabled={uploading}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-lg text-[10px] font-sans font-semibold transition disabled:opacity-50 cursor-pointer"
+                                title="Re-run AI Autofill on the pasted source text"
+                              >
+                                <Sparkles className="w-3 h-3 text-blue-500 fill-blue-500" />
+                                <span>Autofill Form</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                try {
+                                  navigator.clipboard.writeText(pastedSourceText);
+                                  if (triggerToast) triggerToast('Copied pasted text to clipboard!', 'info');
+                                } catch (e) {
+                                  console.error(e);
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-[10px] font-sans font-semibold transition cursor-pointer"
+                              title="Copy pasted text to clipboard"
+                            >
+                              <Copy className="w-3 h-3" />
+                              <span>Copy</span>
+                            </button>
+                          </div>
+                        </div>
+                        <pre
+                          onClick={() => openPasteTextModal(pastedSourceText)}
+                          title="Click to edit pasted text"
+                          className="whitespace-pre-wrap font-mono text-[11px] bg-slate-50 dark:bg-slate-950 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 max-h-36 overflow-y-auto cursor-pointer hover:border-emerald-400 transition"
+                        >
+                          {pastedSourceText}
+                        </pre>
+                      </div>
+                    )}
                   </div>
                 </>
               );
             })()}
           </div>
-
-          {/* Section 7.5: Original Pasted Source / Raw Context */}
-          {pastedSourceText && (
-            <div className="bg-white/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 shadow-2xs rounded-xl p-5 space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                <div className="flex items-center space-x-2">
-                  <FileText className="w-4 h-4 text-slate-400" />
-                  <h3 className="font-bold text-slate-800 dark:text-slate-200 text-xs font-sans uppercase tracking-wide">
-                    Original Pasted Source / Raw Context
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    try {
-                      navigator.clipboard.writeText(pastedSourceText);
-                      if (triggerToast) triggerToast('Copied raw context to clipboard!', 'info');
-                    } catch (e) {
-                      console.error(e);
-                    }
-                  }}
-                  className="flex items-center space-x-1.5 px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg transition text-xs font-semibold cursor-pointer"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>Copy to Clipboard</span>
-                </button>
-              </div>
-              <pre className="whitespace-pre-wrap font-mono text-xs bg-slate-50 dark:bg-slate-950 p-3 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 max-h-60 overflow-y-auto">
-                {pastedSourceText}
-              </pre>
-            </div>
-          )}
 
             </fieldset> {/* End of scrollable Form body */}
 
@@ -10728,8 +10903,16 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                       });
                     }
 
-                    // Sync form local state
-                    setExtraCategories((prev) => prev.includes(cleaned) ? prev : [...prev, cleaned]);
+                    // Sync form local state & localStorage
+                    setLocalCustomCategories((prev) => {
+                      const next = prev.some((c) => c.toLowerCase() === lower)
+                        ? prev
+                        : [...prev, cleaned];
+                      try {
+                        localStorage.setItem('omni_product_categories', JSON.stringify(next));
+                      } catch {}
+                      return next;
+                    });
 
                     // Log audit
                     await logAudit(cleaned, 'enquiry', 'update', null, { added_product_category: cleaned }, []);
@@ -11139,7 +11322,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               <button
                 type="button"
                 onClick={() => setRawTextInput('')}
-                className="px-3 py-2 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 font-sans cursor-pointer text-center"
+                className="px-3 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl font-sans cursor-pointer text-center transition"
               >
                 Clear
               </button>
@@ -11154,7 +11337,26 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleExtractFromRawText()}
+                  onClick={() => {
+                    const trimmed = rawTextInput.trim();
+                    setPastedSourceText(trimmed || null);
+                    setRawTextModalOpen(false);
+                    if (triggerToast) {
+                      triggerToast(
+                        trimmed
+                          ? 'Saved pasted source text without re-scanning.'
+                          : 'Cleared pasted source text.',
+                        'info'
+                      );
+                    }
+                  }}
+                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-semibold text-xs rounded-xl transition cursor-pointer w-full sm:w-auto text-center"
+                >
+                  Save Text Only
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExtractFromRawText(rawTextInput)}
                   disabled={isExtracting || !rawTextInput.trim()}
                   className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-xl shadow-sm transition flex items-center justify-center space-x-1.5 disabled:opacity-50 cursor-pointer w-full sm:w-auto"
                 >
@@ -11166,7 +11368,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   ) : (
                     <>
                       <Sparkles className="w-3.5 h-3.5 text-emerald-200 fill-emerald-200" />
-                      <span>Parse Excel Data with AI</span>
+                      <span>{pastedSourceText ? 'Update & Re-Scan with AI' : 'Update & Re-Scan with AI'}</span>
                     </>
                   )}
                 </button>
