@@ -133,7 +133,7 @@ export default function ProductManager({
   const [searchInput, setSearchInput] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
   const [stockFilter, setStockFilter] = useState<'All' | 'Tracked' | 'LowStock' | 'WithDatasheet' | 'CompositeKit'>('All');
-  const [groupVariantsByFamily, setGroupVariantsByFamily] = useState<boolean>(false);
+  const [groupVariantsByFamily, setGroupVariantsByFamily] = useState<boolean>(true);
 
   // Inline Category & Unit Creation States
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
@@ -805,22 +805,66 @@ export default function ProductManager({
     });
   }, [activeCatalogProducts, searchInput, categoryFilter, stockFilter]);
 
-  // When Group Variants is active, sort products so sibling variants stay contiguous under their family
+  // When Group Variants is active, sort products so Parent Families appear first with their Child Variants directly beneath them
   const orderedFilteredProducts = useMemo(() => {
     if (!groupVariantsByFamily) return filteredProducts;
-    return [...filteredProducts].sort((a, b) => {
-      const famA = resolveProductFamilyKey(a);
-      const famB = resolveProductFamilyKey(b);
-      if (famA !== famB) {
-        const countA = (a.id && variantAnalysisMap.get(a.id)?.siblingCount) || 1;
-        const countB = (b.id && variantAnalysisMap.get(b.id)?.siblingCount) || 1;
-        if (countA > 1 && countB <= 1) return -1;
-        if (countB > 1 && countA <= 1) return 1;
-        return famA.localeCompare(famB);
+    const byId = new Map<string, Product>();
+    for (const p of activeCatalogProducts) {
+      if (p.id) byId.set(p.id, p);
+    }
+    const getGroupKey = (p: Product): string => {
+      const parentId = (p as any).parent_product_id || p.variant_parent_id;
+      if (parentId && byId.has(parentId)) {
+        const parentProd = byId.get(parentId)!;
+        return `parent_${parentProd.id}`;
       }
-      return (a.sku || a.name || '').localeCompare(b.sku || b.name || '');
+      const hasChildren = activeCatalogProducts.some(
+        (c) => c.id !== p.id && ((c as any).parent_product_id === p.id || c.variant_parent_id === p.id)
+      );
+      if (hasChildren && p.id) {
+        return `parent_${p.id}`;
+      }
+      return `fam_${resolveProductFamilyKey(p)}`;
+    };
+
+    const groupCountMap = new Map<string, number>();
+    for (const p of filteredProducts) {
+      const gk = getGroupKey(p);
+      groupCountMap.set(gk, (groupCountMap.get(gk) || 0) + 1);
+    }
+
+    return [...filteredProducts].sort((a, b) => {
+      const gkA = getGroupKey(a);
+      const gkB = getGroupKey(b);
+      if (gkA !== gkB) {
+        const isParentTreeA = gkA.startsWith('parent_') || (groupCountMap.get(gkA) || 1) > 1;
+        const isParentTreeB = gkB.startsWith('parent_') || (groupCountMap.get(gkB) || 1) > 1;
+        if (isParentTreeA && !isParentTreeB) return -1;
+        if (isParentTreeB && !isParentTreeA) return 1;
+        const nameA = (
+          byId.get(gkA.replace(/^parent_/, ''))?.name ||
+          resolveProductFamilyDisplayName(a) ||
+          a.name ||
+          ''
+        ).toLowerCase();
+        const nameB = (
+          byId.get(gkB.replace(/^parent_/, ''))?.name ||
+          resolveProductFamilyDisplayName(b) ||
+          b.name ||
+          ''
+        ).toLowerCase();
+        return nameA.localeCompare(nameB);
+      }
+      // Within the same parent group, always put the Parent Product row first, then child variants by price/name
+      const aIsChild = Boolean((a as any).parent_product_id || a.variant_parent_id);
+      const bIsChild = Boolean((b as any).parent_product_id || b.variant_parent_id);
+      if (!aIsChild && bIsChild) return -1;
+      if (aIsChild && !bIsChild) return 1;
+      const priceDiff = (Number(a.unit_price) || 0) - (Number(b.unit_price) || 0);
+      if (priceDiff !== 0) return priceDiff;
+      return (a.name || a.sku || '').localeCompare(b.name || b.sku || '');
     });
-  }, [filteredProducts, groupVariantsByFamily, variantAnalysisMap]);
+  }, [filteredProducts, activeCatalogProducts, groupVariantsByFamily]);
 
   const handleClearProductFilters = () => {
     setSearchInput('');
@@ -1102,6 +1146,184 @@ export default function ProductManager({
     } catch (err: any) {
       if (triggerToast) {
         triggerToast(`Failed to detach variant: ${err?.message || 'Error'}`, 'error');
+      }
+    }
+  };
+
+  // 1-Click Extract / Create Parent Family from a Standalone Item (e.g. "AVENTURA Dosing Tank (40 L)" -> Parent "AVENTURA Dosing Tank")
+  const handleCreateParentFamilyFromItem = async (sourceItem?: Product | null) => {
+    const rawTitle = (sourceItem ? sourceItem.name : formName || editingProduct?.name || '').trim();
+    if (!rawTitle) {
+      if (triggerToast) triggerToast('Enter a product name first before extracting a Parent Family.', 'error');
+      return;
+    }
+
+    // Strip trailing parenthetical size/capacity e.g. "(40 L)" or trailing dimension/flow specs e.g. "15LPH @ 3 Bar", "48\" x 72\""
+    let parentTitle = rawTitle;
+    let extractedSuffix = '';
+    const parenMatch = rawTitle.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
+    if (parenMatch && parenMatch[1].trim().length >= 3) {
+      parentTitle = parenMatch[1].trim();
+      extractedSuffix = parenMatch[2].trim();
+    } else {
+      const ratingMatch = rawTitle.match(
+        /^(.+?)\s+[-–—,]?\s*(\d+(?:\.\d+)?\s*(?:LPH|GPM|M3\/H|L|Ltr|Litres?|Gal|Bar|PSI|kW|HP|mm|inch|in|["”])(?:\s*@\s*\d+(?:\.\d+)?\s*(?:Bar|PSI|m))?.*)$/i
+      );
+      if (ratingMatch && ratingMatch[1].trim().length >= 3) {
+        parentTitle = ratingMatch[1].trim();
+        extractedSuffix = ratingMatch[2].trim();
+      }
+    }
+
+    const currentAttrs = sourceItem ? sourceItem.attributes || [] : formAttributes;
+    const varyingKeyRegex = /^(size|dimension|dimensions|dimensions \/ size|diameter|vessel size|capacity|capacity \/ rating|volume|flow|flow rate|rating|model|model no|part no|pressure|operating pressure|output|power|voltage)$/i;
+
+    const parentAttributes: ProductAttribute[] = [];
+    for (const attr of currentAttrs) {
+      const k = (attr.key || '').trim();
+      const v = (attr.value || '').trim();
+      if (!k) continue;
+      if (/^(brand|make|manufacturer|brand\s*\/\s*make)$/i.test(k)) continue;
+      if (varyingKeyRegex.test(k)) {
+        // Keep the key as a blank template slot on the parent so future variants/RFQs prompt for it
+        parentAttributes.push({ key: k, value: '' });
+      } else {
+        parentAttributes.push({ key: k, value: v });
+      }
+    }
+
+    const derivedVariantLabel =
+      (sourceItem ? (sourceItem as any).variant_label : formVariantLabel)?.trim() ||
+      deriveSuggestedVariantLabel(
+        {
+          item_name: rawTitle,
+          model_part_no: sourceItem ? sourceItem.model_part_no : formModelPartNo,
+          attributes: currentAttrs
+        },
+        {
+          name: parentTitle,
+          product_type: (sourceItem ? sourceItem.product_type : formProductType) || 'General Equipment',
+          description: parentTitle,
+          unit: ((sourceItem ? sourceItem.unit : formUnit) || 'Nos') as UnitType,
+          attributes: parentAttributes
+        }
+      ) ||
+      extractedSuffix ||
+      'Standard Variant';
+
+    // Check if a Parent Product with this exact family name already exists
+    const existingParent = activeCatalogProducts.find(
+      (cand) =>
+        cand.id !== (sourceItem?.id || editingProduct?.id) &&
+        !cand.variant_parent_id &&
+        !(cand as any).parent_product_id &&
+        (cand.name || '').trim().toLowerCase() === parentTitle.toLowerCase()
+    );
+
+    const nowIso = new Date().toISOString();
+    try {
+      let targetParent: Product;
+      if (existingParent) {
+        const parentPatch: Partial<Product> & Record<string, any> = {
+          has_variants: true,
+          product_family: parentTitle,
+          brand_make: existingParent.brand_make || (sourceItem ? sourceItem.brand_make : formBrandMake) || undefined,
+          image_url: existingParent.image_url || (sourceItem ? sourceItem.image_url : formImageUrl) || undefined,
+          updatedAt: nowIso
+        };
+        targetParent = { ...existingParent, ...parentPatch } as Product;
+        await safeUpdateDoc('products', existingParent.id!, sanitizeFirestorePayload(targetParent));
+        await MetadataRepository.upsertLocalProduct(targetParent).catch(() => {});
+      } else {
+        const brandVal = (sourceItem ? sourceItem.brand_make : formBrandMake).trim();
+        const catVal = (sourceItem ? sourceItem.product_type : formProductType) || 'General Equipment';
+        const unitVal = ((sourceItem ? sourceItem.unit : formUnit) || 'Nos') as UnitType;
+        const imgVal = (sourceItem ? sourceItem.image_url : formImageUrl).trim();
+        const secImgVal = (sourceItem ? sourceItem.secondary_image_url : formSecondaryImageUrl).trim();
+        const originVal = (sourceItem ? sourceItem.country_of_origin : formCountryOfOrigin).trim();
+        const hsVal = (sourceItem ? sourceItem.hs_code : formHsCode).trim();
+        const leadVal = (sourceItem ? sourceItem.default_availability : formDefaultAvailability).trim();
+        const dsVal = sourceItem ? sourceItem.datasheet_attachment : formDatasheetAttachment;
+
+        const parentPayload: Partial<Product> & Record<string, any> = {
+          workspace_id: activeWorkspace?.id || 'ws_default',
+          name: parentTitle,
+          product_family: parentTitle,
+          has_variants: true,
+          product_type: catVal,
+          description:
+            compileDescriptionWithSpecs(
+              parentTitle,
+              parentTitle,
+              parentAttributes.filter((a) => a.key && a.value)
+            ) || parentTitle,
+          unit: unitVal,
+          unit_price: 0,
+          currency: 'AED',
+          brand_make: brandVal || undefined,
+          default_availability: leadVal || undefined,
+          country_of_origin: originVal || undefined,
+          hs_code: hsVal || undefined,
+          image_url: imgVal || undefined,
+          secondary_image_url: secImgVal || undefined,
+          datasheet_attachment: dsVal || undefined,
+          attributes: parentAttributes,
+          is_inventoried: false,
+          stock_on_hand: 0,
+          stock_reserved: 0,
+          search_terms: generateProductSearchTerms(parentTitle, catVal, '', brandVal),
+          createdAt: nowIso,
+          updatedAt: nowIso
+        };
+        const cleanParentPayload = sanitizeFirestorePayload(parentPayload);
+        const docRef = await safeAddDoc('products', cleanParentPayload);
+        const newParentId = docRef?.id || `prod_parent_${Date.now()}`;
+        targetParent = { id: newParentId, ...cleanParentPayload } as Product;
+        await MetadataRepository.upsertLocalProduct(targetParent).catch(() => {});
+      }
+
+      const targetChild = sourceItem || editingProduct;
+      if (targetChild?.id) {
+        const mergedChildAttrs = mergeParentAndVariantAttributes(targetParent.attributes, currentAttrs);
+        const childPatch: Partial<Product> & Record<string, any> = {
+          variant_parent_id: targetParent.id,
+          parent_product_id: targetParent.id,
+          variant_label: derivedVariantLabel,
+          product_family: parentTitle,
+          attributes: mergedChildAttrs,
+          updatedAt: nowIso
+        };
+        const updatedChild = { ...targetChild, ...childPatch } as Product;
+        await safeUpdateDoc('products', targetChild.id, sanitizeFirestorePayload(updatedChild));
+        await MetadataRepository.upsertLocalProduct(updatedChild).catch(() => {});
+
+        if (setProducts) {
+          setProducts((prev) => {
+            const withoutParent = prev.filter((item) => item.id !== targetParent.id);
+            return [
+              targetParent,
+              ...withoutParent.map((item) => (item.id === updatedChild.id ? updatedChild : item))
+            ];
+          });
+        }
+      } else if (setProducts) {
+        setProducts((prev) => [targetParent, ...prev.filter((item) => item.id !== targetParent.id)]);
+      }
+
+      setFormVariantParentId(targetParent.id || null);
+      setFormVariantLabel(derivedVariantLabel);
+      setFormProductFamily(parentTitle);
+      setQuickLinkVariantTargetId(null);
+
+      if (triggerToast) {
+        triggerToast(
+          `Created Parent Family "${parentTitle}" and linked "${rawTitle}" as Variant (${derivedVariantLabel})!`,
+          'success'
+        );
+      }
+    } catch (err: any) {
+      if (triggerToast) {
+        triggerToast(`Failed to create Parent Family: ${err?.message || 'Error'}`, 'error');
       }
     }
   };
@@ -1692,12 +1914,12 @@ export default function ProductManager({
                 <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse">
                   <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
                     <tr>
-                      <th className="py-3 px-4 w-[36%] truncate bg-slate-50 dark:bg-slate-900">Product &amp; Specifications</th>
-                      <th className="py-3 px-2.5 w-[14%] truncate bg-slate-50 dark:bg-slate-900">Category</th>
-                      <th className="py-3 px-2.5 w-[15%] truncate bg-slate-50 dark:bg-slate-900">Brand &amp; SKU</th>
-                      <th className="py-3 px-2.5 w-[13%] truncate bg-slate-50 dark:bg-slate-900">Stock &amp; Lead Time</th>
+                      <th className="py-3 px-4 w-[35%] truncate bg-slate-50 dark:bg-slate-900">Product &amp; Specifications</th>
+                      <th className="py-3 px-2.5 w-[13%] truncate bg-slate-50 dark:bg-slate-900">Category</th>
+                      <th className="py-3 px-2.5 w-[14%] truncate bg-slate-50 dark:bg-slate-900">Brand &amp; SKU</th>
+                      <th className="py-3 px-2.5 w-[12%] truncate bg-slate-50 dark:bg-slate-900">Stock &amp; Lead Time</th>
                       <th className="py-3 pl-2 pr-4 w-[11%] text-right truncate bg-slate-50 dark:bg-slate-900">Unit Price</th>
-                      <th className="py-3 pl-2 pr-3 w-[116px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                      <th className="py-3 pl-2 pr-4 w-[150px] shrink-0 text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans text-sm">
@@ -1707,12 +1929,33 @@ export default function ProductManager({
                       const linkedParent = parentId
                         ? activeCatalogProducts.find((cand) => cand.id === parentId)
                         : null;
-                      const childVariantsCount = activeCatalogProducts.filter(
+                      const childVariants = activeCatalogProducts.filter(
                         (cand) =>
                           cand.id !== p.id &&
                           ((cand as any).parent_product_id === p.id || cand.variant_parent_id === p.id)
-                      ).length;
-                      const explicitVariantLabel = (rawProd as any).variant_label || '';
+                      );
+                      const childVariantsCount = childVariants.length;
+                      const explicitVariantLabel = String((rawProd as any).variant_label || '').trim();
+
+                      // When a Parent Product has empty brand_make, image_url, or unit_price === 0, inherit from its child variants for display
+                      const inheritedChildBrand =
+                        !p.brand_make && childVariants.length > 0
+                          ? childVariants.find((c) => (c.brand_make || '').trim())?.brand_make || ''
+                          : '';
+                      const inheritedChildImage =
+                        !p.image_url && childVariants.length > 0
+                          ? childVariants.find((c) => (c.image_url || '').trim())?.image_url || ''
+                          : '';
+                      const effectiveRowImageUrl = p.image_url || inheritedChildImage;
+                      const effectiveRowBrand = (p.brand_make || inheritedChildBrand || '').trim();
+
+                      const childPositivePrices = childVariants
+                        .map((c) => Number(c.unit_price) || 0)
+                        .filter((val) => val > 0);
+                      const minChildPrice =
+                        childPositivePrices.length > 0 ? Math.min(...childPositivePrices) : 0;
+                      const maxChildPrice =
+                        childPositivePrices.length > 0 ? Math.max(...childPositivePrices) : 0;
 
                       const availableQty = (p.stock_on_hand || 0) - (p.stock_reserved || 0);
                       const isLowStock = Boolean(p.is_inventoried) && availableQty <= (p.reorder_level || 0);
@@ -1727,13 +1970,37 @@ export default function ProductManager({
                       const prevProd = rowIdx > 0 ? paginatedProducts[rowIdx - 1] : null;
                       const showFamilyGroupHeader =
                         groupVariantsByFamily &&
+                        !linkedParent &&
+                        childVariantsCount === 0 &&
                         Boolean(vInfo?.isVariant) &&
                         (!prevProd || (prevProd.id && variantAnalysisMap.get(prevProd.id)?.familyKey) !== vInfo?.familyKey);
 
                       const productTitle = (p.name || p.product_type || 'Unnamed Product').trim();
-                      const orderedAttrs = vInfo?.isVariant
+                      const rawOrderedAttrs = vInfo?.isVariant
                         ? [...vInfo.differentiatingAttributes, ...vInfo.sharedAttributes]
                         : (p.attributes || []);
+
+                      // Deduplicate attribute pills: exclude Brand/Make and any attribute that duplicates the row's purple variant_label badge
+                      const normVariantLabel = explicitVariantLabel.toLowerCase().replace(/\s+/g, ' ').trim();
+                      const orderedAttrs = rawOrderedAttrs.filter((attr) => {
+                        const k = (attr.key || '').trim();
+                        const v = (attr.value || '').trim();
+                        if (!k) return false;
+                        if (/^(brand|make|manufacturer|brand\s*\/\s*make)$/i.test(k)) return false;
+                        if (normVariantLabel) {
+                          const kvNorm = `${k}: ${v}`.toLowerCase().replace(/\s+/g, ' ').trim();
+                          const vNorm = v.toLowerCase().replace(/\s+/g, ' ').trim();
+                          if (
+                            kvNorm === normVariantLabel ||
+                            vNorm === normVariantLabel ||
+                            normVariantLabel.includes(kvNorm)
+                          ) {
+                            return false;
+                          }
+                        }
+                        return true;
+                      });
+
                       const hasStructuredAttrs = orderedAttrs.length > 0;
                       const visibleAttrs = orderedAttrs.slice(0, 2);
                       const remainingAttrCount = Math.max(0, orderedAttrs.length - visibleAttrs.length);
@@ -1753,15 +2020,22 @@ export default function ProductManager({
                       }
 
                       // Brand & SKU 2-line strings
-                      const hasBrand = Boolean((p.brand_make || '').trim());
-                      const brandLabel = hasBrand ? (p.brand_make || '').trim() : '—';
+                      const hasBrand = Boolean(effectiveRowBrand);
+                      const brandLabel = hasBrand ? effectiveRowBrand : '—';
                       const skuStr = (p.sku || '').trim();
                       const modelStr = (p.model_part_no || '').trim();
                       const skuModelParts = [
                         skuStr || null,
                         modelStr && modelStr.toLowerCase() !== skuStr.toLowerCase() ? modelStr : null
                       ].filter(Boolean);
-                      const skuModelLine = skuModelParts.length > 0 ? skuModelParts.join(' · ') : '—';
+                      const skuModelLine =
+                        skuModelParts.length > 0
+                          ? skuModelParts.join(' · ')
+                          : childVariantsCount > 0
+                          ? `${childVariantsCount} Variant SKU${childVariantsCount === 1 ? '' : 's'}`
+                          : '—';
+
+                      const isIndentedChildRow = groupVariantsByFamily && Boolean(linkedParent);
 
                       return (
                         <React.Fragment key={p.id || rowIdx}>
@@ -1801,18 +2075,28 @@ export default function ProductManager({
                             </tr>
                           )}
                           <tr
-                            onClick={() => openEditModal(p)}
+                            onClick={() => openEditModal(rawProd)}
                             className={`transition-colors group cursor-pointer ${
-                              groupVariantsByFamily && vInfo?.isVariant
-                                ? 'bg-indigo-50/10 dark:bg-indigo-950/15 hover:bg-indigo-50/40 dark:hover:bg-indigo-900/30'
+                              isIndentedChildRow
+                                ? 'bg-violet-50/25 dark:bg-violet-950/15 hover:bg-violet-50/60 dark:hover:bg-violet-900/30'
+                                : childVariantsCount > 0
+                                ? 'bg-indigo-50/20 dark:bg-indigo-950/20 hover:bg-indigo-50/45 dark:hover:bg-indigo-900/30'
                                 : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/60'
                             }`}
                           >
                             {/* 1. PRODUCT & SPECIFICATIONS (Strict 2-Line Cell, Zero Duplicate Specs) */}
                             <td className="py-3 px-4 overflow-hidden align-middle">
-                              <div className="flex items-center gap-3 min-w-0 overflow-hidden">
+                              <div className={`flex items-center gap-2.5 min-w-0 overflow-hidden ${isIndentedChildRow ? 'pl-3' : ''}`}>
+                                {isIndentedChildRow && (
+                                  <span
+                                    className="font-mono text-xs font-bold text-violet-400 dark:text-violet-500 select-none shrink-0"
+                                    title={`Child Variant under ${linkedParent?.name}`}
+                                  >
+                                    └─
+                                  </span>
+                                )}
                                 {/* Product Image Thumbnail or Clean Placeholder */}
-                                {p.image_url ? (
+                                {effectiveRowImageUrl ? (
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -1823,7 +2107,7 @@ export default function ProductManager({
                                     title="Click to inspect photo, rotate, or add technical diagram"
                                   >
                                     <img
-                                      src={p.image_url}
+                                      src={effectiveRowImageUrl}
                                       alt={productTitle}
                                       className="w-9 h-9 rounded-xl object-contain bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 group-hover/thumb:border-blue-400 p-0.5 shrink-0 shadow-2xs transition"
                                       style={{
@@ -1914,12 +2198,14 @@ export default function ProductManager({
                                           <span
                                             key={idx}
                                             className={`text-[10.5px] font-mono px-1.5 py-0.5 rounded border max-w-[180px] truncate shrink-0 ${
-                                              isDiff
+                                              !attr.value
+                                                ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'
+                                                : isDiff
                                                 ? 'font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60'
                                                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
                                             }`}
                                           >
-                                            {attr.key}: {attr.value || '—'}
+                                            {attr.key}: {attr.value || '(Fill on Quote)'}
                                           </span>
                                         );
                                       })}
@@ -2038,7 +2324,7 @@ export default function ProductManager({
                               </div>
                             </td>
 
-                            {/* 5. UNIT PRICE (Right-Aligned with pr-4, Max 2 Lines) */}
+                            {/* 5. UNIT PRICE (Right-Aligned with pr-4, Max 2 Lines; Inherits Child Variant Price Range on Parent Families) */}
                             <td className="py-3 pl-2 pr-4 text-right whitespace-nowrap overflow-hidden align-middle">
                               {p.unit_price !== undefined && p.unit_price > 0 ? (
                                 <div className="flex flex-col items-end gap-0.5 min-w-0 overflow-hidden">
@@ -2067,6 +2353,23 @@ export default function ProductManager({
                                     );
                                   })()}
                                 </div>
+                              ) : minChildPrice > 0 ? (
+                                <div className="flex flex-col items-end gap-0.5 min-w-0 overflow-hidden">
+                                  <span className="font-bold font-mono tabular-nums text-sm text-indigo-700 dark:text-indigo-300 truncate max-w-full">
+                                    {minChildPrice === maxChildPrice
+                                      ? `AED ${minChildPrice.toLocaleString(undefined, {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2
+                                        })}`
+                                      : `From AED ${minChildPrice.toLocaleString(undefined, {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2
+                                        })}`}
+                                  </span>
+                                  <span className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
+                                    {childVariantsCount} variant{childVariantsCount === 1 ? '' : 's'} · per {cleanUnit}
+                                  </span>
+                                </div>
                               ) : (
                                 <div className="flex flex-col items-end gap-0.5 min-w-0 overflow-hidden">
                                   <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 whitespace-nowrap">
@@ -2077,23 +2380,25 @@ export default function ProductManager({
                               )}
                             </td>
 
-                            {/* 6. ACTIONS (Compact Buttons + [+ Variant] & [🔗 Make Variant Of...]) */}
-                            <td className="py-3 pl-2 pr-3 w-[170px] text-right whitespace-nowrap align-middle relative" onClick={(e) => e.stopPropagation()}>
+                            {/* 6. ACTIONS (w-[150px] shrink-0 text-right pr-4; hides [+ Variant] on child rows so Edit & Delete never clip) */}
+                            <td className="py-3 pl-2 pr-4 w-[150px] shrink-0 text-right whitespace-nowrap align-middle relative" onClick={(e) => e.stopPropagation()}>
                               <div className="inline-flex items-center justify-end gap-1">
                                 {isEditable ? (
                                   <>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openSpecVariantModal(rawProd);
-                                      }}
-                                      className="h-7 px-2 rounded-lg inline-flex items-center justify-center gap-1 text-[10.5px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50/80 dark:bg-indigo-950/50 hover:bg-indigo-600 hover:text-white border border-indigo-200 dark:border-indigo-800 transition cursor-pointer shrink-0"
-                                      title="Add Child Variant inheriting this product's base attributes & media"
-                                    >
-                                      <Plus className="w-3 h-3" />
-                                      <span>Variant</span>
-                                    </button>
+                                    {!linkedParent && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openSpecVariantModal(rawProd);
+                                        }}
+                                        className="h-7 px-1.5 rounded-lg inline-flex items-center justify-center gap-0.5 text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50/80 dark:bg-indigo-950/50 hover:bg-indigo-600 hover:text-white border border-indigo-200 dark:border-indigo-800 transition cursor-pointer shrink-0"
+                                        title="Add Child Variant inheriting this product's base attributes & media"
+                                      >
+                                        <Plus className="w-3 h-3" />
+                                        <span>Variant</span>
+                                      </button>
+                                    )}
                                     {linkedParent ? (
                                       <button
                                         type="button"
@@ -2115,7 +2420,7 @@ export default function ProductManager({
                                           setQuickLinkParentSearch('');
                                         }}
                                         className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-violet-600 hover:bg-violet-50 border border-transparent hover:border-violet-200 transition cursor-pointer shrink-0"
-                                        title="🔗 Make Variant Of... (Link this standalone item under an existing Parent Product)"
+                                        title="🔗 Make Variant Of... (Link this standalone item under an existing Parent Product or Extract Parent Family)"
                                       >
                                         <Link2 className="w-3.5 h-3.5" />
                                       </button>
@@ -2177,6 +2482,15 @@ export default function ProductManager({
                                     placeholder="Search parent product..."
                                     className="w-full px-2.5 py-1 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-violet-500"
                                   />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCreateParentFamilyFromItem(rawProd)}
+                                    className="w-full text-left px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-600 text-indigo-800 hover:text-white border border-indigo-200 text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer"
+                                    title="Automatically strip size/capacity suffix, create a Parent Product, and link this item under it"
+                                  >
+                                    <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                                    <span>✨ Create Parent Family from This Item</span>
+                                  </button>
                                   <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
                                     {activeCatalogProducts
                                       .filter(
@@ -2517,7 +2831,7 @@ export default function ProductManager({
               </div>
 
               {/* Calm Tinted Scroll Canvas with Numbered Chapter Cards */}
-              <div className="p-5 sm:p-6 bg-slate-50/80 dark:bg-slate-950/70 overflow-y-auto flex-1 font-sans space-y-5">
+              <div className="p-5 sm:p-6 pb-8 bg-slate-50/80 dark:bg-slate-950/70 overflow-y-auto flex-1 font-sans space-y-5 scroll-smooth">
                 {/* PARENT FAMILY / VARIANT LINK CONTROL & INHERITED BASE SPECS STRIP */}
                 {(() => {
                   const selectedParent = formVariantParentId
@@ -2529,6 +2843,14 @@ export default function ProductManager({
                       !cand.variant_parent_id &&
                       !(cand as any).parent_product_id
                   );
+                  const isEditingAlreadyParent =
+                    Boolean(editingProduct?.id) &&
+                    activeCatalogProducts.some(
+                      (c) =>
+                        c.id !== editingProduct?.id &&
+                        ((c as any).parent_product_id === editingProduct?.id ||
+                          c.variant_parent_id === editingProduct?.id)
+                    );
                   return (
                     <div className="p-4 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/35 border border-indigo-200/80 dark:border-indigo-800/70 space-y-3">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -2551,6 +2873,16 @@ export default function ProductManager({
                           >
                             <Unlink className="w-3 h-3" />
                             <span>Detach as Standalone</span>
+                          </button>
+                        ) : !isEditingAlreadyParent && formName.trim() ? (
+                          <button
+                            type="button"
+                            onClick={() => handleCreateParentFamilyFromItem(null)}
+                            className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold inline-flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                            title="Automatically strip the size/capacity suffix from this item's name, create the Parent Family product with shared base specs & photo, and link this item as its child variant"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            <span>✨ Create Parent Family from This Item</span>
                           </button>
                         ) : (
                           <span className="text-[11px] text-indigo-700 dark:text-indigo-300">
@@ -2670,7 +3002,7 @@ export default function ProductManager({
                 <div
                   id="product-chapter-1"
                   onClick={() => setActiveFormTab('overview')}
-                  className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-2xs p-5 space-y-4"
+                  className="scroll-mt-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-2xs p-5 space-y-4"
                 >
                   <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800/80">
                     <div className="flex items-center gap-2.5">
@@ -2834,7 +3166,7 @@ export default function ProductManager({
                 <div
                   id="product-chapter-2"
                   onClick={() => setActiveFormTab('inventory')}
-                  className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-2xs p-5 space-y-4"
+                  className="scroll-mt-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-2xs p-5 space-y-4"
                 >
                   <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800/80">
                     <div className="flex items-center gap-2.5">
@@ -3240,7 +3572,7 @@ export default function ProductManager({
                 <div
                   id="product-chapter-3"
                   onClick={() => setActiveFormTab('specs_media')}
-                  className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-2xs p-5 space-y-4"
+                  className="scroll-mt-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-2xs p-5 space-y-4"
                 >
                   <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800/80">
                     <div className="flex items-center gap-2.5">
@@ -3288,7 +3620,7 @@ export default function ProductManager({
                     )}
 
                     {formAttributes.length > 0 ? (
-                      <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      <div className="space-y-2 py-0.5 pr-1">
                         {formAttributes.map((attr, index) => (
                           <div key={index} className="flex items-center gap-2">
                             <input

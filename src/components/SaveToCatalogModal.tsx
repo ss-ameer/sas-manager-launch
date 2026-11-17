@@ -1125,7 +1125,7 @@ export async function saveLineItemAsSpecVariant(params: {
 } | null> {
   const {
     item,
-    parentProduct,
+    parentProduct: rawParentProduct,
     variantName,
     variantSku,
     products = [],
@@ -1135,7 +1135,17 @@ export async function saveLineItemAsSpecVariant(params: {
     activeWorkspaceId
   } = params;
 
-  if (!parentProduct?.id) return null;
+  if (!rawParentProduct?.id) return null;
+
+  // If the passed product is ALREADY a child variant, resolve its root Parent Family product so we don't nest grandchildren
+  const candidateRootId =
+    (rawParentProduct as any).parent_product_id || rawParentProduct.variant_parent_id || null;
+  const catalogPool =
+    Array.isArray(products) && products.length > 0 ? products : latestKnownCatalogProducts;
+  const parentProduct: Product =
+    (candidateRootId
+      ? catalogPool.find((p) => p && !p.is_deleted && p.id === candidateRootId)
+      : null) || rawParentProduct;
 
   const effectiveCurrency = String(currency || item?.currency || parentProduct?.currency || 'AED').toUpperCase();
   const prodCurrency = String(parentProduct?.currency || 'AED').toUpperCase();
@@ -1392,25 +1402,47 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
     [item, matchedProduct, currency]
   );
 
-  // Gather available Spec Variants from both matchedProduct.spec_variants AND sibling products in catalog
+  // Resolve the root Parent Family product when matchedProduct is already a child variant
+  const targetParentProduct = useMemo(() => {
+    const parentId =
+      (matchedProduct as any).parent_product_id || matchedProduct.variant_parent_id || null;
+    if (!parentId) return matchedProduct;
+    return (
+      (products || []).find((p) => p && !p.is_deleted && p.id === parentId) || matchedProduct
+    );
+  }, [matchedProduct, products]);
+
+  // Gather available Spec Variants from both targetParentProduct.spec_variants AND sibling products in catalog
   const availableVariants = useMemo(() => {
-    const inlineVars: ProductSpecVariant[] = Array.isArray(matchedProduct.spec_variants)
-      ? matchedProduct.spec_variants
-      : Array.isArray(matchedProduct.variants)
-      ? matchedProduct.variants
+    const inlineVars: ProductSpecVariant[] = Array.isArray(targetParentProduct.spec_variants)
+      ? targetParentProduct.spec_variants
+      : Array.isArray(targetParentProduct.variants)
+      ? targetParentProduct.variants
       : [];
 
-    const rootId = matchedProduct.variant_parent_id || matchedProduct.id;
-    const familyLower = (matchedProduct.product_family || matchedProduct.name || '').trim().toLowerCase();
+    const rootId =
+      (matchedProduct as any).parent_product_id ||
+      matchedProduct.variant_parent_id ||
+      targetParentProduct.id;
+    const familyLower = (
+      targetParentProduct.product_family ||
+      targetParentProduct.name ||
+      matchedProduct.product_family ||
+      matchedProduct.name ||
+      ''
+    )
+      .trim()
+      .toLowerCase();
     const siblingProducts = (products || []).filter((p) => {
       if (!p || p.is_deleted || p.id === matchedProduct.id) return false;
-      if (rootId && (p.variant_parent_id === rootId || p.id === rootId)) return true;
+      const pParentId = (p as any).parent_product_id || p.variant_parent_id;
+      if (rootId && (pParentId === rootId || p.id === rootId)) return true;
       if (familyLower && (p.product_family || p.name || '').trim().toLowerCase() === familyLower) return true;
       return false;
     });
 
     return { inlineVars, siblingProducts };
-  }, [matchedProduct, products]);
+  }, [matchedProduct, targetParentProduct, products]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1426,10 +1458,16 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
 
   const handleOpenVariantPrompt = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const suggested = deriveSuggestedVariantLabel(item, matchedProduct);
+    const suggested = deriveSuggestedVariantLabel(item, targetParentProduct);
     const existingCount =
       availableVariants.inlineVars.length + availableVariants.siblingProducts.length;
-    const baseSku = (matchedProduct.sku || 'SKU').replace(/-V\d+$/i, '').trim();
+    const baseSku = (
+      targetParentProduct.sku ||
+      matchedProduct.sku ||
+      'SKU'
+    )
+      .replace(/-V\d+$/i, '')
+      .trim();
     setVariantLabelInput(suggested);
     setVariantSkuInput(`${baseSku}-V${existingCount + 1}`);
     setShowVariantPrompt(true);
@@ -1442,8 +1480,9 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
     try {
       const res = await saveLineItemAsSpecVariant({
         item,
-        parentProduct: matchedProduct,
-        variantName: variantLabelInput.trim() || deriveSuggestedVariantLabel(item, matchedProduct),
+        parentProduct: targetParentProduct,
+        variantName:
+          variantLabelInput.trim() || deriveSuggestedVariantLabel(item, targetParentProduct),
         variantSku: variantSkuInput.trim(),
         products,
         setProducts,
@@ -1455,9 +1494,12 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
         if (secondarySetProducts) {
           secondarySetProducts((prev: Product[]) => {
             const updated = (prev || []).map((p) =>
-              p.id === matchedProduct.id ? res.updatedParentProduct : p
+              p.id === res.updatedParentProduct.id ? res.updatedParentProduct : p
             );
-            return [res.createdVariantProduct, ...updated.filter((p) => p.id !== res.createdVariantProduct.id)];
+            return [
+              res.createdVariantProduct,
+              ...updated.filter((p) => p.id !== res.createdVariantProduct.id)
+            ];
           });
         }
         onUpdateLineItem({
@@ -1520,6 +1562,10 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
   };
 
   const skuDisplay = matchedProduct.sku || matchedProduct.name || 'SKU';
+  const parentDisplay =
+    targetParentProduct.id !== matchedProduct.id
+      ? targetParentProduct.name || targetParentProduct.sku || skuDisplay
+      : skuDisplay;
   const totalVariantCount =
     availableVariants.inlineVars.length + availableVariants.siblingProducts.length;
 
@@ -1560,14 +1606,15 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
       {isOpen && (
         <div
           onClick={(e) => e.stopPropagation()}
-          className="absolute left-0 top-full mt-1.5 w-80 sm:w-88 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl z-[220] p-2 space-y-1.5 text-xs animate-in fade-in zoom-in-95 duration-100"
+          className="absolute left-0 top-full mt-1.5 w-80 sm:w-88 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl z-[300] p-2.5 space-y-1.5 text-xs animate-in fade-in zoom-in-95 duration-100"
         >
-          <div className="px-2 py-1 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <div className="px-2 py-1 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
             <span className="font-mono font-bold text-[10px] uppercase tracking-wider text-slate-500 truncate">
               SKU: {skuDisplay}
+              {targetParentProduct.id !== matchedProduct.id ? ` • Parent: ${parentDisplay}` : ''}
             </span>
             <span
-              className={`text-[9.5px] font-semibold px-1.5 py-0.5 rounded ${
+              className={`text-[9.5px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${
                 drifted
                   ? 'bg-amber-50 text-amber-700 border border-amber-200'
                   : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
@@ -1593,16 +1640,16 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
                     <span>✨ Save as Spec Variant on SKU</span>
                   </div>
                   <p className="text-[10.5px] text-slate-600 dark:text-slate-400 leading-snug mt-0.5">
-                    Keep master SKU intact &amp; save this item&apos;s size, specs &amp; price as a reusable variant under {skuDisplay}
+                    Keep {skuDisplay} intact &amp; save this item&apos;s size, specs &amp; price as a reusable variant under {parentDisplay}
                   </p>
                 </div>
               </button>
             ) : (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-indigo-950 text-[11px] flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-indigo-600" />
-                    <span>New Spec Variant under {skuDisplay}</span>
+                  <span className="font-bold text-indigo-950 text-[11px] flex items-center gap-1 truncate">
+                    <Sparkles className="w-3 h-3 text-indigo-600 shrink-0" />
+                    <span className="truncate">New Spec Variant under {parentDisplay}</span>
                   </span>
                   <button
                     type="button"

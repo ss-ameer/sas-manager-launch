@@ -7526,7 +7526,7 @@ export default function EnquiryDetail({
                     const isDrifted = matchedProduct ? hasCatalogDrift(item, matchedProduct, currentEnquiry.currency) : false;
 
                     return (
-                      <div key={item.id || idx} className="bg-white border border-blue-200/90 rounded-2xl p-4 space-y-3.5 shadow-xs">
+                      <div key={item.id || idx} className="bg-white border border-blue-200/90 rounded-2xl p-4 space-y-3.5 shadow-xs overflow-visible relative">
                         {/* Row 1: Thumbnail, Item Name / Heading, Legacy Split Helper, Catalog Sync & Move/Delete */}
                         <div className="flex items-center justify-between gap-2.5 flex-wrap pb-2.5 border-b border-slate-100">
                           <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -8236,14 +8236,16 @@ export default function EnquiryDetail({
                         )}
 
                         <div
-                          className={`bg-slate-50 border transition-all duration-200 rounded-xl overflow-hidden ${
+                          className={`bg-slate-50 border transition-all duration-200 rounded-xl overflow-visible relative ${
                             isExpanded ? 'border-blue-300 shadow-xs bg-slate-50/90' : 'border-slate-200 hover:border-slate-300'
                           }`}
                         >
                           {/* Collapsed Header Bar */}
                           <div
                             onClick={() => toggleLineItem(origIdx >= 0 ? origIdx : idx)}
-                            className="p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-slate-100/70 transition gap-3"
+                            className={`p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-slate-100/70 transition gap-3 ${
+                              isExpanded ? 'rounded-t-xl' : 'rounded-xl'
+                            }`}
                           >
                             <div className="flex items-center space-x-2.5 min-w-0 flex-1">
                               <div className="text-slate-400 hover:text-slate-600 shrink-0">
@@ -8471,7 +8473,7 @@ export default function EnquiryDetail({
 
                           {/* Inline Expanded View */}
                           {isExpanded && (
-                            <div className="px-4 pb-4 pt-2 space-y-3 border-t border-slate-200/80 bg-white">
+                            <div className="px-4 pb-4 pt-2 space-y-3 border-t border-slate-200/80 bg-white rounded-b-xl">
                               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-sans pt-1">
                                 <div>
                                   <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">Quantity & Pricing</span>
