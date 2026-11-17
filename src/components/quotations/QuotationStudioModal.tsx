@@ -5010,7 +5010,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     workspaceProducts
   ]);
 
-  const canonicalKey = useCallback((rawKey: string): string => {
+  function canonicalKey(rawKey: string): string {
     const norm = String(rawKey || '')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, ' ')
@@ -5055,7 +5055,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       return 'delivery';
     }
     return norm;
-  }, []);
+  }
 
   // Dynamically extract all unique attribute keys present across active line items (canonical UK/US deduplication)
   const availableAttributeKeys = useMemo(() => {
