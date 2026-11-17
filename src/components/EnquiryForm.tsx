@@ -2925,6 +2925,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
   const handleAddLineItem = () => {
     const newItem: LineItem = {
+      id: `li_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       item_type: 'product',
       product_type: 'Other',
       description: '',
@@ -3129,7 +3130,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     setLineItems((prev) => {
       const next = [...prev];
       if (next[index]) {
-        next[index] = { ...next[index], product_id: undefined };
+        next[index] = {
+          ...next[index],
+          product_id: undefined,
+          sku: '',
+          product_sku: undefined,
+          variant_id: undefined,
+          variant_name: undefined
+        } as any;
       }
       return next;
     });
@@ -5058,7 +5066,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
       proposal_option: proposalOption || undefined,
       projected_order_date: projectedOrderDate || undefined,
       next_followup_date: nextFollowupDate || undefined,
-      value_aed: formCurrency === 'USD' ? finalValue * 3.6725 : finalValue,
+      value_aed: Math.round(finalValue * resolveToAedMultiplier(formCurrency || 'AED') * 100) / 100,
       currency: formCurrency,
       is_lump_sum: isLumpSum,
       remarks: (() => {
@@ -5360,9 +5368,19 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 ? `${baseSyncedRef}-R${draftRevNum}`
                 : baseSyncedRef
               : activeDraftQuote.formatted_quote_ref;
+            const existingQuoteCurrency = String(activeDraftQuote.currency || '').trim().toUpperCase();
+            const isForeignStudioCurrency =
+              existingQuoteCurrency &&
+              existingQuoteCurrency !== 'AED' &&
+              existingQuoteCurrency !== 'USD';
+            const syncedDraftCurrency =
+              isForeignStudioCurrency &&
+              (formCurrency === 'AED' || formCurrency === (enquiryToEdit?.currency || 'AED'))
+                ? activeDraftQuote.currency!
+                : formCurrency;
             await QuotationRepository.updateQuotation(activeDraftQuote.id, {
               line_items: updatedQuoteLineItems as any,
-              currency: formCurrency,
+              currency: syncedDraftCurrency,
               ...(baseSyncedRef
                 ? {
                     quote_number: baseSyncedRef,
@@ -9146,9 +9164,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                           {formCurrency} {effectiveSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       )}
-                      {formCurrency === 'USD' ? (
+                      {formCurrency !== 'AED' ? (
                         <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] whitespace-nowrap mt-0.5 block">
-                          ≈ AED {Number(effectiveSubtotal * 3.6725).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          ≈ AED {Number(effectiveSubtotal * resolveToAedMultiplier(formCurrency || 'AED')).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       ) : (
                         <span className="text-blue-500 dark:text-blue-400 font-semibold text-[10px] whitespace-nowrap mt-0.5 block">
@@ -10831,7 +10849,8 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {filteredCatalog.map((item) => {
                     const priceAed = Number(item.unit_price_aed) || 0;
-                    const convertedPrice = formCurrency === 'USD' ? priceAed / 3.6725 : priceAed;
+                    const fxMult = resolveToAedMultiplier(formCurrency || 'AED');
+                    const convertedPrice = fxMult > 0 && fxMult !== 1 ? priceAed / fxMult : priceAed;
                     const availStock = (item.stock_on_hand || 0) - (item.stock_reserved || 0);
                     const isLowStock = Boolean(item.is_inventoried) && availStock <= (item.reorder_level || 0);
                     const cleanUom = !item.unit || String(item.unit).toLowerCase() === 'custom unit' ? 'Nos' : item.unit;
@@ -10967,8 +10986,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                   cv.sku ||
                                   cv.name;
                                 const cvPriceAed = Number(cv.unit_price) || 0;
+                                const cvFxMult = resolveToAedMultiplier(formCurrency || 'AED');
                                 const cvConverted =
-                                  formCurrency === 'USD' ? cvPriceAed / 3.6725 : cvPriceAed;
+                                  cvFxMult > 0 && cvFxMult !== 1 ? cvPriceAed / cvFxMult : cvPriceAed;
                                 return (
                                   <button
                                     key={cv.id}

@@ -41,6 +41,9 @@ export class CompanyRepository {
   public static async saveCompany(company: Company): Promise<void> {
     const current = await this.getCompaniesLocal();
     const idx = current.findIndex((item) => item.id === company.id);
+    const prevCompany = idx >= 0 ? current[idx] : null;
+    const prevName = (prevCompany?.display_name || prevCompany?.canonical_name || '').trim();
+    const newName = (company.display_name || company.canonical_name || '').trim();
     let updated: Company[];
 
     if (idx >= 0) {
@@ -52,8 +55,8 @@ export class CompanyRepository {
     await this.saveCompaniesLocalCache(updated);
     await syncEngine.enqueue('companies', 'set', company.id, company);
 
-    if (company.id && (company.display_name || company.canonical_name)) {
-      const newName = company.display_name || company.canonical_name;
+    // Only cascade-update call_logs and activity_logs when an existing company's name actually changed
+    if (company.id && prevCompany && prevName && newName && prevName !== newName) {
       await this.cascadeUpdateCallLogsCompanyName(company.id, newName);
     }
   }

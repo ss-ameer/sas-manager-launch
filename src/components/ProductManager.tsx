@@ -1121,6 +1121,8 @@ export default function ProductManager({
   const handleDetachProductVariant = async (variantProd: Product) => {
     if (!variantProd.id) return;
     const nowIso = new Date().toISOString();
+    const formerParentId =
+      variantProd.variant_parent_id || (variantProd as any).parent_product_id || null;
     const resolvedStandalone = resolveEffectiveCatalogProduct(variantProd, activeCatalogProducts);
     const patch: Partial<Product> & Record<string, any> = {
       variant_parent_id: null,
@@ -1136,7 +1138,37 @@ export default function ProductManager({
     try {
       const updatedProd = { ...variantProd, ...patch } as Product;
       await safeUpdateDoc('products', variantProd.id, sanitizeFirestorePayload(updatedProd));
-      const nextList = products.map((item) => (item.id === variantProd.id ? updatedProd : item));
+      let updatedParentObj: Product | null = null;
+      if (formerParentId) {
+        const remainingSiblings = activeCatalogProducts.filter(
+          (item) =>
+            item.id !== variantProd.id &&
+            !item.is_deleted &&
+            (item.variant_parent_id === formerParentId ||
+              (item as any).parent_product_id === formerParentId)
+        );
+        if (remainingSiblings.length === 0) {
+          const parentProd = products.find((p) => p.id === formerParentId);
+          if (parentProd) {
+            updatedParentObj = {
+              ...parentProd,
+              has_variants: false,
+              updatedAt: nowIso
+            } as Product;
+            await safeUpdateDoc(
+              'products',
+              formerParentId,
+              sanitizeFirestorePayload(updatedParentObj)
+            ).catch(() => {});
+            await MetadataRepository.upsertLocalProduct(updatedParentObj).catch(() => {});
+          }
+        }
+      }
+      const nextList = products.map((item) => {
+        if (item.id === variantProd.id) return updatedProd;
+        if (updatedParentObj && item.id === updatedParentObj.id) return updatedParentObj;
+        return item;
+      });
       if (setProducts) setProducts(nextList);
       await MetadataRepository.upsertLocalProduct(updatedProd).catch(() => {});
       setQuickLinkVariantTargetId(null);
@@ -1517,12 +1549,17 @@ export default function ProductManager({
       brand_make: resolvedBrand,
       model_part_no: resolvedModel,
       default_availability: formDefaultAvailability.trim() || undefined,
-      image_url: formImageUrl.trim() || linkedParentProduct?.image_url || undefined,
-      secondary_image_url: formSecondaryImageUrl.trim() || linkedParentProduct?.secondary_image_url || undefined,
-      image_caption: formImageCaption.trim() || linkedParentProduct?.image_caption || undefined,
-      secondary_image_caption: formSecondaryImageCaption.trim() || linkedParentProduct?.secondary_image_caption || undefined,
-      image_adjustments: formImageAdjustments || linkedParentProduct?.image_adjustments || undefined,
-      datasheet_attachment: formDatasheetAttachment || linkedParentProduct?.datasheet_attachment || undefined,
+      image_url: formImageUrl.trim() || (null as any),
+      ...(formImageUrl.trim() ? {} : { image_storage_key: null as any }),
+      secondary_image_url: formSecondaryImageUrl.trim() || (null as any),
+      ...(formSecondaryImageUrl.trim() ? {} : { secondary_image_storage_key: null as any }),
+      image_caption: formImageCaption.trim() || undefined,
+      secondary_image_caption: formSecondaryImageCaption.trim() || undefined,
+      image_adjustments: formImageAdjustments || undefined,
+      datasheet_attachment: formDatasheetAttachment || (null as any),
+      ...(formDatasheetAttachment
+        ? {}
+        : { datasheet_storage_key: null as any, datasheet_url: null as any }),
       attributes: cleanAttributes,
       search_terms: searchTerms,
       is_inventoried: formIsInventoried,
@@ -3958,20 +3995,33 @@ export default function ProductManager({
             canEdit={isEditable}
             onSaveChanges={async (updates) => {
               if (!lightboxProduct.id) return;
-              const patch: Partial<Product> = {
-                ...('image_url' in updates ? { image_url: updates.image_url || undefined } : {}),
-                ...('secondary_image_url' in updates ? { secondary_image_url: updates.secondary_image_url || undefined } : {}),
+              const patch: Partial<Product> & Record<string, any> = {
+                ...('image_url' in updates
+                  ? {
+                      image_url: updates.image_url || (null as any),
+                      ...(updates.image_url ? {} : { image_storage_key: null as any })
+                    }
+                  : {}),
+                ...('secondary_image_url' in updates
+                  ? {
+                      secondary_image_url: updates.secondary_image_url || (null as any),
+                      ...(updates.secondary_image_url
+                        ? {}
+                        : { secondary_image_storage_key: null as any })
+                    }
+                  : {}),
                 ...('image_caption' in updates ? { image_caption: updates.image_caption || undefined } : {}),
                 ...('secondary_image_caption' in updates ? { secondary_image_caption: updates.secondary_image_caption || undefined } : {}),
                 ...('image_adjustments' in updates ? { image_adjustments: updates.image_adjustments } : {}),
                 updatedAt: new Date().toISOString()
               };
-              const updatedProd = { ...lightboxProduct, ...patch };
+              const updatedProd = { ...lightboxProduct, ...patch } as Product;
               setLightboxProduct(updatedProd);
               if (setProducts) {
                 setProducts((prev) => prev.map((prod) => (prod.id === lightboxProduct.id ? updatedProd : prod)));
               }
-              await safeUpdateDoc('products', lightboxProduct.id, patch);
+              await safeUpdateDoc('products', lightboxProduct.id, sanitizeFirestorePayload(updatedProd));
+              await MetadataRepository.upsertLocalProduct(updatedProd).catch(() => {});
             }}
           />
         )}
@@ -4687,35 +4737,44 @@ export default function ProductManager({
                               )}
                             </td>
                             <td className="py-2.5 px-2.5 text-right font-mono font-bold whitespace-nowrap">
-                              <span
-                                className={
-                                  isStockIn
-                                    ? 'text-emerald-600 dark:text-emerald-400'
-                                    : isStockOut
-                                    ? 'text-rose-600 dark:text-rose-400'
-                                    : isReserve
-                                    ? 'text-amber-700 dark:text-amber-400'
-                                    : isRelease
-                                    ? 'text-purple-700 dark:text-purple-400'
-                                    : m.quantity > 0
-                                    ? 'text-emerald-600 dark:text-emerald-400'
-                                    : m.quantity < 0
-                                    ? 'text-rose-600 dark:text-rose-400'
-                                    : 'text-slate-700 dark:text-slate-300'
-                                }
-                              >
-                                {isStockIn
-                                  ? `+${m.quantity}`
-                                  : isStockOut
-                                  ? `-${Math.abs(m.quantity)}`
-                                  : isReserve
-                                  ? `${Math.abs(m.quantity)} Res.`
-                                  : isRelease
-                                  ? `${Math.abs(m.quantity)} Rel.`
-                                  : m.quantity > 0
-                                  ? `+${m.quantity}`
-                                  : m.quantity}
-                              </span>
+                              {(() => {
+                                const signedQty = Number(
+                                  (m as any).quantity_delta !== undefined
+                                    ? (m as any).quantity_delta
+                                    : m.quantity
+                                );
+                                return (
+                                  <span
+                                    className={
+                                      isStockIn
+                                        ? 'text-emerald-600 dark:text-emerald-400'
+                                        : isStockOut || isReturnToVendor
+                                        ? 'text-rose-600 dark:text-rose-400'
+                                        : isReserve
+                                        ? 'text-amber-700 dark:text-amber-400'
+                                        : isRelease
+                                        ? 'text-purple-700 dark:text-purple-400'
+                                        : signedQty > 0
+                                        ? 'text-emerald-600 dark:text-emerald-400'
+                                        : signedQty < 0
+                                        ? 'text-rose-600 dark:text-rose-400'
+                                        : 'text-slate-700 dark:text-slate-300'
+                                    }
+                                  >
+                                    {isStockIn
+                                      ? `+${Math.abs(signedQty)}`
+                                      : isStockOut || isReturnToVendor
+                                      ? `-${Math.abs(signedQty)}`
+                                      : isReserve
+                                      ? `${Math.abs(signedQty)} Res.`
+                                      : isRelease
+                                      ? `${Math.abs(signedQty)} Rel.`
+                                      : signedQty > 0
+                                      ? `+${signedQty}`
+                                      : signedQty}
+                                  </span>
+                                );
+                              })()}
                             </td>
                             <td className="py-2.5 px-2.5 text-center font-mono text-slate-500 whitespace-nowrap">
                               {isReserve ? (

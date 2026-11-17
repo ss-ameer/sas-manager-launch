@@ -30,10 +30,14 @@ export function notifyTaxonomySubscribers(newSectors: IndustryTaxonomySector[]) 
   notifySubscribers(newSectors);
 }
 
+const TAXONOMY_FETCHED_AT_KEY = 'omni_industry_taxonomy_fetched_at';
+const TAXONOMY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 function notifySubscribers(newSectors: IndustryTaxonomySector[]) {
   cachedSectors = newSectors;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(newSectors));
+    localStorage.setItem(TAXONOMY_FETCHED_AT_KEY, String(Date.now()));
   } catch (e) {
     // Ignore quota or private mode issues
   }
@@ -52,11 +56,28 @@ function startFirestoreListener() {
 
   const isQuotaSaver =
     typeof window !== 'undefined' &&
-    window.localStorage?.getItem('sas_quota_saver_mode') === 'true';
+    (window.localStorage?.getItem('sas_quota_saver_mode') === 'true' ||
+      window.localStorage?.getItem('omni_realtime_sync') === 'false');
+
+  try {
+    const hasCachedData = Boolean(localStorage.getItem(STORAGE_KEY));
+    const lastFetchedStr = localStorage.getItem(TAXONOMY_FETCHED_AT_KEY);
+    const lastFetchedAt = lastFetchedStr ? parseInt(lastFetchedStr, 10) : 0;
+    if (hasCachedData && lastFetchedAt > 0 && Date.now() - lastFetchedAt < TAXONOMY_TTL_MS) {
+      return;
+    }
+    if (isQuotaSaver && hasCachedData) {
+      return;
+    }
+  } catch (_) {}
+
   if (isQuotaSaver) return;
 
   safeGetDoc('settings', 'industry_taxonomy')
     .then((snapshot) => {
+      try {
+        localStorage.setItem(TAXONOMY_FETCHED_AT_KEY, String(Date.now()));
+      } catch (_) {}
       if (snapshot && snapshot.exists()) {
         const data = snapshot.data();
         if (data && Array.isArray(data.sectors) && data.sectors.length > 0) {

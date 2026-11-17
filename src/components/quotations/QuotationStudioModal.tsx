@@ -75,7 +75,8 @@ import SaveToCatalogModal, {
   linkLineItemToCatalogProductNonDestructive,
   CatalogSyncMenu,
   resolveEffectiveCatalogProduct,
-  deriveSuggestedVariantLabel
+  deriveSuggestedVariantLabel,
+  resolveToAedMultiplier
 } from '../SaveToCatalogModal';
 import CompositePackageEditor from './CompositePackageEditor';
 import LineItemImageOptionsPopover from '../common/LineItemImageOptionsPopover';
@@ -3036,6 +3037,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         setItemVisibleAttributes(initialMap);
         setItemPageBreaks(initialBreaks);
         setItemCompositeOverrides({});
+        setItemLinkedProductIds({});
         const isDraftQuote = (targetQuote.status || 'Draft') === 'Draft' && (targetQuote.document_type || 'quotation') === 'quotation';
         const hasFreshEnquiryItems = Array.isArray(enquiry?.line_items) && enquiry!.line_items.length > 0;
         const rawSourceItems: QuotationLineItem[] | null =
@@ -3084,6 +3086,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   unit: li.unit || prevIt?.unit || 'Nos',
                   unit_price: rate,
                   total_price: tot,
+                  brand_make: li.brand_make ?? prevIt?.brand_make,
+                  model_part_no: li.model_part_no ?? prevIt?.model_part_no,
+                  country_of_origin: li.country_of_origin ?? prevIt?.country_of_origin,
+                  availability: deliveryNote,
                   attributes: Array.isArray(li.attributes) && li.attributes.length > 0 ? li.attributes : (prevIt?.attributes || [])
                 });
                 const baseAttrs: QuotationItemAttribute[] =
@@ -4634,7 +4640,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               quantity: qty,
               unit: li.unit || 'pcs',
               unit_price: uPrice,
-              total_price: tPrice
+              total_price: tPrice,
+              brand_make: li.brand_make,
+              model_part_no: li.model_part_no,
+              country_of_origin: li.country_of_origin,
+              availability:
+                (li as any).lead_time_note ||
+                (li as any).delivery_time ||
+                (li as any).lead_time ||
+                (li as any).availability,
+              attributes: Array.isArray(li.attributes) ? li.attributes : []
             });
 
           // Extract attributes if available
@@ -5329,6 +5344,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           unit: li.unit || 'pcs',
           unit_price: uPrice,
           total_price: tPrice,
+          brand_make: li.brand_make || prevIt?.brand_make,
+          model_part_no: li.model_part_no || prevIt?.model_part_no,
+          country_of_origin: li.country_of_origin || prevIt?.country_of_origin,
+          availability:
+            (li as any).lead_time_note ||
+            (li as any).delivery_time ||
+            (li as any).lead_time ||
+            li.availability ||
+            prevIt?.availability,
           attributes: Array.isArray(li.attributes) ? li.attributes : []
         });
       const mergedAttrs: QuotationItemAttribute[] = Array.isArray(li.attributes)
@@ -5424,6 +5448,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
     setCustomStudioLineItems(freshStudioItems);
     setItemCompositeOverrides({});
+    setItemLinkedProductIds({});
+    setItemVisibleAttributes({});
+    setItemPageBreaks({});
     triggerToast?.(`Synchronized ${freshStudioItems.length} line items & delivery terms from Enquiry Form!`, 'success');
   };
 
@@ -19146,6 +19173,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                               </div>
 
                               <CompositePackageEditor
+                                item={curItem}
                                 compact={true}
                                 isCompositeSet={Boolean(
                                   curItem.is_composite_set ||
@@ -19161,7 +19189,15 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 tokenContext={studioTokenContext}
                                 onChange={(patch) => {
                                   const cleanedPatch = { ...patch };
-                                  if (cleanedPatch.unit_price === 0 && Number(curItem.unit_price) > 0) {
+                                  const effectivePricingMode =
+                                    cleanedPatch.package_pricing_mode ||
+                                    curItem.package_pricing_mode ||
+                                    'lump_sum';
+                                  if (
+                                    effectivePricingMode === 'lump_sum' &&
+                                    cleanedPatch.unit_price === 0 &&
+                                    Number(curItem.unit_price) > 0
+                                  ) {
                                     delete cleanedPatch.unit_price;
                                     delete cleanedPatch.total_price;
                                   }
@@ -20356,6 +20392,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                   {expandedCompositeKey === itemKey && (
                                     <div className="pt-1">
                                       <CompositePackageEditor
+                                        item={item}
                                         compact
                                         isCompositeSet={Boolean(
                                           item.is_composite_set ||
@@ -20365,7 +20402,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         packagePricingMode={item.package_pricing_mode || 'lump_sum'}
                                         optionScopeNotes={item.option_scope_notes || ''}
                                         parentQuantity={item.quantity || 1}
-                                        currency={(enquiry?.currency as string) || 'USD'}
+                                        currency={liveQuotation.currency || (enquiry?.currency as string) || 'AED'}
                                         products={workspaceProducts}
                                         activeWorkspace={activeWorkspace}
                                         tokenContext={studioTokenContext}
@@ -20373,7 +20410,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                           setItemCompositeOverrides((prev) => {
                                             const existing = prev[itemKey] || {};
                                             const cleanedPatch = { ...patch };
-                                            if (cleanedPatch.unit_price === 0 && (Number(item.unit_price) > 0 || Number(existing.unit_price) > 0)) {
+                                            const effectivePricingMode =
+                                              cleanedPatch.package_pricing_mode ||
+                                              existing.package_pricing_mode ||
+                                              item.package_pricing_mode ||
+                                              'lump_sum';
+                                            if (
+                                              effectivePricingMode === 'lump_sum' &&
+                                              cleanedPatch.unit_price === 0 &&
+                                              (Number(item.unit_price) > 0 || Number(existing.unit_price) > 0)
+                                            ) {
                                               delete cleanedPatch.unit_price;
                                               delete cleanedPatch.total_price;
                                             }
@@ -20648,9 +20694,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                               </span>
                                               <span
                                                 className="font-medium text-slate-700 text-[10.5px] truncate"
-                                                title={sub.name}
+                                                title={sub.item_name || (sub as any).name || `Sub-Component ${subNumberLabel}`}
                                               >
-                                                {sub.name || `Sub-Component ${subNumberLabel}`}
+                                                {sub.item_name || (sub as any).name || `Sub-Component ${subNumberLabel}`}
                                               </span>
                                             </div>
                                             <button
@@ -29483,6 +29529,38 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               [targetKey]: newProd.id!
             }));
             const currentList = customStudioLineItems ?? quotationLineItems;
+            const quoteCurrency = liveQuotation.currency || 'AED';
+            const prodCurrency = newProd.currency || 'AED';
+            const fxFromProdToQuote =
+              String(quoteCurrency).toUpperCase() === String(prodCurrency).toUpperCase()
+                ? 1
+                : resolveToAedMultiplier(prodCurrency) / resolveToAedMultiplier(quoteCurrency);
+            const scaledCostPrice =
+              newProd.cost_price !== undefined && newProd.cost_price !== null
+                ? Math.round(Number(newProd.cost_price) * fxFromProdToQuote * 100) / 100
+                : undefined;
+            const scaledSubComponents =
+              Array.isArray(newProd.sub_components) && newProd.sub_components.length > 0
+                ? newProd.sub_components.map((sc) => {
+                    const scUnit = sc.is_included_accessory
+                      ? 0
+                      : Math.round(Number(sc.unit_price || 0) * fxFromProdToQuote * 100) / 100;
+                    const scCost = sc.is_included_accessory
+                      ? 0
+                      : Math.round(Number(sc.cost_price || 0) * fxFromProdToQuote * 100) / 100;
+                    const scQty = Number(sc.quantity) || 1;
+                    const scTotal = sc.is_included_accessory
+                      ? 0
+                      : Math.round(scUnit * scQty * 100) / 100;
+                    return {
+                      ...sc,
+                      unit_price: scUnit,
+                      cost_price: scCost,
+                      total_price: scTotal,
+                      line_total: scTotal
+                    };
+                  })
+                : undefined;
             setCustomStudioLineItems(
               currentList.map((row, rIdx) => {
                 const rKey = row.id || `item_${rIdx}`;
@@ -29503,13 +29581,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   brand_make: newProd.brand_make || row.brand_make,
                   model_part_no: newProd.model_part_no || row.model_part_no,
                   country_of_origin: newProd.country_of_origin || row.country_of_origin,
-                  cost_price: newProd.cost_price ?? row.cost_price,
+                  cost_price: scaledCostPrice ?? row.cost_price,
                   image_url: newProd.image_url || row.image_url,
                   secondary_image_url: newProd.secondary_image_url || row.secondary_image_url,
                   datasheet_attachment: newProd.datasheet_attachment || row.datasheet_attachment,
                   attributes: prodAttrs,
                   lead_time_note: deliveryVal,
-                  availability: deliveryVal
+                  availability: deliveryVal,
+                  is_composite_set: newProd.is_composite_set ?? row.is_composite_set,
+                  sub_components: scaledSubComponents ?? row.sub_components,
+                  package_pricing_mode: newProd.package_pricing_mode ?? row.package_pricing_mode
                 };
               })
             );

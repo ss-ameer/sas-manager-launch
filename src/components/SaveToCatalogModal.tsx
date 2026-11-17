@@ -1225,9 +1225,39 @@ export async function saveLineItemAsSpecVariant(params: {
     ? parentProduct.variants
     : [];
 
+  const rootParentId = (parentProduct as any).parent_product_id || parentProduct.variant_parent_id || parentProduct.id;
+  const cleanLabelLower = cleanVariantLabel.trim().toLowerCase();
+  const explicitSkuLower = (variantSku || '').trim().toLowerCase();
+
+  // Check if a sibling child variant Product under rootParentId already has the same SKU or variant_label
+  const existingChildVariantProduct = catalogPool.find((p) => {
+    if (!p || p.is_deleted || p.id === rootParentId) return false;
+    const pParentId = (p as any).parent_product_id || p.variant_parent_id;
+    if (pParentId !== rootParentId) return false;
+    const pSkuLower = String(p.sku || '').trim().toLowerCase();
+    const pLabelLower = String((p as any).variant_label || '').trim().toLowerCase();
+    if (explicitSkuLower && pSkuLower === explicitSkuLower) return true;
+    if (cleanLabelLower && pLabelLower === cleanLabelLower) return true;
+    return false;
+  });
+
+  const existingSpecVarIdx = existingVariants.findIndex((sv) => {
+    const svSkuLower = String(sv?.sku || '').trim().toLowerCase();
+    const svNameLower = String(sv?.variant_name || '').trim().toLowerCase();
+    if (explicitSkuLower && svSkuLower === explicitSkuLower) return true;
+    if (cleanLabelLower && svNameLower === cleanLabelLower) return true;
+    if (existingChildVariantProduct?.sku && svSkuLower === String(existingChildVariantProduct.sku).trim().toLowerCase()) {
+      return true;
+    }
+    return false;
+  });
+
   const baseSku = (parentProduct.sku || 'SKU').replace(/-V\d+$/i, '').trim();
   const resolvedVariantSku =
-    (variantSku || '').trim() || `${baseSku}-V${existingVariants.length + 1}`;
+    (variantSku || '').trim() ||
+    existingChildVariantProduct?.sku ||
+    (existingSpecVarIdx >= 0 ? existingVariants[existingSpecVarIdx].sku : '') ||
+    `${baseSku}-V${existingVariants.length + 1}`;
 
   const specsMap: Record<string, string> = {};
   for (const a of finalAttrs) {
@@ -1235,7 +1265,10 @@ export async function saveLineItemAsSpecVariant(params: {
   }
 
   const newVariantEntry: ProductSpecVariant = {
-    id: `var_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    id:
+      existingSpecVarIdx >= 0 && existingVariants[existingSpecVarIdx]?.id
+        ? existingVariants[existingSpecVarIdx].id
+        : `var_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     variant_name: cleanVariantLabel,
     sku: resolvedVariantSku,
     unit_price: scaledSell,
@@ -1250,13 +1283,18 @@ export async function saveLineItemAsSpecVariant(params: {
     ...(item.package_pricing_mode ? { package_pricing_mode: item.package_pricing_mode } : {}),
     ...(item.option_scope_notes ? { option_scope_notes: item.option_scope_notes } : {}),
     ...(item.image_url ? { image_url: item.image_url } : {}),
-    createdAt: new Date().toISOString()
+    createdAt:
+      existingSpecVarIdx >= 0 && existingVariants[existingSpecVarIdx]?.createdAt
+        ? existingVariants[existingSpecVarIdx].createdAt
+        : new Date().toISOString()
   };
 
-  const nextSpecVariants = [...existingVariants, newVariantEntry];
+  const nextSpecVariants =
+    existingSpecVarIdx >= 0
+      ? existingVariants.map((sv, idx) => (idx === existingSpecVarIdx ? newVariantEntry : sv))
+      : [...existingVariants, newVariantEntry];
 
   // 1. Update parent product's spec_variants array & has_variants flag
-  const rootParentId = (parentProduct as any).parent_product_id || parentProduct.variant_parent_id || parentProduct.id;
   const familyName = (parentProduct.product_family || parentProduct.name || '').trim();
   const parentPatch: Partial<Product> & Record<string, any> = {
     spec_variants: nextSpecVariants,
@@ -1271,7 +1309,7 @@ export async function saveLineItemAsSpecVariant(params: {
     ...parentPatch
   };
 
-  // 2. Also create a sibling Variant Product record in 'products' so ProductManager & Catalog pickers surface it
+  // 2. Create or update the sibling Variant Product record in 'products' so ProductManager & Catalog pickers surface it
   const variantProductName = (item.item_name || parentProduct.name || familyName).trim();
   const searchTerms = generateProductSearchTerms(
     variantProductName,
@@ -1282,6 +1320,7 @@ export async function saveLineItemAsSpecVariant(params: {
 
   const mergedVariantAndParentAttrs = mergeParentAndVariantAttributes(parentProduct.attributes, finalAttrs);
 
+  const nowIso = new Date().toISOString();
   const variantProductPayload: Partial<Product> & Record<string, any> = {
     workspace_id: parentProduct.workspace_id || activeWorkspaceId || 'ws_default',
     name: variantProductName,
@@ -1312,24 +1351,35 @@ export async function saveLineItemAsSpecVariant(params: {
     ...(item.package_pricing_mode ? { package_pricing_mode: item.package_pricing_mode } : {}),
     ...(item.option_scope_notes ? { option_scope_notes: item.option_scope_notes } : {}),
     search_terms: searchTerms,
-    is_inventoried: false,
-    stock_on_hand: 0,
-    stock_reserved: 0,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    is_inventoried: existingChildVariantProduct?.is_inventoried ?? false,
+    stock_on_hand: existingChildVariantProduct?.stock_on_hand ?? 0,
+    stock_reserved: existingChildVariantProduct?.stock_reserved ?? 0,
+    createdAt: existingChildVariantProduct?.createdAt || nowIso,
+    updatedAt: nowIso
   };
 
-  const addedRes = await safeAddDoc('products', variantProductPayload);
-  const newProdId = addedRes?.id || `prod_var_${Date.now()}`;
-  const createdVariantProduct: Product = {
-    id: newProdId,
-    ...variantProductPayload
-  } as Product;
+  let createdVariantProduct: Product;
+  if (existingChildVariantProduct?.id) {
+    await safeUpdateDoc('products', existingChildVariantProduct.id, variantProductPayload);
+    createdVariantProduct = {
+      ...existingChildVariantProduct,
+      ...variantProductPayload,
+      id: existingChildVariantProduct.id
+    } as Product;
+  } else {
+    const addedRes = await safeAddDoc('products', variantProductPayload);
+    const newProdId = addedRes?.id || `prod_var_${Date.now()}`;
+    createdVariantProduct = {
+      id: newProdId,
+      ...variantProductPayload
+    } as Product;
+  }
+  const targetVariantProdId = createdVariantProduct.id;
 
   if (typeof setProducts === 'function') {
     setProducts((prev: Product[]) => {
       const updatedList = (prev || []).map((p) => (p.id === parentProduct.id ? updatedParentProduct : p));
-      const finalList = [createdVariantProduct, ...updatedList.filter((p) => p.id !== newProdId)];
+      const finalList = [createdVariantProduct, ...updatedList.filter((p) => p.id !== targetVariantProdId)];
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
           window.localStorage.setItem('omni_products', JSON.stringify(finalList));
@@ -1340,7 +1390,7 @@ export async function saveLineItemAsSpecVariant(params: {
   } else if (Array.isArray(products)) {
     try {
       const updatedList = products.map((p) => (p.id === parentProduct.id ? updatedParentProduct : p));
-      const finalList = [createdVariantProduct, ...updatedList.filter((p) => p.id !== newProdId)];
+      const finalList = [createdVariantProduct, ...updatedList.filter((p) => p.id !== targetVariantProdId)];
       if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.setItem('omni_products', JSON.stringify(finalList));
       }
@@ -1349,7 +1399,9 @@ export async function saveLineItemAsSpecVariant(params: {
 
   if (triggerToast) {
     triggerToast(
-      `Saved "${cleanVariantLabel}" as new Spec Variant under ${parentProduct.sku || parentProduct.name}!`,
+      existingChildVariantProduct?.id
+        ? `Updated Spec Variant "${cleanVariantLabel}" under ${parentProduct.sku || parentProduct.name}!`
+        : `Saved "${cleanVariantLabel}" as new Spec Variant under ${parentProduct.sku || parentProduct.name}!`,
       'success'
     );
   }

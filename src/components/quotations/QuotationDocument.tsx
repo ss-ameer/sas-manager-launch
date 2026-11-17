@@ -1332,6 +1332,7 @@ export function extractLineItemAttributesAndCleanDescription(item: QuotationLine
         }
         if (!hasMultiSectionHeaders) {
           extractedSpecsAttrs.push({ key: candidateKey, value: candidateVal });
+          return;
         }
       }
     }
@@ -5337,18 +5338,20 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 const rawVal = Number(
                   it.total_price ?? it.line_total ?? (Number(it.quantity) || 1) * (Number(it.unit_price) || 0)
                 );
-                const lineVal = (it as any).item_type === 'discount' ? -Math.abs(rawVal) : rawVal;
+                const isDiscount =
+                  (it as any).item_type === 'discount' ||
+                  (it as any).classification === 'Discount / Rebate';
+                const lineVal = isDiscount ? -Math.abs(rawVal) : rawVal;
 
                 if (/^option\s*[a-z0-9]/i.test(rawOpt)) {
                   optionSummaryMap.set(rawOpt, (optionSummaryMap.get(rawOpt) || 0) + lineVal);
-                  combinedNonAddonSubtotal += lineVal;
+                  if (!optLower.includes('optional') && !optLower.includes('add-on')) {
+                    combinedNonAddonSubtotal += lineVal;
+                  }
                 } else if (
+                  !Boolean(it.is_optional) &&
                   !optLower.includes('optional') &&
-                  (!it.is_optional ||
-                    !rawOpt ||
-                    rawOpt === 'Default' ||
-                    rawOpt === 'Default / Included' ||
-                    rawOpt === 'Baseline / All')
+                  !optLower.includes('add-on')
                 ) {
                   sharedBaselineSubtotal += lineVal;
                   combinedNonAddonSubtotal += lineVal;
@@ -11225,8 +11228,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   // Pre-compute global option groups, full option totals, and final sheet index per option across all unchunked line items
   const globalOptionPaginationMeta = React.useMemo(() => {
     const distinctOptionGroupsAll: string[] = [];
-    const fullOptionGroupTotals: Record<string, number> = { all: 0, baseline: 0 };
+    const fullOptionGroupTotals: Record<string, number> = { all: 0, baseline: 0, active: 0 };
     const firstItemTitleByOptionKey: Record<string, string> = {};
+    let hasOptionalOrAddonItems = false;
 
     rawLineItems.forEach((it) => {
       if (it.isCompositeContinuation) return;
@@ -11235,10 +11239,18 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           it.line_total ??
           (Number(it.quantity) || 1) * (Number(it.unit_price) || 0)
       );
-      const itemTotal = it.item_type === 'discount' ? -Math.abs(rawItemVal) : rawItemVal;
+      const isDiscount =
+        it.item_type === 'discount' ||
+        (it as any).classification === 'Discount / Rebate';
+      const itemTotal = isDiscount ? -Math.abs(rawItemVal) : rawItemVal;
       fullOptionGroupTotals.all = (fullOptionGroupTotals.all || 0) + itemTotal;
 
       const optRaw = String(it.option || it.option_group || '').trim();
+      const optLower = optRaw.toLowerCase();
+      if (Boolean(it.is_optional) || optLower.includes('optional') || optLower.includes('add-on')) {
+        hasOptionalOrAddonItems = true;
+      }
+
       if (/^option\s*[a-z0-9]/i.test(optRaw)) {
         const existingMatch = distinctOptionGroupsAll.find(
           (g) => g.toLowerCase() === optRaw.toLowerCase()
@@ -11252,10 +11264,23 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         if (!firstItemTitleByOptionKey[lowerKey] && it.item_name) {
           firstItemTitleByOptionKey[lowerKey] = it.item_name;
         }
-      } else {
+      } else if (!Boolean(it.is_optional) && !optLower.includes('optional') && !optLower.includes('add-on')) {
         fullOptionGroupTotals.baseline = (fullOptionGroupTotals.baseline || 0) + itemTotal;
       }
     });
+
+    const unchunkedNonContItems = rawLineItems.filter((it) => !it.isCompositeContinuation);
+    const activeCalcSubtotal = QuotationRepository.calculateTotals(
+      unchunkedNonContItems,
+      0,
+      quotation.tax_mode || 'taxes_extra',
+      Number(quotation.tax_rate_percent ?? 5),
+      quotation.option_display_mode
+    ).subtotal;
+    fullOptionGroupTotals.active =
+      distinctOptionGroupsAll.length > 1 || hasOptionalOrAddonItems
+        ? activeCalcSubtotal
+        : fullOptionGroupTotals.all;
 
     const finalChunkIndexByOptionKey: Record<string, number> = {};
     const firstChunkIndexByOptionKey: Record<string, number> = {};
@@ -11426,7 +11451,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               const signedVal = it.item_type === 'discount' ? -Math.abs(rawItemVal) : rawItemVal;
               return acc + signedVal;
             }, 0);
-            const fullGroupTotal = fullOptionGroupTotals[normGroupKey] ?? groupTotal;
+            const fullGroupTotal =
+              !shouldSplitByOptionTables && normGroupKey === 'all'
+                ? fullOptionGroupTotals.active ?? fullOptionGroupTotals.all ?? groupTotal
+                : fullOptionGroupTotals[normGroupKey] ?? groupTotal;
             const lastChunkIdxForGroup =
               finalChunkIndexByOptionKey[normGroupKey] ?? Math.max(0, sheetPartitions.length - 1);
             const isFinalChunkForGroup = chunkIndex >= lastChunkIdxForGroup;
@@ -11898,8 +11926,24 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                             : 0;
                         const hasCompositeSubRows =
                           Array.isArray(item.sub_components) && item.sub_components.length > 0;
+                        const subComponentsPriceSum = hasCompositeSubRows
+                          ? item.sub_components!.reduce((sum, sc) => {
+                              if (sc.is_included_accessory) return sum;
+                              const scTotal =
+                                sc.total_price !== undefined && sc.total_price !== null
+                                  ? Number(sc.total_price) || 0
+                                  : (Number(sc.quantity) || 0) * (Number(sc.unit_price) || 0);
+                              return sum + scTotal;
+                            }, 0)
+                          : 0;
+                        const parentUnitPriceNum = Number(item.unit_price) || 0;
                         const isItemizedSet =
-                          hasCompositeSubRows && item.package_pricing_mode !== 'lump_sum';
+                          hasCompositeSubRows &&
+                          (item.package_pricing_mode === 'itemized' ||
+                            (item.package_pricing_mode !== 'lump_sum' &&
+                              subComponentsPriceSum > 0 &&
+                              (parentUnitPriceNum === 0 ||
+                                Math.abs(parentUnitPriceNum - subComponentsPriceSum) <= 0.05)));
                         const isSetContinuation = Boolean(item.isCompositeContinuation);
                         const itemEffLayout = resolveItemEffectiveLayout(item);
                         const hasAnyItemImage = Boolean(item.image_url || item.secondary_image_url);
@@ -12840,7 +12884,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                             >
                                               {isAcc || sub.hide_row_price ? (
                                                 <span className={`${typoScale.micro} text-slate-400 italic`}>—</span>
-                                              ) : item.package_pricing_mode === 'lump_sum' ? (
+                                              ) : !isItemizedSet ? (
                                                 <span className={`${typoScale.micro} text-slate-400 italic`}>Included</span>
                                               ) : (
                                                 Number(sub.unit_price || 0).toLocaleString('en-US', {
@@ -12859,7 +12903,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                                 <span className={`${typoScale.micro} text-emerald-700 font-sans font-medium`}>
                                                   Included
                                                 </span>
-                                              ) : item.package_pricing_mode === 'lump_sum' ? (
+                                              ) : !isItemizedSet ? (
                                                 <span className={`${typoScale.micro} text-slate-400 italic`}>
                                                   Included in Set
                                                 </span>

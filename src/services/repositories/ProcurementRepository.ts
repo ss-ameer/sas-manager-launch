@@ -53,8 +53,14 @@ export class ProcurementRepository {
   private static workspaceListeners = new Map<string, Set<() => void>>();
   private static workspaceSubscribers = new Map<string, Set<(bills: SupplierBill[]) => void>>();
   private static activeSnapshotUnsubs = new Map<string, () => void>();
-  private static isPaused = false;
+  private static isPaused =
+    typeof window !== 'undefined' &&
+    (window.localStorage?.getItem('omni_realtime_sync') === 'false' ||
+      window.localStorage?.getItem('sas_quota_saver_mode') === 'true' ||
+      (window.self !== window.top &&
+        window.sessionStorage?.getItem('omni_iframe_explicit_live_sync') !== 'true'));
   private static workspaceCache = new Map<string, { data: SupplierBill[]; fetchedAt: number }>();
+  private static deletedBillsCache = new Map<string, { data: SupplierBill[]; fetchedAt: number }>();
 
   private static normalizeBill(b: SupplierBill): SupplierBill {
     const rehydrated = rehydrateDocumentBlobsSync(b);
@@ -76,6 +82,7 @@ export class ProcurementRepository {
 
   public static notifyWorkspaceSubscribers(workspaceId?: string): void {
     const wsId = workspaceId || 'ws_default';
+    this.deletedBillsCache.clear();
     if (wsId === '*') {
       this.workspaceCache.clear();
     } else {
@@ -477,6 +484,13 @@ export class ProcurementRepository {
    */
   static async getDeletedSupplierBills(workspaceId?: string): Promise<SupplierBill[]> {
     const wsId = workspaceId || 'ws_default';
+    const DELETED_TTL_MS = 15 * 60 * 1000;
+
+    const cachedDeleted = this.deletedBillsCache.get(wsId);
+    if (cachedDeleted && Date.now() - cachedDeleted.fetchedAt < DELETED_TTL_MS) {
+      return [...cachedDeleted.data];
+    }
+
     const mergedMap = new Map<string, SupplierBill>();
 
     readLocalBills()
@@ -486,8 +500,16 @@ export class ProcurementRepository {
           (!workspaceId || b.workspace_id === wsId || (!b.workspace_id && wsId === 'ws_default'))
       )
       .forEach((b) => {
-        if (b.id) mergedMap.set(b.id, b);
+        if (b.id) mergedMap.set(b.id, this.normalizeBill(b));
       });
+
+    if (this.isPaused || this.workspaceCache.has(wsId)) {
+      const sortedLocal = Array.from(mergedMap.values()).sort((a, b) =>
+        (b.deleted_at || b.updated_at || '').localeCompare(a.deleted_at || a.updated_at || '')
+      );
+      this.deletedBillsCache.set(wsId, { data: sortedLocal, fetchedAt: Date.now() });
+      return sortedLocal;
+    }
 
     try {
       const snap = workspaceId
@@ -505,9 +527,11 @@ export class ProcurementRepository {
       }
     } catch (_) {}
 
-    return Array.from(mergedMap.values()).sort((a, b) =>
+    const sorted = Array.from(mergedMap.values()).sort((a, b) =>
       (b.deleted_at || b.updated_at || '').localeCompare(a.deleted_at || a.updated_at || '')
     );
+    this.deletedBillsCache.set(wsId, { data: sorted, fetchedAt: Date.now() });
+    return sorted;
   }
 
   /**

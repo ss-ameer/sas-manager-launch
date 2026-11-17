@@ -44,8 +44,14 @@ export class QuotationRepository {
   private static workspaceListeners = new Map<string, Set<() => void>>();
   private static workspaceSubscribers = new Map<string, Set<(quotations: Quotation[]) => void>>();
   private static activeSnapshotUnsubs = new Map<string, () => void>();
-  private static isPaused = false;
+  private static isPaused =
+    typeof window !== 'undefined' &&
+    (window.localStorage?.getItem('omni_realtime_sync') === 'false' ||
+      window.localStorage?.getItem('sas_quota_saver_mode') === 'true' ||
+      (window.self !== window.top &&
+        window.sessionStorage?.getItem('omni_iframe_explicit_live_sync') !== 'true'));
   private static workspaceCache = new Map<string, { data: Quotation[]; fetchedAt: number }>();
+  private static deletedQuotesCache = new Map<string, { data: Quotation[]; fetchedAt: number }>();
   private static enquiryQuotesCache = new Map<string, { data: Quotation[]; fetchedAt: number }>();
   private static profileCache = new Map<string, { data: WorkspaceDocumentProfile | null; fetchedAt: number }>();
   private static presetsCache = new Map<string, { data: QuotationPreset[]; fetchedAt: number }>();
@@ -69,6 +75,7 @@ export class QuotationRepository {
   public static notifyWorkspaceSubscribers(workspaceId?: string): void {
     const wsId = workspaceId || 'ws_default';
     this.enquiryQuotesCache.clear();
+    this.deletedQuotesCache.clear();
     if (wsId === '*') {
       this.workspaceCache.clear();
     } else {
@@ -132,6 +139,7 @@ export class QuotationRepository {
       option_group?: string;
       option_designation?: string;
       item_type?: string;
+      classification?: string;
     }>,
     freightAmount: number = 0,
     taxMode: QuotationTaxMode = 'taxes_extra',
@@ -140,57 +148,98 @@ export class QuotationRepository {
   ): TaxCalculationResult {
     // Filter items according to optionDisplayMode and exclude non-baseline / optional items by default;
     // subtract discount items (-Math.abs) and accumulate in integer subunits (fils) to prevent floating-point drift.
-    const subtotalFils = (lineItems || [])
-      .filter((item) => {
+    const allItems = lineItems || [];
+    const isStrictlyOptionalItem = (item: (typeof allItems)[number]) => {
+      const opt = String(item.option || item.option_group || item.option_designation || '').trim();
+      const optLower = opt.toLowerCase();
+      if (optLower.includes('optional') || optLower.includes('add-on')) {
+        return true;
+      }
+      if (item.is_optional && !/^option\s*[a-z0-9]/i.test(opt)) {
+        return true;
+      }
+      return Boolean(item.is_optional);
+    };
+
+    let filteredItems = allItems.filter((item) => {
+      const opt = String(item.option || item.option_group || item.option_designation || '').trim();
+      const optLower = opt.toLowerCase();
+      if (optLower.includes('optional') || optLower.includes('add-on')) {
+        return false;
+      }
+      if (optionDisplayMode === 'option_c_only') {
+        if (item.is_optional && !/^option\s*(c|3)\b/i.test(opt)) return false;
+        return (
+          (!item.is_optional &&
+            (!opt || opt === 'Default / Included' || opt === 'Baseline / All')) ||
+          /^option\s*c\b/i.test(opt) ||
+          /^option\s*3\b/i.test(opt)
+        );
+      }
+      if (optionDisplayMode === 'option_b_only') {
+        if (item.is_optional && !/^option\s*(b|2)\b/i.test(opt)) return false;
+        return (
+          (!item.is_optional &&
+            (!opt || opt === 'Default / Included' || opt === 'Baseline / All')) ||
+          /^option\s*b\b/i.test(opt) ||
+          /^option\s*2\b/i.test(opt)
+        );
+      }
+      if (optionDisplayMode === 'option_a_only') {
+        if (item.is_optional && !/^option\s*(a|1)\b/i.test(opt)) return false;
+        return (
+          (!item.is_optional &&
+            (!opt || opt === 'Default / Included' || opt === 'Baseline / All')) ||
+          /^option\s*a\b/i.test(opt) ||
+          /^option\s*1\b/i.test(opt)
+        );
+      }
+      if (/^option\s+[b-z]\b/i.test(opt) || /^option\s+[2-9]\b/i.test(opt)) {
+        return false;
+      }
+      return !item.is_optional;
+    });
+
+    // Fallback: when optionDisplayMode is unset/default and there are zero baseline/Option A items,
+    // fall back to Option B or Option C if those are the only non-optional option groups present.
+    if (
+      filteredItems.length === 0 &&
+      allItems.length > 0 &&
+      optionDisplayMode !== 'option_a_only' &&
+      optionDisplayMode !== 'option_b_only' &&
+      optionDisplayMode !== 'option_c_only'
+    ) {
+      const optionBItems = allItems.filter((item) => {
         const opt = String(item.option || item.option_group || item.option_designation || '').trim();
-        const optLower = opt.toLowerCase();
-        if (optLower.includes('optional') || optLower.includes('add-on')) {
-          return false;
+        return !isStrictlyOptionalItem(item) && (/^option\s*b\b/i.test(opt) || /^option\s*2\b/i.test(opt));
+      });
+      if (optionBItems.length > 0) {
+        filteredItems = optionBItems;
+      } else {
+        const optionCItems = allItems.filter((item) => {
+          const opt = String(item.option || item.option_group || item.option_designation || '').trim();
+          return !isStrictlyOptionalItem(item) && (/^option\s*c\b/i.test(opt) || /^option\s*3\b/i.test(opt));
+        });
+        if (optionCItems.length > 0) {
+          filteredItems = optionCItems;
         }
-        if (optionDisplayMode === 'option_c_only') {
-          return (
-            !opt ||
-            opt === 'Default / Included' ||
-            opt === 'Baseline / All' ||
-            /^option\s*c\b/i.test(opt) ||
-            /^option\s*3\b/i.test(opt)
-          );
-        }
-        if (optionDisplayMode === 'option_b_only') {
-          return (
-            !opt ||
-            opt === 'Default / Included' ||
-            opt === 'Baseline / All' ||
-            /^option\s*b\b/i.test(opt) ||
-            /^option\s*2\b/i.test(opt)
-          );
-        }
-        if (optionDisplayMode === 'option_a_only') {
-          return (
-            !opt ||
-            opt === 'Default / Included' ||
-            opt === 'Baseline / All' ||
-            /^option\s*a\b/i.test(opt) ||
-            /^option\s*1\b/i.test(opt)
-          );
-        }
-        if (/^option\s+[b-z]\b/i.test(opt) || /^option\s+[2-9]\b/i.test(opt)) {
-          return false;
-        }
-        return !item.is_optional;
-      })
-      .reduce((sumFils, item) => {
-        const rawLineTotal =
-          item.total_price !== undefined && item.total_price !== null
-            ? Number(item.total_price) || 0
-            : item.line_total !== undefined && item.line_total !== null
-            ? Number(item.line_total) || 0
-            : (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
-        const signedLineTotal =
-          item.item_type === 'discount' ? -Math.abs(rawLineTotal) : rawLineTotal;
-        const lineFils = Math.round((signedLineTotal + Math.sign(signedLineTotal || 1) * Number.EPSILON) * 100);
-        return sumFils + lineFils;
-      }, 0);
+      }
+    }
+
+    const subtotalFils = filteredItems.reduce((sumFils, item) => {
+      const rawLineTotal =
+        item.total_price !== undefined && item.total_price !== null
+          ? Number(item.total_price) || 0
+          : item.line_total !== undefined && item.line_total !== null
+          ? Number(item.line_total) || 0
+          : (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
+      const isDiscount =
+        item.item_type === 'discount' ||
+        (item as any).classification === 'Discount / Rebate';
+      const signedLineTotal = isDiscount ? -Math.abs(rawLineTotal) : rawLineTotal;
+      const lineFils = Math.round((signedLineTotal + Math.sign(signedLineTotal || 1) * Number.EPSILON) * 100);
+      return sumFils + lineFils;
+    }, 0);
 
     const subtotal = subtotalFils / 100;
     const cleanFreight = this.roundCurrency(Number(freightAmount) || 0);
@@ -1213,7 +1262,7 @@ export class QuotationRepository {
    */
   public static buildEnquiryQuotationSyncPayload(
     quotation: Quotation
-  ): EnquiryQuotationSyncPayload {
+  ): EnquiryQuotationSyncPayload & { currency?: string } {
     const hasItems = Array.isArray(quotation.line_items) && quotation.line_items.length > 0;
     const calcTotals = hasItems
       ? this.calculateTotals(
@@ -1354,6 +1403,7 @@ export class QuotationRepository {
       quoted_amount: subtotalAed,
       subtotal_aed: subtotalAed,
       grand_total_aed: grandTotalAed,
+      currency: quotation.currency || undefined,
       quotation_status: quotation.status || 'Draft',
       latest_revision_number:
         typeof quotation.revision_number === 'number' ? quotation.revision_number : 1,
@@ -2303,9 +2353,50 @@ export class QuotationRepository {
    */
   public static async getDeletedQuotations(workspaceId?: string): Promise<Quotation[]> {
     const wsId = workspaceId || 'ws_default';
-    let quotes: Quotation[] = [];
+    const DELETED_TTL_MS = 15 * 60 * 1000;
+    const WS_TTL_MS = 30 * 60 * 1000;
 
-    // Check remote Firestore (workspace-scoped when workspaceId is provided)
+    const cachedDeleted = this.deletedQuotesCache.get(wsId);
+    if (cachedDeleted && Date.now() - cachedDeleted.fetchedAt < DELETED_TTL_MS) {
+      return [...cachedDeleted.data];
+    }
+
+    // Read local IndexedDB store first
+    const localDeleted: Quotation[] = [];
+    try {
+      const local = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
+      for (const raw of local) {
+        const item = this.docToQuotation(raw.id!, raw);
+        const itemWsId = item.workspace_id || item.workspaceId;
+        if ((!workspaceId || itemWsId === wsId) && item.is_deleted) {
+          localDeleted.push(item);
+        }
+      }
+    } catch (_) {}
+
+    const lastWsFetchStr =
+      typeof window !== 'undefined'
+        ? window.localStorage?.getItem('sas_quotes_ws_fetched_' + wsId)
+        : null;
+    const lastWsFetch = lastWsFetchStr ? parseInt(lastWsFetchStr, 10) : 0;
+    const isWsWarm = lastWsFetch > 0 && Date.now() - lastWsFetch < WS_TTL_MS;
+
+    if (this.isPaused || isWsWarm || this.workspaceCache.has(wsId)) {
+      const sortedLocal = localDeleted.sort((a, b) => {
+        const dateA = new Date(a.deleted_at || a.updatedAt || a.created_at || 0).getTime();
+        const dateB = new Date(b.deleted_at || b.updatedAt || b.created_at || 0).getTime();
+        return dateB - dateA;
+      });
+      this.deletedQuotesCache.set(wsId, { data: sortedLocal, fetchedAt: Date.now() });
+      return sortedLocal;
+    }
+
+    const quotesMap = new Map<string, Quotation>();
+    for (const q of localDeleted) {
+      if (q.id) quotesMap.set(q.id, q);
+    }
+
+    // Cold fallback: check remote Firestore (workspace-scoped when workspaceId is provided)
     try {
       const snap = workspaceId
         ? await safeGetDocs('quotations', where('workspace_id', '==', wsId))
@@ -2315,30 +2406,21 @@ export class QuotationRepository {
           const item = this.docToQuotation(d.id, d.data());
           const itemWsId = item.workspace_id || item.workspaceId;
           if ((!workspaceId || itemWsId === wsId) && item.is_deleted) {
-            quotes.push(item);
+            quotesMap.set(item.id!, item);
+          } else if (!item.is_deleted && item.id) {
+            quotesMap.delete(item.id);
           }
         });
       }
     } catch (_) {}
 
-    // Fallback or union with IndexedDB store
-    try {
-      const local = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
-      const remoteIds = new Set(quotes.map((q) => q.id));
-      for (const raw of local) {
-        const item = this.docToQuotation(raw.id!, raw);
-        const itemWsId = item.workspace_id || item.workspaceId;
-        if ((!workspaceId || itemWsId === wsId) && item.is_deleted && !remoteIds.has(item.id)) {
-          quotes.push(item);
-        }
-      }
-    } catch (_) {}
-
-    return quotes.sort((a, b) => {
+    const sorted = Array.from(quotesMap.values()).sort((a, b) => {
       const dateA = new Date(a.deleted_at || a.updatedAt || a.created_at || 0).getTime();
       const dateB = new Date(b.deleted_at || b.updatedAt || b.created_at || 0).getTime();
       return dateB - dateA;
     });
+    this.deletedQuotesCache.set(wsId, { data: sorted, fetchedAt: Date.now() });
+    return sorted;
   }
 
   /**
@@ -2618,13 +2700,14 @@ export class QuotationRepository {
       const lastFetchedAt = lastFetchedStr ? parseInt(lastFetchedStr, 10) : 0;
       const isWsRecentlyFetched = lastFetchedAt > 0 && Date.now() - lastFetchedAt < CACHE_TTL_MS;
 
-      if (localWsQuotes.length > 0 && isWsRecentlyFetched) {
+      if (isWsRecentlyFetched || localWsQuotes.length > 0) {
         this.workspaceCache.set(wsId, { data: localWsQuotes, fetchedAt: Date.now() });
         return [...localWsQuotes];
       }
     } catch (_) {}
 
     let quotes: Quotation[] = [];
+    const deletedQuotesFromRemote: Quotation[] = [];
 
     // Query remote Firestore (scoped by workspace_id)
     try {
@@ -2635,8 +2718,12 @@ export class QuotationRepository {
         snap.forEach((d) => {
           const item = this.docToQuotation(d.id, d.data());
           const itemWsId = item.workspace_id || item.workspaceId;
-          if ((!workspaceId || itemWsId === wsId) && !item.is_deleted) {
-            quotes.push(item);
+          if (!workspaceId || itemWsId === wsId) {
+            if (item.is_deleted) {
+              deletedQuotesFromRemote.push(item);
+            } else {
+              quotes.push(item);
+            }
           }
         });
       }
@@ -2651,17 +2738,20 @@ export class QuotationRepository {
     try {
       const local = (await getFromLocalStore<Quotation>(this.QUOTATIONS_STORE)) || [];
       const remoteIds = new Set(quotes.map((q) => q.id));
-      const otherWsQuotes: Quotation[] = [];
+      const deletedRemoteIds = new Set(deletedQuotesFromRemote.map((q) => q.id));
+      const otherOrDeletedQuotes: Quotation[] = [...deletedQuotesFromRemote];
       for (const raw of local) {
         const item = this.docToQuotation(raw.id!, raw);
         const itemWsId = item.workspace_id || item.workspaceId;
-        if ((!workspaceId || itemWsId === wsId) && !item.is_deleted && !remoteIds.has(item.id)) {
+        if ((!workspaceId || itemWsId === wsId) && !item.is_deleted && !remoteIds.has(item.id) && !deletedRemoteIds.has(item.id)) {
           quotes.push(item);
         } else if (workspaceId && itemWsId !== wsId) {
-          otherWsQuotes.push(item);
+          otherOrDeletedQuotes.push(item);
+        } else if (item.is_deleted && !deletedRemoteIds.has(item.id)) {
+          otherOrDeletedQuotes.push(item);
         }
       }
-      await saveToLocalStore(this.QUOTATIONS_STORE, [...quotes, ...otherWsQuotes]);
+      await saveToLocalStore(this.QUOTATIONS_STORE, [...quotes, ...otherOrDeletedQuotes]);
     } catch (_) {}
 
     const sorted = quotes.sort((a, b) => (b.revision_number ?? 0) - (a.revision_number ?? 0));
@@ -3711,12 +3801,13 @@ export class QuotationRepository {
   public static async getPresets(workspaceId: string): Promise<QuotationPreset[]> {
     if (!workspaceId) return [];
 
+    const PRESETS_TTL_MS = 24 * 60 * 60 * 1000;
     const cached = this.presetsCache.get(workspaceId);
-    if (cached && Date.now() - cached.fetchedAt < 30 * 60 * 1000) {
+    if (cached && Date.now() - cached.fetchedAt < PRESETS_TTL_MS) {
       return [...cached.data];
     }
 
-    // 1. Check IndexedDB store first (0 Firestore reads on page reload)
+    // 1. Check IndexedDB store & 24-hour localStorage TTL first (0 Firestore reads on page reload even when workspace has 0 presets)
     try {
       const local = (await getFromLocalStore<QuotationPreset>(this.PRESETS_STORE)) || [];
       const localMatches = local
@@ -3725,7 +3816,14 @@ export class QuotationRepository {
           return itemWsId === workspaceId && !p.is_deleted;
         })
         .map((p) => this.docToPreset(p.id!, p));
-      if (localMatches.length > 0) {
+      const lastFetchedStr =
+        typeof window !== 'undefined'
+          ? window.localStorage?.getItem(`sas_presets_fetched_${workspaceId}`)
+          : null;
+      const lastFetchedAt = lastFetchedStr ? parseInt(lastFetchedStr, 10) : 0;
+      const isRecentlyFetched = lastFetchedAt > 0 && Date.now() - lastFetchedAt < PRESETS_TTL_MS;
+
+      if (localMatches.length > 0 || isRecentlyFetched) {
         const sortedLocal = localMatches.sort((a, b) =>
           (a.preset_name || '').localeCompare(b.preset_name || '')
         );
@@ -3747,6 +3845,11 @@ export class QuotationRepository {
             presets.push(item);
           }
         });
+      }
+      if (typeof window !== 'undefined') {
+        try {
+          window.localStorage?.setItem(`sas_presets_fetched_${workspaceId}`, String(Date.now()));
+        } catch (_) {}
       }
     } catch (_) {}
 
@@ -3792,19 +3895,20 @@ export class QuotationRepository {
 
   /**
    * Retrieves the active document profile for a workspace, strictly isolated.
-   * Uses a 30-minute in-memory cache + IndexedDB-first lookup to prevent redundant reads on modal opens.
+   * Uses a 24-hour localStorage TTL + in-memory cache + IndexedDB-first lookup to prevent redundant reads on modal opens.
    */
   public static async getWorkspaceDocumentProfile(
     workspaceId: string
   ): Promise<WorkspaceDocumentProfile | null> {
     if (!workspaceId) return null;
 
+    const PROFILE_TTL_MS = 24 * 60 * 60 * 1000;
     const cached = this.profileCache.get(workspaceId);
-    if (cached && Date.now() - cached.fetchedAt < 30 * 60 * 1000) {
+    if (cached && Date.now() - cached.fetchedAt < PROFILE_TTL_MS) {
       return cached.data ? { ...cached.data } : null;
     }
 
-    // 1. Check Local IndexedDB Cache first (0 Firestore reads on page reload)
+    // 1. Check Local IndexedDB Cache & 24-hour localStorage TTL first (0 Firestore reads on page reload even when null)
     try {
       const local =
         (await getFromLocalStore<WorkspaceDocumentProfile>(this.PROFILES_STORE)) || [];
@@ -3817,11 +3921,25 @@ export class QuotationRepository {
         this.profileCache.set(workspaceId, { data: merged, fetchedAt: Date.now() });
         return merged;
       }
+      const lastFetchedStr =
+        typeof window !== 'undefined'
+          ? window.localStorage?.getItem(`sas_profile_fetched_${workspaceId}`)
+          : null;
+      const lastFetchedAt = lastFetchedStr ? parseInt(lastFetchedStr, 10) : 0;
+      if (lastFetchedAt > 0 && Date.now() - lastFetchedAt < PROFILE_TTL_MS) {
+        this.profileCache.set(workspaceId, { data: null, fetchedAt: Date.now() });
+        return null;
+      }
     } catch (_) {}
 
     // 2. Cold fallback: Try Firestore fetch (scoped by workspace_id) and persist to IndexedDB
     try {
       const snap = await safeGetDocs('workspace_document_profiles', where('workspace_id', '==', workspaceId));
+      if (typeof window !== 'undefined') {
+        try {
+          window.localStorage?.setItem(`sas_profile_fetched_${workspaceId}`, String(Date.now()));
+        } catch (_) {}
+      }
       if (snap && !snap.empty) {
         let found: WorkspaceDocumentProfile | null = null;
         snap.forEach((d) => {

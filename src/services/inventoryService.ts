@@ -12,7 +12,7 @@ import {
   Quotation,
   PurchaseOrderReceivingStatus
 } from '../types';
-import { safeAddDoc, safeUpdateDoc, safeGetDoc, safeGetDocs, db } from '../firebase';
+import { safeAddDoc, safeUpdateDoc, safeGetDoc, safeGetDocs, db, isQuotaCircuitBroken } from '../firebase';
 import { collection, query, where, onSnapshot, limit } from 'firebase/firestore';
 import { MetadataRepository } from './repositories/MetadataRepository';
 import { QuotationRepository } from './repositories/QuotationRepository';
@@ -386,6 +386,14 @@ export async function dispatchProjectStock(
   project: Project,
   user?: any
 ): Promise<DispatchResult> {
+  if ((project as any).stock_deducted) {
+    return {
+      success: true,
+      dispatchedCount: 0,
+      skippedCount: 0,
+      details: []
+    };
+  }
   const lineItems: LineItem[] = project.line_items || [];
   const requirements = extractEffectiveStockRequirements(lineItems, undefined, true);
   const result: DispatchResult = {
@@ -468,7 +476,9 @@ export async function dispatchProjectStock(
       const maxReservedToRelease = hasActiveReservation
         ? enqReservedQtyByProduct.has(reqItem.product_id)
           ? Math.min(qty, enqReservedQtyByProduct.get(reqItem.product_id)!)
-          : qty
+          : !project.enquiry_id && Boolean((project as any).stock_reserved)
+          ? qty
+          : 0
         : 0;
       const newReserved = Math.max(0, currentReserved - maxReservedToRelease);
 
@@ -809,7 +819,12 @@ export async function fetchStockMovements(workspaceId: string): Promise<StockMov
 const stockMovementsCache = new Map<string, StockMovement[]>();
 const stockMovementsSubscribers = new Map<string, Set<(movements: StockMovement[]) => void>>();
 const stockMovementsUnsubs = new Map<string, () => void>();
-let isStockMovementsPaused = false;
+let isStockMovementsPaused =
+  typeof window !== 'undefined' &&
+  (window.localStorage?.getItem('omni_realtime_sync') === 'false' ||
+    window.localStorage?.getItem('sas_quota_saver_mode') === 'true' ||
+    (window.self !== window.top &&
+      window.sessionStorage?.getItem('omni_iframe_explicit_live_sync') !== 'true'));
 
 export function pauseStockMovementsSubscriptions(): void {
   isStockMovementsPaused = true;
@@ -843,7 +858,7 @@ export function resumeStockMovementsSubscriptions(workspaceId: string): void {
 
 /**
  * Subscribes to realtime updates of stock movements for the given workspace,
- * respecting quota-saver mode, idle pause state, and sharing a single listener per workspaceId.
+ * respecting quota-saver mode, idle pause state, and sharing a sticky singleton listener per workspaceId.
  */
 export function subscribeStockMovements(
   workspaceId: string,
@@ -865,8 +880,8 @@ export function subscribeStockMovements(
     typeof window !== 'undefined' &&
     window.localStorage?.getItem('sas_quota_saver_mode') === 'true';
 
-  if (isQuotaSaver || isStockMovementsPaused) {
-    if (!cached && !isStockMovementsPaused) {
+  if (isQuotaSaver || isStockMovementsPaused || isQuotaCircuitBroken()) {
+    if (!cached && !isStockMovementsPaused && !isQuotaCircuitBroken()) {
       fetchStockMovements(wsId)
         .then((list) => {
           stockMovementsCache.set(wsId, list);
@@ -910,15 +925,6 @@ export function subscribeStockMovements(
 
   return () => {
     subs.delete(callback);
-    if (subs.size === 0) {
-      const existingUnsub = stockMovementsUnsubs.get(wsId);
-      if (existingUnsub) {
-        try {
-          existingUnsub();
-        } catch (_) {}
-        stockMovementsUnsubs.delete(wsId);
-      }
-    }
   };
 }
 

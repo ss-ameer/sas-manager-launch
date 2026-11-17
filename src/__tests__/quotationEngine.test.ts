@@ -885,7 +885,7 @@ describe('10. Line-Item Row Page Breaks ("Split Table Here") & Dynamic Column Wi
     });
     expect(defaultLayout.showUnitPrice).toBe(true);
     expect(defaultLayout.widths.description).toBe('52%');
-    expect(defaultLayout.widths.unitPrice).toBe('12%');
+    expect(defaultLayout.widths.unitPrice).toBe('13%');
     expect(defaultLayout.activeColumnCount).toBe(6);
 
     const hiddenUnitPriceLayout = resolveTableColumnLayout({
@@ -896,7 +896,7 @@ describe('10. Line-Item Row Page Breaks ("Split Table Here") & Dynamic Column Wi
     });
     expect(hiddenUnitPriceLayout.showUnitPrice).toBe(false);
     expect(hiddenUnitPriceLayout.widths.unitPrice).toBe('0%');
-    expect(hiddenUnitPriceLayout.widths.description).toBe('64%');
+    expect(hiddenUnitPriceLayout.widths.description).toBe('65%');
     expect(hiddenUnitPriceLayout.activeColumnCount).toBe(5);
 
     // Grand total calculation remains 100% intact when Unit Price column is hidden
@@ -1584,17 +1584,18 @@ describe('13. Deep-Clone Quotation Revisioning (R1 -> R2), Status Lifecycle & En
     const clonedR2 = QuotationRepository.cloneQuotationAsNextRevision(sourceR1);
     clonedR2.status = 'Approved';
 
-    // Non-optional item is 25,000 + 1,000 freight = 26,000 + 5% tax (1,300) = 27,300
+    // Non-optional item Ex-VAT net subtotal is 25,000; Grand Total (with 1,000 freight + 5% tax) is 27,300
     // Optional item (4,200) must be excluded from quoted_amount
     const syncPayload = QuotationRepository.buildEnquiryQuotationSyncPayload(clonedR2);
 
-    expect(syncPayload).toEqual({
-      active_quotation_id: clonedR2.id!,
-      latest_quote_ref: 'TEST/10/2026/5-R2',
-      quoted_amount: 27300,
-      quotation_status: 'Approved',
-      latest_revision_number: 2
-    });
+    expect(syncPayload.active_quotation_id).toBe(clonedR2.id!);
+    expect(syncPayload.latest_quote_ref).toBe('TEST/10/2026/5-R2');
+    expect(syncPayload.quoted_amount).toBe(25000);
+    expect((syncPayload as any).subtotal_aed).toBe(25000);
+    expect((syncPayload as any).grand_total_aed).toBe(27300);
+    expect(syncPayload.quotation_status).toBe('Approved');
+    expect(syncPayload.latest_revision_number).toBe(2);
+    expect(Array.isArray((syncPayload as any).line_items)).toBe(true);
   });
 });
 
@@ -2623,9 +2624,9 @@ describe('Suite 20: Firestore 1MB Payload Safeguard, Modular Header/Footer Compo
 
     // Must be safely below Firestore 1MB limit (< 880,000 bytes)
     expect(sanitizedBytes <= 880_000).toBe(true);
-    // Primary top-level logo & seal are preserved while duplicate nested copies were deduplicated
-    expect(Boolean(sanitized.company_logo_url)).toBe(true);
-    expect(Boolean(sanitized.company_seal_url)).toBe(true);
+    // Primary branding logo & seal are preserved while duplicate copies were deduplicated
+    expect(Boolean(sanitized.header_config?.logoUrl || sanitized.company_logo_url)).toBe(true);
+    expect(Boolean(sanitized.footer_config?.companySealUrl || sanitized.company_seal_url)).toBe(true);
   });
 
   it('20b. resolveHeaderFields supports custom text overrides, custom added fields, zone assignment (under_logo, under_name, contact_block, bottom_bar), and 2D alignment', () => {

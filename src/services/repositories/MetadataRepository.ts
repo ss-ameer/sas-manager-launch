@@ -155,7 +155,9 @@ export class MetadataRepository {
       try {
         const local = await getFromLocalStore<Product>(this.PRODUCT_STORE);
         if (local && local.length > 0) {
-          const normalizedLocal = local.map((p) => this.normalizeProduct(p));
+          const normalizedLocal = await Promise.all(
+            local.map((p) => rehydrateDocumentBlobsFromLocal(this.normalizeProduct(p)))
+          );
           this.rebuildCachesFromFullList(normalizedLocal);
           const filtered = this.filterProductsForWorkspace(normalizedLocal, workspaceId);
           if (filtered.length > 0) {
@@ -175,7 +177,7 @@ export class MetadataRepository {
         return this.filterProductsForWorkspace(existingAll, workspaceId);
       }
 
-      const compactionFlagKey = 'sas_enterprise_4kib_compacted_products_v1';
+      const compactionFlagKey = `sas_enterprise_4kib_compacted_products_v1_${workspaceId || 'all'}`;
       const hasCompacted =
         typeof window !== 'undefined' &&
         window.localStorage?.getItem(compactionFlagKey) === 'true';
@@ -208,10 +210,12 @@ export class MetadataRepository {
         }
       }
 
-      // Warm any IndexedDB-backed product blobs asynchronously in the background
-      Promise.all(docs.map((p) => rehydrateDocumentBlobsFromLocal(p))).catch(() => {});
+      // Rehydrate any IndexedDB-backed product blobs before persisting to cache and returning
+      const rehydratedDocs = await Promise.all(
+        docs.map((p) => rehydrateDocumentBlobsFromLocal(p))
+      );
 
-      const mergedAll = await this.syncProductListToStores(docs, workspaceId, !workspaceId);
+      const mergedAll = await this.syncProductListToStores(rehydratedDocs, workspaceId, !workspaceId);
       const result = this.filterProductsForWorkspace(mergedAll, workspaceId);
       this.productsCache.set(cacheKey, { data: result, fetchedAt: Date.now() });
       return result;
@@ -223,7 +227,16 @@ export class MetadataRepository {
 
   public static async saveProduct(product: Product): Promise<void> {
     const sanitizedForCloud = sanitizeFirestorePayload(product);
-    const hydratedProduct = this.normalizeProduct({ ...product, ...sanitizedForCloud, image_url: product.image_url || sanitizedForCloud.image_url, secondary_image_url: product.secondary_image_url || sanitizedForCloud.secondary_image_url, datasheet_attachment: product.datasheet_attachment || sanitizedForCloud.datasheet_attachment });
+    const hydratedProduct = this.normalizeProduct({
+      ...product,
+      ...sanitizedForCloud,
+      image_url: product.image_url || sanitizedForCloud.image_url,
+      secondary_image_url: product.secondary_image_url || sanitizedForCloud.secondary_image_url,
+      datasheet_attachment: product.datasheet_attachment || sanitizedForCloud.datasheet_attachment,
+      datasheet_url: (product as any).datasheet_url || (sanitizedForCloud as any).datasheet_url,
+      sub_components: product.sub_components || sanitizedForCloud.sub_components,
+      spec_variants: product.spec_variants || sanitizedForCloud.spec_variants
+    });
     await this.syncProductListToStores(
       [hydratedProduct],
       (hydratedProduct as any).workspace_id || (hydratedProduct as any).workspaceId

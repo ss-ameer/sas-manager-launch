@@ -49,8 +49,8 @@ export const db = firestoreInstance; /* CRITICAL: The app will break without thi
 export const auth = getAuth();
 export const storage = getStorage(app);
 
-// Validate Connection to Firestore (Per Firebase Integration Skill)
-async function testConnection() {
+// Optional manual connection check helper (not called unconditionally on module load to save boot quota)
+export async function testConnection() {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
@@ -59,7 +59,6 @@ async function testConnection() {
     }
   }
 }
-testConnection();
 
 export enum OperationType {
   CREATE = 'create',
@@ -141,7 +140,49 @@ function applySimulations() {
   return { isQuota, isOffline, latency };
 }
 
-// Wrapped safe helper methods to easily ensure error reporting
+const READ_MICRO_CACHE_TTL_MS = 5_000;
+const inFlightReadMap = new Map<string, Promise<any>>();
+const recentReadCacheMap = new Map<string, { collectionPath: string; value: any; expiresAt: number }>();
+
+function serializeConstraint(c: any): string {
+  if (!c || typeof c !== 'object') return String(c);
+  try {
+    const type = c.type || '';
+    const field =
+      c._field?.segments?.join('.') ||
+      c.field?.segments?.join('.') ||
+      c._field ||
+      c.field ||
+      '';
+    const op = c._op || c.op || '';
+    const val = c._value !== undefined ? c._value : c.value !== undefined ? c.value : c._limit ?? '';
+    return `${type}:${field}:${op}:${JSON.stringify(val)}`;
+  } catch {
+    return String(c);
+  }
+}
+
+export function invalidateReadMicroCache(collectionPath?: string): void {
+  if (!collectionPath) {
+    inFlightReadMap.clear();
+    recentReadCacheMap.clear();
+    return;
+  }
+  const prefixDoc = `doc:${collectionPath}/`;
+  const prefixCol = `col:${collectionPath}:`;
+  for (const key of Array.from(inFlightReadMap.keys())) {
+    if (key.startsWith(prefixDoc) || key.startsWith(prefixCol)) {
+      inFlightReadMap.delete(key);
+    }
+  }
+  for (const [key, entry] of Array.from(recentReadCacheMap.entries())) {
+    if (entry.collectionPath === collectionPath || key.startsWith(prefixDoc) || key.startsWith(prefixCol)) {
+      recentReadCacheMap.delete(key);
+    }
+  }
+}
+
+// Wrapped safe helper methods to easily ensure error reporting + 5s micro-cache & in-flight deduplication
 export async function safeGetDoc(collectionPath: string, docId: string, ...subPathSegments: string[]) {
   const path = [collectionPath, docId, ...subPathSegments].join('/');
   if (isQuotaCircuitBroken()) {
@@ -155,13 +196,39 @@ export async function safeGetDoc(collectionPath: string, docId: string, ...subPa
     return null;
   }
 
-  try {
-    const docRef = doc(db, collectionPath, docId, ...subPathSegments);
-    return await getDoc(docRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.GET, path);
-    return null;
+  const cacheKey = `doc:${path}`;
+  const now = Date.now();
+  const cached = recentReadCacheMap.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
   }
+  const existingInFlight = inFlightReadMap.get(cacheKey);
+  if (existingInFlight) {
+    return existingInFlight;
+  }
+
+  const reqPromise = (async () => {
+    try {
+      const docRef = doc(db, collectionPath, docId, ...subPathSegments);
+      const snap = await getDoc(docRef);
+      if (snap) {
+        recentReadCacheMap.set(cacheKey, {
+          collectionPath,
+          value: snap,
+          expiresAt: Date.now() + READ_MICRO_CACHE_TTL_MS
+        });
+      }
+      return snap;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, path);
+      return null;
+    } finally {
+      inFlightReadMap.delete(cacheKey);
+    }
+  })();
+
+  inFlightReadMap.set(cacheKey, reqPromise);
+  return reqPromise;
 }
 
 export async function safeGetDocs(collectionPath: string, ...constraints: QueryConstraint[]) {
@@ -176,14 +243,41 @@ export async function safeGetDocs(collectionPath: string, ...constraints: QueryC
     return null;
   }
 
-  try {
-    const colRef = collection(db, collectionPath);
-    const q = query(colRef, ...constraints);
-    return await getDocs(q);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, collectionPath);
-    return null;
+  const serializedConstraints = constraints.map(serializeConstraint).join('|');
+  const cacheKey = `col:${collectionPath}:${serializedConstraints}`;
+  const now = Date.now();
+  const cached = recentReadCacheMap.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
   }
+  const existingInFlight = inFlightReadMap.get(cacheKey);
+  if (existingInFlight) {
+    return existingInFlight;
+  }
+
+  const reqPromise = (async () => {
+    try {
+      const colRef = collection(db, collectionPath);
+      const q = query(colRef, ...constraints);
+      const snap = await getDocs(q);
+      if (snap) {
+        recentReadCacheMap.set(cacheKey, {
+          collectionPath,
+          value: snap,
+          expiresAt: Date.now() + READ_MICRO_CACHE_TTL_MS
+        });
+      }
+      return snap;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, collectionPath);
+      return null;
+    } finally {
+      inFlightReadMap.delete(cacheKey);
+    }
+  })();
+
+  inFlightReadMap.set(cacheKey, reqPromise);
+  return reqPromise;
 }
 
 export function cleanUndefined(obj: any): any {
@@ -204,6 +298,7 @@ export function cleanUndefined(obj: any): any {
 }
 
 export async function safeAddDoc(collectionPath: string, data: any) {
+  invalidateReadMicroCache(collectionPath);
   const { isQuota, isOffline, latency } = applySimulations();
   if (latency > 0) await new Promise((r) => setTimeout(r, latency));
 
@@ -252,6 +347,7 @@ export async function safeSetDoc(collectionPath: string, docId: string, data: an
   }
   const cleanId = docId.trim();
   const path = `${collectionPath}/${cleanId}`;
+  invalidateReadMicroCache(collectionPath);
   const { isQuota, isOffline, latency } = applySimulations();
   if (latency > 0) await new Promise((r) => setTimeout(r, latency));
 
@@ -300,6 +396,7 @@ export async function safeUpdateDoc(collectionPath: string, docId: string, data:
   }
   const cleanId = docId.trim();
   const path = `${collectionPath}/${cleanId}`;
+  invalidateReadMicroCache(collectionPath);
   const { isQuota, isOffline, latency } = applySimulations();
   if (latency > 0) await new Promise((r) => setTimeout(r, latency));
 
@@ -348,6 +445,7 @@ export async function safeDeleteDoc(collectionPath: string, docId: string): Prom
   }
   const cleanId = docId.trim();
   const path = `${collectionPath}/${cleanId}`;
+  invalidateReadMicroCache(collectionPath);
   console.log(`[safeDeleteDoc] Initiating delete for document: ${path}`);
 
   const { isQuota, isOffline, latency } = applySimulations();

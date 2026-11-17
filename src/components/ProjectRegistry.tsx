@@ -3,9 +3,9 @@ import { Project, Product, Workspace, UserProfile, LineItem, ProjectMilestone, E
 import { dispatchProjectStock, releaseEnquiryStock } from '../services/inventoryService';
 import { updateProjectStatus, updateProjectMetadata, softDeleteProject } from '../services/projectService';
 import { ProcurementRepository } from '../services/repositories/ProcurementRepository';
+import { MetadataRepository } from '../services/repositories/MetadataRepository';
 import { canManageWorkspace, isAdmin } from '../utils/permissions';
-import { safeUpdateDoc, safeAddDoc, db } from '../firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { safeUpdateDoc, safeAddDoc } from '../firebase';
 import { PageHeader, PageBody, CardPanel, KpiStatCard } from './layout/UiContainer';
 import SearchResultCounter from './common/SearchResultCounter';
 import HoverScrollText from './common/HoverScrollText';
@@ -425,24 +425,14 @@ export default function ProjectRegistry({
       setSelectedProject(updatedProject);
       setConfirmDispatchOpen(false);
 
-      // Re-fetch products locally to update on-hand / reserved state immediately
+      // Re-fetch products from local/cached MetadataRepository store (already updated by dispatchProjectStock)
       if (setProducts) {
         try {
-          const updatedProds = await Promise.all(
-            (selectedProject.line_items || [])
-              .filter((it) => it.product_id)
-              .map(async (it) => {
-                const pSnap = await getDoc(doc(db, 'products', it.product_id!));
-                return pSnap.exists() ? ({ id: pSnap.id, ...pSnap.data() } as Product) : null;
-              })
-          );
-          const validProds = updatedProds.filter((p): p is Product => p !== null);
-          if (validProds.length > 0) {
+          const cachedProds = await MetadataRepository.fetchProductsOnce(activeWorkspace?.id);
+          if (cachedProds && cachedProds.length > 0) {
+            const refreshedMap = new Map(cachedProds.map((p) => [p.id, p]));
             setProducts((prev) =>
-              prev.map((oldP) => {
-                const refreshed = validProds.find((v) => v.id === oldP.id);
-                return refreshed || oldP;
-              })
+              prev.map((oldP) => (oldP.id && refreshedMap.get(oldP.id)) || oldP)
             );
           }
         } catch (e) {

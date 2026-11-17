@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { auth, db, safeDeleteDoc, safeAddDoc, safeUpdateDoc, safeSetDoc, safeGetDocs } from './firebase';
+import { auth, db, safeDeleteDoc, safeAddDoc, safeUpdateDoc, safeSetDoc, safeGetDoc, safeGetDocs } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, onSnapshot, query, orderBy, doc, writeBatch, updateDoc, where, or, documentId } from 'firebase/firestore';
 import { Company, Contact, Enquiry, Invite, AuditLog, Salesperson, UserProfile, Product, Project, DropdownOption, Workspace, CallLogEntry, CallStatus, WORKSPACE_STORAGE_KEY } from './types';
@@ -256,22 +256,31 @@ export default function App() {
     setCurrentTab('procurement');
   }, []);
 
-  // Sync Mode Control State
+  // Sync Mode Control State (Auto-defaults to false inside AI Studio preview iframes unless explicitly enabled)
   const [realtimeSyncEnabled, setRealtimeSyncEnabled] = useState<boolean>(() => {
+    const isEmbeddedPreview = typeof window !== 'undefined' && window.self !== window.top;
+    if (
+      isEmbeddedPreview &&
+      window.sessionStorage?.getItem('omni_iframe_explicit_live_sync') !== 'true'
+    ) {
+      try {
+        window.localStorage?.setItem('omni_realtime_sync', 'false');
+      } catch (_) {}
+      return false;
+    }
     return localStorage.getItem('omni_realtime_sync') !== 'false';
   });
   const [isIdlePaused, setIsIdlePaused] = useState<boolean>(false);
 
   // Background Tab & Inactive Preview Idle Guard: Automatically pauses onSnapshot listeners
-  // after 3 minutes of inactivity or tab hidden to eliminate duplicate quota burn between
-  // the deployed app and the AI Studio preview iframe.
+  // after 25 minutes of inactivity or tab hidden (safely inside Firestore's 30-minute resume token window).
   useEffect(() => {
     let idleTimer: NodeJS.Timeout | null = null;
-    const IDLE_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
+    const IDLE_TIMEOUT_MS = 25 * 60 * 1000; // 25 minutes
 
     const triggerIdlePause = () => {
       if (realtimeSyncEnabled) {
-        console.log('[IdleGuard] Tab backgrounded or preview idle > 3 min. Pausing active listeners to conserve Firestore quota.');
+        console.log('[IdleGuard] Tab backgrounded or preview idle > 25 min. Pausing active listeners to conserve Firestore quota.');
         setIsIdlePaused(true);
         setRealtimeSyncEnabled(false);
       }
@@ -1286,81 +1295,111 @@ export default function App() {
         setAuditLogs([]);
         setSalespersons([]);
       } else {
-        // Subscribe to user profile document
-        activeUnsubscribersRef.current.userProfile = onSnapshot(
-          doc(db, 'users', firebaseUser.uid),
-          (docSnap) => {
-            if (docSnap.exists()) {
-              const uData = docSnap.data() as UserProfile;
-              const rawLocal = localStorage.getItem('omni_local_user');
-              let parsedLocal: UserProfile | null = null;
-              if (rawLocal) {
-                try { parsedLocal = JSON.parse(rawLocal); } catch (e) {}
-              }
-              const hasCompleted = uData.profileCompleted || (parsedLocal?.uid === uData.uid ? parsedLocal?.profileCompleted : false) || Boolean(uData.full_name);
-              const mergedUser: UserProfile = {
-                ...uData,
-                profileCompleted: hasCompleted,
-                full_name: uData.full_name || (parsedLocal?.uid === uData.uid ? parsedLocal?.full_name : undefined) || uData.username,
-                initials: uData.initials || (parsedLocal?.uid === uData.uid ? parsedLocal?.initials : undefined),
-                role: uData.role || (parsedLocal?.uid === uData.uid ? parsedLocal?.role : undefined) || 'Member'
-              };
-
-              setUser(mergedUser);
-              setLocalCache(`omni_user_${firebaseUser.uid}`, mergedUser);
-              localStorage.setItem('omni_local_user', JSON.stringify(mergedUser));
+        const applyUserDocData = (uData: UserProfile | null) => {
+          const rawLocal = localStorage.getItem('omni_local_user');
+          let parsedLocal: UserProfile | null = null;
+          if (rawLocal) {
+            try { parsedLocal = JSON.parse(rawLocal); } catch (e) {}
+          }
+          if (uData) {
+            const hasCompleted =
+              uData.profileCompleted ||
+              (parsedLocal?.uid === uData.uid ? parsedLocal?.profileCompleted : false) ||
+              Boolean(uData.full_name);
+            const mergedUser: UserProfile = {
+              ...uData,
+              profileCompleted: hasCompleted,
+              full_name:
+                uData.full_name ||
+                (parsedLocal?.uid === uData.uid ? parsedLocal?.full_name : undefined) ||
+                uData.username,
+              initials:
+                uData.initials ||
+                (parsedLocal?.uid === uData.uid ? parsedLocal?.initials : undefined),
+              role:
+                uData.role ||
+                (parsedLocal?.uid === uData.uid ? parsedLocal?.role : undefined) ||
+                'Member'
+            };
+            setUser(mergedUser);
+            setLocalCache(`omni_user_${firebaseUser.uid}`, mergedUser);
+            localStorage.setItem('omni_local_user', JSON.stringify(mergedUser));
+            try {
+              localStorage.setItem(`omni_user_fetched_at_${firebaseUser.uid}`, String(Date.now()));
+            } catch (_) {}
+          } else {
+            const cachedLocal = getLocalCache<UserProfile | null>(`omni_user_${firebaseUser.uid}`, null);
+            const validCache =
+              cachedLocal ||
+              (parsedLocal && parsedLocal.uid === firebaseUser.uid ? parsedLocal : null);
+            if (validCache) {
+              setUser(validCache);
             } else {
-              // Try local cache first before constructing a default
-              const cachedLocal = getLocalCache<UserProfile | null>(`omni_user_${firebaseUser.uid}`, null);
-              const rawLocal = localStorage.getItem('omni_local_user');
-              let parsedLocal: UserProfile | null = null;
-              if (rawLocal) {
-                try { parsedLocal = JSON.parse(rawLocal); } catch (e) {}
-              }
-              const validCache = cachedLocal || (parsedLocal && parsedLocal.uid === firebaseUser.uid ? parsedLocal : null);
-
-              if (validCache) {
-                setUser(validCache);
-              } else {
-                const isEmailAdmin = firebaseUser.email?.toLowerCase().startsWith('admin@');
-                const defaultProf: UserProfile = {
-                  uid: firebaseUser.uid,
-                  email: firebaseUser.email || 'user@omnisuite.com',
-                  username: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Member',
-                  full_name: firebaseUser.displayName || undefined,
-                  role: isEmailAdmin ? 'Admin' : 'Member',
-                  workspaceIds: ['ws_default'],
-                  defaultWorkspaceId: 'ws_default',
-                  createdAt: new Date().toISOString()
-                };
-                setUser(defaultProf);
-                setLocalCache(`omni_user_${firebaseUser.uid}`, defaultProf);
-                localStorage.setItem('omni_local_user', JSON.stringify(defaultProf));
-              }
-            }
-            setAuthLoading(false);
-          },
-          (error) => {
-            console.warn("User profile subscription error (Quota or Network):", error);
-            const cachedUser = getLocalCache<UserProfile | null>(`omni_user_${firebaseUser.uid}`, null);
-            if (cachedUser) {
-              setUser(cachedUser);
-            } else {
-              const fallbackProf: UserProfile = {
+              const isEmailAdmin = firebaseUser.email?.toLowerCase().startsWith('admin@');
+              const defaultProf: UserProfile = {
                 uid: firebaseUser.uid,
                 email: firebaseUser.email || 'user@omnisuite.com',
-                username: firebaseUser.displayName || 'Member',
-                role: 'Member',
+                username: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Member',
+                full_name: firebaseUser.displayName || undefined,
+                role: isEmailAdmin ? 'Admin' : 'Member',
                 workspaceIds: ['ws_default'],
                 defaultWorkspaceId: 'ws_default',
                 createdAt: new Date().toISOString()
               };
-              setUser(fallbackProf);
-              setLocalCache(`omni_user_${firebaseUser.uid}`, fallbackProf);
+              setUser(defaultProf);
+              setLocalCache(`omni_user_${firebaseUser.uid}`, defaultProf);
+              localStorage.setItem('omni_local_user', JSON.stringify(defaultProf));
             }
-            setAuthLoading(false);
           }
-        );
+          setAuthLoading(false);
+        };
+
+        const isEmbeddedPreview = typeof window !== 'undefined' && window.self !== window.top;
+        const isLiveSyncActive =
+          localStorage.getItem('omni_realtime_sync') !== 'false' &&
+          (!isEmbeddedPreview ||
+            window.sessionStorage?.getItem('omni_iframe_explicit_live_sync') === 'true');
+
+        if (!isLiveSyncActive) {
+          // Local-first / Preview mode: use 30-minute localStorage-cached safeGetDoc instead of a permanent onSnapshot listener
+          const USER_CACHE_TTL_MS = 30 * 60 * 1000;
+          const cachedLocal = getLocalCache<UserProfile | null>(`omni_user_${firebaseUser.uid}`, null);
+          const lastFetchedStr = localStorage.getItem(`omni_user_fetched_at_${firebaseUser.uid}`);
+          const lastFetchedAt = lastFetchedStr ? parseInt(lastFetchedStr, 10) : 0;
+
+          if (cachedLocal && lastFetchedAt > 0 && Date.now() - lastFetchedAt < USER_CACHE_TTL_MS) {
+            applyUserDocData(cachedLocal);
+          } else {
+            safeGetDoc('users', firebaseUser.uid)
+              .then((docSnap) => {
+                if (docSnap && docSnap.exists()) {
+                  applyUserDocData(docSnap.data() as UserProfile);
+                } else {
+                  applyUserDocData(null);
+                }
+              })
+              .catch((error) => {
+                console.warn('User profile one-time fetch notice (Quota/Network):', error);
+                applyUserDocData(null);
+              });
+          }
+        } else {
+          // Subscribe to user profile document when Live Sync is ON
+          activeUnsubscribersRef.current.userProfile = onSnapshot(
+            doc(db, 'users', firebaseUser.uid),
+            (docSnap) => {
+              if (docSnap.exists()) {
+                applyUserDocData(docSnap.data() as UserProfile);
+              } else {
+                applyUserDocData(null);
+              }
+            },
+            (error) => {
+              console.warn('User profile subscription error (Quota or Network):', error);
+              applyUserDocData(null);
+            }
+          );
+        }
       }
     });
 
@@ -1374,9 +1413,9 @@ export default function App() {
   const fetchMetadataAndDropdownsOnce = useCallback(async (force = false) => {
     if (!user?.uid) return;
 
-    // Always hydrate Products from MetadataRepository (reads in-memory / IndexedDB PRODUCT_STORE with 0 Firestore reads unless cold or forced)
+    // Always hydrate Products from MetadataRepository scoped by activeWorkspaceId (reads in-memory / IndexedDB PRODUCT_STORE with 0 Firestore reads unless cold or forced)
     try {
-      const prods = await MetadataRepository.fetchProductsOnce(undefined, force);
+      const prods = await MetadataRepository.fetchProductsOnce(activeWorkspaceId || 'ws_default', force);
       if (prods && prods.length > 0) {
         setProducts(prods);
       }
@@ -1476,13 +1515,13 @@ export default function App() {
     } catch (err) {
       console.warn('Metadata one-time fetch error:', err);
     }
-  }, [user?.uid]);
+  }, [user?.uid, activeWorkspaceId]);
 
   useEffect(() => {
     if (user?.uid) {
       fetchMetadataAndDropdownsOnce();
     }
-  }, [user?.uid, fetchMetadataAndDropdownsOnce]);
+  }, [user?.uid, activeWorkspaceId, fetchMetadataAndDropdownsOnce]);
 
   // 2. Workspace Members & Workspaces Listeners (Decoupled from operational collection listeners)
   useEffect(() => {
@@ -1758,11 +1797,11 @@ export default function App() {
       setEnquiries(getLocalCache<Enquiry[]>('omni_enquiries', INITIAL_ENQUIRIES).map((e) => normalizeEnquiry(e, currentWsId)));
     });
 
-    // Invites — One-time fetch with 30-minute TTL guard (rarely-changed static collection)
-    const STATIC_TTL_MS = 30 * 60 * 1000;
+    // Invites — One-time fetch with 12-hour TTL guard (honors timestamp even when cachedInvites.length === 0)
+    const STATIC_TTL_MS = 12 * 60 * 60 * 1000;
     const cachedInvites = getLocalCache<Invite[]>('omni_invites', []);
     const lastInvitesFetch = parseInt(localStorage.getItem('omni_invites_fetched_at') || '0', 10);
-    if (cachedInvites.length > 0 && Date.now() - lastInvitesFetch < STATIC_TTL_MS) {
+    if (lastInvitesFetch > 0 && Date.now() - lastInvitesFetch < STATIC_TTL_MS) {
       setInvites(cachedInvites);
     } else {
       safeGetDocs('invites')
@@ -1782,11 +1821,11 @@ export default function App() {
         });
     }
 
-    // Salespersons — One-time fetch with 30-minute TTL guard (rarely-changed static collection)
+    // Salespersons — One-time fetch with 12-hour TTL guard (honors timestamp even when cachedSalespersons.length === 0)
     const cachedSalespersons = getLocalCache<Salesperson[]>('omni_salespersons', []);
     const lastSpFetch = parseInt(localStorage.getItem('omni_salespersons_fetched_at') || '0', 10);
-    if (cachedSalespersons.length > 0 && Date.now() - lastSpFetch < STATIC_TTL_MS) {
-      setSalespersons(cachedSalespersons);
+    if (lastSpFetch > 0 && Date.now() - lastSpFetch < STATIC_TTL_MS) {
+      setSalespersons(cachedSalespersons.length > 0 ? cachedSalespersons : INITIAL_SALESPERSONS);
     } else {
       safeGetDocs('salespersons')
         .then((snap) => {
@@ -2129,6 +2168,7 @@ export default function App() {
                   const next = !prev;
                   try {
                     localStorage.setItem('omni_realtime_sync', next ? 'true' : 'false');
+                    sessionStorage.setItem('omni_iframe_explicit_live_sync', next ? 'true' : 'false');
                   } catch (_) {}
                   if (next) {
                     setIsIdlePaused(false);
