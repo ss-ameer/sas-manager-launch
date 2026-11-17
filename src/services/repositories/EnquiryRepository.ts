@@ -10,13 +10,119 @@ export class EnquiryRepository {
   private static STORE_NAME = 'enquiries';
 
   /**
+   * Normalizes legacy VAT-inclusive `value_aed` (e.g. #18 where `value_aed` stored 5% VAT-inclusive 746,886
+   * instead of net subtotal 711,320) and formats bare sequence-date `quote_ref_no` strings
+   * (e.g. `2805-040926` -> `AVENTURA/UAE/BMF/2805-040926`).
+   */
+  public static normalizeEnquiry(data: any): any {
+    if (!data || typeof data !== 'object') return data;
+
+    let normalizedValueAed = Number(data.value_aed);
+    const remarksStr = typeof data.remarks === 'string' ? data.remarks : '';
+
+    // 1a. Check explicit remarks pattern: "TOTAL = <net> ... VAT @ 5% ... Gr. TOTAL = <gross>"
+    if (remarksStr) {
+      const remarksMatch = remarksStr.match(
+        /TOTAL\s*=\s*([\d,]+(?:\.\d+)?)[\s\S]*?VAT\s*@\s*5%[\s\S]*?(?:Gr\.?\s*TOTAL|GRAND\s*TOTAL)\s*=\s*([\d,]+(?:\.\d+)?)/i
+      );
+      if (remarksMatch) {
+        const netFromRemarks = parseFloat(remarksMatch[1].replace(/,/g, ''));
+        const grossFromRemarks = parseFloat(remarksMatch[2].replace(/,/g, ''));
+        if (
+          Number.isFinite(netFromRemarks) &&
+          netFromRemarks > 0 &&
+          Number.isFinite(normalizedValueAed) &&
+          ((Number.isFinite(grossFromRemarks) && Math.abs(normalizedValueAed - grossFromRemarks) <= 2) ||
+            Math.abs(normalizedValueAed - netFromRemarks * 1.05) <= 2) &&
+          Math.abs(normalizedValueAed - netFromRemarks) > 2
+        ) {
+          normalizedValueAed = Math.round(netFromRemarks * 100) / 100;
+        }
+      }
+    }
+
+    // 1b. Check baseline line_items net sum vs 5% VAT-inclusive value_aed
+    const rawItems = Array.isArray(data.line_items)
+      ? data.line_items
+      : Array.isArray(data.items)
+      ? data.items
+      : [];
+    if (rawItems.length > 0 && Number.isFinite(normalizedValueAed) && normalizedValueAed > 0) {
+      const baselineItems = rawItems.filter((item: any) => {
+        if (!item || item.is_optional) return false;
+        const og = String(item.option_group || '').trim().toUpperCase();
+        return !og || og === 'A';
+      });
+      const itemsToSum = baselineItems.length > 0 ? baselineItems : rawItems;
+      const netSum = itemsToSum.reduce((sum: number, item: any) => {
+        const lineTotal =
+          Number(
+            item.total_aed ??
+              item.total ??
+              Number(item.qty ?? item.quantity ?? 1) *
+                Number(item.unit_price_aed ?? item.unit_price ?? item.rate ?? 0)
+          ) || 0;
+        return sum + lineTotal;
+      }, 0);
+
+      if (
+        netSum > 0 &&
+        Math.abs(normalizedValueAed - netSum * 1.05) <= 2 &&
+        Math.abs(normalizedValueAed - netSum) > 2
+      ) {
+        normalizedValueAed = Math.round(netSum * 100) / 100;
+      }
+    }
+
+    // 2. Normalize bare sequence-date quote_ref_no (e.g. "2805-040926" -> "AVENTURA/UAE/BMF/2805-040926")
+    let normalizedQuoteRef = typeof data.quote_ref_no === 'string' ? data.quote_ref_no.trim() : data.quote_ref_no;
+    if (
+      typeof normalizedQuoteRef === 'string' &&
+      !normalizedQuoteRef.includes('/') &&
+      /^\d{3,5}-\d{6}[A-Z]{0,3}$/i.test(normalizedQuoteRef)
+    ) {
+      const rawCountry = String(data.country_code || data.country || 'UAE').trim().toUpperCase();
+      const countryCode =
+        !rawCountry || rawCountry === 'UNITED ARAB EMIRATES' || rawCountry === 'U.A.E.'
+          ? 'UAE'
+          : rawCountry.length <= 4
+          ? rawCountry
+          : 'UAE';
+
+      const explicitCode = String(data.company_code || data.client_code || '')
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, '');
+      const companyNameStr = String(data.company_name || data.client_name || '').trim();
+      const derivedInitials = companyNameStr
+        ? companyNameStr
+            .split(/[\s&,.\-/()]+/)
+            .map((w) => w.replace(/[^A-Za-z0-9]/g, ''))
+            .filter(Boolean)
+            .map((w) => w[0].toUpperCase())
+            .join('')
+            .slice(0, 5)
+        : '';
+      const clientInitials = explicitCode || derivedInitials || 'GEN';
+      normalizedQuoteRef = `AVENTURA/${countryCode}/${clientInitials}/${normalizedQuoteRef.toUpperCase()}`;
+    }
+
+    return {
+      ...data,
+      ...(Number.isFinite(normalizedValueAed) ? { value_aed: normalizedValueAed } : {}),
+      ...(normalizedQuoteRef ? { quote_ref_no: normalizedQuoteRef } : {})
+    };
+  }
+
+  /**
    * Explicit Deserialization Mapping:
    * Maps raw snapshot/local object into typed Enquiry, explicitly preserving
    * shared_with, shared_with_uids, additional_team, and shared_with_names so collaborator
    * state is never lost on refresh.
    */
-  public static docToEnquiry(id: string, data: any): Enquiry {
-    if (!data) return { id } as Enquiry;
+  public static docToEnquiry(id: string, rawData: any): Enquiry {
+    if (!rawData) return { id } as Enquiry;
+    const data = this.normalizeEnquiry(rawData);
 
     const cleanUids: string[] = Array.isArray(data.shared_with)
       ? data.shared_with.map((u: any) => (typeof u === 'string' ? u.trim() : String(u?.uid || u?.id || '').trim())).filter(Boolean)
@@ -526,10 +632,12 @@ export class EnquiryRepository {
     if (isWsAdmin) {
       // Fetch and display ALL enquiries in the active workspace
       // Do NOT filter by assignedSalesperson
-      return enquiries.filter((e) => !e.is_deleted);
+      return enquiries.filter((e) => !e.is_deleted).map((e) => this.normalizeEnquiry(e));
     }
 
     // If isWsAdmin is false (standard restricted member): Filter strictly by assignedSalesperson === currentUser.id or shared enquiries
-    return enquiries.filter((e) => !e.is_deleted && canAccessEnquiry(currentUser, e, activeWorkspace));
+    return enquiries
+      .filter((e) => !e.is_deleted && canAccessEnquiry(currentUser, e, activeWorkspace))
+      .map((e) => this.normalizeEnquiry(e));
   }
 }

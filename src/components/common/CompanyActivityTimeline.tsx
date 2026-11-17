@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Clock,
   Phone,
@@ -29,6 +29,7 @@ export { isScheduledTask };
 import LiveExecutionModal from '../LiveExecutionModal';
 import CallLogDetailModal from '../CallLogDetailModal';
 import { CallLogRepository } from '../../services/repositories/CallLogRepository';
+import { EnquiryRepository } from '../../services/repositories/EnquiryRepository';
 
 export interface CompanyActivityTimelineProps {
   historyLogs?: CallLogEntry[];
@@ -267,7 +268,11 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [channelFilter, setChannelFilter] = useState<string>('all');
-  const [activeTab, setActiveTab] = useState<'activities' | 'proposals'>('activities');
+  const [activeTab, setActiveTab] = useState<'activities' | 'proposals'>(() => {
+    const hasActivities = historyLogs.some((l) => !isScheduledTask(l)) || historyLogs.some((l) => isScheduledTask(l));
+    if (!hasActivities && enquiries.length > 0) return 'proposals';
+    return 'activities';
+  });
   const [internalExecutingTask, setInternalExecutingTask] = useState<CallLogEntry | null>(null);
   const [selectedDetailLog, setSelectedDetailLog] = useState<CallLogEntry | null>(null);
 
@@ -300,6 +305,14 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
         return timeB - timeA;
       });
   }, [historyLogs]);
+
+  useEffect(() => {
+    if (pastHistoryLogs.length === 0 && queuedTasks.length === 0 && enquiries.length > 0) {
+      setActiveTab('proposals');
+    } else if (enquiries.length === 0 && activeTab === 'proposals') {
+      setActiveTab('activities');
+    }
+  }, [companyId, pastHistoryLogs.length, queuedTasks.length, enquiries.length]);
 
   // Filtered pending queued tasks based on search
   const filteredQueuedTasks = useMemo(() => {
@@ -364,18 +377,28 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
     }
   };
 
-  // Filtered proposals
-  const filteredEnquiries = useMemo(() => {
+  // Filtered proposals (normalized for legacy VAT-inclusive value_aed & bare quote_ref_no)
+  const normalizedEnquiries = useMemo(() => {
     if (!enquiries || enquiries.length === 0) return [];
-    if (!searchTerm.trim()) return enquiries;
+    return enquiries.map((e) =>
+      EnquiryRepository.normalizeEnquiry({
+        ...e,
+        company_name: e.company_name || companyName || undefined
+      }) as Enquiry
+    );
+  }, [enquiries, companyName]);
+
+  const filteredEnquiries = useMemo(() => {
+    if (normalizedEnquiries.length === 0) return [];
+    if (!searchTerm.trim()) return normalizedEnquiries;
     const q = searchTerm.toLowerCase();
-    return enquiries.filter((e) => {
+    return normalizedEnquiries.filter((e) => {
       const refMatch = (e.quote_ref_no || '').toLowerCase().includes(q) || String(e.sn || '').includes(q);
       const subjectMatch = (e.subject || '').toLowerCase().includes(q);
       const statusMatch = (e.status || '').toLowerCase().includes(q);
       return refMatch || subjectMatch || statusMatch;
     });
-  }, [enquiries, searchTerm]);
+  }, [normalizedEnquiries, searchTerm]);
 
   const renderChannelIcon = (channelName?: string) => {
     const norm = (channelName || '').toLowerCase();
@@ -562,10 +585,10 @@ export const CompanyActivityTimeline: React.FC<CompanyActivityTimelineProps> = (
               <div className="min-w-0">
                 <div className="flex items-center space-x-2 flex-wrap">
                   <h3 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider font-mono">
-                    Activity History
+                    {enquiries.length > 0 ? 'Account Timeline & Proposals' : 'Activity History'}
                   </h3>
                   <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 font-mono">
-                    {pastHistoryLogs.length + enquiries.length}
+                    {activeTab === 'proposals' ? enquiries.length : pastHistoryLogs.length}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">

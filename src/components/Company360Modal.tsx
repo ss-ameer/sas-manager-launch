@@ -58,6 +58,7 @@ import {
 import { CompanyActivityTimeline, formatTimelineDate } from './common/CompanyActivityTimeline';
 import { safeDeleteDoc, safeSetDoc, safeUpdateDoc } from '../firebase';
 import { CompanyRepository } from '../services/repositories/CompanyRepository';
+import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
 import { IndustryBadge, formatSubTypeName } from '../utils/taxonomy';
 import { recordAuditLog } from '../utils/auditLogger';
 import { isSuccessStatus, isScheduledTask } from '../utils/activityLogic';
@@ -483,8 +484,16 @@ export default function Company360Modal({
 
   const companyEnquiries = useMemo(() => {
     if (!company) return [];
-    return enquiries.filter((e) => !e.is_deleted && e.company_id === company.id);
-  }, [enquiries, company?.id]);
+    return enquiries
+      .filter((e) => !e.is_deleted && e.company_id === company.id)
+      .map((e) =>
+        EnquiryRepository.normalizeEnquiry({
+          ...e,
+          company_name: e.company_name || company.display_name || undefined,
+          company_code: (e as any).company_code || (company as any).company_code || undefined
+        }) as Enquiry
+      );
+  }, [enquiries, company?.id, company?.display_name]);
 
   const handleOutboundInteraction = (
     e: React.MouseEvent,
@@ -604,17 +613,50 @@ export default function Company360Modal({
     };
   }, [companyEnquiries, authorizedEnquiries]);
 
-  // 4. Last Contacted relative timestamp & channel (strictly past executed interactions only)
+  // 4. Last Contacted relative timestamp & channel (strictly past executed interactions, with fallback to latest proposal date)
   const lastContactInfo = useMemo(() => {
-    if (!companyCallLogs || companyCallLogs.length === 0) {
+    const getProposalFallback = () => {
+      if (companyEnquiries && companyEnquiries.length > 0) {
+        const sortedEnqs = [...companyEnquiries].sort((a, b) => {
+          const dA = new Date(a.enquiry_date || (a as any).date || a.created_at || (a as any).createdAt || 0).getTime() || 0;
+          const dB = new Date(b.enquiry_date || (b as any).date || b.created_at || (b as any).createdAt || 0).getTime() || 0;
+          return dB - dA;
+        });
+        const latestEnq = sortedEnqs[0];
+        const rawEnqDate = latestEnq.enquiry_date || (latestEnq as any).date || latestEnq.created_at || (latestEnq as any).createdAt;
+        let formattedDate = 'Recent';
+        if (rawEnqDate) {
+          const d = new Date(rawEnqDate);
+          if (!isNaN(d.getTime())) {
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            formattedDate = `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+          } else {
+            formattedDate = String(rawEnqDate);
+          }
+        }
+        return {
+          relative: `Latest Quote: ${formattedDate}`,
+          formatted: `Latest Quote: ${formattedDate}`,
+          channel: 'Proposal',
+          subtitle: 'Proposal activity logged',
+          agent: null,
+          icon: <FileText className="w-3.5 h-3.5 text-purple-500" />,
+          latest: null
+        };
+      }
       return {
         relative: 'No outreach yet',
         formatted: 'No logs recorded',
         channel: 'Never',
+        subtitle: 'No outreach recorded',
         agent: null,
         icon: <Clock className="w-3.5 h-3.5 text-slate-400" />,
         latest: null
       };
+    };
+
+    if (!companyCallLogs || companyCallLogs.length === 0) {
+      return getProposalFallback();
     }
 
     const now = Date.now();
@@ -672,14 +714,7 @@ export default function Company360Modal({
     });
 
     if (pastLogs.length === 0) {
-      return {
-        relative: 'No outreach yet',
-        formatted: 'No past outreach recorded',
-        channel: 'Never',
-        agent: null,
-        icon: <Clock className="w-3.5 h-3.5 text-slate-400" />,
-        latest: null
-      };
+      return getProposalFallback();
     }
 
     const sorted = [...pastLogs].sort((a, b) => {
@@ -708,11 +743,12 @@ export default function Company360Modal({
       relative: timeInfo.relative,
       formatted: timeInfo.formatted,
       channel: chanLabel,
+      subtitle: `${chanLabel} via ${agent}`,
       agent,
       icon,
       latest
     };
-  }, [companyCallLogs]);
+  }, [companyCallLogs, companyEnquiries]);
 
   if ((isOpen !== undefined && !isOpen) || !companyId || !company) return null;
 
@@ -1075,7 +1111,7 @@ export default function Company360Modal({
               {lastContactInfo.relative}
             </div>
             <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium truncate">
-              {lastContactInfo.channel !== 'Never' ? `${lastContactInfo.channel} via ${lastContactInfo.agent}` : 'No outreach recorded'}
+              {(lastContactInfo as any).subtitle || (lastContactInfo.channel !== 'Never' ? `${lastContactInfo.channel} via ${lastContactInfo.agent}` : 'No outreach recorded')}
             </div>
           </div>
         </div>
@@ -1762,152 +1798,6 @@ export default function Company360Modal({
                   )}
                 </div>
               </div>
-            </div>
-
-            {/* Card C: Active Linked Proposals */}
-            <div className="p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <div className="p-1 rounded-md bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800">
-                    <FileText className="w-3.5 h-3.5" />
-                  </div>
-                  <h3 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider font-mono">
-                    Active Proposals ({companyEnquiries.length})
-                  </h3>
-                </div>
-
-                {onCreateEnquiryForCompany && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose();
-                      onCreateEnquiryForCompany(company);
-                    }}
-                    className="px-2 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/80 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
-                  >
-                    <Plus className="w-3 h-3" />
-                    <span>New Quote</span>
-                  </button>
-                )}
-              </div>
-
-              {companyEnquiries.length === 0 ? (
-                <div className="py-6 px-3 text-center rounded-lg border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40">
-                  <p className="text-xs text-slate-500 dark:text-slate-400">No proposals or quotations registered.</p>
-                  {onCreateEnquiryForCompany && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onClose();
-                        onCreateEnquiryForCompany(company);
-                      }}
-                      className="mt-2 text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
-                    >
-                      + Generate Proposal
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
-                  {companyEnquiries.map((enq) => {
-                    const isAuthorized = canAccessEnquiry(user, enq, activeWorkspace);
-                    const isWon = (enq.status || '').toLowerCase() === 'order received' || (enq.status || '').toLowerCase() === 'won';
-                    const isLost = (enq.status || '').toLowerCase() === 'lost' || (enq.status || '').toLowerCase() === 'dead';
-                    const spName = getSalespersonFullName(enq.sales_person || (enq as any).salesperson, salespersons);
-                    const repInitials = String((enq as any).rep || enq.sales_person || (enq as any).salesperson || '').toUpperCase().trim();
-                    const enqRawDate = enq.enquiry_date || (enq as any).created_at || enq.createdAt;
-                    const enqDate = enqRawDate ? (enq.enquiry_date || formatTimelineDate(enqRawDate).relative) : 'Recent';
-
-                    if (isAuthorized) {
-                      return (
-                        <div
-                          key={enq.id}
-                          onClick={() => {
-                            if (enq.id && onOpenEnquiry) {
-                              onClose();
-                              onOpenEnquiry(enq.id);
-                            }
-                          }}
-                          className="p-2.5 rounded-lg border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/50 hover:bg-slate-100/80 dark:hover:bg-slate-800/90 transition cursor-pointer flex items-center justify-between gap-2 group"
-                        >
-                          <div className="min-w-0">
-                            <div className="flex items-center space-x-1.5 flex-wrap">
-                              <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400">
-                                {enq.quote_ref_no || `QTE-${enq.sn || '001'}`}
-                              </span>
-                              <span
-                                className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
-                                  isWon
-                                    ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300'
-                                    : isLost
-                                    ? 'bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300'
-                                    : 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300'
-                                }`}
-                              >
-                                {enq.status || 'Active'}
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-slate-600 dark:text-slate-300 truncate mt-0.5">
-                              {enq.subject || 'Commercial Proposal'}
-                            </p>
-                            <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-0.5">
-                              {enqDate} • {spName}{repInitials && repInitials !== spName.toUpperCase() ? ` (${repInitials})` : ''}
-                            </p>
-                          </div>
-
-                          <div className="text-right shrink-0">
-                            <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white block font-mono">
-                              {enq.currency || 'AED'} {(enq.value_aed || 0).toLocaleString()}
-                            </span>
-                            <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 group-hover:underline inline-flex items-center gap-0.5 mt-0.5">
-                              <span>View</span>
-                              <ExternalLink className="w-2.5 h-2.5" />
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    // Restricted Context-Only View (for collision prevention)
-                    return (
-                      <div
-                        key={enq.id}
-                        className="p-2.5 rounded-lg border border-slate-200/60 dark:border-slate-800/60 bg-slate-50/40 dark:bg-slate-900/40 cursor-default flex items-center justify-between gap-2 select-none"
-                      >
-                        <div className="min-w-0">
-                          <div className="flex items-center space-x-1.5 flex-wrap">
-                            <span className="font-mono text-xs font-bold text-slate-700 dark:text-slate-300">
-                              {enq.quote_ref_no || `QTE-${enq.sn || '001'}`}
-                            </span>
-                            <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-200/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                              {enq.status || 'Active'}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-slate-400 dark:text-slate-500 italic truncate mt-0.5">
-                            Proposal details restricted
-                          </p>
-                          <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-0.5">
-                            {enqDate} • Owner: <strong className="font-semibold text-slate-600 dark:text-slate-400">{spName}</strong>{repInitials ? ` (${repInitials})` : ''}
-                          </p>
-                        </div>
-
-                        <div className="text-right shrink-0 flex flex-col items-end gap-1">
-                          <div className="flex items-center space-x-1 font-mono text-xs sm:text-sm font-semibold text-slate-400 dark:text-slate-500">
-                            <span>AED ••••••</span>
-                            <span className="px-1 py-0.2 rounded text-[8px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 uppercase">
-                              Confidential
-                            </span>
-                          </div>
-                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200/80 dark:border-amber-800/80 inline-flex items-center gap-1">
-                            <Lock className="w-2.5 h-2.5 shrink-0" />
-                            <span>Restricted Access</span>
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
             </div>
           </div>
 

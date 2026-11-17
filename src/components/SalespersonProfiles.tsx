@@ -33,6 +33,12 @@ import { FieldLabel } from './common/FieldHelpHint';
 import { PageHeader, PageBody } from './layout/UiContainer';
 import { isSuperAdmin, isAdmin, canAccessEnquiry, isRecordOwner, getUserWorkspaceRole } from '../utils/permissions';
 import { isWonStatus, isLostOrCancelledStatus } from '../services/inventoryService';
+import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
+
+function normalizeRoleTitle(raw?: string): string {
+  const cleaned = (raw || '').trim().replace(/coordianator/gi, 'Coordinator');
+  return cleaned || 'Sales Representative';
+}
 
 interface SalespersonProfilesProps {
   key?: any;
@@ -130,11 +136,11 @@ export default function SalespersonProfiles({
     };
 
     const formatWorkspaceRoleLabel = (rawRole?: string, jobTitle?: string, department?: string): string => {
-      const customTitle = (jobTitle || department || '').trim();
+      const customTitle = (jobTitle || department || '').trim().replace(/coordianator/gi, 'Coordinator');
       if (customTitle && !['member', 'viewer'].includes(customTitle.toLowerCase())) {
         return customTitle;
       }
-      const norm = (rawRole || '').trim();
+      const norm = (rawRole || '').trim().replace(/coordianator/gi, 'Coordinator');
       if (!norm) return 'Team Member';
       const lower = norm.toLowerCase();
       if (lower === 'superadmin' || lower === 'super_admin' || lower === 'super admin') return 'Super Admin';
@@ -165,7 +171,7 @@ export default function SalespersonProfiles({
         const normalizedSp: Salesperson = {
           ...sp,
           initials: sp.initials || getInitials(sp.full_name || sp.email || 'TM'),
-          role: sp.role?.trim() || 'Sales Representative'
+          role: normalizeRoleTitle(sp.role)
         };
         registerIdentity(normalizedSp);
         list.push(normalizedSp);
@@ -373,21 +379,28 @@ export default function SalespersonProfiles({
   // Find metrics for a specific team member
   const getSalespersonMetrics = (sp: Salesperson) => {
     const spUid = String(sp.uid || sp.linked_user_id || (sp as any).user_id || '').trim();
-    const personalEnqs = enquiries.filter((e) => {
-      if (e.is_deleted || e.is_gap_placeholder) return false;
-      const spId = resolveSalespersonIdentifier(e);
-      const spName = resolveSalespersonName(e);
-      const spInitUpper = (sp.initials || '').trim().toUpperCase();
-      return (
-        (spId && (spId === sp.id || (spUid && spId === spUid) || (spInitUpper && spId.toUpperCase() === spInitUpper))) ||
-        (spName && (spName === sp.id || (spInitUpper && spName.toUpperCase() === spInitUpper) || (sp.full_name && spName.toLowerCase() === sp.full_name.toLowerCase()))) ||
-        e.sales_person === sp.id ||
-        (spInitUpper && (e.sales_person || '').trim().toUpperCase() === spInitUpper) ||
-        (e.salesperson_id && (e.salesperson_id === sp.id || (spUid && e.salesperson_id === spUid))) ||
-        (e.sales_person_id && (e.sales_person_id === sp.id || (spUid && e.sales_person_id === spUid))) ||
-        (spUid && (e.assigned_to_id === spUid || (e as any).assigned_to_uid === spUid))
+    const personalEnqs = enquiries
+      .filter((e) => {
+        if (e.is_deleted || e.is_gap_placeholder) return false;
+        const spId = resolveSalespersonIdentifier(e);
+        const spName = resolveSalespersonName(e);
+        const spInitUpper = (sp.initials || '').trim().toUpperCase();
+        return (
+          (spId && (spId === sp.id || (spUid && spId === spUid) || (spInitUpper && spId.toUpperCase() === spInitUpper))) ||
+          (spName && (spName === sp.id || (spInitUpper && spName.toUpperCase() === spInitUpper) || (sp.full_name && spName.toLowerCase() === sp.full_name.toLowerCase()))) ||
+          e.sales_person === sp.id ||
+          (spInitUpper && (e.sales_person || '').trim().toUpperCase() === spInitUpper) ||
+          (e.salesperson_id && (e.salesperson_id === sp.id || (spUid && e.salesperson_id === spUid))) ||
+          (e.sales_person_id && (e.sales_person_id === sp.id || (spUid && e.sales_person_id === spUid))) ||
+          (spUid && (e.assigned_to_id === spUid || (e as any).assigned_to_uid === spUid))
+        );
+      })
+      .map((e) =>
+        EnquiryRepository.normalizeEnquiry({
+          ...e,
+          company_name: e.company_name || companyMap.get(e.company_id) || undefined
+        }) as Enquiry
       );
-    });
     const activeEnqs = personalEnqs.filter(
       (e) => !isWonStatus(e.status) && !isLostOrCancelledStatus(e.status) && e.status !== 'Dead'
     );
@@ -549,7 +562,7 @@ export default function SalespersonProfiles({
     setEditingSalesperson(s);
     setFormInitials(s.initials || getInitials(s.full_name || ''));
     setFormFullName(s.full_name || '');
-    setFormRole(s.role?.trim() || 'Sales Representative');
+    setFormRole(normalizeRoleTitle(s.role));
     setFormEmail(s.email || '');
     setFormPhone(s.phone || '');
     setShowFormModal(true);
@@ -557,7 +570,7 @@ export default function SalespersonProfiles({
 
   const handleSaveSalesperson = async (e: React.FormEvent) => {
     e.preventDefault();
-    const resolvedRole = formRole.trim() || 'Sales Representative';
+    const resolvedRole = normalizeRoleTitle(formRole);
     if (!formFullName.trim() || !resolvedRole) return;
     if (isSubmitting) return;
 
@@ -1056,7 +1069,7 @@ export default function SalespersonProfiles({
                     (s.initials && selectedSalesperson.initials === s.initials))
               );
               const isUserSelf = isOwnProfile(s);
-              const repRole = s.role?.trim() || 'Sales Representative';
+              const repRole = normalizeRoleTitle(s.role);
               return (
                 <button
                   key={s.id || `${s.initials}-${s.full_name}-${idx}`}
@@ -1106,11 +1119,13 @@ export default function SalespersonProfiles({
                     </span>
                     {m.enquiries.length > 0 && m.closedCount > 0 ? (
                       <span className="text-[11px] font-mono tabular-nums text-emerald-600 dark:text-emerald-400 block whitespace-nowrap">
-                        {m.winRate}% Won
+                        {m.activeCount > 0
+                          ? `${m.wonCount} Won · ${m.activeCount} Active`
+                          : `${m.winRate}% Won`}
                       </span>
                     ) : (
-                      <span className="text-[11px] font-mono tabular-nums text-slate-400 dark:text-slate-500 block whitespace-nowrap">
-                        — conversion
+                      <span className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 block whitespace-nowrap">
+                        {m.activeCount} Active
                       </span>
                     )}
                   </div>
@@ -1151,7 +1166,7 @@ export default function SalespersonProfiles({
                           />
                           <span className="text-slate-300 dark:text-slate-700" aria-hidden="true">&middot;</span>
                           <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                            {selectedSalesperson.role?.trim() || 'Sales Representative'}
+                            {normalizeRoleTitle(selectedSalesperson.role)}
                           </span>
                           {isOwnProfile(selectedSalesperson) && (
                             <>
@@ -1396,24 +1411,35 @@ export default function SalespersonProfiles({
                                 (isExplicitlySharedOrOwned && canAccessEnquiry(currentUser, e, activeWorkspace));
                               const showSharedBadge = !canViewConfidential && canOpenEnquiryRow;
 
-                              const rawDesc = (
-                                (e as any).project_title ||
-                                e.project_name ||
-                                e.description ||
-                                e.remarks ||
-                                ''
-                              ).trim();
                               const itemCount = Array.isArray((e as any).items)
                                 ? (e as any).items.length
                                 : Array.isArray((e as any).line_items)
                                 ? (e as any).line_items.length
                                 : Number((e as any).items_count) || 0;
+                              const isRawTotalRemark = (str?: string) => {
+                                if (!str) return false;
+                                const s = str.trim();
+                                return /^\s*TOTAL\s*=/i.test(s) || (/\bVAT\s*@\s*\d+%/i.test(s) && /\bTOTAL\s*=/i.test(s));
+                              };
+                              const primarySubject = (
+                                e.subject ||
+                                (e as any).project_title ||
+                                e.project_name ||
+                                (e as any).title ||
+                                ''
+                              ).trim();
+                              const fallbackRemark = [e.description, e.remarks]
+                                .map((s) => (s || '').trim())
+                                .find((s) => s && !isRawTotalRemark(s) && !/^no description$/i.test(s)) || '';
+                              const rawDesc =
+                                (primarySubject && !isRawTotalRemark(primarySubject) ? primarySubject : '') ||
+                                fallbackRemark;
                               const cleanDesc =
                                 rawDesc && !/^no description$/i.test(rawDesc)
                                   ? rawDesc
                                   : itemCount > 0
-                                  ? `Commercial RFQ · ${itemCount} ${itemCount === 1 ? 'line item' : 'line items'}`
-                                  : 'General Component Enquiry';
+                                  ? `${itemCount} ${itemCount === 1 ? 'line item' : 'line items'}`
+                                  : 'Commercial RFQ';
                               const formattedEnqDate = (() => {
                                 const rawDate = e.enquiry_date || (e as any).date || (e as any).created_at;
                                 if (!rawDate) return '—';
