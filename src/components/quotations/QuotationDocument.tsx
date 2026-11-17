@@ -45,6 +45,7 @@ import {
 import { isTechnicalSectionHeaderLine } from '../../utils/compositeBomUtils';
 import {
   QuotationTokenContext,
+  buildQuotationTokenMap,
   resolveQuotationTokens,
   renderResolvedQuotationText,
   shouldHideCustomRow,
@@ -2286,6 +2287,88 @@ export interface ResolvedHeaderFieldRenderItem extends QuotationHeaderFieldItem 
  * Supports custom text overrides, custom fields (e.g. Secondary Mobile), zone routing
  * ('under_logo', 'under_name', 'contact_block', 'bottom_bar'), reordering, and per-field typography.
  */
+export function interpolateDocumentDynamicTags(
+  rawText?: string | null,
+  tagMap?: Record<string, string> | null
+): string {
+  if (!rawText || typeof rawText !== 'string') return '';
+  if (!rawText.includes('@') && !rawText.includes('{{')) return rawText;
+  if (!tagMap || typeof tagMap !== 'object') return rawText;
+
+  const lookup: Record<string, string> = {};
+  for (const [k, v] of Object.entries(tagMap)) {
+    const cleanKey = k.replace(/^@/, '').trim().toLowerCase();
+    const safeVal = typeof v === 'string' && !/^\s*@[a-zA-Z_]/.test(v) ? v : '';
+    lookup[cleanKey] = safeVal;
+  }
+
+  const aliasPairs: Array<[string, string]> = [
+    ['contact_name', lookup.contact_person || ''],
+    ['attention_to', lookup.contact_person || ''],
+    ['attn', lookup.contact_person || ''],
+    ['designation', lookup.contact_designation || ''],
+    ['contact_role', lookup.contact_designation || ''],
+    ['contact_title', lookup.contact_designation || ''],
+    ['job_title', lookup.contact_designation || ''],
+    ['customer_name', lookup.client_name || ''],
+    ['company_name', lookup.client_name || ''],
+    ['customer_address', lookup.client_address || ''],
+    ['address', lookup.client_address || ''],
+    ['customer_trn', lookup.client_trn || ''],
+    ['trn', lookup.client_trn || ''],
+    ['tax_id', lookup.client_trn || ''],
+    ['contact_phone', lookup.client_phone || ''],
+    ['customer_phone', lookup.client_phone || ''],
+    ['phone', lookup.client_phone || ''],
+    ['mobile', lookup.client_phone || ''],
+    ['contact_email', lookup.client_email || ''],
+    ['customer_email', lookup.client_email || ''],
+    ['email', lookup.client_email || ''],
+    ['quote_ref', lookup.quote_ref_no || ''],
+    ['quote_number', lookup.quote_ref_no || ''],
+    ['short_ref', lookup.quote_short_ref || ''],
+    ['prepared_by', lookup.salesperson || ''],
+    ['sales_rep', lookup.salesperson || '']
+  ];
+  for (const [alias, fallbackVal] of aliasPairs) {
+    if (!lookup[alias] && fallbackVal) {
+      lookup[alias] = fallbackVal;
+    }
+  }
+
+  let output = rawText;
+  for (let pass = 0; pass < 2; pass++) {
+    const prev = output;
+    output = output.replace(
+      /\{\{\s*@?([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g,
+      (full, keyName: string) => {
+        const k = String(keyName || '').toLowerCase();
+        if (Object.prototype.hasOwnProperty.call(lookup, k)) {
+          return lookup[k] ?? '';
+        }
+        return full;
+      }
+    );
+    output = output.replace(
+      /(^|[^a-zA-Z0-9_])@([a-zA-Z_][a-zA-Z0-9_]*)/g,
+      (full, prefix: string, keyName: string) => {
+        const k = String(keyName || '').toLowerCase();
+        if (Object.prototype.hasOwnProperty.call(lookup, k)) {
+          return `${prefix}${lookup[k] ?? ''}`;
+        }
+        return full;
+      }
+    );
+    if (output === prev) break;
+  }
+
+  return output
+    .replace(/\(\s*\)/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim();
+}
+
 export function resolveHeaderFields(
   headerConfig?: QuotationHeaderConfig | null,
   sender?: {
@@ -2310,7 +2393,8 @@ export function resolveHeaderFields(
     website?: string;
     trn?: string;
   } | null,
-  fontSizeScale: QuotationFontSizeScale = 'standard'
+  fontSizeScale: QuotationFontSizeScale = 'standard',
+  tokenContext?: QuotationTokenContext | null
 ): {
   allFields: ResolvedHeaderFieldRenderItem[];
   underLogo: ResolvedHeaderFieldRenderItem[];
@@ -2515,9 +2599,23 @@ export function resolveHeaderFields(
 
   const allFields: ResolvedHeaderFieldRenderItem[] = rawItems.map((item) => {
     const hasOverride = item.valueOverride !== undefined && item.valueOverride.trim() !== '';
-    const resolvedValue = hasOverride
+    const rawValueCandidate = hasOverride
       ? item.valueOverride!.trim()
       : (defaultValuesById[item.id] || '').trim();
+    const resolvedValue = tokenContext
+      ? resolveQuotationTokens(
+          interpolateDocumentDynamicTags(rawValueCandidate, tokenContext._cachedTokenMap),
+          tokenContext
+        ).trim()
+      : rawValueCandidate;
+    const rawLabelCandidate =
+      item.label !== undefined ? item.label : (defaultLabelsById[item.id] ?? '');
+    const resolvedLabel = tokenContext
+      ? resolveQuotationTokens(
+          interpolateDocumentDynamicTags(rawLabelCandidate, tokenContext._cachedTokenMap),
+          tokenContext
+        )
+      : rawLabelCandidate;
 
     let effectiveEnabled = Boolean(item.enabled);
     if (!hasCustomHeaderFields) {
@@ -2544,7 +2642,7 @@ export function resolveHeaderFields(
       ...item,
       icon: resolvedIcon,
       showIcon: resolvedShowIcon,
-      label: item.label !== undefined ? item.label : (defaultLabelsById[item.id] ?? ''),
+      label: resolvedLabel,
       enabled: effectiveEnabled,
       resolvedValue,
       fontSizeClass: fontSizeMap[item.fontSize || 'xs'] || fontSizeMap.xs,
@@ -3545,13 +3643,53 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           )
         : Number(resolvedGrandTotal);
 
-    return {
+    const baseCtx: QuotationTokenContext = {
       quotation,
       enquiry,
       profile,
+      company: (quotation as any)?._resolved_company || undefined,
+      contact: (quotation as any)?._resolved_contact || undefined,
       omittedFields: quotation.omitted_fields,
       activeBank: resolvedBank || undefined,
       amountInWordsText: amountToWords(effectiveWordsAmount, currency)
+    };
+
+    const baseMap = buildQuotationTokenMap(baseCtx);
+    const dynamicTagMap = (quotation as any)?.dynamic_tag_map as Record<string, string> | undefined;
+    const mergedMap: Record<string, string> = { ...baseMap };
+
+    if (dynamicTagMap && typeof dynamicTagMap === 'object') {
+      for (const [k, v] of Object.entries(dynamicTagMap)) {
+        const cleanKey = k.replace(/^@/, '').trim();
+        if (typeof v === 'string' && v.trim() !== '' && !/^\s*@[a-zA-Z_]/.test(v)) {
+          mergedMap[cleanKey] = v;
+        }
+      }
+    }
+
+    // Populate common aliases on mergedMap so resolveQuotationTokens & interpolateDocumentDynamicTags resolve all variants
+    if (mergedMap.contact_person && !mergedMap.contact_name) {
+      mergedMap.contact_name = mergedMap.contact_person;
+    }
+    if (mergedMap.contact_designation && !mergedMap.designation) {
+      mergedMap.designation = mergedMap.contact_designation;
+    }
+    if (mergedMap.client_phone && !mergedMap.phone) {
+      mergedMap.phone = mergedMap.client_phone;
+    }
+    if (mergedMap.client_email && !mergedMap.email) {
+      mergedMap.email = mergedMap.client_email;
+    }
+    if (mergedMap.client_address && !mergedMap.address) {
+      mergedMap.address = mergedMap.client_address;
+    }
+    if (mergedMap.client_trn && !mergedMap.trn) {
+      mergedMap.trn = mergedMap.client_trn;
+    }
+
+    return {
+      ...baseCtx,
+      _cachedTokenMap: mergedMap
     };
   }, [quotation, enquiry, profile, resolvedBank, currency]);
 
@@ -3562,14 +3700,22 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     !loggedInNamesLower.includes(resolvedEnquirySalesRep.toLowerCase())
       ? resolvedEnquirySalesRep
       : rawPreparedBy || resolvedEnquirySalesRep || user?.displayName || '';
-  const resolvedSalesRep = resolveQuotationTokens(rawSalesRepCandidate, tokenContext).trim() || rawSalesRepCandidate;
+  const resolvedSalesRep =
+    resolveQuotationTokens(
+      interpolateDocumentDynamicTags(rawSalesRepCandidate, tokenContext._cachedTokenMap),
+      tokenContext
+    ).trim() || rawSalesRepCandidate;
 
   const cleanResolvedRecipientField = (
     rawVal?: string | null,
     fieldKind?: 'trn' | 'phone' | 'email' | 'address' | 'contact' | 'entity'
   ): string => {
     if (!rawVal) return '';
-    let resolved = resolveQuotationTokens(String(rawVal), tokenContext).trim();
+    const preInterpolated = interpolateDocumentDynamicTags(
+      String(rawVal),
+      tokenContext._cachedTokenMap
+    );
+    let resolved = resolveQuotationTokens(preInterpolated, tokenContext).trim();
     if (!resolved || resolved === '—' || resolved.toLowerCase() === 'not registered') {
       return '';
     }
@@ -3584,9 +3730,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     } else if (fieldKind === 'email') {
       resolved = resolved.replace(/^(?:email|e-mail)\s*[:\-–—]?\s*/i, '').trim();
     }
-    // Strip any remaining unresolved @tag tokens (while keeping valid email addresses intact)
+    // Strip any remaining unresolved @tag tokens while preserving surrounding delimiters like '(' and valid email addresses
     resolved = resolved
-      .replace(/(?:^|[\s(\[{"'‘“_\-/.,:;])@[a-zA-Z_][a-zA-Z0-9_]*/g, ' ')
+      .replace(/(^|[\s(\[{"'‘“_\-/.,:;])@[a-zA-Z_][a-zA-Z0-9_]*/g, '$1')
+      .replace(/\(\s*\)/g, '')
       .replace(/\s+/g, ' ')
       .trim();
     if (
@@ -3603,21 +3750,27 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   // Resolved B2B Client Details (with universal @tag resolution & empty auto-hide cleaning)
   const rawClientEntityName =
     quotation.client_snapshot?.entity_name ||
+    tokenContext._cachedTokenMap?.client_name ||
     enquiry?.company_name ||
     enquiry?.client_company ||
     'Client Name / Unspecified';
   const clientEntityName =
-    cleanResolvedRecipientField(rawClientEntityName, 'entity') || 'Client Name / Unspecified';
+    cleanResolvedRecipientField(rawClientEntityName, 'entity') ||
+    cleanResolvedRecipientField(tokenContext._cachedTokenMap?.client_name, 'entity') ||
+    'Client Name / Unspecified';
 
   const rawClientContactPerson =
     quotation.client_contact_person ||
     quotation.client_snapshot?.client_contact_person ||
     quotation.client_snapshot?.contact_person ||
+    tokenContext._cachedTokenMap?.contact_person ||
     enquiry?.contact_person_name ||
     (enquiry as any)?.contact_name ||
     enquiry?.concerned_person ||
     '';
-  const clientContactPerson = cleanResolvedRecipientField(rawClientContactPerson, 'contact');
+  const clientContactPerson =
+    cleanResolvedRecipientField(rawClientContactPerson, 'contact') ||
+    cleanResolvedRecipientField(tokenContext._cachedTokenMap?.contact_person, 'contact');
 
   const rawCity =
     quotation.client_snapshot?.city ||
@@ -3636,36 +3789,48 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     quotation.client_address ||
     quotation.client_snapshot?.client_address ||
     quotation.client_snapshot?.address ||
+    tokenContext._cachedTokenMap?.client_address ||
     '';
-  const resolvedRawAddress = cleanResolvedRecipientField(rawClientAddress, 'address');
+  const resolvedRawAddress =
+    cleanResolvedRecipientField(rawClientAddress, 'address') ||
+    cleanResolvedRecipientField(tokenContext._cachedTokenMap?.client_address, 'address');
   const clientAddress = resolvedRawAddress || combinedCityCountry || '';
 
   const rawClientTrn =
     quotation.client_trn ||
     quotation.client_snapshot?.client_trn ||
     quotation.client_snapshot?.trn ||
+    tokenContext._cachedTokenMap?.client_trn ||
     (enquiry as any)?.client_trn ||
     (enquiry as any)?.trn ||
     '';
-  const clientTrn = cleanResolvedRecipientField(rawClientTrn, 'trn');
+  const clientTrn =
+    cleanResolvedRecipientField(rawClientTrn, 'trn') ||
+    cleanResolvedRecipientField(tokenContext._cachedTokenMap?.client_trn, 'trn');
 
   const rawClientPhone =
     quotation.client_phone ||
     quotation.client_snapshot?.client_phone ||
     quotation.client_snapshot?.phone ||
+    tokenContext._cachedTokenMap?.client_phone ||
     (enquiry as any)?.contact_phone ||
     (enquiry as any)?.phone ||
     '';
-  const clientPhone = cleanResolvedRecipientField(rawClientPhone, 'phone');
+  const clientPhone =
+    cleanResolvedRecipientField(rawClientPhone, 'phone') ||
+    cleanResolvedRecipientField(tokenContext._cachedTokenMap?.client_phone, 'phone');
 
   const rawClientEmail =
     quotation.client_email ||
     quotation.client_snapshot?.client_email ||
     quotation.client_snapshot?.email ||
+    tokenContext._cachedTokenMap?.client_email ||
     (enquiry as any)?.contact_email ||
     (enquiry as any)?.email ||
     '';
-  const clientEmail = cleanResolvedRecipientField(rawClientEmail, 'email');
+  const clientEmail =
+    cleanResolvedRecipientField(rawClientEmail, 'email') ||
+    cleanResolvedRecipientField(tokenContext._cachedTokenMap?.client_email, 'email');
 
   // Resolved Signatories for executive signatory block
   const resolvedSignatories = React.useMemo(() => {
@@ -8774,7 +8939,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         trn: senderTrn
       },
       undefined,
-      fontSizeScale
+      fontSizeScale,
+      tokenContext
     );
 
     // Logo Padding applied directly to the Logo wrapper container, keeping <header> bottom rhythm constant

@@ -212,6 +212,119 @@ export interface QuotationStudioModalProps {
   triggerToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
+export function stripSelfReferentialTagValue(val?: string | null): string {
+  if (!val || typeof val !== 'string') return '';
+  const trimmed = val.trim();
+  if (!trimmed) return '';
+  if (/(?:^|[^a-zA-Z0-9_.])@[a-zA-Z_][a-zA-Z0-9_]*/.test(trimmed)) return '';
+  if (/\{\{\s*@?[a-zA-Z_][a-zA-Z0-9_]*\s*\}\}/.test(trimmed)) return '';
+  return trimmed;
+}
+
+export function parseContactNameAndDesignation(raw?: string | null): {
+  baseName: string;
+  designation: string;
+} {
+  if (!raw || typeof raw !== 'string') return { baseName: '', designation: '' };
+  const trimmed = raw.trim();
+  if (!trimmed) return { baseName: '', designation: '' };
+  const parenMatch = trimmed.match(/^(.+?)\s*\(([^()]+)\)\s*$/);
+  if (parenMatch) {
+    const basePart = stripSelfReferentialTagValue(parenMatch[1]);
+    const desigPart = stripSelfReferentialTagValue(parenMatch[2]);
+    return {
+      baseName: basePart,
+      designation: desigPart
+    };
+  }
+  return {
+    baseName: stripSelfReferentialTagValue(trimmed),
+    designation: ''
+  };
+}
+
+export function interpolateStudioDataTags(
+  rawText: string,
+  tagMap: Record<string, string>
+): string {
+  if (!rawText || typeof rawText !== 'string') return '';
+  if (!rawText.includes('@') && !rawText.includes('{{')) return rawText;
+  if (!tagMap || typeof tagMap !== 'object') return rawText;
+
+  const lookup: Record<string, string> = {};
+  for (const [k, v] of Object.entries(tagMap)) {
+    const cleanKey = k.replace(/^@/, '').trim().toLowerCase();
+    const safeVal = typeof v === 'string' && !/^\s*@[a-zA-Z_]/.test(v) ? v : '';
+    lookup[cleanKey] = safeVal;
+  }
+
+  const aliasPairs: Array<[string, string]> = [
+    ['contact_name', lookup.contact_person || ''],
+    ['attention_to', lookup.contact_person || ''],
+    ['attn', lookup.contact_person || ''],
+    ['designation', lookup.contact_designation || ''],
+    ['contact_role', lookup.contact_designation || ''],
+    ['contact_title', lookup.contact_designation || ''],
+    ['job_title', lookup.contact_designation || ''],
+    ['customer_name', lookup.client_name || ''],
+    ['company_name', lookup.client_name || ''],
+    ['customer_address', lookup.client_address || ''],
+    ['address', lookup.client_address || ''],
+    ['customer_trn', lookup.client_trn || ''],
+    ['trn', lookup.client_trn || ''],
+    ['tax_id', lookup.client_trn || ''],
+    ['contact_phone', lookup.client_phone || ''],
+    ['customer_phone', lookup.client_phone || ''],
+    ['phone', lookup.client_phone || ''],
+    ['mobile', lookup.client_phone || ''],
+    ['contact_email', lookup.client_email || ''],
+    ['customer_email', lookup.client_email || ''],
+    ['email', lookup.client_email || ''],
+    ['quote_ref', lookup.quote_ref_no || ''],
+    ['quote_number', lookup.quote_ref_no || ''],
+    ['short_ref', lookup.quote_short_ref || ''],
+    ['prepared_by', lookup.salesperson || ''],
+    ['sales_rep', lookup.salesperson || '']
+  ];
+  for (const [alias, fallbackVal] of aliasPairs) {
+    if (!lookup[alias] && fallbackVal) {
+      lookup[alias] = fallbackVal;
+    }
+  }
+
+  let output = rawText;
+  for (let pass = 0; pass < 2; pass++) {
+    const prev = output;
+    output = output.replace(
+      /\{\{\s*@?([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g,
+      (full, keyName: string) => {
+        const k = String(keyName || '').toLowerCase();
+        if (Object.prototype.hasOwnProperty.call(lookup, k)) {
+          return lookup[k] ?? '';
+        }
+        return full;
+      }
+    );
+    output = output.replace(
+      /(^|[^a-zA-Z0-9_])@([a-zA-Z_][a-zA-Z0-9_]*)/g,
+      (full, prefix: string, keyName: string) => {
+        const k = String(keyName || '').toLowerCase();
+        if (Object.prototype.hasOwnProperty.call(lookup, k)) {
+          return `${prefix}${lookup[k] ?? ''}`;
+        }
+        return full;
+      }
+    );
+    if (output === prev) break;
+  }
+
+  return output
+    .replace(/\(\s*\)/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim();
+}
+
 const BLOCK_META: Record<string, { label: string; desc: string; icon: any }> = {
   terms: { label: 'Commercial Terms', desc: 'Price basis, payment & validity', icon: FileCheck },
   totals: { label: 'Financial Totals', desc: 'Subtotal, freight, taxes & grand total', icon: DollarSign },
@@ -2752,6 +2865,22 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           targetQuote.client_trn ||
             targetQuote.client_snapshot?.client_trn ||
             targetQuote.client_snapshot?.trn ||
+            ''
+        );
+        setClientPhoneOverride(
+          targetQuote.client_phone ||
+            targetQuote.client_snapshot?.client_phone ||
+            targetQuote.client_snapshot?.phone ||
+            (enquiry as any)?.contact_phone ||
+            (enquiry as any)?.phone ||
+            ''
+        );
+        setClientEmailOverride(
+          targetQuote.client_email ||
+            targetQuote.client_snapshot?.client_email ||
+            targetQuote.client_snapshot?.email ||
+            (enquiry as any)?.contact_email ||
+            (enquiry as any)?.email ||
             ''
         );
         setPreparedBy(
@@ -6479,8 +6608,210 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     return merged;
   }, [flyerAttachments, enquiry?.attachments, quotationLineItems]);
 
-  // Constructed live Quotation object for preview
-  const liveQuotation: Quotation = useMemo(() => {
+  // Resolve CRM Company & Contact + Non-Self-Referential Base Token Dictionary
+  const resolvedCrmEntities = useMemo(() => {
+    const candidateCompanyNames = [
+      stripSelfReferentialTagValue(clientNameOverride),
+      stripSelfReferentialTagValue(enquiry.company_name),
+      stripSelfReferentialTagValue((enquiry as any).client_company),
+      stripSelfReferentialTagValue(editingQuotation?.client_snapshot?.entity_name)
+    ]
+      .filter(Boolean)
+      .map((s) => s.toLowerCase());
+
+    const matchedCompany =
+      workspaceCompanies.find((c) => {
+        if ((c as any).is_deleted) return false;
+        if (enquiry.company_id && c.id === enquiry.company_id) return true;
+        if ((enquiry as any).client_id && c.id === (enquiry as any).client_id) return true;
+        const cNames = [
+          c.display_name,
+          c.canonical_name,
+          (c as any).name,
+          (c as any).company_name
+        ]
+          .filter(Boolean)
+          .map((n) => String(n).trim().toLowerCase());
+        return candidateCompanyNames.some((target) => cNames.includes(target));
+      }) || null;
+
+    const parsedFromOverride = parseContactNameAndDesignation(clientContactPerson);
+    const parsedFromEnquiry = parseContactNameAndDesignation(
+      (enquiry as any).contact_person_name ||
+        (enquiry as any).contact_name ||
+        enquiry.concerned_person ||
+        editingQuotation?.client_contact_person ||
+        editingQuotation?.client_snapshot?.client_contact_person ||
+        editingQuotation?.client_snapshot?.contact_person
+    );
+
+    const candidateContactNames = [
+      parsedFromOverride.baseName,
+      parsedFromEnquiry.baseName,
+      stripSelfReferentialTagValue((enquiry as any).contact_person_name),
+      stripSelfReferentialTagValue((enquiry as any).contact_name),
+      stripSelfReferentialTagValue(enquiry.concerned_person)
+    ]
+      .filter(Boolean)
+      .map((s) => s.toLowerCase());
+
+    const activeContacts = workspaceContacts.filter((c) => !c.is_deleted);
+
+    const matchedContact =
+      activeContacts.find((c) => enquiry.contact_id && c.id === enquiry.contact_id) ||
+      (matchedCompany
+        ? activeContacts.find((c) => {
+            if (c.company_id !== matchedCompany.id) return false;
+            const cNames = [c.full_name, c.name, parseContactNameAndDesignation(c.full_name || c.name).baseName]
+              .filter(Boolean)
+              .map((n) => String(n).trim().toLowerCase());
+            return candidateContactNames.some((target) => cNames.includes(target));
+          })
+        : null) ||
+      activeContacts.find((c) => {
+        const cNames = [c.full_name, c.name, parseContactNameAndDesignation(c.full_name || c.name).baseName]
+          .filter(Boolean)
+          .map((n) => String(n).trim().toLowerCase());
+        return candidateContactNames.some((target) => cNames.includes(target));
+      }) ||
+      (matchedCompany
+        ? activeContacts.find((c) => c.company_id === matchedCompany.id && c.is_primary) ||
+          activeContacts.find((c) => c.company_id === matchedCompany.id) ||
+          null
+        : null);
+
+    const parsedFromMatchedContact = parseContactNameAndDesignation(
+      matchedContact?.full_name || matchedContact?.name
+    );
+
+    const baseClientName =
+      stripSelfReferentialTagValue(clientNameOverride) ||
+      stripSelfReferentialTagValue(enquiry.company_name) ||
+      stripSelfReferentialTagValue((enquiry as any).client_company) ||
+      stripSelfReferentialTagValue(matchedCompany?.display_name) ||
+      stripSelfReferentialTagValue(matchedCompany?.canonical_name) ||
+      stripSelfReferentialTagValue((matchedCompany as any)?.name) ||
+      stripSelfReferentialTagValue(editingQuotation?.client_snapshot?.entity_name) ||
+      '';
+
+    const baseContactName =
+      parsedFromOverride.baseName ||
+      parsedFromMatchedContact.baseName ||
+      stripSelfReferentialTagValue(matchedContact?.full_name) ||
+      stripSelfReferentialTagValue(matchedContact?.name) ||
+      parsedFromEnquiry.baseName ||
+      '';
+
+    const baseContactDesignation =
+      stripSelfReferentialTagValue((matchedContact as any)?.designation) ||
+      stripSelfReferentialTagValue((matchedContact as any)?.role) ||
+      stripSelfReferentialTagValue((matchedContact as any)?.job_title) ||
+      stripSelfReferentialTagValue((matchedContact as any)?.title) ||
+      stripSelfReferentialTagValue((enquiry as any)?.contact_designation) ||
+      stripSelfReferentialTagValue((enquiry as any)?.designation) ||
+      stripSelfReferentialTagValue((editingQuotation?.client_snapshot as any)?.contact_designation) ||
+      parsedFromEnquiry.designation ||
+      parsedFromOverride.designation ||
+      parsedFromMatchedContact.designation ||
+      '';
+
+    const companyAddrCombined = [
+      stripSelfReferentialTagValue(matchedCompany?.address || (matchedCompany as any)?.street_address),
+      combineCityCountry(
+        stripSelfReferentialTagValue(matchedCompany?.city || (enquiry as any)?.city),
+        stripSelfReferentialTagValue(matchedCompany?.country || enquiry?.country)
+      )
+    ]
+      .filter(Boolean)
+      .join(', ');
+
+    const baseClientAddress =
+      stripSelfReferentialTagValue(clientAddressOverride) ||
+      stripSelfReferentialTagValue(editingQuotation?.client_address) ||
+      stripSelfReferentialTagValue(editingQuotation?.client_snapshot?.client_address) ||
+      stripSelfReferentialTagValue(editingQuotation?.client_snapshot?.address) ||
+      companyAddrCombined ||
+      combineCityCountry(
+        stripSelfReferentialTagValue((enquiry as any)?.city),
+        stripSelfReferentialTagValue((enquiry as any)?.country)
+      ) ||
+      stripSelfReferentialTagValue(enquiry?.project_location) ||
+      stripSelfReferentialTagValue(enquiry?.country) ||
+      '';
+
+    const baseClientTrn =
+      stripSelfReferentialTagValue(clientTrnOverride) ||
+      stripSelfReferentialTagValue(editingQuotation?.client_trn) ||
+      stripSelfReferentialTagValue(editingQuotation?.client_snapshot?.client_trn) ||
+      stripSelfReferentialTagValue(editingQuotation?.client_snapshot?.trn) ||
+      stripSelfReferentialTagValue((enquiry as any)?.client_trn) ||
+      stripSelfReferentialTagValue((enquiry as any)?.trn) ||
+      stripSelfReferentialTagValue((matchedCompany as any)?.trn) ||
+      stripSelfReferentialTagValue((matchedCompany as any)?.tax_registration_number) ||
+      stripSelfReferentialTagValue((matchedCompany as any)?.tax_id) ||
+      '';
+
+    const baseClientPhone =
+      stripSelfReferentialTagValue(clientPhoneOverride) ||
+      stripSelfReferentialTagValue(editingQuotation?.client_phone) ||
+      stripSelfReferentialTagValue(editingQuotation?.client_snapshot?.client_phone) ||
+      stripSelfReferentialTagValue(editingQuotation?.client_snapshot?.phone) ||
+      stripSelfReferentialTagValue((enquiry as any)?.contact_phone) ||
+      stripSelfReferentialTagValue((enquiry as any)?.phone) ||
+      stripSelfReferentialTagValue(matchedContact?.phone) ||
+      stripSelfReferentialTagValue((matchedContact as any)?.mobile) ||
+      stripSelfReferentialTagValue(matchedCompany?.phone) ||
+      '';
+
+    const baseClientEmail =
+      stripSelfReferentialTagValue(clientEmailOverride) ||
+      stripSelfReferentialTagValue(editingQuotation?.client_email) ||
+      stripSelfReferentialTagValue(editingQuotation?.client_snapshot?.client_email) ||
+      stripSelfReferentialTagValue(editingQuotation?.client_snapshot?.email) ||
+      stripSelfReferentialTagValue((enquiry as any)?.contact_email) ||
+      stripSelfReferentialTagValue((enquiry as any)?.email) ||
+      stripSelfReferentialTagValue(matchedContact?.email) ||
+      stripSelfReferentialTagValue(matchedCompany?.email) ||
+      '';
+
+    return {
+      matchedCompany,
+      matchedContact,
+      baseClientName,
+      baseContactName,
+      baseContactDesignation,
+      baseClientAddress,
+      baseClientTrn,
+      baseClientPhone,
+      baseClientEmail
+    };
+  }, [
+    workspaceCompanies,
+    workspaceContacts,
+    enquiry,
+    editingQuotation,
+    clientNameOverride,
+    clientContactPerson,
+    clientAddressOverride,
+    clientTrnOverride,
+    clientPhoneOverride,
+    clientEmailOverride
+  ]);
+
+  // Constructed live Quotation object for preview + unified @tag dictionary
+  const { liveQuotation, studioTokenContext, studioTokenMap } = useMemo(() => {
+    const {
+      matchedCompany,
+      matchedContact,
+      baseClientName,
+      baseContactName,
+      baseContactDesignation,
+      baseClientAddress,
+      baseClientTrn,
+      baseClientPhone,
+      baseClientEmail
+    } = resolvedCrmEntities;
+
     const rawQuoteNumber =
       editingQuotation?.quote_number ||
       (editingQuotation as any)?.quote_ref_no ||
@@ -6563,12 +6894,61 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       : '';
     const formattedQuoteRef = isNonQuoteDoc ? cleanedNonQuoteRef : computedQuoteRef;
 
-    return {
+    const effectiveCurrency =
+      editingQuotation?.currency ||
+      (enquiry.currency as string) ||
+      activeBankAccount?.currency ||
+      'AED';
+
+    const docType = documentType || 'quotation';
+    const pvAllocSum = Array.isArray(paymentVoucherMetadata?.allocated_bills)
+      ? paymentVoucherMetadata.allocated_bills.reduce(
+          (sum, b) => sum + (Number(b.paid_this_voucher) || 0),
+          0
+        )
+      : 0;
+    const effectiveWordsAmount =
+      docType === 'receipt'
+        ? Number(receiptMetadata?.amount_received ?? financialTotals.grand_total ?? 0)
+        : docType === 'payment_voucher'
+        ? Number(
+            paymentVoucherMetadata?.amount_paid ||
+              pvAllocSum ||
+              financialTotals.grand_total ||
+              0
+          )
+        : Number(financialTotals.grand_total || 0);
+    const amountInWordsStr = amountToWords(effectiveWordsAmount, effectiveCurrency);
+
+    const senderSnapshot = {
+      entity_name:
+        activeProfile?.legal_entity_name ||
+        (activeProfile as any)?.company_name ||
+        activeWorkspace?.name ||
+        'Commercial Entity LLC',
+      trn: activeProfile?.trn || (activeProfile as any)?.trn_vat_number,
+      address:
+        (activeProfile as any)?.registered_address ||
+        [
+          activeProfile?.address_line_1,
+          activeProfile?.address_line_2,
+          activeProfile?.city,
+          activeProfile?.country
+        ]
+          .filter(Boolean)
+          .join(', ') ||
+        undefined,
+      phone: activeProfile?.phone,
+      email: activeProfile?.email
+    };
+
+    // Seed non-self-referential quotation snapshot for building the base token map
+    const seedQuotationForTokens: Quotation = {
       id: activeQuotationId || editingQuotation?.id || 'preview_draft',
       workspace_id: activeWorkspaceId,
       workspaceId: activeWorkspaceId,
       enquiry_id: enquiry.id || '',
-      document_type: documentType || 'quotation',
+      document_type: docType,
       delivery_metadata: deliveryMetadata,
       purchase_order_metadata: purchaseOrderMetadata,
       receipt_metadata: receiptMetadata,
@@ -6581,50 +6961,27 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       parent_quotation_id: parentQuotationId,
       status: quotationStatus || 'Draft',
       client_snapshot: {
-        entity_name:
-          clientNameOverride || enquiry.company_name || enquiry.client_company || 'Valued Client',
-        contact_person: clientContactPerson || enquiry.concerned_person || undefined,
-        client_contact_person: clientContactPerson || enquiry.concerned_person || undefined,
-        address:
-          clientAddressOverride || enquiry.project_location || enquiry.country || undefined,
-        client_address:
-          clientAddressOverride || enquiry.project_location || enquiry.country || undefined,
-        phone: clientPhoneOverride || undefined,
-        client_phone: clientPhoneOverride || undefined,
-        email: clientEmailOverride || undefined,
-        client_email: clientEmailOverride || undefined,
-        trn: clientTrnOverride || undefined,
-        client_trn: clientTrnOverride || undefined
-      },
-      client_contact_person: clientContactPerson || undefined,
-      client_address: clientAddressOverride || undefined,
-      client_phone: clientPhoneOverride || undefined,
-      client_email: clientEmailOverride || undefined,
-      client_trn: clientTrnOverride || undefined,
-      pdf_filename_pattern: pdfFilenamePattern || undefined,
-      prepared_by: preparedBy || signatoryName,
-      subject: quotationSubject,
-      sender_snapshot: {
-        entity_name:
-          activeProfile?.legal_entity_name ||
-          (activeProfile as any)?.company_name ||
-          activeWorkspace?.name ||
-          'Commercial Entity LLC',
-        trn: activeProfile?.trn || (activeProfile as any)?.trn_vat_number,
-        address:
-          (activeProfile as any)?.registered_address ||
-          [
-            activeProfile?.address_line_1,
-            activeProfile?.address_line_2,
-            activeProfile?.city,
-            activeProfile?.country
-          ]
-            .filter(Boolean)
-            .join(', ') ||
-          undefined,
-        phone: activeProfile?.phone,
-        email: activeProfile?.email
-      },
+        entity_name: baseClientName || 'Valued Client',
+        contact_person: baseContactName || undefined,
+        client_contact_person: baseContactName || undefined,
+        contact_designation: baseContactDesignation || undefined,
+        address: baseClientAddress || undefined,
+        client_address: baseClientAddress || undefined,
+        phone: baseClientPhone || undefined,
+        client_phone: baseClientPhone || undefined,
+        email: baseClientEmail || undefined,
+        client_email: baseClientEmail || undefined,
+        trn: baseClientTrn || undefined,
+        client_trn: baseClientTrn || undefined
+      } as any,
+      client_contact_person: baseContactName || undefined,
+      client_address: baseClientAddress || undefined,
+      client_phone: baseClientPhone || undefined,
+      client_email: baseClientEmail || undefined,
+      client_trn: baseClientTrn || undefined,
+      prepared_by: stripSelfReferentialTagValue(preparedBy) || stripSelfReferentialTagValue(signatoryName),
+      subject: stripSelfReferentialTagValue(quotationSubject) || stripSelfReferentialTagValue(enquiry.subject),
+      sender_snapshot: senderSnapshot,
       line_items: quotationLineItems,
       tax_mode: taxMode,
       subtotal: financialTotals.subtotal,
@@ -6632,12 +6989,282 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       tax_rate_percent: financialTotals.tax_rate_percent,
       tax_amount: financialTotals.tax_amount,
       grand_total: financialTotals.grand_total,
-      price_basis: priceBasis,
-      delivery_period: deliveryPeriod || undefined,
-      payment_terms: paymentTerms,
+      price_basis: stripSelfReferentialTagValue(priceBasis),
+      delivery_period: stripSelfReferentialTagValue(deliveryPeriod) || undefined,
+      payment_terms: stripSelfReferentialTagValue(paymentTerms),
       validity_days: validityDays,
-      custom_notes: customNotes,
-      applied_terms: customNotes,
+      custom_notes: stripSelfReferentialTagValue(customNotes),
+      applied_terms: stripSelfReferentialTagValue(customNotes),
+      applied_bank_account: activeBankAccount,
+      remittanceBankId: selectedBankId,
+      remittance_bank_id: selectedBankId,
+      selectedBank: activeBankProfile,
+      selected_bank: activeBankProfile,
+      signatories: signatories,
+      primary_signatory_name: stripSelfReferentialTagValue(signatoryName),
+      primary_signatory_title: stripSelfReferentialTagValue(signatoryTitle),
+      secondary_signatory_name: stripSelfReferentialTagValue(secondarySignatoryName),
+      secondary_signatory_title: stripSelfReferentialTagValue(secondarySignatoryTitle),
+      issue_date: quotationIssueDate,
+      created_at: quotationIssueDate
+        ? `${quotationIssueDate}T12:00:00.000Z`
+        : editingQuotation?.created_at || new Date().toISOString(),
+      valid_until: validUntilDate,
+      currency: effectiveCurrency
+    };
+
+    const seedContext: QuotationTokenContext = {
+      quotation: seedQuotationForTokens,
+      enquiry,
+      profile: activeProfile,
+      company: matchedCompany,
+      contact: matchedContact,
+      workspaceName: activeWorkspace?.name || undefined,
+      omittedFields,
+      activeBank: activeBankAccount || undefined,
+      amountInWordsText: amountInWordsStr
+    };
+
+    const computedMap = buildQuotationTokenMap(seedContext);
+    // Guarantee non-self-referential base CRM values in the map
+    if (baseClientName) computedMap.client_name = baseClientName;
+    if (baseContactName) {
+      computedMap.contact_person = baseContactName;
+      (computedMap as any).contact_name = baseContactName;
+    }
+    if (baseContactDesignation) {
+      computedMap.contact_designation = baseContactDesignation;
+      (computedMap as any).designation = baseContactDesignation;
+    }
+    if (baseClientAddress) computedMap.client_address = baseClientAddress;
+    if (baseClientTrn) computedMap.client_trn = baseClientTrn;
+    if (baseClientPhone) computedMap.client_phone = baseClientPhone;
+    if (baseClientEmail) computedMap.client_email = baseClientEmail;
+
+    // Interpolate all client/recipient, header, footer, subject, and notes fields using the unified Studio tag map
+    const resolvedClientName =
+      interpolateStudioDataTags(clientNameOverride, computedMap) ||
+      baseClientName ||
+      'Valued Client';
+    const resolvedContactPerson =
+      interpolateStudioDataTags(clientContactPerson, computedMap) ||
+      baseContactName ||
+      '';
+    const resolvedClientAddress =
+      interpolateStudioDataTags(clientAddressOverride, computedMap) ||
+      baseClientAddress ||
+      '';
+    const resolvedClientTrn =
+      interpolateStudioDataTags(clientTrnOverride, computedMap) ||
+      baseClientTrn ||
+      '';
+    const resolvedClientPhone =
+      interpolateStudioDataTags(clientPhoneOverride, computedMap) ||
+      baseClientPhone ||
+      '';
+    const resolvedClientEmail =
+      interpolateStudioDataTags(clientEmailOverride, computedMap) ||
+      baseClientEmail ||
+      '';
+    const resolvedSubject =
+      interpolateStudioDataTags(quotationSubject, computedMap) ||
+      quotationSubject;
+    const resolvedCustomNotes =
+      interpolateStudioDataTags(customNotes, computedMap) ||
+      customNotes;
+    const resolvedPriceBasis =
+      interpolateStudioDataTags(priceBasis, computedMap) ||
+      priceBasis;
+    const resolvedDeliveryPeriod =
+      interpolateStudioDataTags(deliveryPeriod, computedMap) ||
+      deliveryPeriod;
+    const resolvedPaymentTerms =
+      interpolateStudioDataTags(paymentTerms, computedMap) ||
+      paymentTerms;
+    const resolvedPreparedBy =
+      interpolateStudioDataTags(preparedBy || signatoryName, computedMap) ||
+      preparedBy ||
+      signatoryName;
+
+    const interpolatedHeaderConfig: QuotationHeaderConfig = {
+      ...headerConfig,
+      ...(companyLogoUrl !== undefined && companyLogoUrl !== ''
+        ? { logoUrl: companyLogoUrl }
+        : {}),
+      ...(headerConfig.companyNameOverride
+        ? {
+            companyNameOverride: interpolateStudioDataTags(
+              headerConfig.companyNameOverride,
+              computedMap
+            )
+          }
+        : {}),
+      ...(Array.isArray(headerConfig.headerFields)
+        ? {
+            headerFields: headerConfig.headerFields.map((f) => ({
+              ...f,
+              ...(f.label ? { label: interpolateStudioDataTags(f.label, computedMap) } : {}),
+              ...(f.valueOverride
+                ? { valueOverride: interpolateStudioDataTags(f.valueOverride, computedMap) }
+                : {})
+            }))
+          }
+        : {})
+    };
+
+    const interpolatedRecipientConfig: QuotationRecipientConfig = {
+      ...recipientConfig,
+      ...(recipientConfig.recipientHeadingOverride
+        ? {
+            recipientHeadingOverride: interpolateStudioDataTags(
+              recipientConfig.recipientHeadingOverride,
+              computedMap
+            )
+          }
+        : {}),
+      ...(recipientConfig.offerHeadingOverride
+        ? {
+            offerHeadingOverride: interpolateStudioDataTags(
+              recipientConfig.offerHeadingOverride,
+              computedMap
+            )
+          }
+        : {}),
+      ...(recipientConfig.revisionBadgeTextOverride
+        ? {
+            revisionBadgeTextOverride: interpolateStudioDataTags(
+              recipientConfig.revisionBadgeTextOverride,
+              computedMap
+            )
+          }
+        : {}),
+      ...(recipientConfig.statusTextOverride
+        ? {
+            statusTextOverride: interpolateStudioDataTags(
+              recipientConfig.statusTextOverride,
+              computedMap
+            )
+          }
+        : {}),
+      ...(Array.isArray(recipientConfig.recipientFieldRows)
+        ? {
+            recipientFieldRows: recipientConfig.recipientFieldRows.map((row) => ({
+              ...row,
+              label: row.label ? interpolateStudioDataTags(row.label, computedMap) : row.label,
+              value: row.value ? interpolateStudioDataTags(row.value, computedMap) : row.value
+            }))
+          }
+        : {}),
+      ...(Array.isArray(recipientConfig.offerFieldRows)
+        ? {
+            offerFieldRows: recipientConfig.offerFieldRows.map((row) => ({
+              ...row,
+              label: row.label ? interpolateStudioDataTags(row.label, computedMap) : row.label,
+              value: row.value ? interpolateStudioDataTags(row.value, computedMap) : row.value
+            }))
+          }
+        : {}),
+      ...(Array.isArray((recipientConfig as any).customLines)
+        ? {
+            customLines: (recipientConfig as any).customLines.map((line: any) =>
+              typeof line === 'string'
+                ? interpolateStudioDataTags(line, computedMap)
+                : line && typeof line === 'object'
+                ? {
+                    ...line,
+                    ...(line.label
+                      ? { label: interpolateStudioDataTags(String(line.label), computedMap) }
+                      : {}),
+                    ...(line.value
+                      ? { value: interpolateStudioDataTags(String(line.value), computedMap) }
+                      : {}),
+                    ...(line.text
+                      ? { text: interpolateStudioDataTags(String(line.text), computedMap) }
+                      : {})
+                  }
+                : line
+            )
+          }
+        : {})
+    };
+
+    const interpolatedFooterConfig: QuotationFooterConfig = {
+      ...footerConfig,
+      pageMode: pageMode,
+      remittanceBankId: selectedBankId,
+      selectedBank: activeBankProfile,
+      ...(companySealUrl ? { companySealUrl } : {}),
+      ...(signatureImageUrl ? { signatureImageUrl } : {}),
+      ...(footerConfig.customDisclaimer
+        ? {
+            customDisclaimer: interpolateStudioDataTags(
+              footerConfig.customDisclaimer,
+              computedMap
+            )
+          }
+        : {}),
+      ...(Array.isArray(footerConfig.customFooterPills)
+        ? {
+            customFooterPills: footerConfig.customFooterPills.map((pill) =>
+              interpolateStudioDataTags(pill, computedMap)
+            )
+          }
+        : {})
+    };
+
+    const constructedQuotation: Quotation = {
+      id: activeQuotationId || editingQuotation?.id || 'preview_draft',
+      workspace_id: activeWorkspaceId,
+      workspaceId: activeWorkspaceId,
+      enquiry_id: enquiry.id || '',
+      document_type: docType,
+      delivery_metadata: deliveryMetadata,
+      purchase_order_metadata: purchaseOrderMetadata,
+      receipt_metadata: receiptMetadata,
+      payment_voucher_metadata: paymentVoucherMetadata,
+      vendor_return_metadata: vendorReturnMetadata,
+      quote_number: cleanQuoteNumber,
+      revision_number: revNum,
+      formatted_quote_ref: interpolateStudioDataTags(formattedQuoteRef, computedMap) || formattedQuoteRef,
+      parent_quote_id: parentQuotationId,
+      parent_quotation_id: parentQuotationId,
+      status: quotationStatus || 'Draft',
+      client_snapshot: {
+        entity_name: resolvedClientName,
+        contact_person: resolvedContactPerson || undefined,
+        client_contact_person: resolvedContactPerson || undefined,
+        contact_designation: baseContactDesignation || undefined,
+        address: resolvedClientAddress || undefined,
+        client_address: resolvedClientAddress || undefined,
+        phone: resolvedClientPhone || undefined,
+        client_phone: resolvedClientPhone || undefined,
+        email: resolvedClientEmail || undefined,
+        client_email: resolvedClientEmail || undefined,
+        trn: resolvedClientTrn || undefined,
+        client_trn: resolvedClientTrn || undefined
+      } as any,
+      client_contact_person: resolvedContactPerson || undefined,
+      client_address: resolvedClientAddress || undefined,
+      client_phone: resolvedClientPhone || undefined,
+      client_email: resolvedClientEmail || undefined,
+      client_trn: resolvedClientTrn || undefined,
+      pdf_filename_pattern: pdfFilenamePattern || undefined,
+      prepared_by: resolvedPreparedBy,
+      subject: resolvedSubject,
+      sender_snapshot: senderSnapshot,
+      line_items: quotationLineItems,
+      tax_mode: taxMode,
+      subtotal: financialTotals.subtotal,
+      freight_amount: financialTotals.freight_amount,
+      tax_rate_percent: financialTotals.tax_rate_percent,
+      tax_amount: financialTotals.tax_amount,
+      grand_total: financialTotals.grand_total,
+      price_basis: resolvedPriceBasis,
+      delivery_period: resolvedDeliveryPeriod || undefined,
+      payment_terms: resolvedPaymentTerms,
+      validity_days: validityDays,
+      custom_notes: resolvedCustomNotes,
+      applied_terms: resolvedCustomNotes,
       applied_bank_account: activeBankAccount,
       remittanceBankId: selectedBankId,
       remittance_bank_id: selectedBankId,
@@ -6664,10 +7291,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       showSignatories: footerConfig.showSignatories !== false,
       footerLayoutMode: footerConfig.footerLayoutMode || 'split',
       signatory_type: signatoryType,
-      primary_signatory_name: signatoryName,
-      primary_signatory_title: signatoryTitle,
-      secondary_signatory_name: secondarySignatoryName,
-      secondary_signatory_title: secondarySignatoryTitle,
+      primary_signatory_name: interpolateStudioDataTags(signatoryName, computedMap) || signatoryName,
+      primary_signatory_title: interpolateStudioDataTags(signatoryTitle, computedMap) || signatoryTitle,
+      secondary_signatory_name:
+        interpolateStudioDataTags(secondarySignatoryName, computedMap) || secondarySignatoryName,
+      secondary_signatory_title:
+        interpolateStudioDataTags(secondarySignatoryTitle, computedMap) || secondarySignatoryTitle,
       signature_style: signatureStyle,
       company_logo_url: companyLogoUrl || headerConfig.logoUrl || undefined,
       company_seal_url: companySealUrl || footerConfig.companySealUrl || undefined,
@@ -6678,7 +7307,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       topAccentBarStyle: headerConfig.topAccentBarStyle || 'thick',
       tableHeaderStyle: headerConfig.tableHeaderStyle || 'tinted',
       blockHeaderStyle: headerConfig.blockHeaderStyle || 'underline',
-      companyNameOverride: headerConfig.companyNameOverride || undefined,
+      companyNameOverride: interpolatedHeaderConfig.companyNameOverride || undefined,
       cardsOrder: cardsOrder,
       subjectPlacement: subjectPlacement,
       pageMode: pageMode,
@@ -6688,21 +7317,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       layout_blocks: layoutBlocks,
       flyer_attachments: resolvedFlyerAttachments,
       show_submittals_index: showSubmittalsIndex,
-      header_config: {
-        ...headerConfig,
-        ...(companyLogoUrl !== undefined && companyLogoUrl !== ''
-          ? { logoUrl: companyLogoUrl }
-          : {})
-      },
-      recipient_config: recipientConfig,
-      footer_config: {
-        ...footerConfig,
-        pageMode: pageMode,
-        remittanceBankId: selectedBankId,
-        selectedBank: activeBankProfile,
-        ...(companySealUrl ? { companySealUrl } : {}),
-        ...(signatureImageUrl ? { signatureImageUrl } : {})
-      },
+      header_config: interpolatedHeaderConfig,
+      recipient_config: interpolatedRecipientConfig,
+      footer_config: interpolatedFooterConfig,
       visible_columns: visibleColumns,
       omitted_fields: omittedFields,
       auto_paginate_items: autoPaginateItems,
@@ -6711,15 +7328,36 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         ? `${quotationIssueDate}T12:00:00.000Z`
         : editingQuotation?.created_at || new Date().toISOString(),
       valid_until: validUntilDate,
-      currency:
-        editingQuotation?.currency ||
-        (enquiry.currency as string) ||
-        activeBankAccount?.currency ||
-        'AED',
+      currency: effectiveCurrency,
       preset_id: selectedPresetId || undefined,
       presentation_preset: presets.find((p) => p.id === selectedPresetId) || undefined
     };
+
+    // Attach dynamic_tag_map and resolved CRM entities onto liveQuotation for QuotationDocument
+    (constructedQuotation as any).dynamic_tag_map = computedMap;
+    (constructedQuotation as any)._resolved_company = matchedCompany;
+    (constructedQuotation as any)._resolved_contact = matchedContact;
+
+    const finalTokenContext: QuotationTokenContext = {
+      quotation: constructedQuotation,
+      enquiry,
+      profile: activeProfile,
+      company: matchedCompany,
+      contact: matchedContact,
+      workspaceName: activeWorkspace?.name || undefined,
+      omittedFields,
+      activeBank: activeBankAccount || undefined,
+      amountInWordsText: amountInWordsStr,
+      _cachedTokenMap: computedMap
+    };
+
+    return {
+      liveQuotation: constructedQuotation,
+      studioTokenContext: finalTokenContext,
+      studioTokenMap: computedMap
+    };
   }, [
+    resolvedCrmEntities,
     editingQuotation,
     activeWorkspaceId,
     activeWorkspace,
@@ -6735,10 +7373,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     validityDays,
     quotationIssueDate,
     activeBankAccount,
+    activeBankProfile,
+    selectedBankId,
     signatories,
     validUntilDate,
     headerLayout,
     tableDensity,
+    tableFontScale,
+    fontSizeScale,
     showBankDetails,
     showCommercialTerms,
     showCompanySeal,
@@ -6797,81 +7439,6 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     selectedPresetId,
     presets
   ]);
-
-  // Smart '@' Token Resolution Context & Map
-  const studioTokenContext = useMemo<QuotationTokenContext>(() => {
-    const docType = liveQuotation.document_type || 'quotation';
-    const pvAllocSum = Array.isArray(liveQuotation.payment_voucher_metadata?.allocated_bills)
-      ? liveQuotation.payment_voucher_metadata!.allocated_bills!.reduce(
-          (sum, b) => sum + (Number(b.paid_this_voucher) || 0),
-          0
-        )
-      : 0;
-    const effectiveWordsAmount =
-      docType === 'receipt'
-        ? Number(liveQuotation.receipt_metadata?.amount_received ?? liveQuotation.grand_total ?? 0)
-        : docType === 'payment_voucher'
-        ? Number(
-            liveQuotation.payment_voucher_metadata?.amount_paid ||
-              pvAllocSum ||
-              liveQuotation.grand_total ||
-              0
-          )
-        : Number(liveQuotation.grand_total || 0);
-
-    const targetCompanyName = String(
-      enquiry.company_name || (enquiry as any).client_company || ''
-    )
-      .trim()
-      .toLowerCase();
-    const matchedCompany =
-      workspaceCompanies.find(
-        (c) =>
-          (enquiry.company_id && c.id === enquiry.company_id) ||
-          (targetCompanyName && String(c.name || '').trim().toLowerCase() === targetCompanyName)
-      ) || null;
-
-    const targetContactName = String(
-      enquiry.contact_person_name || (enquiry as any).concerned_person || ''
-    )
-      .trim()
-      .toLowerCase();
-    const matchedContact =
-      workspaceContacts.find(
-        (c) =>
-          (enquiry.contact_id && c.id === enquiry.contact_id) ||
-          (targetContactName && String(c.name || '').trim().toLowerCase() === targetContactName)
-      ) || null;
-
-    return {
-      quotation: liveQuotation,
-      enquiry,
-      profile: activeProfile,
-      company: matchedCompany,
-      contact: matchedContact,
-      workspaceName: activeWorkspace?.name || undefined,
-      omittedFields,
-      activeBank: activeBankAccount || undefined,
-      amountInWordsText: amountToWords(
-        effectiveWordsAmount,
-        liveQuotation.currency || 'AED'
-      )
-    };
-  }, [
-    liveQuotation,
-    enquiry,
-    activeProfile,
-    workspaceCompanies,
-    workspaceContacts,
-    activeWorkspace?.name,
-    omittedFields,
-    activeBankAccount
-  ]);
-
-  const studioTokenMap = useMemo(
-    () => buildQuotationTokenMap(studioTokenContext),
-    [studioTokenContext]
-  );
 
   // 2-Way Synchronized Field Omission Toggle: updates omittedFields AND structural card/block visibility
   const handleToggleFieldOmission = useCallback(
@@ -7432,9 +7999,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         parent_quotation_id: liveQuotation.parent_quotation_id || liveQuotation.parent_quote_id,
         status: effectiveStatus,
         client_snapshot: liveQuotation.client_snapshot,
-        client_contact_person: clientContactPerson || liveQuotation.client_contact_person,
-        prepared_by: preparedBy || liveQuotation.prepared_by,
-        subject: quotationSubject || liveQuotation.subject,
+        client_contact_person: liveQuotation.client_contact_person || clientContactPerson,
+        client_address: liveQuotation.client_address || clientAddressOverride || undefined,
+        client_phone: liveQuotation.client_phone || clientPhoneOverride || undefined,
+        client_email: liveQuotation.client_email || clientEmailOverride || undefined,
+        client_trn: liveQuotation.client_trn || clientTrnOverride || undefined,
+        prepared_by: liveQuotation.prepared_by || preparedBy,
+        subject: liveQuotation.subject || quotationSubject,
         sender_snapshot: liveQuotation.sender_snapshot,
         line_items: stripCatalogRedundantLineItemMedia(liveQuotation.line_items, workspaceProducts),
         option_display_mode: optionDisplayMode,
@@ -7446,10 +8017,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         tax_rate_percent: liveQuotation.tax_rate_percent,
         tax_amount: liveQuotation.tax_amount,
         grand_total: liveQuotation.grand_total,
-        price_basis: priceBasis,
-        payment_terms: paymentTerms,
-        custom_notes: customNotes,
-        applied_terms: customNotes,
+        price_basis: liveQuotation.price_basis || priceBasis,
+        payment_terms: liveQuotation.payment_terms || paymentTerms,
+        custom_notes: liveQuotation.custom_notes || customNotes,
+        applied_terms: liveQuotation.applied_terms || customNotes,
         applied_bank_account: liveQuotation.applied_bank_account,
         remittanceBankId: selectedBankId,
         remittance_bank_id: selectedBankId,
