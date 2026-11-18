@@ -378,6 +378,180 @@ export function hasCatalogDrift(item: any, product?: Product | null, currency?: 
   return false;
 }
 
+export interface CatalogItemDiffEntry {
+  field: string;
+  catalogValue: string;
+  quoteValue: string;
+  isIdentifyingSpec: boolean;
+}
+
+export interface CatalogItemDiffSummary {
+  hasDrift: boolean;
+  hasIdentifyingDrift: boolean;
+  entries: CatalogItemDiffEntry[];
+  summaryText: string;
+}
+
+/**
+ * Computes a human-readable diff between a quote/enquiry line item and its linked Catalog Product,
+ * and flags whether key identifying specs (Name, Model, Dimensions, Size, Capacity, Rating, Pressure, Flow)
+ * were modified so the UI can recommend saving as a new Variant rather than overwriting the linked product.
+ */
+export function computeCatalogItemDiff(
+  item: any,
+  product?: Product | null,
+  currency?: string,
+  allProducts?: Product[]
+): CatalogItemDiffSummary {
+  if (!item || !product || !item.product_id) {
+    return {
+      hasDrift: false,
+      hasIdentifyingDrift: false,
+      entries: [],
+      summaryText: ''
+    };
+  }
+
+  const effProduct = resolveEffectiveCatalogProduct(product, allProducts);
+  const effectiveCurrency = String(currency || item?.currency || effProduct?.currency || 'AED').toUpperCase();
+  const prodCurrency = String(effProduct?.currency || 'AED').toUpperCase();
+  const fxMultiplier =
+    effectiveCurrency === prodCurrency
+      ? 1
+      : resolveToAedMultiplier(effectiveCurrency) / resolveToAedMultiplier(prodCurrency);
+  const priceTolerance = effectiveCurrency !== 'AED' ? 0.05 : 0.005;
+
+  const entries: CatalogItemDiffEntry[] = [];
+  const identifyingKeyRegex =
+    /size|dimension|dia|height|length|width|capacity|flow|pressure|rating|model|material|moc|grade|volume|power|kw|hp|voltage|output/i;
+
+  // 1. Title / Name
+  const itemName = String(item.item_name || item.title || '').trim();
+  const prodName = String(effProduct.name || '').trim();
+  if (itemName && prodName && itemName.toLowerCase() !== prodName.toLowerCase()) {
+    entries.push({
+      field: 'Title',
+      catalogValue: prodName,
+      quoteValue: itemName,
+      isIdentifyingSpec: true
+    });
+  }
+
+  // 2. Model / Part #
+  const itemModel = String(item.model_part_no ?? '').trim();
+  const prodModel = String(effProduct.model_part_no ?? '').trim();
+  if (itemModel && itemModel.toLowerCase() !== prodModel.toLowerCase()) {
+    entries.push({
+      field: 'Model',
+      catalogValue: prodModel || 'None',
+      quoteValue: itemModel,
+      isIdentifyingSpec: true
+    });
+  }
+
+  // 3. Structured Attributes (Dimensions, Capacity, Size, etc.)
+  const itemAttrs: ProductAttribute[] = Array.isArray(item.attributes)
+    ? item.attributes.filter((a: any) => a && String(a.key ?? '').trim() !== '')
+    : [];
+  const prodAttrs: ProductAttribute[] = Array.isArray(effProduct.attributes)
+    ? effProduct.attributes.filter((a) => a && String(a.key ?? '').trim() !== '')
+    : [];
+
+  for (const ia of itemAttrs) {
+    const k = ia.key.trim();
+    const v = String(ia.value ?? '').trim();
+    if (!k || !v) continue;
+    const kLower = k.toLowerCase();
+    if (kLower === 'delivery' || kLower === 'lead time' || kLower === 'availability') continue;
+    const pMatch = prodAttrs.find((pa) => pa.key.trim().toLowerCase() === kLower);
+    const pVal = String(pMatch?.value ?? '').trim();
+    if (!pMatch || pVal.toLowerCase() !== v.toLowerCase()) {
+      entries.push({
+        field: k,
+        catalogValue: pVal || 'Unset',
+        quoteValue: v,
+        isIdentifyingSpec: identifyingKeyRegex.test(k)
+      });
+    }
+  }
+
+  // 4. Price
+  const itemSellInProdCurr = Math.round(Number(item.unit_price ?? 0) * fxMultiplier * 100) / 100;
+  const prodSell = Number(effProduct.unit_price ?? 0);
+  if (Math.abs(itemSellInProdCurr - prodSell) > priceTolerance) {
+    entries.push({
+      field: 'Price',
+      catalogValue: `${prodCurrency} ${prodSell.toLocaleString()}`,
+      quoteValue: `${prodCurrency} ${itemSellInProdCurr.toLocaleString()}`,
+      isIdentifyingSpec: false
+    });
+  }
+
+  // 5. Cost Price
+  const itemCostInProdCurr = Math.round(Number(item.cost_price ?? 0) * fxMultiplier * 100) / 100;
+  const prodCost = Number(effProduct.cost_price ?? 0);
+  if (itemCostInProdCurr > 0 && Math.abs(itemCostInProdCurr - prodCost) > priceTolerance) {
+    entries.push({
+      field: 'Cost',
+      catalogValue: `${prodCurrency} ${prodCost.toLocaleString()}`,
+      quoteValue: `${prodCurrency} ${itemCostInProdCurr.toLocaleString()}`,
+      isIdentifyingSpec: false
+    });
+  }
+
+  // 6. Brand / Origin / Lead Time / Photo
+  const itemBrand = String(item.brand_make ?? '').trim();
+  const prodBrand = String(effProduct.brand_make ?? '').trim();
+  if (itemBrand && itemBrand.toLowerCase() !== prodBrand.toLowerCase()) {
+    entries.push({
+      field: 'Brand',
+      catalogValue: prodBrand || 'Unset',
+      quoteValue: itemBrand,
+      isIdentifyingSpec: false
+    });
+  }
+
+  const itemLead = String(item.lead_time_note ?? item.availability ?? '').trim();
+  const prodLead = String(effProduct.default_availability ?? '').trim();
+  if (itemLead && prodLead && itemLead.toLowerCase() !== prodLead.toLowerCase()) {
+    entries.push({
+      field: 'Lead Time',
+      catalogValue: prodLead,
+      quoteValue: itemLead,
+      isIdentifyingSpec: false
+    });
+  }
+
+  const itemImg = String(item.image_url ?? '').trim();
+  const prodImg = String(effProduct.image_url ?? '').trim();
+  if (itemImg && itemImg !== prodImg) {
+    entries.push({
+      field: 'Photo',
+      catalogValue: prodImg ? 'Catalog Image' : 'None',
+      quoteValue: 'Custom Image',
+      isIdentifyingSpec: false
+    });
+  }
+
+  const hasDrift = entries.length > 0 || hasCatalogDrift(item, effProduct, currency);
+  const hasIdentifyingDrift = entries.some((e) => e.isIdentifyingSpec);
+  const summaryText = entries
+    .slice(0, 3)
+    .map((e) =>
+      e.field === 'Photo'
+        ? 'Photo (Custom Image)'
+        : `${e.field} (${e.catalogValue} → ${e.quoteValue})`
+    )
+    .join(', ');
+
+  return {
+    hasDrift,
+    hasIdentifyingDrift,
+    entries,
+    summaryText
+  };
+}
+
 /**
  * Pushes updated line item fields (price, cost, unit, brand, model, origin, specs, image, datasheet)
  * directly back to the master Product record in Firestore and local state.
@@ -1461,6 +1635,11 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
     [item, matchedProduct, currency]
   );
 
+  const diffSummary = useMemo(
+    () => computeCatalogItemDiff(item, matchedProduct, currency, products),
+    [item, matchedProduct, currency, products]
+  );
+
   // Resolve the root Parent Family product when matchedProduct is already a child variant
   const targetParentProduct = useMemo(() => {
     const parentId =
@@ -1606,27 +1785,35 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
       matchedProduct,
       currency,
       targetVariant || null,
-      isVendorCostDoc
+      isVendorCostDoc,
+      products
     );
     onUpdateLineItem(resetItem);
     const label =
       (targetVariant as ProductSpecVariant)?.variant_name ||
+      (targetVariant as any)?.variant_label ||
       (targetVariant as Product)?.sku ||
       matchedProduct.sku ||
       matchedProduct.name;
     if (triggerToast) {
-      triggerToast(`Pulled catalog defaults from ${label} into this line item.`, 'info');
+      triggerToast(`Switched / pulled catalog defaults from ${label} into this line item.`, 'info');
     }
     setIsOpen(false);
   };
 
   const skuDisplay = matchedProduct.sku || matchedProduct.name || 'SKU';
+  const linkedProductDisplay =
+    (matchedProduct as any).variant_label
+      ? `${matchedProduct.name} (${(matchedProduct as any).variant_label})`
+      : matchedProduct.name || skuDisplay;
   const parentDisplay =
-    targetParentProduct.id !== matchedProduct.id
-      ? targetParentProduct.name || targetParentProduct.sku || skuDisplay
-      : skuDisplay;
+    targetParentProduct.product_family ||
+    targetParentProduct.name ||
+    targetParentProduct.sku ||
+    skuDisplay;
   const totalVariantCount =
     availableVariants.inlineVars.length + availableVariants.siblingProducts.length;
+  const isVariantRecommended = diffSummary.hasIdentifyingDrift;
 
   return (
     <div ref={menuRef} className="relative inline-block text-left" onClick={(e) => e.stopPropagation()}>
@@ -1647,7 +1834,7 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
         }`}
         title={
           drifted
-            ? `This line item has custom edits differing from Catalog SKU ${skuDisplay}. Click to Save as Variant, Update Master SKU, or Pull Defaults.`
+            ? `Changed on Quote: ${diffSummary.summaryText || 'Custom quote edits'}. Click to Save as New Variant, Overwrite Existing Item, or Pull Defaults.`
             : `2-Way Catalog Sync & Spec Variants for ${skuDisplay}`
         }
       >
@@ -1665,12 +1852,12 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
       {isOpen && (
         <div
           onClick={(e) => e.stopPropagation()}
-          className="absolute left-0 top-full mt-1.5 w-80 sm:w-88 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl z-[300] p-2.5 space-y-1.5 text-xs animate-in fade-in zoom-in-95 duration-100"
+          className="absolute left-0 top-full mt-1.5 w-84 sm:w-96 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl z-[300] p-2.5 space-y-2 text-xs animate-in fade-in zoom-in-95 duration-100"
         >
           <div className="px-2 py-1 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
             <span className="font-mono font-bold text-[10px] uppercase tracking-wider text-slate-500 truncate">
               SKU: {skuDisplay}
-              {targetParentProduct.id !== matchedProduct.id ? ` • Parent: ${parentDisplay}` : ''}
+              {targetParentProduct.id !== matchedProduct.id ? ` • Family: ${parentDisplay}` : ''}
             </span>
             <span
               className={`text-[9.5px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${
@@ -1683,23 +1870,68 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
             </span>
           </div>
 
-          {/* Action 1: Save as Spec Variant on SKU */}
-          <div className="rounded-lg border border-indigo-200/80 bg-indigo-50/40 dark:bg-indigo-950/30 p-2 space-y-2">
+          {/* Live Diff Summary Banner when Line Item differs from Linked Catalog Product */}
+          {diffSummary.entries.length > 0 && (
+            <div
+              className={`p-2 rounded-lg border text-[10.5px] space-y-1 ${
+                isVariantRecommended
+                  ? 'bg-amber-50/90 border-amber-200 text-amber-950'
+                  : 'bg-slate-50 border-slate-200 text-slate-700'
+              }`}
+            >
+              <div className="font-bold flex items-center justify-between gap-1">
+                <span>Changed on Quote vs &ldquo;{linkedProductDisplay}&rdquo;:</span>
+                {isVariantRecommended && (
+                  <span className="px-1.5 py-0.2 rounded bg-violet-600 text-white text-[9px] font-mono uppercase">
+                    New Size/Spec Detected
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {diffSummary.entries.slice(0, 4).map((d, i) => (
+                  <span
+                    key={i}
+                    className={`px-1.5 py-0.5 rounded font-mono text-[10px] border ${
+                      d.isIdentifyingSpec
+                        ? 'bg-white text-violet-900 border-violet-300 font-semibold'
+                        : 'bg-white text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    {d.field}: {d.catalogValue} → <strong>{d.quoteValue}</strong>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Action 1: Save as New Variant under Family */}
+          <div
+            className={`rounded-lg border p-2 space-y-2 ${
+              isVariantRecommended
+                ? 'border-violet-400 bg-violet-50/80 dark:bg-violet-950/40 ring-1 ring-violet-400/50'
+                : 'border-indigo-200/80 bg-indigo-50/40 dark:bg-indigo-950/30'
+            }`}
+          >
             {!showVariantPrompt ? (
               <button
                 type="button"
                 onClick={handleOpenVariantPrompt}
                 className="w-full text-left flex items-start gap-2 cursor-pointer group"
               >
-                <div className="p-1.5 rounded-lg bg-indigo-600 text-white shrink-0 mt-0.5 group-hover:bg-indigo-700 transition">
+                <div className="p-1.5 rounded-lg bg-violet-600 text-white shrink-0 mt-0.5 group-hover:bg-violet-700 transition">
                   <Sparkles className="w-3.5 h-3.5" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="font-bold text-indigo-950 dark:text-indigo-200 text-xs flex items-center gap-1">
-                    <span>✨ Save as Spec Variant on SKU</span>
+                  <div className="font-bold text-indigo-950 dark:text-indigo-200 text-xs flex items-center gap-1.5 flex-wrap">
+                    <span>✨ Save as New Variant under {parentDisplay}</span>
+                    {isVariantRecommended && (
+                      <span className="px-1.5 py-0.2 rounded bg-emerald-600 text-white text-[9px] font-mono uppercase">
+                        Recommended
+                      </span>
+                    )}
                   </div>
                   <p className="text-[10.5px] text-slate-600 dark:text-slate-400 leading-snug mt-0.5">
-                    Keep {skuDisplay} intact &amp; save this item&apos;s size, specs &amp; price as a reusable variant under {parentDisplay}
+                    Keeps &ldquo;{linkedProductDisplay}&rdquo; untouched and saves this item&apos;s size, specs &amp; price as a new sibling variant
                   </p>
                 </div>
               </button>
@@ -1727,7 +1959,7 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
                     autoFocus
                     value={variantLabelInput}
                     onChange={(e) => setVariantLabelInput(e.target.value)}
-                    placeholder='e.g. 63" x 67" - 10.5 Bar'
+                    placeholder='e.g. 48" x 72" or 10 LPH @ 5 Bar'
                     className="w-full px-2 py-1 text-xs rounded border border-indigo-300 bg-white text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>
@@ -1765,7 +1997,7 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
             )}
           </div>
 
-          {/* Action 2: Update Master Catalog SKU (Overwrite Catalog) */}
+          {/* Action 2: Overwrite Existing Linked Product */}
           <button
             type="button"
             disabled={isBusy}
@@ -1777,10 +2009,12 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
             </div>
             <div className="min-w-0 flex-1">
               <div className="font-bold text-slate-800 dark:text-slate-100 text-xs">
-                ↑ Update Master Catalog SKU (Overwrite Catalog)
+                ⬆️ Overwrite Existing &ldquo;{linkedProductDisplay}&rdquo;
               </div>
               <p className="text-[10.5px] text-slate-500 leading-snug mt-0.5">
-                Push this item&apos;s specs, price, delivery &amp; photo to update master SKU {skuDisplay}
+                {isVariantRecommended
+                  ? `Caution: Replaces ${skuDisplay}'s saved dimensions/specs & price in the catalog with this line item's values`
+                  : `Updates ${skuDisplay}'s price, delivery, specs & photo in the catalog`}
               </p>
             </div>
           </button>
@@ -1797,10 +2031,10 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
             </div>
             <div className="min-w-0 flex-1">
               <div className="font-bold text-slate-800 dark:text-slate-100 text-xs">
-                ↓ Pull Defaults from Catalog (Reset Item)
+                ↓ Reset to Catalog Defaults ({skuDisplay})
               </div>
               <p className="text-[10.5px] text-slate-500 leading-snug mt-0.5">
-                Replace this item&apos;s price, delivery &amp; specs with Catalog SKU {skuDisplay} defaults
+                Reverts this line item&apos;s price, delivery &amp; specs back to &ldquo;{linkedProductDisplay}&rdquo;
               </p>
             </div>
           </button>
@@ -1809,7 +2043,7 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
           {totalVariantCount > 0 && (
             <div className="pt-1.5 border-t border-slate-100 dark:border-slate-800 space-y-1">
               <span className="px-2 block text-[9.5px] font-mono font-bold uppercase tracking-wider text-slate-400">
-                Or Pull Specific Spec Variant ({totalVariantCount})
+                Or Switch to Another Variant in {parentDisplay} ({totalVariantCount})
               </span>
               <div className="max-h-36 overflow-y-auto space-y-1 px-1">
                 {availableVariants.inlineVars.map((v) => (
@@ -1837,14 +2071,16 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
                   </button>
                 ))}
                 {availableVariants.siblingProducts.map((sp) => {
-                  const sibLabel = deriveSuggestedVariantLabel(
-                    {
-                      item_name: sp.name,
-                      model_part_no: sp.model_part_no,
-                      attributes: sp.attributes
-                    },
-                    matchedProduct
-                  );
+                  const sibLabel =
+                    (sp as any).variant_label ||
+                    deriveSuggestedVariantLabel(
+                      {
+                        item_name: sp.name,
+                        model_part_no: sp.model_part_no,
+                        attributes: sp.attributes
+                      },
+                      targetParentProduct
+                    );
                   return (
                     <button
                       key={sp.id}
@@ -1873,6 +2109,250 @@ export const CatalogSyncMenu: React.FC<CatalogSyncMenuProps> = ({
           )}
         </div>
       )}
+    </div>
+  );
+};
+
+export interface VariantFamilyBarProps {
+  item: any;
+  matchedProduct: Product;
+  products: Product[];
+  currency?: string;
+  isVendorCostDoc?: boolean;
+  onSwitchVariant: (patchedItem: any, selectedLabel: string) => void;
+  triggerToast?: (msg: string, type?: 'success' | 'error' | 'info') => void;
+  compact?: boolean;
+}
+
+/**
+ * Compact 1-Click Variant Family Bar rendered directly on catalog-linked line items
+ * whenever the linked product belongs to a Variant Family (either a Parent with variants or a Child Variant).
+ * Shows `Family: <Parent Family Name> • Variant: [<Active Size/Variant> ▾]` and swaps SKU, differentiating specs,
+ * and price in 1 click.
+ */
+export const VariantFamilyBar: React.FC<VariantFamilyBarProps> = ({
+  item,
+  matchedProduct,
+  products = [],
+  currency = 'AED',
+  isVendorCostDoc = false,
+  onSwitchVariant,
+  triggerToast,
+  compact = false
+}) => {
+  const familyContext = useMemo(() => {
+    if (!matchedProduct || !Array.isArray(products) || products.length === 0) return null;
+    const activeProds = products.filter((p) => p && !p.is_deleted);
+    const parentId =
+      (matchedProduct as any).parent_product_id || matchedProduct.variant_parent_id || null;
+    const rootParent = parentId
+      ? activeProds.find((p) => p.id === parentId) || matchedProduct
+      : matchedProduct;
+    const rootId = rootParent.id;
+    const familyName = (
+      rootParent.product_family ||
+      matchedProduct.product_family ||
+      rootParent.name ||
+      matchedProduct.name ||
+      ''
+    ).trim();
+    const familyLower = familyName.toLowerCase();
+
+    // Collect all sibling products in the family (including rootParent if it has a price or children, and all child variants)
+    const childProducts = activeProds.filter((p) => {
+      if (p.id === rootId) return false;
+      const pParentId = (p as any).parent_product_id || p.variant_parent_id;
+      if (rootId && pParentId === rootId) return true;
+      if (
+        familyLower &&
+        p.product_family &&
+        p.product_family.trim().toLowerCase() === familyLower
+      ) {
+        return true;
+      }
+      return false;
+    });
+
+    const inlineVars: ProductSpecVariant[] = Array.isArray(rootParent.spec_variants)
+      ? rootParent.spec_variants
+      : Array.isArray(rootParent.variants)
+      ? rootParent.variants
+      : [];
+
+    const isChildVariant = Boolean(parentId);
+    const hasVariants = isChildVariant || childProducts.length > 0 || inlineVars.length > 0;
+    if (!hasVariants) return null;
+
+    const effectiveCurr = String(currency || item?.currency || 'AED').toUpperCase();
+    const formatOptionPrice = (rawAedPrice?: number, prodCurr?: string) => {
+      const num = Number(rawAedPrice || 0);
+      if (num <= 0) return 'POR';
+      const pCurr = String(prodCurr || 'AED').toUpperCase();
+      const fx =
+        effectiveCurr === pCurr
+          ? 1
+          : resolveToAedMultiplier(pCurr) / resolveToAedMultiplier(effectiveCurr);
+      const converted = Math.round(num * fx * 100) / 100;
+      return `${effectiveCurr} ${converted.toLocaleString()}`;
+    };
+
+    const options: Array<{
+      key: string;
+      label: string;
+      sku: string;
+      priceLabel: string;
+      targetProduct?: Product;
+      targetInlineVariant?: ProductSpecVariant;
+      isCurrent: boolean;
+    }> = [];
+
+    const seenSkus = new Set<string>();
+
+    // Add root parent option if it's currently selected or has its own price/SKU
+    const rootLabel =
+      (rootParent as any).variant_label ||
+      deriveSuggestedVariantLabel(
+        {
+          item_name: rootParent.name,
+          model_part_no: rootParent.model_part_no,
+          attributes: rootParent.attributes
+        },
+        null
+      ) ||
+      'Base / Parent Master';
+    options.push({
+      key: `prod_${rootParent.id}`,
+      label:
+        rootParent.id === matchedProduct.id && !item?.variant_id
+          ? `${rootLabel} (Parent)`
+          : `${rootLabel} (Parent)`,
+      sku: rootParent.sku || '',
+      priceLabel: formatOptionPrice(rootParent.unit_price, rootParent.currency),
+      targetProduct: rootParent,
+      isCurrent: matchedProduct.id === rootParent.id && !item?.variant_id
+    });
+    if (rootParent.sku) seenSkus.add(rootParent.sku.trim().toLowerCase());
+
+    // Add child variant product records
+    for (const cp of childProducts) {
+      const cpLabel =
+        (cp as any).variant_label ||
+        deriveSuggestedVariantLabel(
+          {
+            item_name: cp.name,
+            model_part_no: cp.model_part_no,
+            attributes: cp.attributes
+          },
+          rootParent
+        );
+      if (cp.sku) seenSkus.add(cp.sku.trim().toLowerCase());
+      options.push({
+        key: `prod_${cp.id}`,
+        label: cpLabel,
+        sku: cp.sku || '',
+        priceLabel: formatOptionPrice(cp.unit_price, cp.currency),
+        targetProduct: cp,
+        isCurrent: matchedProduct.id === cp.id
+      });
+    }
+
+    // Add any inline spec_variants that don't already have a child product record with the same SKU
+    for (const iv of inlineVars) {
+      const ivSkuLower = String(iv.sku || '').trim().toLowerCase();
+      if (ivSkuLower && seenSkus.has(ivSkuLower)) continue;
+      options.push({
+        key: `ivar_${iv.id}`,
+        label: iv.variant_name || iv.sku || 'Variant',
+        sku: iv.sku || '',
+        priceLabel: formatOptionPrice(iv.unit_price, rootParent.currency),
+        targetProduct: rootParent,
+        targetInlineVariant: iv,
+        isCurrent: item?.variant_id === iv.id
+      });
+    }
+
+    const activeOption = options.find((o) => o.isCurrent) || options[0];
+    const currentVariantBadge =
+      item?.variant_name ||
+      (matchedProduct as any).variant_label ||
+      (isChildVariant
+        ? deriveSuggestedVariantLabel(
+            {
+              item_name: matchedProduct.name,
+              model_part_no: matchedProduct.model_part_no,
+              attributes: matchedProduct.attributes
+            },
+            rootParent
+          )
+        : 'Parent Master');
+
+    return {
+      familyName,
+      rootParent,
+      isChildVariant,
+      currentVariantBadge,
+      options,
+      activeKey: activeOption?.key || ''
+    };
+  }, [matchedProduct, products, currency, item]);
+
+  if (!familyContext) return null;
+
+  return (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      className={`inline-flex items-center gap-1.5 flex-wrap rounded-lg bg-violet-50/90 dark:bg-violet-950/40 border border-violet-200/90 dark:border-violet-800 ${
+        compact ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-[10.5px]'
+      }`}
+    >
+      <span className="inline-flex items-center gap-1 font-semibold text-violet-900 dark:text-violet-200 whitespace-nowrap">
+        <GitBranch className="w-3 h-3 text-violet-600 dark:text-violet-400 shrink-0" />
+        <span className="text-violet-600 dark:text-violet-400 font-mono uppercase text-[9.5px]">
+          Family:
+        </span>
+        <span className="font-bold truncate max-w-[160px]" title={familyContext.familyName}>
+          {familyContext.familyName}
+        </span>
+      </span>
+
+      <span className="text-violet-300 dark:text-violet-700 select-none">•</span>
+
+      <div className="inline-flex items-center gap-1">
+        <span className="text-violet-600 dark:text-violet-400 font-mono uppercase text-[9.5px]">
+          Variant:
+        </span>
+        <select
+          value={familyContext.activeKey}
+          onChange={(e) => {
+            const nextKey = e.target.value;
+            const chosen = familyContext.options.find((o) => o.key === nextKey);
+            if (!chosen) return;
+            const nextItem = pullCatalogDefaultsToLineItem(
+              item,
+              chosen.targetProduct || familyContext.rootParent,
+              currency,
+              chosen.targetInlineVariant || chosen.targetProduct || null,
+              isVendorCostDoc,
+              products
+            );
+            onSwitchVariant(nextItem, chosen.label);
+            if (triggerToast) {
+              triggerToast(
+                `Switched variant to "${chosen.label}" (${chosen.sku || familyContext.familyName} • ${chosen.priceLabel}).`,
+                'success'
+              );
+            }
+          }}
+          className="bg-white dark:bg-slate-900 border border-violet-300 dark:border-violet-700 hover:border-violet-500 text-violet-950 dark:text-violet-100 font-bold rounded-md px-1.5 py-0.5 text-[10.5px] cursor-pointer focus:outline-none focus:ring-1 focus:ring-violet-500 max-w-[230px] truncate"
+          title="1-Click Switch to another Size / Spec Variant in this Parent Family (updates SKU, differentiating specs, and price)"
+        >
+          {familyContext.options.map((opt) => (
+            <option key={opt.key} value={opt.key}>
+              {opt.label} {opt.sku ? `[${opt.sku}]` : ''} — {opt.priceLabel}
+            </option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 };
@@ -1949,8 +2429,10 @@ export default function SaveToCatalogModal({
   const lineItem = propLineItem || initialItem || null;
   const [isSaving, setIsSaving] = useState(false);
 
-  // Mode: 'new_product' (Create New Catalog SKU) vs 'spec_variant' (Attach as Spec Variant to Existing SKU)
-  const [saveMode, setSaveMode] = useState<'new_product' | 'spec_variant'>(initialMode);
+  // Mode: 'update_linked' (Update Linked Item) vs 'spec_variant' (Save as New Size / Variant of Parent Family) vs 'new_product' (Save as Separate Standalone Product)
+  const [saveMode, setSaveMode] = useState<'update_linked' | 'spec_variant' | 'new_product'>(
+    initialMode
+  );
   const [selectedParentProductId, setSelectedParentProductId] = useState<string>('');
   const [parentSearchQuery, setParentSearchQuery] = useState<string>('');
   const [variantLabel, setVariantLabel] = useState<string>('');
@@ -2092,11 +2574,37 @@ export default function SaveToCatalogModal({
     setAttributes(mergedAttrs.map((a) => ({ key: a.key ?? '', value: a.value ?? '' })));
     setIsCreatingCategory(false);
     setNewCategoryInput('');
-    setSaveMode(initialMode || 'new_product');
-    setSelectedParentProductId('');
+
+    // Check if lineItem is already linked to a product in the catalog
+    const explicitLinkedId = (lineItem as any).product_id;
+    const directLinkedProd = explicitLinkedId
+      ? (products || []).find((p) => !p.is_deleted && p.id === explicitLinkedId) || null
+      : null;
+    const diffCheck = directLinkedProd
+      ? computeCatalogItemDiff(lineItem, directLinkedProd, propCurrency, products)
+      : null;
+
+    if (initialMode === 'spec_variant') {
+      setSaveMode('spec_variant');
+    } else if (directLinkedProd) {
+      if (diffCheck?.hasIdentifyingDrift) {
+        const rootId =
+          (directLinkedProd as any).parent_product_id ||
+          directLinkedProd.variant_parent_id ||
+          directLinkedProd.id;
+        setSaveMode('spec_variant');
+        setSelectedParentProductId(rootId || '');
+      } else {
+        setSaveMode('update_linked');
+        setSelectedParentProductId('');
+      }
+    } else {
+      setSaveMode(initialMode || 'new_product');
+      setSelectedParentProductId('');
+    }
     setParentSearchQuery('');
-    setVariantLabel(deriveSuggestedVariantLabel(lineItem, null));
-  }, [isOpen, lineItem, propCurrency, initialMode]);
+    setVariantLabel(deriveSuggestedVariantLabel(lineItem, directLinkedProd));
+  }, [isOpen, lineItem, propCurrency, initialMode, products]);
 
   const suggestedChips = useMemo(() => {
     const known = category ? CATEGORY_SUGGESTED_ATTRIBUTES[category] || [] : [];
@@ -2126,6 +2634,20 @@ export default function SaveToCatalogModal({
   const selectedParentProduct = useMemo(
     () => (products || []).find((p) => p.id === selectedParentProductId) || null,
     [products, selectedParentProductId]
+  );
+
+  const directlyLinkedCatalogProduct = useMemo(() => {
+    const pid = (lineItem as any)?.product_id;
+    if (!pid || !Array.isArray(products)) return null;
+    return products.find((p) => !p.is_deleted && p.id === pid) || null;
+  }, [lineItem, products]);
+
+  const modalDiffSummary = useMemo(
+    () =>
+      directlyLinkedCatalogProduct
+        ? computeCatalogItemDiff(lineItem, directlyLinkedCatalogProduct, propCurrency, products)
+        : null,
+    [lineItem, directlyLinkedCatalogProduct, propCurrency, products]
   );
 
   // Detect Suggested Parent Product when opening SaveToCatalogModal from a Base Template or matching Parent Family
@@ -2355,22 +2877,27 @@ export default function SaveToCatalogModal({
       const normName = name.trim().toLowerCase();
       const normBrand = brandMake.trim().toLowerCase();
 
-      const existingMatch = (products || []).find((p) => {
-        if (p.is_deleted) return false;
-        const pWsId = p.workspace_id || (p as any).workspaceId || 'ws_default';
-        if (pWsId !== targetWsId) return false;
-        if (normSku && (p.sku || '').trim().toLowerCase() === normSku) {
-          return true;
-        }
-        if (
-          normName &&
-          (p.name || '').trim().toLowerCase() === normName &&
-          (p.brand_make || '').trim().toLowerCase() === normBrand
-        ) {
-          return true;
-        }
-        return false;
-      });
+      const existingMatch =
+        saveMode === 'update_linked' && directlyLinkedCatalogProduct
+          ? directlyLinkedCatalogProduct
+          : saveMode === 'new_product' && directlyLinkedCatalogProduct
+          ? null
+          : (products || []).find((p) => {
+              if (p.is_deleted) return false;
+              const pWsId = p.workspace_id || (p as any).workspaceId || 'ws_default';
+              if (pWsId !== targetWsId) return false;
+              if (normSku && (p.sku || '').trim().toLowerCase() === normSku) {
+                return true;
+              }
+              if (
+                normName &&
+                (p.name || '').trim().toLowerCase() === normName &&
+                (p.brand_make || '').trim().toLowerCase() === normBrand
+              ) {
+                return true;
+              }
+              return false;
+            });
 
       if (existingMatch && existingMatch.id) {
         const mergedAttrsMap = new Map<string, ProductAttribute>();
@@ -2582,6 +3109,46 @@ export default function SaveToCatalogModal({
 
         {/* Body */}
         <div className="p-6 space-y-4 overflow-y-auto flex-1 font-sans">
+          {/* Diff Summary Banner when editing a Catalog-linked item */}
+          {directlyLinkedCatalogProduct && modalDiffSummary && modalDiffSummary.entries.length > 0 && (
+            <div
+              className={`p-3 rounded-xl border text-xs space-y-1.5 ${
+                modalDiffSummary.hasIdentifyingDrift
+                  ? 'bg-amber-50/90 border-amber-300 text-amber-950'
+                  : 'bg-slate-50 border-slate-200 text-slate-800'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="font-bold">
+                  Changed on Quote vs Linked Catalog Item &ldquo;
+                  {(directlyLinkedCatalogProduct as any).variant_label
+                    ? `${directlyLinkedCatalogProduct.name} (${(directlyLinkedCatalogProduct as any).variant_label})`
+                    : directlyLinkedCatalogProduct.name}
+                  &rdquo;:
+                </span>
+                {modalDiffSummary.hasIdentifyingDrift && (
+                  <span className="px-2 py-0.5 rounded-md bg-violet-600 text-white font-mono text-[10px] font-bold">
+                    ✨ Recommended: Save as New Size / Variant
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {modalDiffSummary.entries.map((d, i) => (
+                  <span
+                    key={i}
+                    className={`px-2 py-0.5 rounded-md font-mono text-[10.5px] border ${
+                      d.isIdentifyingSpec
+                        ? 'bg-white text-violet-900 border-violet-300 font-semibold'
+                        : 'bg-white text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    {d.field}: {d.catalogValue} → <strong>{d.quoteValue}</strong>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* 1-Click Suggested Parent Banner when item matches a Parent Family or Base Template */}
           {suggestedParentProduct && (saveMode !== 'spec_variant' || selectedParentProductId !== suggestedParentProduct.id) && (
             <div className="p-3 rounded-xl bg-violet-50 dark:bg-violet-950/40 border border-violet-200 dark:border-violet-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
@@ -2591,7 +3158,7 @@ export default function SaveToCatalogModal({
                 </div>
                 <div className="min-w-0">
                   <div className="text-xs font-bold text-violet-950 dark:text-violet-200">
-                    Link as a Variant of {suggestedParentProduct.name}?
+                    Save as a New Size / Variant of {suggestedParentProduct.product_family || suggestedParentProduct.name}?
                   </div>
                   <p className="text-[11px] text-violet-700 dark:text-violet-300 leading-snug">
                     Inherits shared base specs ({(suggestedParentProduct.attributes || []).length} attrs) &amp; media from{' '}
@@ -2620,36 +3187,138 @@ export default function SaveToCatalogModal({
                 }}
                 className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shrink-0 cursor-pointer shadow-2xs transition"
               >
-                Link as Variant
+                Use Parent Family
               </button>
             </div>
           )}
 
-          {/* 2-Option Mode Switcher: New Catalog Product vs Attach as Spec Variant */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-1.5 rounded-xl bg-slate-100 border border-slate-200">
+          {/* Self-Explanatory Visual Cards for Save Action Choice */}
+          <div
+            className={`grid grid-cols-1 ${
+              directlyLinkedCatalogProduct ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
+            } gap-2.5`}
+          >
+            {directlyLinkedCatalogProduct && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSaveMode('update_linked');
+                  if (directlyLinkedCatalogProduct.sku) {
+                    setSku(directlyLinkedCatalogProduct.sku);
+                  }
+                }}
+                className={`p-3 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between gap-1.5 ${
+                  saveMode === 'update_linked'
+                    ? 'bg-emerald-50/90 border-emerald-500 ring-1 ring-emerald-500/40 shadow-xs'
+                    : 'bg-white hover:bg-slate-50 border-slate-200'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-1.5">
+                  <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-950">
+                    <ArrowUpRight className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span className="truncate">
+                      1. Update Linked Item
+                    </span>
+                  </span>
+                  {!modalDiffSummary?.hasIdentifyingDrift && (
+                    <span className="px-1.5 py-0.2 rounded bg-emerald-600 text-white font-mono text-[9px] uppercase shrink-0">
+                      Current
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10.5px] text-slate-600 leading-snug">
+                  Updates price/specs on{' '}
+                  <strong className="text-slate-800">
+                    {(directlyLinkedCatalogProduct as any).variant_label
+                      ? `${directlyLinkedCatalogProduct.name} (${(directlyLinkedCatalogProduct as any).variant_label})`
+                      : directlyLinkedCatalogProduct.name}
+                  </strong>
+                  .
+                </p>
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={() => setSaveMode('new_product')}
-              className={`px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
-                saveMode === 'new_product'
-                  ? 'bg-white text-blue-700 shadow-xs border border-blue-200'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Package className="w-3.5 h-3.5" />
-              <span>Create New Catalog Product (New SKU)</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setSaveMode('spec_variant')}
-              className={`px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+              onClick={() => {
+                setSaveMode('spec_variant');
+                if (!selectedParentProductId && suggestedParentProduct?.id) {
+                  setSelectedParentProductId(suggestedParentProduct.id);
+                  const suggestedLbl = deriveSuggestedVariantLabel(lineItem, suggestedParentProduct);
+                  setVariantLabel(suggestedLbl);
+                  const baseSku = (suggestedParentProduct.sku || 'SKU').replace(/-V\d+$/i, '').trim();
+                  const suffix =
+                    suggestedLbl
+                      .replace(/[^A-Za-z0-9]/g, '')
+                      .slice(0, 6)
+                      .toUpperCase() || `V${(suggestedParentProduct.spec_variants?.length || 0) + 1}`;
+                  setSku(`${baseSku}-${suffix}`);
+                }
+              }}
+              className={`p-3 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between gap-1.5 ${
                 saveMode === 'spec_variant'
-                  ? 'bg-white text-violet-700 shadow-xs border border-violet-200'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-violet-50/90 border-violet-500 ring-1 ring-violet-500/40 shadow-xs'
+                  : 'bg-white hover:bg-slate-50 border-slate-200'
               }`}
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Attach as Spec Variant to Existing SKU...</span>
+              <div className="flex items-center justify-between gap-1.5">
+                <span className="inline-flex items-center gap-1 text-xs font-bold text-violet-950">
+                  <Sparkles className="w-3.5 h-3.5 text-violet-600 shrink-0" />
+                  <span className="truncate">
+                    {directlyLinkedCatalogProduct ? '2. ' : '1. '}Save as New Size / Variant
+                  </span>
+                </span>
+                {modalDiffSummary?.hasIdentifyingDrift && (
+                  <span className="px-1.5 py-0.2 rounded bg-violet-600 text-white font-mono text-[9px] uppercase shrink-0">
+                    Recommended
+                  </span>
+                )}
+              </div>
+              <p className="text-[10.5px] text-slate-600 leading-snug">
+                Keeps shared brand, photo &amp; base specs from{' '}
+                <strong className="text-slate-800">
+                  {selectedParentProduct?.product_family ||
+                    selectedParentProduct?.name ||
+                    suggestedParentProduct?.product_family ||
+                    suggestedParentProduct?.name ||
+                    'Parent Family'}
+                </strong>{' '}
+                and saves this as a new variant option.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSaveMode('new_product');
+                if (
+                  directlyLinkedCatalogProduct &&
+                  sku.trim().toLowerCase() === (directlyLinkedCatalogProduct.sku || '').trim().toLowerCase()
+                ) {
+                  const basePrefix = (brandMake || category || 'CAT')
+                    .replace(/[^A-Za-z0-9]/g, '')
+                    .slice(0, 3)
+                    .toUpperCase() || 'ITM';
+                  setSku(`${basePrefix}-${Math.floor(1000 + Math.random() * 9000)}`);
+                }
+              }}
+              className={`p-3 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between gap-1.5 ${
+                saveMode === 'new_product'
+                  ? 'bg-blue-50/90 border-blue-500 ring-1 ring-blue-500/40 shadow-xs'
+                  : 'bg-white hover:bg-slate-50 border-slate-200'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-1.5">
+                <span className="inline-flex items-center gap-1 text-xs font-bold text-blue-950">
+                  <Package className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <span className="truncate">
+                    {directlyLinkedCatalogProduct ? '3. ' : '2. '}Save as Separate Standalone Product
+                  </span>
+                </span>
+              </div>
+              <p className="text-[10.5px] text-slate-600 leading-snug">
+                Creates an independent catalog product with its own standalone SKU and specifications.
+              </p>
             </button>
           </div>
 
@@ -3230,6 +3899,8 @@ export default function SaveToCatalogModal({
             className={`px-5 py-2 ${
               saveMode === 'spec_variant'
                 ? 'bg-violet-600 hover:bg-violet-700 disabled:bg-violet-400'
+                : saveMode === 'update_linked'
+                ? 'bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400'
                 : 'bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400'
             } text-white font-bold rounded-xl text-xs transition flex items-center gap-1.5 cursor-pointer`}
           >
@@ -3238,8 +3909,10 @@ export default function SaveToCatalogModal({
               {isSaving
                 ? 'Saving...'
                 : saveMode === 'spec_variant'
-                ? 'Save as Spec Variant & Link Item'
-                : 'Save to Catalog & Link Item'}
+                ? 'Save as New Size / Variant & Link'
+                : saveMode === 'update_linked'
+                ? `Update Linked Item (${directlyLinkedCatalogProduct?.sku || directlyLinkedCatalogProduct?.name || 'SKU'})`
+                : 'Save Standalone Product & Link'}
             </span>
           </button>
         </div>

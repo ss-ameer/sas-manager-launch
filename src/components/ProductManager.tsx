@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Product,
   ProductType,
@@ -251,6 +251,8 @@ export default function ProductManager({
   const [movementsSearch, setMovementsSearch] = useState('');
   const [movementsTypeFilter, setMovementsTypeFilter] = useState<string>('All');
   const [isLoadingMovements, setIsLoadingMovements] = useState(false);
+  const [collapsedParentIds, setCollapsedParentIds] = useState<Record<string, boolean>>({});
+  const variantLabelInputRef = useRef<HTMLInputElement | null>(null);
 
   // Realtime subscription for stock movements ledger when modal is opened
   useEffect(() => {
@@ -1092,6 +1094,10 @@ export default function ProductManager({
     setFormCountryOfOrigin(parentProd.country_of_origin || '');
     setFormGrossWeightKg(parentProd.gross_weight_kg ?? undefined);
     setShowFormModal(true);
+    setTimeout(() => {
+      variantLabelInputRef.current?.focus();
+      variantLabelInputRef.current?.select();
+    }, 60);
     if (triggerToast) {
       triggerToast(
         `Adding Variant under "${baseName}". Shared base specs are inherited automatically—enter your Variant Label, SKU, and differentiating specs.`,
@@ -2063,8 +2069,38 @@ export default function ProductManager({
                         (!prevProd || (prevProd.id && variantAnalysisMap.get(prevProd.id)?.familyKey) !== vInfo?.familyKey);
 
                       const productTitle = (p.name || p.product_type || 'Unnamed Product').trim();
+                      const parentAttrMap = new Map<string, string>();
+                      if (linkedParent && Array.isArray(linkedParent.attributes)) {
+                        for (const pa of linkedParent.attributes) {
+                          if (pa && pa.key) {
+                            parentAttrMap.set(pa.key.trim().toLowerCase(), (pa.value || '').trim().toLowerCase());
+                          }
+                        }
+                      }
+                      const isAttrDiffFromParent = (attr: { key: string; value: string }): boolean => {
+                        const kLower = (attr.key || '').trim().toLowerCase();
+                        const vLower = (attr.value || '').trim().toLowerCase();
+                        if (!kLower || !vLower) return false;
+                        if (linkedParent) {
+                          if (!parentAttrMap.has(kLower)) return true;
+                          return parentAttrMap.get(kLower) !== vLower;
+                        }
+                        if (vInfo?.isVariant) {
+                          return vInfo.differentiatingAttributes.some(
+                            (da) => da.key.trim().toLowerCase() === kLower
+                          );
+                        }
+                        return false;
+                      };
+
                       const rawOrderedAttrs = vInfo?.isVariant
                         ? [...vInfo.differentiatingAttributes, ...vInfo.sharedAttributes]
+                        : linkedParent
+                        ? [...(p.attributes || [])].sort((a, b) => {
+                            const aDiff = isAttrDiffFromParent(a) ? 0 : 1;
+                            const bDiff = isAttrDiffFromParent(b) ? 0 : 1;
+                            return aDiff - bDiff;
+                          })
                         : (p.attributes || []);
 
                       // Deduplicate attribute pills: exclude Brand/Make and any attribute that duplicates the row's purple variant_label badge
@@ -2089,7 +2125,7 @@ export default function ProductManager({
                       });
 
                       const hasStructuredAttrs = orderedAttrs.length > 0;
-                      const visibleAttrs = orderedAttrs.slice(0, 2);
+                      const visibleAttrs = orderedAttrs.slice(0, 3);
                       const remainingAttrCount = Math.max(0, orderedAttrs.length - visibleAttrs.length);
                       const allSpecsTooltip = orderedAttrs.map((a) => `${a.key}: ${a.value || '(Template Blank)'}`).join(' • ');
 
@@ -2123,6 +2159,15 @@ export default function ProductManager({
                           : '—';
 
                       const isIndentedChildRow = groupVariantsByFamily && Boolean(linkedParent);
+                      const isParentCollapsed = Boolean(p.id && collapsedParentIds[p.id]);
+                      if (
+                        isIndentedChildRow &&
+                        linkedParent?.id &&
+                        collapsedParentIds[linkedParent.id] &&
+                        !searchInput.trim()
+                      ) {
+                        return null;
+                      }
 
                       return (
                         <React.Fragment key={p.id || rowIdx}>
@@ -2232,19 +2277,64 @@ export default function ProductManager({
                                       {productTitle}
                                     </span>
                                     {linkedParent && (
-                                      <span
-                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-violet-50 dark:bg-violet-950/50 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800 shrink-0"
-                                        title={`Child Variant of ${linkedParent.name} (${linkedParent.sku || 'Parent'})`}
-                                      >
-                                        <GitFork className="w-2.5 h-2.5" />
-                                        <span>{explicitVariantLabel || `Variant of ${linkedParent.sku || linkedParent.name}`}</span>
-                                      </span>
+                                      <>
+                                        <span
+                                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0 max-w-[190px] truncate"
+                                          title={`Child Variant of ${linkedParent.name} (${linkedParent.sku || 'Parent'})`}
+                                        >
+                                          <span>↳ Variant of {linkedParent.name || linkedParent.sku}</span>
+                                        </span>
+                                        {explicitVariantLabel && (
+                                          <span
+                                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-violet-100 dark:bg-violet-950/70 text-violet-800 dark:text-violet-200 border border-violet-300 dark:border-violet-700 shrink-0"
+                                            title={`Differentiating Variant Label: ${explicitVariantLabel}`}
+                                          >
+                                            <GitFork className="w-2.5 h-2.5" />
+                                            <span>{explicitVariantLabel}</span>
+                                          </span>
+                                        )}
+                                      </>
                                     )}
                                     {!linkedParent && (childVariantsCount > 0 || (rawProd as any).has_variants) && (
-                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0">
-                                        <GitFork className="w-2.5 h-2.5" />
-                                        <span>Parent ({childVariantsCount} Variant{childVariantsCount === 1 ? '' : 's'})</span>
-                                      </span>
+                                      <div className="inline-flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (!p.id) return;
+                                            if (!groupVariantsByFamily) {
+                                              setGroupVariantsByFamily(true);
+                                              setCollapsedParentIds((prev) => ({ ...prev, [p.id!]: false }));
+                                              return;
+                                            }
+                                            setCollapsedParentIds((prev) => ({
+                                              ...prev,
+                                              [p.id!]: !prev[p.id!]
+                                            }));
+                                          }}
+                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition cursor-pointer shrink-0"
+                                          title={
+                                            isParentCollapsed
+                                              ? `Click to expand ${childVariantsCount} child variant(s)`
+                                              : `Click to collapse ${childVariantsCount} child variant(s)`
+                                          }
+                                        >
+                                          <span>🧬 {childVariantsCount} Variant{childVariantsCount === 1 ? '' : 's'}</span>
+                                          <span className="text-[9px] text-indigo-500">
+                                            — {isParentCollapsed ? 'Expand ▸' : 'Collapse ▾'}
+                                          </span>
+                                        </button>
+                                        {isEditable && (
+                                          <button
+                                            type="button"
+                                            onClick={() => openSpecVariantModal(rawProd)}
+                                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-white hover:bg-indigo-600 text-indigo-700 hover:text-white border border-indigo-200 hover:border-indigo-600 transition cursor-pointer shrink-0 shadow-2xs"
+                                            title="Add a new Size / Model Variant under this Parent Family"
+                                          >
+                                            <Plus className="w-2.5 h-2.5" />
+                                            <span>Add Variant</span>
+                                          </button>
+                                        )}
+                                      </div>
                                     )}
                                     {p.is_composite_set && p.sub_components && p.sub_components.length > 0 ? (
                                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 shrink-0">
@@ -2278,9 +2368,7 @@ export default function ProductManager({
                                       title={allSpecsTooltip}
                                     >
                                       {visibleAttrs.map((attr, idx) => {
-                                        const isDiff =
-                                          Boolean(vInfo?.isVariant) &&
-                                          idx < (vInfo?.differentiatingAttributes.length || 0);
+                                        const isDiff = isAttrDiffFromParent(attr);
                                         return (
                                           <span
                                             key={idx}
@@ -3025,6 +3113,7 @@ export default function ProductManager({
                             Variant Label (e.g. &ldquo;48&quot; x 72&quot;&rdquo; or &ldquo;15LPH @ 3 Bar&rdquo;)
                           </label>
                           <input
+                            ref={variantLabelInputRef}
                             type="text"
                             value={formVariantLabel}
                             onChange={(e) => setFormVariantLabel(e.target.value)}
@@ -3033,6 +3122,53 @@ export default function ProductManager({
                           />
                         </div>
                       </div>
+
+                      {selectedParent && (
+                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
+                          <div className="sm:col-span-4">
+                            <label className="block text-[10px] font-mono uppercase font-bold text-indigo-900 dark:text-indigo-300 mb-1">
+                              Variant Selling Price (AED)
+                            </label>
+                            <input
+                              type="number"
+                              step="any"
+                              value={formUnitPrice ?? ''}
+                              onChange={(e) =>
+                                setFormUnitPrice(e.target.value === '' ? undefined : Number(e.target.value))
+                              }
+                              placeholder="0.00"
+                              className="w-full rounded-xl border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-mono font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                          <div className="sm:col-span-4">
+                            <label className="block text-[10px] font-mono uppercase font-bold text-indigo-900 dark:text-indigo-300 mb-1">
+                              Variant Cost Price (AED)
+                            </label>
+                            <input
+                              type="number"
+                              step="any"
+                              value={formCostPrice ?? ''}
+                              onChange={(e) =>
+                                setFormCostPrice(e.target.value === '' ? undefined : Number(e.target.value))
+                              }
+                              placeholder="0.00"
+                              className="w-full rounded-xl border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-mono font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                          <div className="sm:col-span-4">
+                            <label className="block text-[10px] font-mono uppercase font-bold text-indigo-900 dark:text-indigo-300 mb-1">
+                              Variant SKU / Code
+                            </label>
+                            <input
+                              type="text"
+                              value={formSku}
+                              onChange={(e) => setFormSku(e.target.value)}
+                              placeholder="Auto-generated if blank"
+                              className="w-full rounded-xl border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-mono font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                        </div>
+                      )}
 
                       {/* Inherited from Parent (Base Specs) Preview Strip */}
                       {selectedParent && Array.isArray(selectedParent.attributes) && selectedParent.attributes.length > 0 && (

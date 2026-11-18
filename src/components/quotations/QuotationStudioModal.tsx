@@ -74,6 +74,7 @@ import SaveToCatalogModal, {
   isLineItemPopulated,
   linkLineItemToCatalogProductNonDestructive,
   CatalogSyncMenu,
+  VariantFamilyBar,
   resolveEffectiveCatalogProduct,
   deriveSuggestedVariantLabel,
   resolveToAedMultiplier
@@ -18586,6 +18587,25 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     </option>
                                   ))}
                                 </select>
+                                {matchedProd && (
+                                  <VariantFamilyBar
+                                    item={curItem}
+                                    matchedProduct={matchedProd}
+                                    products={workspaceProducts}
+                                    currency={liveQuotation.currency}
+                                    isVendorCostDoc={isVendorCostDoc}
+                                    triggerToast={triggerToast}
+                                    onSwitchVariant={(nextItem) => {
+                                      if (nextItem.product_id) {
+                                        setItemLinkedProductIds((prev) => ({
+                                          ...prev,
+                                          [itemKey]: nextItem.product_id
+                                        }));
+                                      }
+                                      updateCurItem(nextItem);
+                                    }}
+                                  />
+                                )}
                               </div>
 
                               <div className="flex items-center justify-between pt-1 border-t border-slate-200/80">
@@ -20409,33 +20429,63 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                     </span>
                                   )}
                                   {matchedProd && (
-                                    <CatalogSyncMenu
-                                      item={item}
-                                      matchedProduct={matchedProd}
-                                      products={workspaceProducts}
-                                      setProducts={(updater) => {
-                                        setWorkspaceProducts(updater);
-                                        if (propSetProducts) propSetProducts(updater);
-                                      }}
-                                      currency={liveQuotation.currency}
-                                      isVendorCostDoc={
-                                        documentType === 'purchase_order' ||
-                                        documentType === 'material_return_note' ||
-                                        (documentType as string) === 'material_return' ||
-                                        documentType === 'debit_note'
-                                      }
-                                      activeWorkspaceId={activeWorkspace?.id}
-                                      triggerToast={triggerToast}
-                                      compact
-                                      onUpdateLineItem={(patch) => {
-                                        const currentList = customStudioLineItems ?? quotationLineItems;
-                                        setCustomStudioLineItems(
-                                          currentList.map((row, rIdx) =>
-                                            rIdx === idx ? { ...row, ...patch } : row
-                                          )
-                                        );
-                                      }}
-                                    />
+                                    <div className="flex items-center gap-1.5 flex-wrap w-full">
+                                      <CatalogSyncMenu
+                                        item={item}
+                                        matchedProduct={matchedProd}
+                                        products={workspaceProducts}
+                                        setProducts={(updater) => {
+                                          setWorkspaceProducts(updater);
+                                          if (propSetProducts) propSetProducts(updater);
+                                        }}
+                                        currency={liveQuotation.currency}
+                                        isVendorCostDoc={
+                                          documentType === 'purchase_order' ||
+                                          documentType === 'material_return_note' ||
+                                          (documentType as string) === 'material_return' ||
+                                          documentType === 'debit_note'
+                                        }
+                                        activeWorkspaceId={activeWorkspace?.id}
+                                        triggerToast={triggerToast}
+                                        compact
+                                        onUpdateLineItem={(patch) => {
+                                          const currentList = customStudioLineItems ?? quotationLineItems;
+                                          setCustomStudioLineItems(
+                                            currentList.map((row, rIdx) =>
+                                              rIdx === idx ? { ...row, ...patch } : row
+                                            )
+                                          );
+                                        }}
+                                      />
+                                      <VariantFamilyBar
+                                        item={item}
+                                        matchedProduct={matchedProd}
+                                        products={workspaceProducts}
+                                        currency={liveQuotation.currency}
+                                        isVendorCostDoc={
+                                          documentType === 'purchase_order' ||
+                                          documentType === 'material_return_note' ||
+                                          (documentType as string) === 'material_return' ||
+                                          documentType === 'debit_note'
+                                        }
+                                        compact
+                                        triggerToast={triggerToast}
+                                        onSwitchVariant={(nextItem) => {
+                                          if (nextItem.product_id) {
+                                            setItemLinkedProductIds((prev) => ({
+                                              ...prev,
+                                              [itemKey]: nextItem.product_id
+                                            }));
+                                          }
+                                          const currentList = customStudioLineItems ?? quotationLineItems;
+                                          setCustomStudioLineItems(
+                                            currentList.map((row, rIdx) =>
+                                              rIdx === idx ? { ...row, ...nextItem } : row
+                                            )
+                                          );
+                                        }}
+                                      />
+                                    </div>
                                   )}
                                 </div>
 

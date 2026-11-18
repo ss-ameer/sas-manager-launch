@@ -97,6 +97,7 @@ import SaveToCatalogModal, {
   linkLineItemToCatalogProductNonDestructive,
   resolveToAedMultiplier,
   CatalogSyncMenu,
+  VariantFamilyBar,
   resolveEffectiveCatalogProduct,
   deriveSuggestedVariantLabel,
   rehydrateLineItemsFromCatalog
@@ -8098,6 +8099,19 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                   >
                                     Unlink
                                   </button>
+                                  <VariantFamilyBar
+                                    item={item}
+                                    matchedProduct={matchedProduct}
+                                    products={products}
+                                    currency={formCurrency}
+                                    compact
+                                    triggerToast={triggerToast}
+                                    onSwitchVariant={(nextItem) => {
+                                      setLineItems((prev) =>
+                                        prev.map((li, i) => (i === index ? { ...li, ...nextItem } : li))
+                                      );
+                                    }}
+                                  />
                                 </div>
                               );
                             }

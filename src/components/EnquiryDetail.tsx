@@ -46,6 +46,7 @@ import SaveToCatalogModal, {
   isLineItemPopulated,
   linkLineItemToCatalogProductNonDestructive,
   CatalogSyncMenu,
+  VariantFamilyBar,
   resolveToAedMultiplier,
   resolveEffectiveCatalogProduct,
   deriveSuggestedVariantLabel,
@@ -7708,6 +7709,20 @@ export default function EnquiryDetail({
                                     void persistLineItemsImmediately(nextItems, { silentToast: true });
                                   }}
                                 />
+                                <VariantFamilyBar
+                                  item={item}
+                                  matchedProduct={matchedProduct}
+                                  products={products}
+                                  currency={currentEnquiry.currency}
+                                  compact
+                                  triggerToast={triggerToast}
+                                  onSwitchVariant={(nextItem) => {
+                                    const nextItems = draftLineItems.map((li, i) =>
+                                      i === idx ? { ...li, ...nextItem } : li
+                                    );
+                                    void persistLineItemsImmediately(nextItems, { silentToast: true });
+                                  }}
+                                />
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -8416,7 +8431,7 @@ export default function EnquiryDetail({
                                       </button>
                                     )}
                                     {canEditEnquiry(user, activeWorkspace, currentEnquiry) && matchedProduct && (
-                                      <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+                                      <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-1.5 flex-wrap shrink-0">
                                         <CatalogSyncMenu
                                           item={item}
                                           matchedProduct={matchedProduct}
@@ -8431,6 +8446,21 @@ export default function EnquiryDetail({
                                             const nextItems = [...(currentEnquiry.line_items || [])];
                                             if (!nextItems[targetIdx]) return;
                                             nextItems[targetIdx] = { ...nextItems[targetIdx], ...patch };
+                                            await persistLineItemsImmediately(nextItems, { silentToast: true });
+                                          }}
+                                        />
+                                        <VariantFamilyBar
+                                          item={item}
+                                          matchedProduct={matchedProduct}
+                                          products={products}
+                                          currency={currentEnquiry.currency}
+                                          compact
+                                          triggerToast={triggerToast}
+                                          onSwitchVariant={async (nextItem) => {
+                                            const targetIdx = origIdx >= 0 ? origIdx : idx;
+                                            const nextItems = [...(currentEnquiry.line_items || [])];
+                                            if (!nextItems[targetIdx]) return;
+                                            nextItems[targetIdx] = { ...nextItems[targetIdx], ...nextItem };
                                             await persistLineItemsImmediately(nextItems, { silentToast: true });
                                           }}
                                         />
