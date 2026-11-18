@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { auth, db, safeDeleteDoc, safeAddDoc, safeUpdateDoc, safeSetDoc, safeGetDoc, safeGetDocs } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, onSnapshot, query, orderBy, doc, writeBatch, updateDoc, where, or, documentId } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, writeBatch, updateDoc, where, or, documentId, limit } from 'firebase/firestore';
 import { Company, Contact, Enquiry, Invite, AuditLog, Salesperson, UserProfile, Product, Project, DropdownOption, Workspace, CallLogEntry, CallStatus, WORKSPACE_STORAGE_KEY } from './types';
 export { WORKSPACE_STORAGE_KEY };
 import {
@@ -568,20 +568,8 @@ export default function App() {
   const refreshProducts = async () => {
     try {
       const freshProds = await MetadataRepository.fetchProductsOnce(activeWorkspace?.id, true);
-      if (freshProds && freshProds.length > 0) {
-        setProducts((prev) => {
-          const mapById = new Map<string, Product>();
-          for (const p of prev || []) {
-            if (p?.id) mapById.set(p.id, p);
-          }
-          for (const fp of freshProds) {
-            if (fp?.id) {
-              const old = mapById.get(fp.id);
-              mapById.set(fp.id, old ? { ...old, ...fp } : fp);
-            }
-          }
-          return Array.from(mapById.values());
-        });
+      if (Array.isArray(freshProds)) {
+        setProducts(freshProds);
       }
     } catch (err) {
       console.error('Failed to refresh products:', err);
@@ -1416,7 +1404,7 @@ export default function App() {
     // Always hydrate Products from MetadataRepository scoped by activeWorkspaceId (reads in-memory / IndexedDB PRODUCT_STORE with 0 Firestore reads unless cold or forced)
     try {
       const prods = await MetadataRepository.fetchProductsOnce(activeWorkspaceId || 'ws_default', force);
-      if (prods && prods.length > 0) {
+      if (Array.isArray(prods)) {
         setProducts(prods);
       }
     } catch (err) {
@@ -1706,13 +1694,31 @@ export default function App() {
 
     const currentWsId = activeWorkspaceId;
 
-    // Call Logs - Partitioned by active workspace
-    const clQuery = query(collection(db, 'call_logs'), where('workspace_id', '==', currentWsId));
+    // Call Logs - Partitioned by active workspace (capped at 150 with NO orderBy to avoid composite indexes)
+    const clQuery = query(collection(db, 'call_logs'), where('workspace_id', '==', currentWsId), limit(150));
     refs.callLogs = onSnapshot(clQuery, (snap) => {
       const cachedComp = getLocalCache<Company[]>('omni_companies', []);
+      const removedIds = new Set<string>();
+      snap.docChanges().forEach((change) => {
+        if (change.type === 'removed') {
+          removedIds.add(change.doc.id);
+        }
+      });
       const list = snap.docs.map((d) => normalizeCallLog({ id: d.id, ...d.data() }, currentWsId, cachedComp));
       setCallLogs((prev) => {
-        const clean = deduplicateList(list, prev);
+        const mergedById = new Map<string, CallLogEntry>();
+        for (const existing of prev || []) {
+          if (existing?.id && !removedIds.has(existing.id)) {
+            mergedById.set(existing.id, existing);
+          }
+        }
+        for (const incoming of list) {
+          if (incoming?.id) {
+            const old = mergedById.get(incoming.id);
+            mergedById.set(incoming.id, old ? { ...old, ...incoming } : incoming);
+          }
+        }
+        const clean = deduplicateList(Array.from(mergedById.values()), prev);
         setLocalCache('omni_call_logs', clean);
         return clean;
       });

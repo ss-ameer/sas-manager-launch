@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import mammoth from 'mammoth';
 import { Attachment } from '../../types';
 import { resolveAttachmentUrl } from '../../services/attachmentStorage';
 import {
@@ -19,6 +20,20 @@ import {
   Maximize2,
   File
 } from 'lucide-react';
+
+function sanitizeDocxHtml(rawHtml: string): string {
+  if (!rawHtml) return '';
+  return rawHtml
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/<iframe[\s\S]*?>[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<iframe[^>]*\/?>/gi, '')
+    .replace(/<object[\s\S]*?>[\s\S]*?<\/object>/gi, '')
+    .replace(/<object[^>]*\/?>/gi, '')
+    .replace(/<embed[^>]*\/?>/gi, '')
+    .replace(/\s+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/javascript\s*:/gi, '')
+    .trim();
+}
 
 export interface FilePreviewModalProps {
   isOpen: boolean;
@@ -53,6 +68,9 @@ export default function FilePreviewModal({
   const [imageError, setImageError] = useState<boolean>(false);
   const [asyncUrl, setAsyncUrl] = useState<string>('');
   const [loadingAsync, setLoadingAsync] = useState<boolean>(false);
+  const [docxHtml, setDocxHtml] = useState<string>('');
+  const [docxLoading, setDocxLoading] = useState<boolean>(false);
+  const [docxError, setDocxError] = useState<string | null>(null);
 
   // Normalize remote/local URL from any standard property format
   const resolvedUrl = useMemo(() => {
@@ -94,33 +112,18 @@ export default function FilePreviewModal({
 
   const effectiveUrl = resolvedUrl || asyncUrl;
 
-  // Keyboard shortcut: Esc to close, +/- to zoom if image
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      } else if ((e.key === '+' || e.key === '=') && isImage) {
-        e.preventDefault();
-        setZoomLevel((prev) => Math.min(prev + 25, 300));
-      } else if (e.key === '-' && isImage) {
-        e.preventDefault();
-        setZoomLevel((prev) => Math.max(prev - 25, 25));
-      } else if (e.key === '0' && isImage) {
-        e.preventDefault();
-        setZoomLevel(100);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
   // Detect file format category
-  const { isImage, isPdf, isDoc, isArchive, fileExtension, formattedSize } = useMemo(() => {
+  const { isImage, isPdf, isDocx, isDoc, isArchive, fileExtension, formattedSize } = useMemo(() => {
     if (!file) {
-      return { isImage: false, isPdf: false, isDoc: false, isArchive: false, fileExtension: '', formattedSize: '—' };
+      return {
+        isImage: false,
+        isPdf: false,
+        isDocx: false,
+        isDoc: false,
+        isArchive: false,
+        fileExtension: '',
+        formattedSize: '—'
+      };
     }
 
     const name = (file.name || '').toLowerCase();
@@ -143,6 +146,12 @@ export default function FilePreviewModal({
       urlLower.includes('.pdf') ||
       urlLower.startsWith('data:application/pdf');
 
+    const checkIsDocx =
+      type.includes('wordprocessingml') ||
+      name.endsWith('.docx') ||
+      urlLower.includes('.docx') ||
+      urlLower.startsWith('data:application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+
     const checkIsArchive = ['zip', 'rar', '7z', 'tar', 'gz'].some((e) => name.endsWith(`.${e}`));
     const checkIsDoc = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'dwg'].some((e) => name.endsWith(`.${e}`));
 
@@ -161,12 +170,96 @@ export default function FilePreviewModal({
     return {
       isImage: checkIsImage,
       isPdf: checkIsPdf,
+      isDocx: checkIsDocx,
       isDoc: checkIsDoc,
       isArchive: checkIsArchive,
-      fileExtension: ext || (checkIsPdf ? 'PDF' : checkIsImage ? 'IMAGE' : 'FILE'),
+      fileExtension: ext || (checkIsPdf ? 'PDF' : checkIsDocx ? 'DOCX' : checkIsImage ? 'IMAGE' : 'FILE'),
       formattedSize: sizeStr
     };
   }, [file, effectiveUrl]);
+
+  // Convert .docx to sanitized HTML via mammoth when opened
+  useEffect(() => {
+    if (!isOpen || !file || !isDocx || !effectiveUrl) {
+      setDocxHtml('');
+      setDocxLoading(false);
+      setDocxError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setDocxLoading(true);
+    setDocxError(null);
+    setDocxHtml('');
+
+    (async () => {
+      try {
+        let arrayBuffer: ArrayBuffer;
+        if (effectiveUrl.startsWith('data:')) {
+          const commaIdx = effectiveUrl.indexOf(',');
+          const b64 = commaIdx >= 0 ? effectiveUrl.slice(commaIdx + 1) : effectiveUrl;
+          const binary = atob(b64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+          }
+          arrayBuffer = bytes.buffer;
+        } else {
+          const res = await fetch(effectiveUrl);
+          if (!res.ok) throw new Error(`HTTP ${res.status} while loading Word document.`);
+          arrayBuffer = await res.arrayBuffer();
+        }
+
+        const htmlRes = await mammoth.convertToHtml({ arrayBuffer });
+        const cleanedHtml = sanitizeDocxHtml(htmlRes.value || '');
+        if (cleanedHtml) {
+          if (!cancelled) setDocxHtml(cleanedHtml);
+        } else {
+          const rawRes = await mammoth.extractRawText({ arrayBuffer });
+          const escaped = (rawRes.value || 'Empty Word document.')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+          if (!cancelled) {
+            setDocxHtml(`<pre class="whitespace-pre-wrap font-sans text-xs leading-relaxed">${escaped}</pre>`);
+          }
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setDocxError(err?.message || 'Unable to parse .docx preview.');
+        }
+      } finally {
+        if (!cancelled) setDocxLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, file, isDocx, effectiveUrl]);
+
+  // Keyboard shortcut: Esc to close, +/- to zoom if image
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      } else if ((e.key === '+' || e.key === '=') && isImage) {
+        e.preventDefault();
+        setZoomLevel((prev) => Math.min(prev + 25, 300));
+      } else if (e.key === '-' && isImage) {
+        e.preventDefault();
+        setZoomLevel((prev) => Math.max(prev - 25, 25));
+      } else if (e.key === '0' && isImage) {
+        e.preventDefault();
+        setZoomLevel(100);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose, isImage]);
 
   // Construct iframe source for PDFs (safely avoiding appending hash to data URIs)
   const pdfIframeSrc = useMemo(() => {
@@ -305,7 +398,7 @@ export default function FilePreviewModal({
           )}
 
           {/* Open in New Window */}
-          {file.url && (
+          {effectiveUrl && (
             <button
               type="button"
               onClick={handleOpenExternal}
@@ -317,7 +410,7 @@ export default function FilePreviewModal({
           )}
 
           {/* Direct Download Button */}
-          {file.url && (
+          {effectiveUrl && (
             <button
               type="button"
               onClick={handleDownload}
@@ -351,11 +444,13 @@ export default function FilePreviewModal({
           }
         }}
       >
-        {/* Loading state when resolving from IndexedDB */}
-        {loadingAsync && (
+        {/* Loading state when resolving from IndexedDB or converting DOCX */}
+        {(loadingAsync || docxLoading) && (
           <div className="flex flex-col items-center justify-center text-slate-300 space-y-3 p-8">
             <div className="w-10 h-10 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <span className="text-xs font-mono text-slate-400">Loading attachment data...</span>
+            <span className="text-xs font-mono text-slate-400">
+              {docxLoading ? 'Rendering Word document...' : 'Loading attachment data...'}
+            </span>
           </div>
         )}
 
@@ -406,8 +501,29 @@ export default function FilePreviewModal({
           </div>
         ) : null}
 
-        {/* CASE 3: Fallback for Non-Embeddable Formats (ZIP, DOCX, XLSX, DWG) or when URL is missing */}
-        {!loadingAsync && ((!isImage && !isPdf) || (isImage && imageError) || !effectiveUrl) ? (
+        {/* CASE 2B: Word (.docx) Document Viewer rendered via mammoth.convertToHtml */}
+        {!loadingAsync && !docxLoading && isDocx && effectiveUrl && docxHtml && !docxError ? (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full h-full max-w-4xl max-h-[88vh] flex flex-col rounded-xl overflow-hidden bg-white shadow-2xl border border-slate-700"
+          >
+            <div className="px-6 py-3 bg-slate-100 border-b border-slate-200 flex items-center justify-between shrink-0">
+              <span className="text-xs font-semibold text-slate-700 truncate">{file.name}</span>
+              <span className="text-[11px] font-mono text-slate-500">DOCX Document Preview</span>
+            </div>
+            <div
+              className="flex-1 overflow-y-auto p-6 sm:p-10 text-slate-800 text-sm leading-relaxed prose prose-slate max-w-none [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-slate-300 [&_td]:p-2 [&_th]:border [&_th]:border-slate-300 [&_th]:bg-slate-50 [&_th]:p-2"
+              dangerouslySetInnerHTML={{ __html: docxHtml }}
+            />
+          </div>
+        ) : null}
+
+        {/* CASE 3: Fallback for Non-Embeddable Formats (ZIP, XLSX, DWG, failed DOCX) or when URL is missing */}
+        {!loadingAsync &&
+        !docxLoading &&
+        ((!isImage && !isPdf && (!isDocx || Boolean(docxError) || !docxHtml)) ||
+          (isImage && imageError) ||
+          !effectiveUrl) ? (
           <div 
             onClick={(e) => e.stopPropagation()}
             className="bg-slate-900 border border-slate-800 rounded-2xl p-8 max-w-md w-full text-center shadow-2xl space-y-5 animate-in zoom-in-95 duration-150"
@@ -439,6 +555,8 @@ export default function FilePreviewModal({
             <p className="text-xs text-slate-400 leading-relaxed">
               {imageError
                 ? 'Image stream could not be loaded directly. Please download the file to view it.'
+                : docxError
+                ? `Word document preview could not be rendered (${docxError}). Please download the file to view it.`
                 : !effectiveUrl
                 ? "This document is stored locally on the uploader's device. To make attachments accessible across all devices, a workspace admin can configure Cloud Storage in Workspace Settings."
                 : `In-browser interactive preview is not supported for .${fileExtension.toLowerCase()} files. You can securely download this attachment to inspect it in your native desktop software.`}

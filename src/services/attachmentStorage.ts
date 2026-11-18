@@ -1475,6 +1475,26 @@ export function sanitizeFirestorePayload(payload: any): any {
     });
   }
 
+  if (Array.isArray(copy.variants)) {
+    copy.variants = copy.variants.map((v: any, vIdx: number) => {
+      if (!v || typeof v !== 'object') return v;
+      const nextVar = { ...v };
+      if (
+        typeof nextVar.image_url === 'string' &&
+        nextVar.image_url.startsWith('data:') &&
+        nextVar.image_url.length > INLINE_DATA_URI_MAX_BYTES
+      ) {
+        nextVar.image_storage_key = offloadDataUriToLocalStore(
+          nextVar.image_url,
+          nextVar.image_storage_key,
+          `${docPrefix}_legvar_${vIdx}_img`
+        );
+        nextVar.image_url = '';
+      }
+      return nextVar;
+    });
+  }
+
   // 1. Plural attachments[] (Enquiries)
   if (Array.isArray(copy.attachments)) {
     copy.attachments = copy.attachments.map((att: any, i: number) =>
@@ -1686,6 +1706,15 @@ export function rehydrateDocumentBlobsSync<T>(docData: T): T {
       return v;
     });
   }
+  if (Array.isArray(copy.variants)) {
+    copy.variants = copy.variants.map((v: any) => {
+      if (v && !v.image_url && v.image_storage_key) {
+        const u = getCachedBlobSync(v.image_storage_key);
+        if (u) return { ...v, image_url: u };
+      }
+      return v;
+    });
+  }
 
   if (Array.isArray(copy.attachments)) {
     copy.attachments = copy.attachments.map(hydrateAttSync);
@@ -1809,6 +1838,17 @@ export async function rehydrateDocumentBlobsFromLocal<T>(docData: T): Promise<T>
       })
     );
   }
+  if (Array.isArray(copy.variants)) {
+    copy.variants = await Promise.all(
+      copy.variants.map(async (v: any) => {
+        if (v && !v.image_url && v.image_storage_key) {
+          const u = await resolveKey(v.image_storage_key);
+          if (u) return { ...v, image_url: u };
+        }
+        return v;
+      })
+    );
+  }
 
   if (Array.isArray(copy.attachments)) {
     copy.attachments = await Promise.all(copy.attachments.map(hydrateAttAsync));
@@ -1918,6 +1958,9 @@ export async function purgeEntityStorageAssets(
     if (entity.secondary_image_storage_key) keysToDelete.add(entity.secondary_image_storage_key);
     if (entity.datasheet_storage_key) keysToDelete.add(entity.datasheet_storage_key);
     collectAttachment(entity.datasheet_attachment);
+    if (Array.isArray(entity.attachments)) {
+      entity.attachments.forEach(collectAttachment);
+    }
     if (Array.isArray(entity.sub_components)) {
       entity.sub_components.forEach((sub: any) => {
         if (sub?.image_url) urlsToDelete.add(sub.image_url);
@@ -1926,6 +1969,12 @@ export async function purgeEntityStorageAssets(
     }
     if (Array.isArray(entity.spec_variants)) {
       entity.spec_variants.forEach((v: any) => {
+        if (v?.image_url) urlsToDelete.add(v.image_url);
+        if (v?.image_storage_key) keysToDelete.add(v.image_storage_key);
+      });
+    }
+    if (Array.isArray(entity.variants)) {
+      entity.variants.forEach((v: any) => {
         if (v?.image_url) urlsToDelete.add(v.image_url);
         if (v?.image_storage_key) keysToDelete.add(v.image_storage_key);
       });
@@ -1972,6 +2021,11 @@ export function hasInlineBase64Payload(obj: any): boolean {
   }
   if (Array.isArray(obj.spec_variants)) {
     for (const v of obj.spec_variants) {
+      if (v && checkOversizedVal(v.image_url)) return true;
+    }
+  }
+  if (Array.isArray(obj.variants)) {
+    for (const v of obj.variants) {
       if (v && checkOversizedVal(v.image_url)) return true;
     }
   }

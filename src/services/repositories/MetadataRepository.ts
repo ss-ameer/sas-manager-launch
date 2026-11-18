@@ -93,7 +93,7 @@ export class MetadataRepository {
 
   public static async syncProductListToStores(
     products: Product[],
-    workspaceId?: string,
+    replaceWorkspaceId?: string,
     replaceAll = false
   ): Promise<Product[]> {
     const incomingDocs = (products || []).map((p) => this.normalizeProduct(p));
@@ -103,9 +103,19 @@ export class MetadataRepository {
       mergedAll = incomingDocs;
     } else {
       const existingAll = await this.loadExistingFullProductList();
+      const targetReplaceWs = replaceWorkspaceId?.trim();
+      const incomingIds = new Set(incomingDocs.map((ip) => ip?.id).filter(Boolean));
       const mapById = new Map<string, Product>();
       for (const ep of existingAll) {
-        if (ep?.id) mapById.set(ep.id, ep);
+        if (!ep?.id) continue;
+        if (targetReplaceWs) {
+          const epWs = (ep as any).workspace_id || (ep as any).workspaceId;
+          // Prune records belonging to the refreshed workspace that are no longer in Firestore
+          if (epWs === targetReplaceWs && !incomingIds.has(ep.id)) {
+            continue;
+          }
+        }
+        mapById.set(ep.id, ep);
       }
       for (const ip of incomingDocs) {
         if (ip?.id) {
@@ -119,9 +129,9 @@ export class MetadataRepository {
     await saveToLocalStore(this.PRODUCT_STORE, mergedAll);
     this.syncProductsToLocalStorage(mergedAll);
     this.rebuildCachesFromFullList(mergedAll);
-    if (workspaceId) {
-      this.productsCache.set(workspaceId, {
-        data: this.filterProductsForWorkspace(mergedAll, workspaceId),
+    if (replaceWorkspaceId) {
+      this.productsCache.set(replaceWorkspaceId, {
+        data: this.filterProductsForWorkspace(mergedAll, replaceWorkspaceId),
         fetchedAt: Date.now()
       });
     }
@@ -138,7 +148,7 @@ export class MetadataRepository {
       ...(existing || {}),
       ...productOrPatch
     });
-    await this.syncProductListToStores([merged], (merged as any).workspace_id || (merged as any).workspaceId);
+    await this.syncProductListToStores([merged]);
     return merged;
   }
 
@@ -172,7 +182,7 @@ export class MetadataRepository {
       const snap = workspaceId
         ? await safeGetDocs('products', where('workspace_id', '==', workspaceId))
         : await safeGetDocs('products');
-      if (!snap || snap.empty) {
+      if (!snap || (!workspaceId && snap.empty)) {
         const existingAll = await this.loadExistingFullProductList();
         return this.filterProductsForWorkspace(existingAll, workspaceId);
       }
@@ -235,12 +245,10 @@ export class MetadataRepository {
       datasheet_attachment: product.datasheet_attachment || sanitizedForCloud.datasheet_attachment,
       datasheet_url: (product as any).datasheet_url || (sanitizedForCloud as any).datasheet_url,
       sub_components: product.sub_components || sanitizedForCloud.sub_components,
-      spec_variants: product.spec_variants || sanitizedForCloud.spec_variants
+      spec_variants: product.spec_variants || sanitizedForCloud.spec_variants,
+      variants: (product as any).variants || (sanitizedForCloud as any).variants
     });
-    await this.syncProductListToStores(
-      [hydratedProduct],
-      (hydratedProduct as any).workspace_id || (hydratedProduct as any).workspaceId
-    );
+    await this.syncProductListToStores([hydratedProduct]);
     if (hydratedProduct.id) {
       await syncEngine.enqueue('products', 'set', hydratedProduct.id, sanitizedForCloud);
     }
