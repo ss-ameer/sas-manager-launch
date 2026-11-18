@@ -473,13 +473,39 @@ export function splitLineItemsIntoChunks(
     // Calculate technical attributes & metadata badges vertical height
     let attributesHeightMm = 0;
     if (showAttrs) {
+      const normSpecKey = (k: string) => String(k || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      const itemVisibleKeySet = Array.isArray(item.visible_attributes)
+        ? new Set(item.visible_attributes.map((k) => normSpecKey(k)))
+        : null;
+      const itemHiddenKeySet = Array.isArray(item.hidden_attributes)
+        ? new Set(item.hidden_attributes.map((k) => normSpecKey(k)))
+        : null;
+      const isItemAttrKeyAllowed = (rawKey: string): boolean => {
+        const kLower = String(rawKey || '').trim().toLowerCase();
+        const kNorm = normSpecKey(rawKey);
+        if (!kLower || hiddenAttrKeys.has(kLower)) return false;
+        if (itemVisibleKeySet !== null) {
+          return (
+            itemVisibleKeySet.has(kNorm) ||
+            item.visible_attributes!.some((k) => String(k || '').trim().toLowerCase() === kLower)
+          );
+        }
+        if (itemHiddenKeySet !== null) {
+          return (
+            !itemHiddenKeySet.has(kNorm) &&
+            !item.hidden_attributes!.some((k) => String(k || '').trim().toLowerCase() === kLower)
+          );
+        }
+        return true;
+      };
+
       const explicitAttrs: Array<{ key: string; value: string }> = Array.isArray(item.attributes)
         ? item.attributes
             .filter(
               (a) =>
                 a &&
                 Boolean((a.key || (a as any).name) && String(a.value ?? '').trim()) &&
-                !hiddenAttrKeys.has(String(a.key || (a as any).name).trim().toLowerCase())
+                isItemAttrKeyAllowed(String(a.key || (a as any).name))
             )
             .map((a) => ({
               key: String(a.key || (a as any).name).trim(),
@@ -490,23 +516,22 @@ export function splitLineItemsIntoChunks(
             .filter(
               ([k, v]) =>
                 Boolean(k && String(v ?? '').trim()) &&
-                !hiddenAttrKeys.has(String(k).trim().toLowerCase())
+                isItemAttrKeyAllowed(String(k))
             )
             .map(([k, v]) => ({ key: String(k).trim(), value: String(v).trim() }))
         : [];
-      const normSpecKey = (k: string) => String(k || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
       const seenKeys = new Set(explicitAttrs.map((a) => normSpecKey(a.key)));
       const extraSpecs = extractedSpecsAttrs.filter(
         (pair) =>
           !seenKeys.has(normSpecKey(pair.key)) &&
-          !hiddenAttrKeys.has(pair.key.toLowerCase())
+          isItemAttrKeyAllowed(pair.key)
       );
       const totalAttrCount = explicitAttrs.length + extraSpecs.length;
       const lineBreakExtraSlots = Array.isArray(item.attribute_line_breaks_after)
-        ? item.attribute_line_breaks_after.length
+        ? item.attribute_line_breaks_after.filter((k) => isItemAttrKeyAllowed(k)).length
         : 0;
       const fullWidthExtraSlots = Array.isArray(item.attribute_full_width_keys)
-        ? item.attribute_full_width_keys.length
+        ? item.attribute_full_width_keys.filter((k) => isItemAttrKeyAllowed(k)).length
         : 0;
       const effectiveAttrSlots = totalAttrCount + lineBreakExtraSlots + fullWidthExtraSlots;
       if (effectiveAttrSlots > 0) {
@@ -520,7 +545,14 @@ export function splitLineItemsIntoChunks(
         }
       }
       const hasMetaBadges = Boolean(
-        item.brand_make || (item as any).brand || item.sku || item.country_of_origin || item.hs_code
+        item.brand_make ||
+          (item as any).brand ||
+          item.sku ||
+          item.country_of_origin ||
+          item.hs_code ||
+          item.availability ||
+          (item as any).lead_time_note ||
+          (item as any).delivery_time
       );
       if (hasMetaBadges) {
         attributesHeightMm += 4.5;

@@ -2781,15 +2781,17 @@ export default function EnquiryDetail({
       ...(isBaseTemplate && p.id ? ({ template_parent_id: p.id } as any) : {})
     };
 
-    setDraftLineItems((prev) => [...prev, newItem]);
-    setIsInlineEditingItems(true);
+    const baseList = isInlineEditingItems ? draftLineItems : (currentEnquiry.line_items || []);
+    const nextItems = [...baseList, newItem];
+    setDraftLineItems(nextItems);
     setShowQuickCatalogPicker(false);
+    void persistLineItemsImmediately(nextItems, { silentToast: true });
     if (triggerToast) {
       triggerToast(
         isBaseTemplate
           ? `Inserted Custom / Base Template "${p.name || p.product_type}" with shared specs ready to customize.`
-          : `Added "${p.name || p.product_type}" to Line Items. Click Save Items to persist.`,
-        'info'
+          : `Added "${p.name || p.product_type}" to Line Items.`,
+        'success'
       );
     }
   };
@@ -2813,25 +2815,34 @@ export default function EnquiryDetail({
     setIsInlineEditingItems(true);
   };
 
-  const handleSaveInlineLineItems = async () => {
-    if (!currentEnquiry.id) return;
-    setIsSavingInlineItems(true);
+  const persistLineItemsImmediately = async (
+    nextItems: LineItem[],
+    options?: {
+      exitInlineEdit?: boolean;
+      extraCatalogProducts?: Product[];
+      silentToast?: boolean;
+    }
+  ): Promise<Enquiry | null> => {
+    setDraftLineItems(nextItems);
+    if (!currentEnquiry.id) return null;
+    if (options?.exitInlineEdit) {
+      setIsSavingInlineItems(true);
+    }
     try {
-      // Calculate updated baseline package total (excluding Optional / Add-On items and respecting VAT Inclusive mode)
       let baselineSum = 0;
       const altTotalsMap: Record<string, number> = {};
-      draftLineItems.forEach((li) => {
+      nextItems.forEach((li) => {
         const opt = String(
           (li as any).option_designation ||
             li.item_option ||
             li.option ||
             (li as any).option_group ||
-            (li.is_optional ? 'Optional / Add-On' : 'Default / Included')
+            ((li as any).is_optional ? 'Optional / Add-On' : 'Default / Included')
         ).trim();
         const isOptAddOn =
           opt === 'Optional / Add-On' ||
           /optional|add-on/i.test(opt) ||
-          (Boolean(li.is_optional) && !/^option\s+[a-z0-9]/i.test(opt));
+          (Boolean((li as any).is_optional) && !/^option\s+[a-z0-9]/i.test(opt));
         if (isOptAddOn) return;
         const isDisc = li.item_type === 'discount' || (li as any).classification === 'Discount / Rebate';
         const lineTot = Number(li.total_price) || (Number(li.quantity) || 0) * (Number(li.unit_price) || 0);
@@ -2861,7 +2872,10 @@ export default function EnquiryDetail({
         : Math.max(0, Math.round(netBaselineInCurrency * fxToAed * 100) / 100);
 
       const now = new Date().toISOString();
-      const sanitizedDraftItems = draftLineItems.map((li) => ({
+      const catalogPool = options?.extraCatalogProducts
+        ? [...options.extraCatalogProducts, ...(products || [])]
+        : products || [];
+      const sanitizedDraftItems = nextItems.map((li) => ({
         ...li,
         attributes: Array.isArray(li.attributes)
           ? li.attributes.map((a) => ({
@@ -2871,31 +2885,39 @@ export default function EnquiryDetail({
             }))
           : li.attributes
       }));
-      const strippedLineItems = stripCatalogRedundantLineItemMedia(sanitizedDraftItems, products);
+      const strippedLineItems = stripCatalogRedundantLineItemMedia(sanitizedDraftItems, catalogPool);
+      const rehydratedItems = rehydrateLineItemsFromCatalog(strippedLineItems, catalogPool);
       const updatedPayload: Partial<Enquiry> = {
         line_items: strippedLineItems,
         value_aed: nextValueAed,
         updatedAt: now
       };
 
-      await safeUpdateDoc('enquiries', currentEnquiry.id, updatedPayload);
       const updatedEnquiry: Enquiry = {
         ...currentEnquiry,
         ...updatedPayload,
-        line_items: rehydrateLineItemsFromCatalog(strippedLineItems, products)
+        line_items: rehydratedItems
       };
-      await EnquiryRepository.save(updatedEnquiry);
 
       setCurrentEnquiry(updatedEnquiry);
+      setDraftLineItems(rehydratedItems);
       if (onUpdateEnquiry) onUpdateEnquiry(updatedEnquiry);
       if (setEnquiries) {
         setEnquiries((prev) => prev.map((e) => (e.id === currentEnquiry.id ? updatedEnquiry : e)));
       }
-      setIsInlineEditingItems(false);
+      if (options?.exitInlineEdit) {
+        setIsInlineEditingItems(false);
+      }
+
+      await safeUpdateDoc('enquiries', currentEnquiry.id, updatedPayload);
+      await EnquiryRepository.save(updatedEnquiry);
 
       if (quotations.length > 0) {
         const draftQuotes = quotations.filter(
-          (q) => !q.is_deleted && (!q.document_type || q.document_type === 'quotation') && (q.status || 'Draft') === 'Draft'
+          (q) =>
+            !q.is_deleted &&
+            (!q.document_type || q.document_type === 'quotation') &&
+            String(q.status || 'Draft').toLowerCase() === 'draft'
         );
         if (draftQuotes.length > 0) {
           const mappedQuoteItems = buildBaseLineItemsFromSource(null, updatedEnquiry);
@@ -2955,22 +2977,72 @@ export default function EnquiryDetail({
               })
             );
           }
-        } else {
+        } else if (options?.exitInlineEdit) {
           setShowQuoteSyncPrompt(true);
         }
       }
 
-      if (triggerToast) {
-        triggerToast(`Saved ${draftLineItems.length} line item(s) on Enquiry #${currentEnquiry.sn}.`, 'success');
+      if (!options?.silentToast && triggerToast) {
+        triggerToast(`Saved ${nextItems.length} line item(s) on Enquiry #${currentEnquiry.sn}.`, 'success');
       }
+      return updatedEnquiry;
     } catch (err: any) {
       console.error('Failed saving inline line items:', err);
       if (triggerToast) {
         triggerToast(err?.message || 'Failed to save line items', 'error');
       }
+      return null;
     } finally {
-      setIsSavingInlineItems(false);
+      if (options?.exitInlineEdit) {
+        setIsSavingInlineItems(false);
+      }
     }
+  };
+
+  const handleSaveInlineLineItems = async () => {
+    await persistLineItemsImmediately(draftLineItems, { exitInlineEdit: true });
+  };
+
+  const openQuotationStudioWithAutoSave = async (targetQuote?: Quotation | null) => {
+    let resolvedQuote = targetQuote !== undefined ? targetQuote : resolvePrimarySavedQuotation();
+    if (isInlineEditingItems) {
+      const savedEnq = await persistLineItemsImmediately(draftLineItems, {
+        exitInlineEdit: true,
+        silentToast: true
+      });
+      if (savedEnq && resolvedQuote && String(resolvedQuote.status || 'Draft').toLowerCase() === 'draft') {
+        const mappedQuoteItems = buildBaseLineItemsFromSource(null, savedEnq);
+        const mergedItems: QuotationLineItem[] = mappedQuoteItems.map((freshIt, idx) => {
+          const prevIt = freshIt.id
+            ? (resolvedQuote?.line_items || []).find((oldIt) => oldIt.id === freshIt.id)
+            : undefined;
+          return {
+            ...(prevIt || {}),
+            ...freshIt,
+            id: prevIt?.id || freshIt.id || `item_${idx + 1}`,
+            attributes: Array.isArray(freshIt.attributes) ? freshIt.attributes : prevIt?.attributes || []
+          };
+        });
+        const totals = QuotationRepository.calculateTotals(
+          mergedItems,
+          resolvedQuote.freight_amount || 0,
+          resolvedQuote.tax_mode || 'taxes_extra',
+          resolvedQuote.tax_rate_percent ?? 5,
+          resolvedQuote.option_display_mode
+        );
+        resolvedQuote = {
+          ...resolvedQuote,
+          line_items: mergedItems,
+          subtotal: totals.subtotal,
+          freight_amount: totals.freight_amount,
+          tax_rate_percent: totals.tax_rate_percent,
+          tax_amount: totals.tax_amount,
+          grand_total: totals.grand_total
+        };
+      }
+    }
+    setEditingQuotation(resolvedQuote || null);
+    setIsQuotationStudioOpen(true);
   };
 
   // Upload Product Image or Technical Datasheet for a Draft Line Item in Quick Edit
@@ -4698,8 +4770,7 @@ export default function EnquiryDetail({
             <button
               type="button"
               onClick={() => {
-                setEditingQuotation(resolvePrimarySavedQuotation());
-                setIsQuotationStudioOpen(true);
+                void openQuotationStudioWithAutoSave(resolvePrimarySavedQuotation());
               }}
               className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
             >
@@ -5034,8 +5105,9 @@ export default function EnquiryDetail({
                             <button
                               type="button"
                               onClick={() => {
-                                setEditingQuotation(isBaselineVirtual ? resolvePrimarySavedQuotation() : q);
-                                setIsQuotationStudioOpen(true);
+                                void openQuotationStudioWithAutoSave(
+                                  isBaselineVirtual ? resolvePrimarySavedQuotation() : q
+                                );
                               }}
                               className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1"
                               title="Open in Quotation Studio"
@@ -5117,8 +5189,7 @@ export default function EnquiryDetail({
           <button
             type="button"
             onClick={() => {
-              setEditingQuotation(resolvePrimarySavedQuotation());
-              setIsQuotationStudioOpen(true);
+              void openQuotationStudioWithAutoSave(resolvePrimarySavedQuotation());
             }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition cursor-pointer"
           >
@@ -5315,8 +5386,7 @@ export default function EnquiryDetail({
               <button
                 type="button"
                 onClick={() => {
-                  setEditingQuotation(resolvePrimarySavedQuotation());
-                  setIsQuotationStudioOpen(true);
+                  void openQuotationStudioWithAutoSave(resolvePrimarySavedQuotation());
                 }}
                 className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-2xs transition cursor-pointer whitespace-nowrap shrink-0"
                 title="Open Document Studio to generate or customize Quotations, Delivery Notes, POs, Receipts & Vouchers"
@@ -7580,9 +7650,10 @@ export default function EnquiryDetail({
                                       currentEnquiry.currency,
                                       false
                                     );
-                                    setDraftLineItems((prev) =>
-                                      prev.map((li, i) => (i === idx ? merged : li))
+                                    const nextItems = draftLineItems.map((li, i) =>
+                                      i === idx ? merged : li
                                     );
+                                    void persistLineItemsImmediately(nextItems, { silentToast: true });
                                     if (triggerToast) {
                                       const skuLabel = chosenProd.sku || chosenProd.name || 'Catalog SKU';
                                       if (wasPopulated) {
@@ -7631,21 +7702,28 @@ export default function EnquiryDetail({
                                   triggerToast={triggerToast}
                                   compact
                                   onUpdateLineItem={(patch) => {
-                                    setDraftLineItems((prev) =>
-                                      prev.map((li, i) => (i === idx ? { ...li, ...patch } : li))
+                                    const nextItems = draftLineItems.map((li, i) =>
+                                      i === idx ? { ...li, ...patch } : li
                                     );
+                                    void persistLineItemsImmediately(nextItems, { silentToast: true });
                                   }}
                                 />
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    setDraftLineItems((prev) =>
-                                      prev.map((li, i) =>
-                                        i === idx
-                                          ? { ...li, product_id: undefined, sku: undefined, product_sku: undefined, variant_id: undefined, variant_name: undefined }
-                                          : li
-                                      )
+                                    const nextItems = draftLineItems.map((li, i) =>
+                                      i === idx
+                                        ? {
+                                            ...li,
+                                            product_id: undefined,
+                                            sku: undefined,
+                                            product_sku: undefined,
+                                            variant_id: undefined,
+                                            variant_name: undefined
+                                          }
+                                        : li
                                     );
+                                    void persistLineItemsImmediately(nextItems, { silentToast: true });
                                   }}
                                   className="text-[10px] text-slate-400 hover:text-rose-600 underline cursor-pointer px-1"
                                   title="Unlink from Catalog SKU"
@@ -8062,14 +8140,10 @@ export default function EnquiryDetail({
                                 : undefined
                             }
                             onChange={(patch) => {
-                              setDraftLineItems((prev) => {
-                                const next = [...prev];
-                                next[idx] = {
-                                  ...next[idx],
-                                  ...patch
-                                };
-                                return next;
-                              });
+                              const nextItems = draftLineItems.map((li, i) =>
+                                i === idx ? { ...li, ...patch } : li
+                              );
+                              void persistLineItemsImmediately(nextItems, { silentToast: true });
                             }}
                           />
                         </div>
@@ -8140,6 +8214,7 @@ export default function EnquiryDetail({
                         ) && (
                           <div className="pt-2 border-t border-slate-100">
                             <CompositePackageEditor
+                              item={item}
                               isCompositeSet={true}
                               subComponents={item.sub_components || []}
                               packagePricingMode={item.package_pricing_mode || 'lump_sum'}
@@ -8148,15 +8223,19 @@ export default function EnquiryDetail({
                               currency={(currentEnquiry.currency as string) || 'USD'}
                               products={products || []}
                               onChange={(patch) => {
+                                const effectivePricingMode =
+                                  patch.package_pricing_mode || item.package_pricing_mode || 'lump_sum';
                                 setDraftLineItems((prev) => {
                                   const next = [...prev];
                                   const cur = next[idx];
                                   const nextUnitPrice =
-                                    patch.unit_price !== undefined && patch.unit_price > 0
+                                    patch.unit_price !== undefined &&
+                                    (patch.unit_price > 0 || effectivePricingMode === 'itemized')
                                       ? patch.unit_price
                                       : cur.unit_price;
                                   const nextTotalPrice =
-                                    patch.total_price !== undefined && patch.total_price > 0
+                                    patch.total_price !== undefined &&
+                                    (patch.total_price > 0 || effectivePricingMode === 'itemized')
                                       ? patch.total_price
                                       : Math.round((Number(cur.quantity) || 1) * (Number(nextUnitPrice) || 0) * 100) / 100;
                                   next[idx] = {
@@ -8352,32 +8431,7 @@ export default function EnquiryDetail({
                                             const nextItems = [...(currentEnquiry.line_items || [])];
                                             if (!nextItems[targetIdx]) return;
                                             nextItems[targetIdx] = { ...nextItems[targetIdx], ...patch };
-                                            const updatedEnq = {
-                                              ...currentEnquiry,
-                                              line_items: nextItems,
-                                              updatedAt: new Date().toISOString()
-                                            };
-                                            setCurrentEnquiry(updatedEnq);
-                                            setDraftLineItems(nextItems);
-                                            if (onUpdateEnquiry) onUpdateEnquiry(updatedEnq);
-                                            if (setEnquiries) {
-                                              setEnquiries((prev) =>
-                                                prev.map((e) => (e.id === currentEnquiry.id ? updatedEnq : e))
-                                              );
-                                            }
-                                            try {
-                                              const stripped = stripCatalogRedundantLineItemMedia(
-                                                nextItems,
-                                                products || []
-                                              );
-                                              await safeUpdateDoc('enquiries', currentEnquiry.id, {
-                                                line_items: stripped,
-                                                updatedAt: updatedEnq.updatedAt
-                                              });
-                                              await EnquiryRepository.save(updatedEnq);
-                                            } catch (err) {
-                                              console.warn('Failed updating line item from CatalogSyncMenu:', err);
-                                            }
+                                            await persistLineItemsImmediately(nextItems, { silentToast: true });
                                           }}
                                         />
                                       </div>
@@ -10257,129 +10311,48 @@ export default function EnquiryDetail({
               }))
             : undefined;
 
-          if (saveToCatalogState.isFromDraft) {
-            setDraftLineItems((prev) => {
-              const next = [...prev];
-              if (next[idx]) {
-                next[idx] = {
-                  ...next[idx],
-                  product_id: newProduct.id,
-                  sku: newProduct.sku || next[idx].sku,
-                  item_name: newProduct.name || next[idx].item_name,
-                  product_type: newProduct.product_type || next[idx].product_type,
-                  description: newProduct.description || next[idx].description,
-                  unit: newProduct.unit || next[idx].unit,
-                  cost_price: convertedCost ?? next[idx].cost_price,
-                  brand_make: newProduct.brand_make || next[idx].brand_make,
-                  model_part_no: newProduct.model_part_no || next[idx].model_part_no,
-                  country_of_origin: newProduct.country_of_origin || next[idx].country_of_origin,
-                  hs_code: newProduct.hs_code || next[idx].hs_code,
-                  lead_time_note: newProduct.default_availability || next[idx].lead_time_note,
-                  image_url: newProduct.image_url || next[idx].image_url,
-                  secondary_image_url: newProduct.secondary_image_url || next[idx].secondary_image_url,
-                  image_caption: newProduct.image_caption || next[idx].image_caption,
-                  secondary_image_caption: newProduct.secondary_image_caption || next[idx].secondary_image_caption,
-                  image_adjustments: newProduct.image_adjustments || next[idx].image_adjustments,
-                  datasheet_attachment: newProduct.datasheet_attachment || next[idx].datasheet_attachment,
-                  include_datasheet_in_quote:
-                    newProduct.datasheet_attachment ? next[idx].include_datasheet_in_quote !== false : next[idx].include_datasheet_in_quote,
-                  is_composite_set: newProduct.is_composite_set ?? next[idx].is_composite_set,
-                  sub_components: convertedSubComponents || next[idx].sub_components,
-                  attributes:
-                    newProduct.attributes && newProduct.attributes.length > 0
-                      ? newProduct.attributes
-                      : next[idx].attributes
-                };
-              }
-              return next;
-            });
-          } else if (currentEnquiry.id && currentEnquiry.line_items) {
-            const nextItems = [...currentEnquiry.line_items];
-            if (nextItems[idx]) {
-              const targetItemId = nextItems[idx].id;
-              nextItems[idx] = {
-                ...nextItems[idx],
-                product_id: newProduct.id,
-                sku: newProduct.sku || nextItems[idx].sku,
-                item_name: newProduct.name || nextItems[idx].item_name,
-                product_type: newProduct.product_type || nextItems[idx].product_type,
-                description: newProduct.description || nextItems[idx].description,
-                unit: newProduct.unit || nextItems[idx].unit,
-                cost_price: convertedCost ?? nextItems[idx].cost_price,
-                brand_make: newProduct.brand_make || nextItems[idx].brand_make,
-                model_part_no: newProduct.model_part_no || nextItems[idx].model_part_no,
-                country_of_origin: newProduct.country_of_origin || nextItems[idx].country_of_origin,
-                hs_code: newProduct.hs_code || nextItems[idx].hs_code,
-                lead_time_note: newProduct.default_availability || nextItems[idx].lead_time_note,
-                image_url: newProduct.image_url || nextItems[idx].image_url,
-                secondary_image_url: newProduct.secondary_image_url || nextItems[idx].secondary_image_url,
-                image_caption: newProduct.image_caption || nextItems[idx].image_caption,
-                secondary_image_caption: newProduct.secondary_image_caption || nextItems[idx].secondary_image_caption,
-                image_adjustments: newProduct.image_adjustments || nextItems[idx].image_adjustments,
-                datasheet_attachment: newProduct.datasheet_attachment || nextItems[idx].datasheet_attachment,
-                include_datasheet_in_quote:
-                  newProduct.datasheet_attachment ? nextItems[idx].include_datasheet_in_quote !== false : nextItems[idx].include_datasheet_in_quote,
-                is_composite_set: newProduct.is_composite_set ?? nextItems[idx].is_composite_set,
-                sub_components: convertedSubComponents || nextItems[idx].sub_components,
-                attributes:
-                  newProduct.attributes && newProduct.attributes.length > 0
-                    ? newProduct.attributes
-                    : nextItems[idx].attributes
-              };
-              const updatedEnq = { ...currentEnquiry, line_items: nextItems, updatedAt: new Date().toISOString() };
-              setCurrentEnquiry(updatedEnq);
-              setDraftLineItems(nextItems);
-              if (onUpdateEnquiry) onUpdateEnquiry(updatedEnq);
-              if (setEnquiries) setEnquiries((prev) => prev.map((e) => (e.id === currentEnquiry.id ? updatedEnq : e)));
-              try {
-                const strippedNextItems = stripCatalogRedundantLineItemMedia(nextItems, [newProduct, ...(products || [])]);
-                await safeUpdateDoc('enquiries', currentEnquiry.id, { line_items: strippedNextItems, updatedAt: updatedEnq.updatedAt });
-                await EnquiryRepository.save(updatedEnq);
+          const sourceItems = saveToCatalogState.isFromDraft
+            ? [...draftLineItems]
+            : [...(currentEnquiry.line_items || [])];
+          if (!sourceItems[idx]) return;
 
-                // Also sync catalog link onto any active Draft quotation for this enquiry
-                const draftQuotes = quotations.filter(
-                  (q) =>
-                    !q.is_deleted &&
-                    (!q.document_type || q.document_type === 'quotation') &&
-                    String(q.status || 'Draft').toLowerCase() === 'draft'
-                );
-                for (const dq of draftQuotes) {
-                  if (!dq.id || !Array.isArray(dq.line_items)) continue;
-                  const updatedQItems = dq.line_items.map((qi, qIdx) => {
-                    const isMatch = (targetItemId && qi.id === targetItemId) || (!targetItemId && qIdx === idx);
-                    if (!isMatch) return qi;
-                    return {
-                      ...qi,
-                      product_id: newProduct.id,
-                      sku: newProduct.sku || qi.sku,
-                      product_sku: newProduct.sku || qi.product_sku,
-                      product_type: newProduct.product_type || qi.product_type,
-                      cost_price: convertedCost ?? qi.cost_price,
-                      image_url: newProduct.image_url || qi.image_url,
-                      secondary_image_url: newProduct.secondary_image_url || qi.secondary_image_url,
-                      image_caption: newProduct.image_caption || qi.image_caption,
-                      secondary_image_caption: newProduct.secondary_image_caption || qi.secondary_image_caption,
-                      image_adjustments: newProduct.image_adjustments || qi.image_adjustments,
-                      datasheet_attachment: newProduct.datasheet_attachment || qi.datasheet_attachment,
-                      attributes:
-                        newProduct.attributes && newProduct.attributes.length > 0
-                          ? newProduct.attributes
-                          : qi.attributes
-                    };
-                  });
-                  await QuotationRepository.updateQuotation(dq.id, {
-                    line_items: updatedQItems,
-                    updated_at: updatedEnq.updatedAt
-                  }).catch(() => {});
-                  setQuotations((prev) =>
-                    prev.map((q) => (q.id === dq.id ? { ...q, line_items: updatedQItems } : q))
-                  );
-                }
-              } catch (err) {
-                console.warn('Failed linking saved product back to enquiry line item:', err);
-              }
-            }
-          }
+          sourceItems[idx] = {
+            ...sourceItems[idx],
+            product_id: newProduct.id,
+            sku: newProduct.sku || sourceItems[idx].sku,
+            item_name: newProduct.name || sourceItems[idx].item_name,
+            product_type: newProduct.product_type || sourceItems[idx].product_type,
+            description: newProduct.description || sourceItems[idx].description,
+            unit: newProduct.unit || sourceItems[idx].unit,
+            cost_price: convertedCost ?? sourceItems[idx].cost_price,
+            brand_make: newProduct.brand_make || sourceItems[idx].brand_make,
+            model_part_no: newProduct.model_part_no || sourceItems[idx].model_part_no,
+            country_of_origin: newProduct.country_of_origin || sourceItems[idx].country_of_origin,
+            hs_code: newProduct.hs_code || sourceItems[idx].hs_code,
+            lead_time_note: newProduct.default_availability || sourceItems[idx].lead_time_note,
+            image_url: newProduct.image_url || sourceItems[idx].image_url,
+            secondary_image_url: newProduct.secondary_image_url || sourceItems[idx].secondary_image_url,
+            image_caption: newProduct.image_caption || sourceItems[idx].image_caption,
+            secondary_image_caption: newProduct.secondary_image_caption || sourceItems[idx].secondary_image_caption,
+            image_adjustments: newProduct.image_adjustments || sourceItems[idx].image_adjustments,
+            datasheet_attachment: newProduct.datasheet_attachment || sourceItems[idx].datasheet_attachment,
+            include_datasheet_in_quote:
+              newProduct.datasheet_attachment
+                ? sourceItems[idx].include_datasheet_in_quote !== false
+                : sourceItems[idx].include_datasheet_in_quote,
+            is_composite_set: newProduct.is_composite_set ?? sourceItems[idx].is_composite_set,
+            package_pricing_mode: newProduct.package_pricing_mode || sourceItems[idx].package_pricing_mode,
+            sub_components: convertedSubComponents || sourceItems[idx].sub_components,
+            attributes:
+              newProduct.attributes && newProduct.attributes.length > 0
+                ? newProduct.attributes
+                : sourceItems[idx].attributes
+          };
+
+          await persistLineItemsImmediately(sourceItems, {
+            extraCatalogProducts: [newProduct],
+            silentToast: true
+          });
         }}
       />
 

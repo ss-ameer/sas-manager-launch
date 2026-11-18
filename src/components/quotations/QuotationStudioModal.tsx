@@ -3060,11 +3060,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                     ? QuotationRepository.roundCurrency(Number(li.total_price) || 0)
                     : QuotationRepository.roundCurrency(qty * rate);
                 const rawOpt = String((li as any).option_designation || li.option || prevIt?.option || '').trim();
+                const isLetteredOrBaselineOpt = /^(Option\s+[A-Z0-9]+|Baseline|Default|Included)/i.test(rawOpt);
                 const isOptionalOrAlt =
-                  Boolean((li as any).is_optional ?? prevIt?.is_optional) ||
-                  rawOpt.toLowerCase().includes('optional') ||
-                  rawOpt.toLowerCase().includes('add-on') ||
-                  /option\s+[b-z]/i.test(rawOpt);
+                  !isLetteredOrBaselineOpt &&
+                  (/optional|add-?on/i.test(rawOpt) ||
+                    Boolean((li as any).is_optional ?? prevIt?.is_optional));
                 const deliveryNote =
                   (li.lead_time_note && li.lead_time_note !== 'Ex-Stock / Standard' ? li.lead_time_note : '') ||
                   ((li as any).delivery_time && (li as any).delivery_time !== 'Ex-Stock / Standard' ? (li as any).delivery_time : '') ||
@@ -3248,11 +3248,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 ? QuotationRepository.roundCurrency(Number(li.total_price) || 0)
                 : QuotationRepository.roundCurrency(qty * rate);
             const rawOpt = String((li as any).option_designation || li.option || '').trim();
+            const isLetteredOrBaselineOpt = /^(Option\s+[A-Z0-9]+|Baseline|Default|Included)/i.test(rawOpt);
             const isOptionalOrAlt =
-              Boolean((li as any).is_optional) ||
-              rawOpt.toLowerCase().includes('optional') ||
-              rawOpt.toLowerCase().includes('add-on') ||
-              /option\s+[b-z]/i.test(rawOpt);
+              !isLetteredOrBaselineOpt &&
+              (/optional|add-?on/i.test(rawOpt) || Boolean((li as any).is_optional));
             const deliveryNote =
               (li.lead_time_note && li.lead_time_note !== 'Ex-Stock / Standard' ? li.lead_time_note : '') ||
               ((li as any).delivery_time && (li as any).delivery_time !== 'Ex-Stock / Standard' ? (li as any).delivery_time : '') ||
@@ -4679,12 +4678,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           }
 
           const optLabel = (li.option || (li as any).option_designation || '').trim();
+          const isLetteredOrBaselineOpt = /^(Option\s+[A-Z0-9]+|Baseline|Default|Included)/i.test(optLabel);
           const isOptionalFromOption =
-            Boolean((li as any).is_optional) ||
-            optLabel === 'Optional / Add-On' ||
-            optLabel === 'Option B' ||
-            optLabel === 'Option C' ||
-            /^option\s+[b-z]/i.test(optLabel);
+            !isLetteredOrBaselineOpt &&
+            (/optional|add-?on/i.test(optLabel) || Boolean((li as any).is_optional));
 
           return {
             id: li.id || `item_${idx}`,
@@ -4810,10 +4807,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         itemDatasheetToggles[itemKey] !== undefined
           ? itemDatasheetToggles[itemKey]
           : item.include_datasheet_in_quote !== false;
+      const effectiveOptLabel = String(
+        compOverride.option ?? item.option ?? item.option_group ?? ''
+      ).trim();
+      const isLetteredOrBaselineItemOpt =
+        /^(Option\s+[A-Z0-9]+|Baseline|Default|Included)/i.test(effectiveOptLabel);
       const resolvedOptional =
         itemOptionalOverrides[itemKey] !== undefined
           ? itemOptionalOverrides[itemKey]
-          : Boolean(item.is_optional);
+          : isLetteredOrBaselineItemOpt
+          ? false
+          : /optional|add-?on/i.test(effectiveOptLabel) || Boolean(item.is_optional);
 
       const rawSubComponents =
         compOverride.sub_components ??
@@ -5378,12 +5382,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         prevIt?.availability ||
         'Ex-Stock / Standard';
       const optLabel = (li.option || (li as any).option_designation || prevIt?.option || '').trim();
+      const isLetteredOrBaselineOpt = /^(Option\s+[A-Z0-9]+|Baseline|Default|Included)/i.test(optLabel);
       const isOptionalFromOption =
-        Boolean((li as any).is_optional ?? prevIt?.is_optional) ||
-        optLabel === 'Optional / Add-On' ||
-        optLabel === 'Option B' ||
-        optLabel === 'Option C' ||
-        /^option\s+[b-z]/i.test(optLabel);
+        !isLetteredOrBaselineOpt &&
+        (/optional|add-?on/i.test(optLabel) ||
+          Boolean((li as any).is_optional ?? prevIt?.is_optional));
 
       return {
         ...(prevIt || {}),
