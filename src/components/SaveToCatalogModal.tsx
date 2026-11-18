@@ -1148,11 +1148,8 @@ export async function saveLineItemAsSpecVariant(params: {
       : null) || rawParentProduct;
 
   const effectiveCurrency = String(currency || item?.currency || parentProduct?.currency || 'AED').toUpperCase();
-  const prodCurrency = String(parentProduct?.currency || 'AED').toUpperCase();
-  const fxMultiplier =
-    effectiveCurrency === prodCurrency
-      ? 1
-      : resolveToAedMultiplier(effectiveCurrency) / resolveToAedMultiplier(prodCurrency);
+  const fxMultiplier = resolveToAedMultiplier(effectiveCurrency);
+  const parentFxToAed = resolveToAedMultiplier(String(parentProduct?.currency || 'AED').toUpperCase());
 
   const parsed = parseLineItemTitleAndSpec(item.item_name || item.title, item.description);
   const rawAttrsSource: ProductAttribute[] = Array.isArray(item.attributes)
@@ -1185,10 +1182,14 @@ export async function saveLineItemAsSpecVariant(params: {
   const scaledSell =
     item.unit_price !== undefined && item.unit_price !== null && !isNaN(Number(item.unit_price))
       ? Math.round(Number(item.unit_price) * fxMultiplier * 100) / 100
+      : parentProduct.unit_price !== undefined && parentProduct.unit_price !== null
+      ? Math.round(Number(parentProduct.unit_price) * parentFxToAed * 100) / 100
       : parentProduct.unit_price;
   const scaledCost =
     item.cost_price !== undefined && item.cost_price !== null && !isNaN(Number(item.cost_price)) && Number(item.cost_price) > 0
       ? Math.round(Number(item.cost_price) * fxMultiplier * 100) / 100
+      : parentProduct.cost_price !== undefined && parentProduct.cost_price !== null
+      ? Math.round(Number(parentProduct.cost_price) * parentFxToAed * 100) / 100
       : parentProduct.cost_price;
   const cleanUnit = (item.unit || (item as any).uom || parentProduct.unit || 'Nos').trim();
   const cleanLead = (item.lead_time_note ?? item.availability ?? parentProduct.default_availability ?? '').trim() || undefined;

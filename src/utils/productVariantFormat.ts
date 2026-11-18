@@ -1,21 +1,33 @@
 import { Product, ProductAttribute, normalizeAttributes } from '../types';
 
+function getLinkedParentId(product?: Partial<Product> | null): string | undefined {
+  if (!product) return undefined;
+  const raw =
+    (product as any).variant_of ||
+    (product as any).parent_product_id ||
+    product.variant_parent_id;
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : undefined;
+}
+
 /**
  * Resolves the canonical product family key for grouping Spec Variants (e.g., "Cup" or "Jackson Disk Diffuser").
- * Supports transitive parent linkage via `variant_parent_id`, explicit `product_family`, or normalized `name`.
+ * Supports transitive parent linkage via `variant_of`, `parent_product_id`, or `variant_parent_id`, explicit `product_family`, or normalized `name`.
  */
 export function resolveProductFamilyKey(
   product: Partial<Product>,
   byIdMap?: Map<string, Product>
 ): string {
-  if (byIdMap && product.variant_parent_id) {
+  const initialParentId = getLinkedParentId(product);
+  if (byIdMap && initialParentId) {
     const visited = new Set<string>();
     let curr: Partial<Product> | undefined = product;
-    while (curr?.variant_parent_id && !visited.has(curr.variant_parent_id)) {
-      visited.add(curr.variant_parent_id);
-      const parent = byIdMap.get(curr.variant_parent_id);
+    let nextParentId = initialParentId;
+    while (nextParentId && !visited.has(nextParentId)) {
+      visited.add(nextParentId);
+      const parent = byIdMap.get(nextParentId);
       if (!parent) break;
       curr = parent;
+      nextParentId = getLinkedParentId(curr);
     }
     if (curr && curr !== product) {
       const rootFamily = (curr.product_family || curr.name || curr.product_type || '').trim();
@@ -32,14 +44,17 @@ export function resolveProductFamilyDisplayName(
   product: Partial<Product>,
   byIdMap?: Map<string, Product>
 ): string {
-  if (byIdMap && product.variant_parent_id) {
+  const initialParentId = getLinkedParentId(product);
+  if (byIdMap && initialParentId) {
     const visited = new Set<string>();
     let curr: Partial<Product> | undefined = product;
-    while (curr?.variant_parent_id && !visited.has(curr.variant_parent_id)) {
-      visited.add(curr.variant_parent_id);
-      const parent = byIdMap.get(curr.variant_parent_id);
+    let nextParentId = initialParentId;
+    while (nextParentId && !visited.has(nextParentId)) {
+      visited.add(nextParentId);
+      const parent = byIdMap.get(nextParentId);
       if (!parent) break;
       curr = parent;
+      nextParentId = getLinkedParentId(curr);
     }
     if (curr && curr !== product) {
       const rootDisplay = (curr.product_family || curr.name || curr.product_type || '').trim();
@@ -95,7 +110,7 @@ export function buildCatalogVariantAnalysisMap(products: Product[]): Map<string,
     const siblingCount = group.length;
     const isVariant =
       siblingCount > 1 ||
-      group.some((p) => Boolean(p.variant_parent_id));
+      group.some((p) => Boolean(getLinkedParentId(p)));
 
     const canonicalizeAttrKey = (rawKey: string): { key: string; label: string } => {
       const clean = rawKey.trim();

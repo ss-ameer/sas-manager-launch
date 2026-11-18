@@ -877,12 +877,55 @@ export default function ProductManager({
     setCurrentPage(1);
   }, [searchInput, categoryFilter, stockFilter, groupVariantsByFamily]);
 
+  // Group contiguous parent + child variant families into atomic pagination units so a Parent and its Variants never split across pages
+  const productFamilyUnits = useMemo<Product[][]>(() => {
+    if (!groupVariantsByFamily || orderedFilteredProducts.length === 0) {
+      return orderedFilteredProducts.map((p) => [p]);
+    }
+    const byId = new Map<string, Product>();
+    for (const p of activeCatalogProducts) {
+      if (p.id) byId.set(p.id, p);
+    }
+    const getUnitKey = (p: Product): string => {
+      const parentId =
+        (p as any).parent_product_id || p.variant_parent_id || (p as any).variant_of;
+      if (parentId && byId.has(parentId)) {
+        return `parent_${parentId}`;
+      }
+      const hasChildren = activeCatalogProducts.some(
+        (c) =>
+          c.id !== p.id &&
+          ((c as any).parent_product_id === p.id ||
+            c.variant_parent_id === p.id ||
+            (c as any).variant_of === p.id)
+      );
+      if (hasChildren && p.id) {
+        return `parent_${p.id}`;
+      }
+      return `fam_${resolveProductFamilyKey(p, byId)}`;
+    };
+
+    const units: Product[][] = [];
+    let currentKey: string | null = null;
+    for (const p of orderedFilteredProducts) {
+      const uk = getUnitKey(p);
+      if (units.length > 0 && uk === currentKey) {
+        units[units.length - 1].push(p);
+      } else {
+        units.push([p]);
+        currentKey = uk;
+      }
+    }
+    return units;
+  }, [orderedFilteredProducts, activeCatalogProducts, groupVariantsByFamily]);
+
   // Pagination details
   const totalItems = orderedFilteredProducts.length;
+  const totalFamilyUnits = productFamilyUnits.length;
   const totalPages = useMemo(() => {
     if (itemsPerPage === 'All') return 1;
-    return Math.ceil(totalItems / itemsPerPage) || 1;
-  }, [totalItems, itemsPerPage]);
+    return Math.ceil(totalFamilyUnits / itemsPerPage) || 1;
+  }, [totalFamilyUnits, itemsPerPage]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -893,8 +936,8 @@ export default function ProductManager({
   const paginatedProducts = useMemo(() => {
     if (itemsPerPage === 'All') return orderedFilteredProducts;
     const startIndex = (currentPage - 1) * itemsPerPage;
-    return orderedFilteredProducts.slice(startIndex, startIndex + itemsPerPage);
-  }, [orderedFilteredProducts, currentPage, itemsPerPage]);
+    return productFamilyUnits.slice(startIndex, startIndex + itemsPerPage).flat();
+  }, [orderedFilteredProducts, productFamilyUnits, currentPage, itemsPerPage]);
 
   // CRUD handlers
   const openAddModal = () => {
@@ -1506,23 +1549,30 @@ export default function ProductManager({
         ? computedBomTotals.unitCostPrice
         : fallbackCost;
 
-    const liveExistingProduct =
+    const latestLiveProd =
       editingProduct?.id
         ? products.find((p) => p.id === editingProduct.id) || editingProduct
         : editingProduct;
 
+    const initialFormStockOnHand = Number(editingProduct?.stock_on_hand ?? 0);
+    const currentFormStockOnHand = Number(formStockOnHand ?? 0);
     const didUserChangeStockOnHand =
-      !editingProduct ||
-      Number(formStockOnHand ?? 0) !== Number(editingProduct.stock_on_hand ?? 0);
+      !editingProduct || currentFormStockOnHand !== initialFormStockOnHand;
+    const stockOnHandDelta = currentFormStockOnHand - initialFormStockOnHand;
 
     const resolvedStockOnHand = formIsInventoried
-      ? didUserChangeStockOnHand
-        ? Number(formStockOnHand || 0)
-        : Number(liveExistingProduct?.stock_on_hand ?? formStockOnHand ?? 0)
+      ? !editingProduct
+        ? currentFormStockOnHand
+        : didUserChangeStockOnHand
+        ? Math.max(
+            0,
+            Number(latestLiveProd?.stock_on_hand ?? initialFormStockOnHand) + stockOnHandDelta
+          )
+        : Number(latestLiveProd?.stock_on_hand ?? initialFormStockOnHand)
       : undefined;
 
-    const resolvedStockReserved = liveExistingProduct
-      ? Number(liveExistingProduct.stock_reserved || 0)
+    const resolvedStockReserved = latestLiveProd
+      ? Number(latestLiveProd.stock_reserved ?? editingProduct?.stock_reserved ?? 0)
       : 0;
 
     const resolvedFamilyName = linkedParentProduct
@@ -1591,7 +1641,7 @@ export default function ProductManager({
       }
 
       if (editingProduct && editingProduct.id) {
-        const updatedProd: Product = { ...liveExistingProduct, ...data, id: editingProduct.id } as Product;
+        const updatedProd: Product = { ...latestLiveProd, ...data, id: editingProduct.id } as Product;
         const sanitizedPayload = sanitizeFirestorePayload(updatedProd);
         await safeUpdateDoc('products', editingProduct.id, sanitizedPayload);
         const nextList = products.map((p) => {
