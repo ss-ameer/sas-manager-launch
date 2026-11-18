@@ -386,11 +386,23 @@ export function generateProductSearchTerms(name?: string, category?: string, sku
   return Array.from(terms);
 }
 
+const PLACEHOLDER_LEGAL_SUFFIX_TAIL_REGEX =
+  /\s*(?:none\s*\/\s*to\s*be\s*added\s*later|none\s*\(\s*clean\s*name\s*\)|none\s*\/\s*other)$/i;
+
+export function stripPlaceholderLegalSuffixFromName(name?: string | null): string {
+  if (!name || typeof name !== 'string') return '';
+  return name.trim().replace(PLACEHOLDER_LEGAL_SUFFIX_TAIL_REGEX, '').trim();
+}
+
 export function normalizeCompany(raw: any, activeWsId?: string): Company {
   const now = new Date().toISOString();
   const wsId = raw?.workspace_id || raw?.workspaceId || activeWsId || 'ws_default';
-  const displayName = raw?.display_name || raw?.canonical_name || 'Unnamed Company';
-  const canonicalName = computeCanonicalName(displayName) || raw?.canonical_name || displayName.toLowerCase();
+  const rawDisplayName = raw?.display_name || raw?.canonical_name || 'Unnamed Company';
+  const displayName = stripPlaceholderLegalSuffixFromName(rawDisplayName) || 'Unnamed Company';
+  const canonicalName =
+    computeCanonicalName(displayName) ||
+    stripPlaceholderLegalSuffixFromName(raw?.canonical_name) ||
+    displayName.toLowerCase();
   const phones = raw?.phones || (raw?.general_phone ? [{ number: raw.general_phone }] : []);
   const searchTerms = Array.isArray(raw?.search_terms) && raw.search_terms.length > 0
     ? raw.search_terms
@@ -472,9 +484,30 @@ export function normalizeEnquiry(raw: any, activeWsId?: string): Enquiry {
 
   const assigned_to_id = raw?.assigned_to_id || raw?.assignedToId || sales_person_id || raw?.created_by_uid || raw?.createdByUid || undefined;
   const assigned_to = raw?.assigned_to || raw?.assignedTo || sales_person || undefined;
+  const cleanCompanyName = raw?.company_name
+    ? stripPlaceholderLegalSuffixFromName(raw.company_name)
+    : undefined;
+  const cleanClientCompany = raw?.client_company
+    ? stripPlaceholderLegalSuffixFromName(raw.client_company)
+    : undefined;
+  const cleanClientSnapshot =
+    raw?.client_snapshot && typeof raw.client_snapshot === 'object'
+      ? {
+          ...raw.client_snapshot,
+          ...(raw.client_snapshot.entity_name
+            ? { entity_name: stripPlaceholderLegalSuffixFromName(raw.client_snapshot.entity_name) }
+            : {}),
+          ...(raw.client_snapshot.company_name
+            ? { company_name: stripPlaceholderLegalSuffixFromName(raw.client_snapshot.company_name) }
+            : {})
+        }
+      : raw?.client_snapshot;
 
   return {
     ...raw,
+    ...(cleanCompanyName !== undefined ? { company_name: cleanCompanyName } : {}),
+    ...(cleanClientCompany !== undefined ? { client_company: cleanClientCompany } : {}),
+    ...(cleanClientSnapshot !== undefined ? { client_snapshot: cleanClientSnapshot } : {}),
     workspace_id: wsId,
     createdAt: raw?.createdAt || now,
     updatedAt: raw?.updatedAt || raw?.createdAt || now,
@@ -512,11 +545,13 @@ export function normalizeCallLog(raw: any, activeWsId?: string, companies?: Comp
   const now = new Date().toISOString();
   const wsId = raw?.workspace_id || raw?.workspaceId || activeWsId || 'ws_default';
 
-  let company_name = raw?.company_name;
+  let company_name = raw?.company_name ? stripPlaceholderLegalSuffixFromName(raw.company_name) : raw?.company_name;
   if (raw?.company_id && companies && companies.length > 0) {
     const matched = companies.find((c) => c.id === raw.company_id);
     if (matched) {
-      company_name = matched.display_name || matched.canonical_name || company_name;
+      company_name = stripPlaceholderLegalSuffixFromName(
+        matched.display_name || matched.canonical_name || company_name
+      );
     }
   }
 

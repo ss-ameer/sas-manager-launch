@@ -3627,7 +3627,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
       const compName = unregisteredEntities.companyName.trim();
       const rawSuf = unregisteredEntities.legalSuffix !== undefined ? unregisteredEntities.legalSuffix : 'None / To Be Added Later';
-      const isNoneSuf = !rawSuf || /^(none|none\s*\/\s*to\s*be\s*added\s*later|none\s*\/\s*other)$/i.test(String(rawSuf).trim());
+      const isNoneSuf =
+        !rawSuf ||
+        /^(none|none\s*\(\s*clean\s*name\s*\)|none\s*\/\s*to\s*be\s*added\s*later|none\s*\/\s*other)$/i.test(
+          String(rawSuf).trim()
+        );
       const suf = isNoneSuf ? undefined : (rawSuf as LegalSuffix);
       const sufLower = (rawSuf || '').trim().toLowerCase();
       const compLower = compName.toLowerCase();
@@ -6627,10 +6631,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                             setCompanyMenuOpen(false);
                             const comp = companies.find((c) => c.id === companyId);
                             if (comp) {
-                              let baseName = comp.display_name;
-                              if (comp.legal_suffix && comp.legal_suffix !== 'None / Other') {
-                                if (comp.display_name.endsWith(comp.legal_suffix)) {
-                                  baseName = comp.display_name.slice(0, -comp.legal_suffix.length).trim();
+                              let baseName = comp.display_name.replace(
+                                /\s*(?:none\s*\/\s*to\s*be\s*added\s*later|none\s*\(\s*clean\s*name\s*\)|none\s*\/\s*other)$/i,
+                                ''
+                              ).trim();
+                              if (
+                                comp.legal_suffix &&
+                                !/^(none|none\s*\(\s*clean\s*name\s*\)|none\s*\/\s*to\s*be\s*added\s*later|none\s*\/\s*other)$/i.test(
+                                  String(comp.legal_suffix).trim()
+                                )
+                              ) {
+                                if (baseName.endsWith(comp.legal_suffix)) {
+                                  baseName = baseName.slice(0, -comp.legal_suffix.length).trim();
                                 }
                               }
                               setSubCompanyName(baseName);
@@ -10462,7 +10474,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                   
                   const isNoneSubSuf =
                     !subLegalSuffix ||
-                    /^(none|none\s*\/\s*to\s*be\s*added\s*later|none\s*\/\s*other)$/i.test(String(subLegalSuffix).trim());
+                    /^(none|none\s*\(\s*clean\s*name\s*\)|none\s*\/\s*to\s*be\s*added\s*later|none\s*\/\s*other)$/i.test(
+                      String(subLegalSuffix).trim()
+                    );
                   const cleanSubName = subCompanyName.trim();
                   const sufLower = (subLegalSuffix || '').trim().toLowerCase();
                   const subLower = cleanSubName.toLowerCase();

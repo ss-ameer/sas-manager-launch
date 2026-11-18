@@ -2670,10 +2670,18 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     (targetQuote: Quotation | null) => {
       setActiveSourceQuotation(targetQuote);
       const defaultPreset = presets.find((p) => p.is_default) || presets[0] || null;
+      const isSavedConcreteQuotation = Boolean(
+        targetQuote?.id &&
+          !(targetQuote as any)._isBaselineEnquiryProposal &&
+          !String(targetQuote.id).startsWith('baseline_') &&
+          !String(targetQuote.id).startsWith('preview_')
+      );
       const isBaselineOrUnstyledDraft =
         !targetQuote ||
         Boolean((targetQuote as any)._isBaselineEnquiryProposal) ||
-        (!targetQuote.preset_id && (!targetQuote.signatories || targetQuote.signatories.length === 0));
+        (!isSavedConcreteQuotation &&
+          !targetQuote.preset_id &&
+          (!targetQuote.signatories || targetQuote.signatories.length === 0));
       const hydrated = QuotationRepository.hydrateStudioStateFromQuotation(
         targetQuote,
         profile,
@@ -2802,11 +2810,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       setTableDensity(hydrated.tableDensity);
       setFontSizeScale(hydrated.fontSizeScale);
       setTableFontScale(
-        hydrated.fontSizeScale === 'compact'
-          ? 'compact'
-          : hydrated.fontSizeScale === 'large'
-          ? 'prominent'
-          : 'standard'
+        targetQuote?.table_font_scale ||
+          hydrated.tableFontScale ||
+          (hydrated.fontSizeScale === 'compact'
+            ? 'compact'
+            : hydrated.fontSizeScale === 'large'
+            ? 'prominent'
+            : 'standard')
       );
       setBlockStyle(hydrated.blockStyle);
       setGlobalCardRadius(hydrated.globalCardRadius);
@@ -2975,10 +2985,29 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             ? { logoUrl: targetQuote.header_config?.logoUrl || targetQuote.company_logo_url }
             : {})
         });
+        const savedQuoteRef = String(
+          targetQuote.formatted_quote_ref ||
+            (targetQuote as any).quote_ref_no ||
+            targetQuote.quote_number ||
+            enquiry?.quote_ref_no ||
+            ''
+        ).trim();
+        const hasStandardRevSuffix =
+          /-R\d+$/i.test(savedQuoteRef) ||
+          /\/Rev\.?\s*\d+$/i.test(savedQuoteRef) ||
+          /\s*\(Rev\.?\s*\d+\)$/i.test(savedQuoteRef);
+        const inferredRevisionSuffixMode =
+          targetQuote.recipient_config?.revisionSuffixMode ||
+          (hydrated as any).recipientConfig?.revisionSuffixMode ||
+          profile?.recipient_config?.revisionSuffixMode ||
+          (savedQuoteRef && !hasStandardRevSuffix ? 'custom' : undefined);
+
         setRecipientConfig({
           ...DEFAULT_RECIPIENT_CONFIG,
           ...(profile?.recipient_config || {}),
+          ...((hydrated as any).recipientConfig || {}),
           ...(targetQuote.recipient_config || {}),
+          ...(inferredRevisionSuffixMode ? { revisionSuffixMode: inferredRevisionSuffixMode } : {}),
           style: targetQuote.recipient_config?.style || hydrated.blockStyle,
           recipientCardStyle:
             targetQuote.recipient_config?.recipientCardStyle ||
@@ -3040,8 +3069,37 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         setItemLinkedProductIds({});
         const isDraftQuote = (targetQuote.status || 'Draft') === 'Draft' && (targetQuote.document_type || 'quotation') === 'quotation';
         const hasFreshEnquiryItems = Array.isArray(enquiry?.line_items) && enquiry!.line_items.length > 0;
+        const hasSavedQuotationItems =
+          !isBaselineQuote &&
+          Array.isArray(targetQuote.line_items) &&
+          targetQuote.line_items.length > 0;
         const rawSourceItems: QuotationLineItem[] | null =
-          isDraftQuote && hasFreshEnquiryItems
+          hasSavedQuotationItems
+            ? targetQuote.line_items.map((item, idx) => {
+                const enqIt = (enquiry?.line_items || []).find(
+                  (li) =>
+                    (item.id && li.id && item.id === li.id) ||
+                    (!item.id &&
+                      !li.id &&
+                      item.product_id &&
+                      li.product_id &&
+                      item.product_id === li.product_id &&
+                      item.sn === idx + 1)
+                );
+                return {
+                  ...(enqIt || {}),
+                  ...item,
+                  id: item.id || enqIt?.id || `item_${idx + 1}`,
+                  sn: item.sn || idx + 1,
+                  image_url: item.image_url || enqIt?.image_url,
+                  image_storage_key: (item as any).image_storage_key || (enqIt as any)?.image_storage_key,
+                  secondary_image_url: item.secondary_image_url || enqIt?.secondary_image_url,
+                  secondary_image_storage_key:
+                    (item as any).secondary_image_storage_key ||
+                    (enqIt as any)?.secondary_image_storage_key
+                };
+              })
+            : isDraftQuote && hasFreshEnquiryItems
             ? enquiry!.line_items.map((li, idx) => {
                 const prevIt = (targetQuote.line_items || []).find(
                   (oldIt) =>
@@ -3140,25 +3198,29 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   attribute_order: li.attribute_order ?? prevIt?.attribute_order,
                   attribute_line_breaks_after: li.attribute_line_breaks_after ?? prevIt?.attribute_line_breaks_after,
                   attribute_full_width_keys: li.attribute_full_width_keys ?? prevIt?.attribute_full_width_keys,
-                  image_url: li.image_url || prevIt?.image_url,
-                  secondary_image_url: li.secondary_image_url || prevIt?.secondary_image_url,
-                  image_caption: li.image_caption ?? prevIt?.image_caption,
-                  secondary_image_caption: li.secondary_image_caption ?? prevIt?.secondary_image_caption,
-                  image_adjustments: li.image_adjustments ?? prevIt?.image_adjustments,
-                  image_display_override: li.image_display_override ?? prevIt?.image_display_override,
-                  image_size_override: li.image_size_override ?? prevIt?.image_size_override,
-                  image_aspect_override: li.image_aspect_override ?? prevIt?.image_aspect_override,
-                  row_note: li.row_note ?? prevIt?.row_note,
-                  row_highlight: li.row_highlight ?? prevIt?.row_highlight,
-                  row_bold: li.row_bold ?? prevIt?.row_bold,
-                  hide_row_price: li.hide_row_price ?? prevIt?.hide_row_price,
-                  page_break_after: li.page_break_after ?? prevIt?.page_break_after,
-                  row_spacer_after_mm: li.row_spacer_after_mm ?? prevIt?.row_spacer_after_mm,
-                  datasheet_attachment: li.datasheet_attachment ?? prevIt?.datasheet_attachment,
-                  include_datasheet_in_quote: li.include_datasheet_in_quote ?? prevIt?.include_datasheet_in_quote ?? true,
-                  is_composite_set: li.is_composite_set ?? prevIt?.is_composite_set,
-                  sub_components: Array.isArray(li.sub_components) ? li.sub_components : prevIt?.sub_components,
-                  package_pricing_mode: li.package_pricing_mode ?? prevIt?.package_pricing_mode
+                  image_url: prevIt?.image_url || li.image_url,
+                  image_storage_key: (prevIt as any)?.image_storage_key || (li as any).image_storage_key,
+                  secondary_image_url: prevIt?.secondary_image_url || li.secondary_image_url,
+                  secondary_image_storage_key:
+                    (prevIt as any)?.secondary_image_storage_key ||
+                    (li as any).secondary_image_storage_key,
+                  image_caption: prevIt?.image_caption ?? li.image_caption,
+                  secondary_image_caption: prevIt?.secondary_image_caption ?? li.secondary_image_caption,
+                  image_adjustments: prevIt?.image_adjustments ?? li.image_adjustments,
+                  image_display_override: prevIt?.image_display_override ?? li.image_display_override,
+                  image_size_override: prevIt?.image_size_override ?? li.image_size_override,
+                  image_aspect_override: prevIt?.image_aspect_override ?? li.image_aspect_override,
+                  row_note: prevIt?.row_note ?? li.row_note,
+                  row_highlight: prevIt?.row_highlight ?? li.row_highlight,
+                  row_bold: prevIt?.row_bold ?? li.row_bold,
+                  hide_row_price: prevIt?.hide_row_price ?? li.hide_row_price,
+                  page_break_after: prevIt?.page_break_after ?? li.page_break_after,
+                  row_spacer_after_mm: prevIt?.row_spacer_after_mm ?? li.row_spacer_after_mm,
+                  datasheet_attachment: prevIt?.datasheet_attachment ?? li.datasheet_attachment,
+                  include_datasheet_in_quote: prevIt?.include_datasheet_in_quote ?? li.include_datasheet_in_quote ?? true,
+                  is_composite_set: prevIt?.is_composite_set ?? li.is_composite_set,
+                  sub_components: Array.isArray(prevIt?.sub_components) ? prevIt.sub_components : li.sub_components,
+                  package_pricing_mode: prevIt?.package_pricing_mode ?? li.package_pricing_mode
                 };
               })
             : Array.isArray(targetQuote.line_items)
@@ -3169,8 +3231,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           ? rehydrateLineItemsFromCatalog(rawSourceItems, workspaceProducts)
           : null;
         setCustomStudioLineItems(initialStudioItems);
-        if (initialStudioItems && initialStudioItems.length > 0) {
-          rehydrateDocumentBlobsFromLocal({ line_items: initialStudioItems })
+        if (rawSourceItems && rawSourceItems.length > 0) {
+          rehydrateDocumentBlobsFromLocal({ line_items: rawSourceItems })
             .then((rehydrated) => {
               if (rehydrated?.line_items) {
                 setCustomStudioLineItems(
@@ -3345,7 +3407,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
             workspaceProducts
           );
           setCustomStudioLineItems(hydratedCatalogNewItems);
-          rehydrateDocumentBlobsFromLocal({ line_items: hydratedCatalogNewItems })
+          rehydrateDocumentBlobsFromLocal({ line_items: rawNewQuoteItems })
             .then((rehydrated) => {
               if (rehydrated?.line_items) {
                 setCustomStudioLineItems(
@@ -3725,15 +3787,29 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           loadedPresets.find((p) => p.is_default) ||
           loadedPresets[0];
 
+        const isSavedConcreteQuote =
+          Boolean(
+            editingQuotation?.id &&
+              !(editingQuotation as any)._isBaselineEnquiryProposal &&
+              !String(editingQuotation.id).startsWith('baseline_') &&
+              !String(editingQuotation.id).startsWith('preview_')
+          ) ||
+          Boolean(
+            activeQuotationId &&
+              !String(activeQuotationId).startsWith('baseline_') &&
+              !String(activeQuotationId).startsWith('preview_')
+          );
+
         const hasSavedCustomLayout =
-          Boolean(editingQuotation && !(editingQuotation as any)._isBaselineEnquiryProposal) &&
-          Array.isArray(editingQuotation?.layout_blocks) &&
-          editingQuotation!.layout_blocks!.length > 0;
+          isSavedConcreteQuote ||
+          (Boolean(editingQuotation && !(editingQuotation as any)._isBaselineEnquiryProposal) &&
+            Array.isArray(editingQuotation?.layout_blocks) &&
+            editingQuotation!.layout_blocks!.length > 0);
 
         if (initialPresetId && loadedPresets.some((p) => p.id === initialPresetId)) {
           setSelectedPresetId(initialPresetId);
           const matched = loadedPresets.find((p) => p.id === initialPresetId);
-          if (matched && !editingQuotation) applyPreset(matched);
+          if (matched && !editingQuotation && !isSavedConcreteQuote) applyPreset(matched);
         } else if (
           editingQuotation?.preset_id &&
           loadedPresets.some((p) => p.id === editingQuotation.preset_id)
@@ -3751,9 +3827,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         } else if (defaultPresetForDoc) {
           setSelectedPresetId(defaultPresetForDoc.id);
           const isUnstyledOrBaseline =
-            !editingQuotation ||
-            Boolean((editingQuotation as any)._isBaselineEnquiryProposal) ||
-            (!editingQuotation.preset_id && (!editingQuotation.signatories || editingQuotation.signatories.length === 0));
+            !isSavedConcreteQuote &&
+            (!editingQuotation ||
+              Boolean((editingQuotation as any)._isBaselineEnquiryProposal) ||
+              (!editingQuotation.preset_id &&
+                (!editingQuotation.signatories || editingQuotation.signatories.length === 0)));
           if (isUnstyledOrBaseline) {
             applyPreset(defaultPresetForDoc, { includeSignatory: true });
           }
@@ -4296,10 +4374,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     }
     if (preset.header_layout) setHeaderLayout(preset.header_layout);
     if (preset.table_density) setTableDensity(preset.table_density);
-    if (preset.table_font_scale) setTableFontScale(preset.table_font_scale);
     if (preset.fontSizeScale || (preset as any).font_size_scale) {
       handleSetFontSizeScale(preset.fontSizeScale || (preset as any).font_size_scale);
     }
+    if (preset.table_font_scale) setTableFontScale(preset.table_font_scale);
     if (typeof preset.show_bank_details === 'boolean') setShowBankDetails(preset.show_bank_details);
     const presetBankId =
       preset.remittanceBankId ||
@@ -5054,7 +5132,11 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       norm === 'delivery' ||
       norm === 'availability' ||
       norm === 'delivery availability' ||
-      norm === 'lead time'
+      norm === 'lead time' ||
+      norm === 'lead time delivery' ||
+      norm === 'delivery lead time' ||
+      norm === 'delivery time' ||
+      norm === 'delivery period'
     ) {
       return 'delivery';
     }
@@ -6856,7 +6938,14 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       .trim();
     const revNum = revisionNumber ?? editingQuotation?.revision_number ?? 1;
     const isNonQuoteDoc = documentType && documentType !== 'quotation';
-    const revMode = recipientConfig.revisionSuffixMode || 'hyphen';
+    const hasExplicitOverrideWithoutSuffix =
+      Boolean(formattedQuoteRefOverride && formattedQuoteRefOverride.trim()) &&
+      !/-R\d+$/i.test(formattedQuoteRefOverride.trim()) &&
+      !/\/Rev\.?\s*\d+$/i.test(formattedQuoteRefOverride.trim()) &&
+      !/\s*\(Rev\.?\s*\d+\)$/i.test(formattedQuoteRefOverride.trim());
+    const revMode =
+      recipientConfig.revisionSuffixMode ||
+      (hasExplicitOverrideWithoutSuffix ? 'custom' : 'hyphen');
     const sanitizedOverrideForQuote =
       !isNonQuoteDoc && formattedQuoteRefOverride
         ? QuotationRepository.sanitizeCanonicalQuoteRef(formattedQuoteRefOverride) || formattedQuoteRefOverride

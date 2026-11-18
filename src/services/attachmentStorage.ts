@@ -1313,21 +1313,23 @@ export function stripCatalogRedundantLineItemMedia(
       if (
         typeof itemCopy.image_url === 'string' &&
         itemCopy.image_url.startsWith('data:') &&
-        (!catProd || !catProd.image_url || itemCopy.image_url === catProd.image_url)
+        Boolean(catProd?.image_url && itemCopy.image_url === catProd.image_url)
       ) {
         delete itemCopy.image_url;
       }
       if (
         typeof itemCopy.secondary_image_url === 'string' &&
         itemCopy.secondary_image_url.startsWith('data:') &&
-        (!catProd || !catProd.secondary_image_url || itemCopy.secondary_image_url === catProd.secondary_image_url)
+        Boolean(
+          catProd?.secondary_image_url && itemCopy.secondary_image_url === catProd.secondary_image_url
+        )
       ) {
         delete itemCopy.secondary_image_url;
       }
       if (
         typeof itemCopy.datasheet_url === 'string' &&
         itemCopy.datasheet_url.startsWith('data:') &&
-        (!catProd || !catProd.datasheet_url || itemCopy.datasheet_url === catProd.datasheet_url)
+        Boolean(catProd?.datasheet_url && itemCopy.datasheet_url === catProd.datasheet_url)
       ) {
         delete itemCopy.datasheet_url;
       }
@@ -1335,8 +1337,10 @@ export function stripCatalogRedundantLineItemMedia(
         itemCopy.datasheet_attachment &&
         typeof itemCopy.datasheet_attachment.url === 'string' &&
         itemCopy.datasheet_attachment.url.startsWith('data:') &&
-        (!catProd?.datasheet_attachment?.url ||
-          itemCopy.datasheet_attachment.url === catProd.datasheet_attachment.url)
+        Boolean(
+          catProd?.datasheet_attachment?.url &&
+            itemCopy.datasheet_attachment.url === catProd.datasheet_attachment.url
+        )
       ) {
         itemCopy.datasheet_attachment = {
           ...itemCopy.datasheet_attachment,
@@ -1368,9 +1372,13 @@ export function rehydrateLineItemsFromCatalog(
     if (!catProd) return li;
     return {
       ...li,
-      image_url: li.image_url || catProd.image_url,
-      secondary_image_url: li.secondary_image_url || catProd.secondary_image_url,
-      datasheet_attachment: li.datasheet_attachment?.url
+      image_url:
+        li.image_url ||
+        (li.image_storage_key || li.image_display_override === 'none' ? '' : catProd.image_url),
+      secondary_image_url:
+        li.secondary_image_url ||
+        (li.secondary_image_storage_key ? '' : catProd.secondary_image_url),
+      datasheet_attachment: li.datasheet_attachment?.url || li.datasheet_attachment?.storageKey
         ? li.datasheet_attachment
         : catProd.datasheet_attachment || li.datasheet_attachment
     };

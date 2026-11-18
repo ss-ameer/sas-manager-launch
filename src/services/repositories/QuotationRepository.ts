@@ -841,22 +841,26 @@ export class QuotationRepository {
       });
     }
 
-    // Offload oversized line_items data: URIs (> 16 KB) or any catalog-linked product media
+    // Offload oversized line_items data: URIs (> 16 KB) to local storage keys without deleting custom images on catalog-linked items
+    const storageKeyMap: Record<'image_url' | 'secondary_image_url' | 'datasheet_url', string> = {
+      image_url: 'image_storage_key',
+      secondary_image_url: 'secondary_image_storage_key',
+      datasheet_url: 'datasheet_storage_key'
+    };
     if (Array.isArray(clone.line_items) && clone.line_items.length > 0) {
       clone.line_items = clone.line_items.map((item: any, idx: number) => {
         if (!item || typeof item !== 'object') return item;
         const itemCopy = { ...item };
-        const hasCatalogProduct = Boolean(itemCopy.product_id && String(itemCopy.product_id).trim());
         for (const field of ['image_url', 'secondary_image_url', 'datasheet_url'] as const) {
           const val = itemCopy[field];
-          if (typeof val === 'string' && val.startsWith('data:')) {
-            if (hasCatalogProduct) {
-              delete itemCopy[field];
-            } else if (val.length > INLINE_DATA_URI_MAX_BYTES) {
-              const key = offloadDataUriToLocalStore(val, `${itemCopy.id || docHint}_${field}_${idx}`);
-              itemCopy[`${field}_storage_key`] = key;
-              itemCopy[field] = '';
-            }
+          const storageKeyField = storageKeyMap[field];
+          if (typeof val === 'string' && val.startsWith('data:') && val.length > INLINE_DATA_URI_MAX_BYTES) {
+            const key = offloadDataUriToLocalStore(
+              val,
+              itemCopy[storageKeyField] || `${itemCopy.id || docHint}_${field}_${idx}`
+            );
+            itemCopy[storageKeyField] = key;
+            itemCopy[field] = '';
           }
         }
         return itemCopy;
@@ -870,9 +874,13 @@ export class QuotationRepository {
         const itemCopy = { ...item };
         for (const field of ['image_url', 'secondary_image_url', 'datasheet_url'] as const) {
           const val = itemCopy[field];
+          const storageKeyField = storageKeyMap[field];
           if (typeof val === 'string' && val.startsWith('data:')) {
-            const key = offloadDataUriToLocalStore(val, `${itemCopy.id || docHint}_${field}_${idx}`);
-            itemCopy[`${field}_storage_key`] = key;
+            const key = offloadDataUriToLocalStore(
+              val,
+              itemCopy[storageKeyField] || `${itemCopy.id || docHint}_${field}_${idx}`
+            );
+            itemCopy[storageKeyField] = key;
             itemCopy[field] = '';
           }
         }
@@ -1375,7 +1383,9 @@ export class QuotationRepository {
             attribute_line_breaks_after: qi.attribute_line_breaks_after,
             attribute_full_width_keys: qi.attribute_full_width_keys,
             image_url: qi.image_url,
+            image_storage_key: (qi as any).image_storage_key,
             secondary_image_url: qi.secondary_image_url,
+            secondary_image_storage_key: (qi as any).secondary_image_storage_key,
             image_caption: qi.image_caption,
             secondary_image_caption: qi.secondary_image_caption,
             image_adjustments: qi.image_adjustments,
@@ -1707,10 +1717,12 @@ export class QuotationRepository {
         showSubmittalsIndex: fromPreset.showSubmittalsIndex,
         tableDensity: fromPreset.tableDensity,
         fontSizeScale: fromPreset.fontSizeScale,
+        tableFontScale: fromPreset.tableFontScale,
         blockStyle: fromPreset.blockStyle,
         globalCardRadius: fromPreset.globalCardRadius,
         cardsOrder: fromPreset.cardsOrder,
         subjectPlacement: fromPreset.subjectPlacement,
+        recipientConfig: fromPreset.recipientConfig ? { ...fromPreset.recipientConfig } : undefined,
         selectedBankId:
           fromPreset.remittanceBankId ||
           profile?.bank_accounts?.find((b) => b.is_default)?.id ||
@@ -1862,6 +1874,10 @@ export class QuotationRepository {
         profile?.fontSizeScale ||
         profile?.font_size_scale ||
         'standard',
+      tableFontScale:
+        quotation?.table_font_scale ||
+        (profile as any)?.table_font_scale ||
+        undefined,
       blockStyle: quotation?.block_style || profile?.block_style || 'framed',
       globalCardRadius:
         quotation?.globalCardRadius ||
@@ -1878,6 +1894,7 @@ export class QuotationRepository {
         quotation?.recipient_config?.subjectPlacement ||
         profile?.subjectPlacement ||
         'below_cards',
+      recipientConfig: quotation?.recipient_config ? { ...quotation.recipient_config } : undefined,
       selectedBankId,
       taxMode: quotation?.tax_mode || profile?.default_tax_mode || 'taxes_extra',
       priceBasis: quotation?.price_basis || profile?.default_price_basis || 'Ex-Works',
@@ -3310,10 +3327,12 @@ export class QuotationRepository {
       table_density: input.table_density || 'comfortable',
       fontSizeScale: input.fontSizeScale || input.font_size_scale || 'standard',
       font_size_scale: input.fontSizeScale || input.font_size_scale || 'standard',
+      table_font_scale: input.table_font_scale || undefined,
       block_style: input.block_style || 'framed',
       globalCardRadius: input.globalCardRadius || 'rounded',
       cardsOrder: input.cardsOrder || 'recipient_first',
       subjectPlacement: input.subjectPlacement || 'below_cards',
+      recipient_config: input.recipient_config ? { ...input.recipient_config } : undefined,
       documentFontFamily: resolvedFontFamily,
       topAccentBarStyle: resolvedTopBarStyle,
       tableHeaderStyle: resolvedTableHeaderStyle,
@@ -3365,10 +3384,12 @@ export class QuotationRepository {
       showSubmittalsIndex: serialized.show_submittals_index !== false,
       tableDensity: serialized.table_density || 'comfortable',
       fontSizeScale: serialized.fontSizeScale || 'standard',
+      tableFontScale: serialized.table_font_scale || undefined,
       blockStyle: serialized.block_style || 'framed',
       globalCardRadius: serialized.globalCardRadius || 'rounded',
       cardsOrder: serialized.cardsOrder || 'recipient_first',
       subjectPlacement: serialized.subjectPlacement || 'below_cards',
+      recipientConfig: serialized.recipient_config ? { ...serialized.recipient_config } : undefined,
       documentFontFamily: serialized.documentFontFamily || 'sans',
       topAccentBarStyle: serialized.topAccentBarStyle || 'thick',
       tableHeaderStyle: serialized.tableHeaderStyle || 'solid',

@@ -709,7 +709,9 @@ export function rehydrateLineItemsFromCatalog(
           const effSubProd = resolveEffectiveCatalogProduct(rawSubProd, list);
           return {
             ...sub,
-            image_url: sub.image_url || effSubProd.image_url,
+            image_url:
+              sub.image_url ||
+              (sub.image_storage_key ? '' : effSubProd.image_url),
             brand_make: sub.brand_make || effSubProd.brand_make,
             model_part_no: sub.model_part_no || effSubProd.model_part_no,
             country_of_origin: sub.country_of_origin || effSubProd.country_of_origin,
@@ -748,9 +750,13 @@ export function rehydrateLineItemsFromCatalog(
       ...li,
       brand_make: li.brand_make || catProd.brand_make,
       country_of_origin: li.country_of_origin || catProd.country_of_origin,
-      image_url: li.image_url || catProd.image_url,
-      secondary_image_url: li.secondary_image_url || catProd.secondary_image_url,
-      datasheet_attachment: li.datasheet_attachment?.url
+      image_url:
+        li.image_url ||
+        (li.image_storage_key || li.image_display_override === 'none' ? '' : catProd.image_url),
+      secondary_image_url:
+        li.secondary_image_url ||
+        (li.secondary_image_storage_key ? '' : catProd.secondary_image_url),
+      datasheet_attachment: li.datasheet_attachment?.url || li.datasheet_attachment?.storageKey
         ? li.datasheet_attachment
         : catProd.datasheet_attachment || li.datasheet_attachment,
       attributes: resolvedAttrs,

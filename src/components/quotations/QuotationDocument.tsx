@@ -1292,7 +1292,16 @@ export function extractLineItemAttributesAndCleanDescription(item: QuotationLine
     if (norm === 'origin' || norm === 'country' || norm === 'country of origin') {
       return 'origin';
     }
-    if (norm === 'delivery' || norm === 'availability' || norm === 'lead time') {
+    if (
+      norm === 'delivery' ||
+      norm === 'availability' ||
+      norm === 'delivery availability' ||
+      norm === 'lead time' ||
+      norm === 'lead time delivery' ||
+      norm === 'delivery lead time' ||
+      norm === 'delivery time' ||
+      norm === 'delivery period'
+    ) {
       return 'delivery';
     }
     return norm;
@@ -12207,7 +12216,11 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                                   norm === 'delivery' ||
                                                   norm === 'availability' ||
                                                   norm === 'delivery availability' ||
-                                                  norm === 'lead time'
+                                                  norm === 'lead time' ||
+                                                  norm === 'lead time delivery' ||
+                                                  norm === 'delivery lead time' ||
+                                                  norm === 'delivery time' ||
+                                                  norm === 'delivery period'
                                                 ) {
                                                   return 'delivery';
                                                 }

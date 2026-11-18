@@ -1172,7 +1172,9 @@ export default function CompanyModal({
 
     const isNoneSuffix =
       !legalSuffix ||
-      /^(none|none\s*\/\s*to\s*be\s*added\s*later|none\s*\/\s*other)$/i.test(String(legalSuffix).trim());
+      /^(none|none\s*\(\s*clean\s*name\s*\)|none\s*\/\s*to\s*be\s*added\s*later|none\s*\/\s*other)$/i.test(
+        String(legalSuffix).trim()
+      );
 
     const cleanBaseName = canonicalName.trim();
     let displayName = cleanBaseName;
