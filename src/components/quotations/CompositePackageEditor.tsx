@@ -34,10 +34,16 @@ import {
   Image as ImageIcon,
   ZoomIn,
   DollarSign,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  ChevronDown,
+  BookmarkPlus,
 } from 'lucide-react';
 import { AtMentionInput, AtMentionTextarea } from './AtMentionField';
 import { QuotationTokenContext } from '../../utils/quotationTokenResolver';
-import { uploadWorkspaceMediaAsset } from '../../services/attachmentStorage';
+import { uploadWorkspaceMediaAsset, sanitizeFirestorePayload } from '../../services/attachmentStorage';
+import { safeUpdateDoc, safeAddDoc } from '../../firebase';
+import { MetadataRepository } from '../../services/repositories/MetadataRepository';
 import ImageLightboxModal from '../common/ImageLightboxModal';
 
 interface CompositePackageEditorProps {
@@ -122,6 +128,10 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
   const [showScopeNotes, setShowScopeNotes] = useState<boolean>(Boolean(optionScopeNotes && optionScopeNotes.trim()));
   const [showCostInputs, setShowCostInputs] = useState<boolean>(false);
   const [lightboxSubComp, setLightboxSubComp] = useState<LineItemComponent | null>(null);
+  const [openSyncMenuRowId, setOpenSyncMenuRowId] = useState<string | null>(null);
+  const [syncStatusByRow, setSyncStatusByRow] = useState<Record<string, string>>({});
+  const [syncBusyByRow, setSyncBusyByRow] = useState<Record<string, boolean>>({});
+  const [localSavedProducts, setLocalSavedProducts] = useState<Product[]>([]);
 
   const effectiveTokenContext = useMemo<QuotationTokenContext>(
     () => tokenContext || {},
@@ -179,7 +189,10 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
         { compressImage: true, maxDimension: 700, quality: 0.84 }
       );
       if (uploaded.url) {
-        handleUpdateSub(compId, 'image_url', uploaded.url);
+        handleUpdateSubPatch(compId, {
+          image_url: uploaded.url,
+          show_image: true,
+        });
       }
     } catch {
       // ignore upload error
@@ -327,10 +340,31 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
     );
   };
 
-  const activeCatalogProducts = useMemo(
-    () => (products || []).filter((p) => !p.is_deleted),
-    [products]
-  );
+  const activeCatalogProducts = useMemo(() => {
+    const mapById = new Map<string, Product>();
+    (products || []).forEach((p) => {
+      if (p && !p.is_deleted && p.id) mapById.set(p.id, p);
+    });
+    localSavedProducts.forEach((p) => {
+      if (p && !p.is_deleted && p.id) {
+        const prev = mapById.get(p.id);
+        mapById.set(p.id, prev ? { ...prev, ...p } : p);
+      }
+    });
+    return Array.from(mapById.values());
+  }, [products, localSavedProducts]);
+
+  const flashRowSyncStatus = (compId: string, label: string) => {
+    setSyncStatusByRow((prev) => ({ ...prev, [compId]: label }));
+    setTimeout(() => {
+      setSyncStatusByRow((prev) => {
+        if (prev[compId] !== label) return prev;
+        const copy = { ...prev };
+        delete copy[compId];
+        return copy;
+      });
+    }, 3200);
+  };
 
   const convertFromCatalogAed = (amountAed?: number): number => {
     const val = Number(amountAed) || 0;
@@ -655,6 +689,141 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
   const handleUpdateSubPatch = (id: string, patch: Partial<LineItemComponent>) => {
     const updated = subComponents.map((c) => (c.id === id ? { ...c, ...patch } : c));
     commitComponents(updated);
+  };
+
+  const handlePullSubFromCatalog = (comp: LineItemComponent, targetProd: Product) => {
+    const prod = resolveEffectiveCatalogProduct(targetProd, activeCatalogProducts);
+    const { cleanDesc, attributes: hydratedAttrs } = extractCleanDescAndAttributesFromProduct(prod);
+    const cleanUnit = !prod.unit || prod.unit === 'Custom Unit' ? comp.unit || 'Nos' : prod.unit;
+    handleUpdateSubPatch(comp.id, {
+      product_id: prod.id,
+      sku: prod.sku || comp.sku,
+      item_name: prod.name || prod.product_type || comp.item_name,
+      description: cleanDesc,
+      brand_make: prod.brand_make || '',
+      model_part_no: prod.model_part_no || '',
+      country_of_origin: prod.country_of_origin || '',
+      image_url: prod.image_url || comp.image_url,
+      image_caption: prod.image_caption || comp.image_caption,
+      image_adjustments: prod.image_adjustments || comp.image_adjustments,
+      attributes: hydratedAttrs,
+      unit: cleanUnit,
+    });
+    setOpenSyncMenuRowId(null);
+    flashRowSyncStatus(comp.id, '✓ Pulled from Catalog');
+  };
+
+  const handlePushSubToCatalog = async (comp: LineItemComponent, targetProd: Product) => {
+    if (!targetProd?.id) return;
+    setSyncBusyByRow((prev) => ({ ...prev, [comp.id]: true }));
+    setOpenSyncMenuRowId(null);
+    try {
+      const effectiveAttrs =
+        Array.isArray(comp.attributes) && comp.attributes.length > 0
+          ? comp.attributes.filter((a) => a && (a.key?.trim() || a.value?.trim()))
+          : Array.isArray(targetProd.attributes)
+          ? targetProd.attributes
+          : [];
+      const patchPayload: Partial<Product> = {
+        ...(comp.item_name?.trim() ? { name: comp.item_name.trim() } : {}),
+        description: comp.description ?? '',
+        brand_make: comp.brand_make ?? targetProd.brand_make ?? '',
+        model_part_no: comp.model_part_no ?? targetProd.model_part_no ?? '',
+        country_of_origin: comp.country_of_origin ?? targetProd.country_of_origin ?? '',
+        attributes: effectiveAttrs,
+        ...(comp.image_url !== undefined ? { image_url: comp.image_url } : {}),
+        ...(comp.unit ? { unit: comp.unit } : {}),
+      };
+      const sanitizedPatch = sanitizeFirestorePayload({
+        ...patchPayload,
+        id: targetProd.id,
+        updatedAt: new Date().toISOString(),
+      });
+      await safeUpdateDoc('products', targetProd.id, sanitizedPatch);
+      const upserted = await MetadataRepository.upsertLocalProduct({
+        ...targetProd,
+        ...patchPayload,
+        id: targetProd.id,
+      });
+      if (upserted) {
+        setLocalSavedProducts((prev) => [...prev.filter((p) => p.id !== upserted.id), upserted]);
+      }
+      if (!comp.product_id || comp.product_id !== targetProd.id) {
+        handleUpdateSubPatch(comp.id, {
+          product_id: targetProd.id,
+          sku: targetProd.sku || comp.sku,
+        });
+      }
+      flashRowSyncStatus(comp.id, '✓ Saved to Catalog');
+    } catch {
+      flashRowSyncStatus(comp.id, '⚠ Sync Failed');
+    } finally {
+      setSyncBusyByRow((prev) => ({ ...prev, [comp.id]: false }));
+    }
+  };
+
+  const handleCreateNewCatalogProductFromSub = async (comp: LineItemComponent) => {
+    const cleanName = (comp.item_name || '').trim();
+    if (!cleanName) return;
+    setSyncBusyByRow((prev) => ({ ...prev, [comp.id]: true }));
+    setOpenSyncMenuRowId(null);
+    try {
+      const fxToAed = resolveToAedMultiplier(currency || 'AED');
+      const sellAed = Math.round((Number(comp.unit_price) || 0) * fxToAed * 100) / 100;
+      const costAed = Math.round((Number(comp.cost_price) || 0) * fxToAed * 100) / 100;
+      const generatedSku =
+        (comp.sku && comp.sku.trim()) ||
+        `SUB-${cleanName
+          .replace(/[^a-zA-Z0-9]/g, '')
+          .toUpperCase()
+          .slice(0, 4) || 'ITEM'}-${Date.now().toString().slice(-4)}`;
+      const cleanAttrs = Array.isArray(comp.attributes)
+        ? comp.attributes.filter((a) => a && (a.key?.trim() || a.value?.trim()))
+        : [];
+      const wsId = activeWorkspace?.id || (item as any)?.workspace_id || 'ws_default';
+      const nowIso = new Date().toISOString();
+
+      const newProdPayload: any = {
+        name: cleanName,
+        product_type: item?.product_type || 'Component / Sub-Item',
+        sku: generatedSku,
+        description: comp.description ?? '',
+        brand_make: comp.brand_make ?? '',
+        model_part_no: comp.model_part_no ?? '',
+        country_of_origin: comp.country_of_origin ?? '',
+        unit: comp.unit || 'Nos',
+        unit_price: sellAed,
+        default_unit_price: sellAed,
+        cost_price: costAed,
+        cost_price_aed: costAed,
+        currency: 'AED',
+        attributes: cleanAttrs,
+        image_url: comp.image_url || '',
+        workspace_id: wsId,
+        is_deleted: false,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+
+      const sanitized = sanitizeFirestorePayload(newProdPayload);
+      const docRef = await safeAddDoc('products', sanitized);
+      const createdId = docRef?.id || `prod_sub_${Date.now()}`;
+      const savedProd: Product = {
+        ...newProdPayload,
+        id: createdId,
+      };
+      await MetadataRepository.upsertLocalProduct(savedProd);
+      setLocalSavedProducts((prev) => [...prev.filter((p) => p.id !== createdId), savedProd]);
+      handleUpdateSubPatch(comp.id, {
+        product_id: createdId,
+        sku: generatedSku,
+      });
+      flashRowSyncStatus(comp.id, '✓ Saved to Catalog');
+    } catch {
+      flashRowSyncStatus(comp.id, '⚠ Save Failed');
+    } finally {
+      setSyncBusyByRow((prev) => ({ ...prev, [comp.id]: false }));
+    }
   };
 
   const handleUpdateSub = (id: string, field: keyof LineItemComponent, value: any) => {
@@ -1123,6 +1292,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
         {subComponents.map((comp, idx) => {
           const unitPriceVal = Number(comp.unit_price) || 0;
           const isIncludedZeroPrice = Boolean(comp.is_included_accessory) || unitPriceVal <= 0;
+          const hasDesc = Boolean(comp.description && comp.description.trim());
           const hasNote = isMeaningfulRemark(comp.remark) || Boolean(comp.row_note && comp.row_note.trim());
           const isNoteOpen = Boolean(expandedRowNotes[comp.id] || hasNote);
           const activeFmtCount = getActiveFormatCount(comp);
@@ -1133,6 +1303,10 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
               ? activeCatalogProducts.find((p) => p.id === comp.product_id)
               : comp.sku
               ? activeCatalogProducts.find((p) => p.sku && p.sku.toLowerCase() === comp.sku!.toLowerCase())
+              : comp.item_name?.trim()
+              ? activeCatalogProducts.find(
+                  (p) => (p.name || '').trim().toLowerCase() === comp.item_name!.trim().toLowerCase()
+                )
               : undefined;
           const linkedProduct = rawLinkedProduct
             ? resolveEffectiveCatalogProduct(rawLinkedProduct, activeCatalogProducts)
@@ -1147,13 +1321,21 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
               ? linkedProduct!.attributes
               : [];
           const specCount = effectiveAttrs.filter((a) => a && (a.key?.trim() || a.value?.trim())).length;
+          const isEmbeddedImageBlob =
+            typeof comp.image_url === 'string' &&
+            (comp.image_url.startsWith('data:') ||
+              comp.image_url.startsWith('blob:') ||
+              comp.image_url.startsWith('idb:'));
+          const rowSyncBadge = syncStatusByRow[comp.id];
+          const isRowSyncBusy = Boolean(syncBusyByRow[comp.id]);
 
           return (
             <div
               key={comp.id}
               className="px-3 py-2 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors space-y-1.5"
             >
-              <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5">
+              {/* TOP TIER: Index, Thumbnail, Qty, Unit, Item Name, Cost (optional), Price/Included */}
+              <div className="flex flex-wrap items-center gap-1.5">
                 {/* # Index */}
                 <span className="w-5 text-[10px] font-mono font-bold text-slate-400 text-center shrink-0">
                   {idx + 1}.
@@ -1214,7 +1396,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                   onChange={(e) => handleUpdateSub(comp.id, 'quantity', e.target.value)}
                   placeholder="Qty"
                   title="Quantity"
-                  className="w-14 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-1.5 py-1 text-xs font-mono text-center font-bold text-slate-900 dark:text-white focus:border-blue-500 focus:bg-white focus:outline-none shrink-0"
+                  className="w-13 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-1.5 py-1 text-xs font-mono text-center font-bold text-slate-900 dark:text-white focus:border-blue-500 focus:bg-white focus:outline-none shrink-0"
                 />
 
                 {/* Unit */}
@@ -1224,7 +1406,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                   onChange={(e) => handleUpdateSub(comp.id, 'unit', e.target.value)}
                   placeholder="Nos"
                   title="Unit (e.g. Nos, Set, Lot)"
-                  className="w-14 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-1.5 py-1 text-xs font-mono text-center text-slate-700 dark:text-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none shrink-0"
+                  className="w-13 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-1.5 py-1 text-xs font-mono text-center text-slate-700 dark:text-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none shrink-0"
                 />
 
                 {/* Item Name */}
@@ -1233,37 +1415,12 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                   value={comp.item_name ?? ''}
                   onChange={(e) => handleUpdateSub(comp.id, 'item_name', e.target.value)}
                   placeholder="Included item or component name (e.g. Top and Bottom Distribution System, Vacuum Breaker)"
-                  className="flex-1 min-w-[140px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1 text-xs font-medium text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                  className="flex-1 min-w-[160px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1 text-xs font-medium text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
                 />
-
-                {/* Brand / Model Compact Badge (when present) */}
-                {(effectiveBrand || effectiveModel) && (
-                  <span
-                    onClick={() => toggleSpecRow(comp.id)}
-                    className="hidden md:inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[10px] font-mono truncate max-w-[130px] shrink-0 cursor-pointer hover:border-blue-300"
-                    title={`${[effectiveBrand, effectiveModel].filter(Boolean).join(' · ')} — click to edit specs`}
-                  >
-                    {[effectiveBrand, effectiveModel].filter(Boolean).join(' · ')}
-                  </span>
-                )}
-
-                {/* [Specs (N)] Toggle Button */}
-                <button
-                  type="button"
-                  onClick={() => toggleSpecRow(comp.id)}
-                  className={`px-2 py-1 rounded-md border text-[10px] font-mono font-semibold flex items-center gap-1 shrink-0 transition cursor-pointer ${
-                    isSpecOpen || specCount > 0
-                      ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800'
-                      : 'bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-800 border-slate-200 dark:border-slate-700'
-                  }`}
-                  title="View or edit sub-item technical attributes, Brand/Model, and quote visibility"
-                >
-                  <span>Specs ({specCount})</span>
-                </button>
 
                 {/* Optional Cost Input (Only when Sub-Item Costs toggle is active) */}
                 {showCostInputs && (
-                  <div className="relative w-24 shrink-0" title={`Internal Supplier Cost (${currency})`}>
+                  <div className="relative w-22 shrink-0" title={`Internal Supplier Cost (${currency})`}>
                     <input
                       type="number"
                       step="0.01"
@@ -1276,7 +1433,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                 )}
 
                 {/* Optional Unit Price or "Included" */}
-                <div className="relative w-28 shrink-0" title={`Optional sub-item price in ${currency} (leave 0 for Included)`}>
+                <div className="relative w-24 shrink-0" title={`Optional sub-item price in ${currency} (leave 0 for Included)`}>
                   <input
                     type="number"
                     step="0.01"
@@ -1290,62 +1447,195 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                     }`}
                   />
                 </div>
+              </div>
 
-                {/* Compact Action Buttons */}
-                <div className="flex items-center gap-0.5 shrink-0">
+              {/* SECOND TIER: Brand/Model Pill, Print Subtitle Preview Indicator, Specs Toggle, Note/Desc Toggle, Catalog Sync, Move & Delete */}
+              <div className="pl-6 flex flex-wrap items-center justify-between gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                  {(effectiveBrand || effectiveModel) && (
+                    <button
+                      type="button"
+                      onClick={() => toggleSpecRow(comp.id)}
+                      className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[10px] font-mono truncate max-w-[180px] cursor-pointer hover:border-blue-300"
+                      title={`${[effectiveBrand, effectiveModel].filter(Boolean).join(' · ')} — click to edit specs`}
+                    >
+                      {[effectiveBrand, effectiveModel].filter(Boolean).join(' · ')}
+                    </button>
+                  )}
+
+                  {hasDesc && (
+                    <button
+                      type="button"
+                      onClick={() => toggleSpecRow(comp.id)}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50/90 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[10px] truncate max-w-[220px] cursor-pointer hover:border-amber-400"
+                      title={`Sub-item print subtitle: "${comp.description}" — click to edit or clear`}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                      <span className="truncate">{comp.description}</span>
+                    </button>
+                  )}
+
+                  {rowSyncBadge && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-mono font-bold">
+                      {rowSyncBadge}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1 ml-auto">
+                  {/* [Specs (N)] Toggle Button */}
+                  <button
+                    type="button"
+                    onClick={() => toggleSpecRow(comp.id)}
+                    className={`px-2 py-0.5 rounded-md border text-[10px] font-mono font-semibold flex items-center gap-1 shrink-0 transition cursor-pointer ${
+                      isSpecOpen || specCount > 0 || hasDesc
+                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800'
+                        : 'bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-800 border-slate-200 dark:border-slate-700'
+                    }`}
+                    title="View or edit sub-item description, technical attributes, Brand/Model, and quote visibility"
+                  >
+                    <span>Specs ({specCount})</span>
+                    {hasDesc && (
+                      <span
+                        className="w-1.5 h-1.5 rounded-full bg-amber-500"
+                        title="Has sub-item print description"
+                      />
+                    )}
+                  </button>
+
+                  {/* Description / Note Toggle */}
                   <button
                     type="button"
                     onClick={() => toggleNoteRow(comp.id)}
-                    className={`p-1 rounded-md border text-[10px] transition cursor-pointer ${
-                      isNoteOpen
+                    className={`px-1.5 py-0.5 rounded-md border text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer ${
+                      isNoteOpen || hasDesc
                         ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800'
-                        : 'bg-white dark:bg-slate-800 text-slate-400 hover:text-slate-700 border-transparent hover:border-slate-200'
+                        : 'bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-700 border-slate-200 dark:border-slate-700'
                     }`}
-                    title="Add or edit specification note for this sub-item"
+                    title="Edit sub-item print subtitle / description or scope note"
                   >
-                    <MessageSquarePlus className="w-3.5 h-3.5" />
+                    <MessageSquarePlus className="w-3 h-3" />
+                    <span>Desc / Note</span>
                   </button>
 
-                  {linkedProduct ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const updated = subComponents.map((c) =>
-                          c.id === comp.id ? { ...c, product_id: undefined, sku: undefined } : c
-                        );
-                        commitComponents(updated);
-                      }}
-                      className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[9.5px] font-mono font-semibold truncate max-w-[80px] cursor-pointer"
-                      title={`Linked to ${linkedProduct.sku || linkedProduct.name} (click to unlink)`}
-                    >
-                      {linkedProduct.sku || 'Linked'}
-                    </button>
-                  ) : (
-                    activeCatalogProducts.length > 0 && (
+                  {/* Catalog Sync / Link Controls */}
+                  {rawLinkedProduct && linkedProduct ? (
+                    <div className="relative inline-flex items-center">
                       <button
                         type="button"
+                        disabled={isRowSyncBusy}
                         onClick={() =>
-                          setShowCatalogPickerForRow((prev) => (prev === comp.id ? null : comp.id))
+                          setOpenSyncMenuRowId((prev) => (prev === comp.id ? null : comp.id))
                         }
-                        className="p-1 rounded-md text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
-                        title="Link to Catalog SKU"
+                        className="px-1.5 py-0.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-mono font-semibold flex items-center gap-1 cursor-pointer transition"
+                        title={`Linked to Catalog: ${linkedProduct.name || linkedProduct.sku} — click to Pull or Push specs`}
                       >
-                        <Link2 className="w-3.5 h-3.5" />
+                        <RefreshCw className={`w-2.5 h-2.5 ${isRowSyncBusy ? 'animate-spin' : ''}`} />
+                        <span className="truncate max-w-[78px]">{linkedProduct.sku || 'Sync'}</span>
+                        <ChevronDown className="w-2.5 h-2.5" />
                       </button>
-                    )
+
+                      {openSyncMenuRowId === comp.id && (
+                        <div className="absolute right-0 top-full mt-1 z-30 w-64 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl p-1.5 space-y-1 text-left">
+                          <div className="px-2 py-1 border-b border-slate-100 dark:border-slate-800">
+                            <div className="text-[10px] font-mono uppercase text-slate-400 font-bold">
+                              Linked Catalog Product
+                            </div>
+                            <div className="text-[11px] font-bold text-slate-800 dark:text-slate-100 truncate">
+                              {linkedProduct.name}
+                            </div>
+                            {linkedProduct.sku && (
+                              <div className="text-[10px] font-mono text-slate-500">
+                                SKU: {linkedProduct.sku}
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handlePullSubFromCatalog(comp, rawLinkedProduct)}
+                            className="w-full px-2 py-1.5 rounded hover:bg-blue-50 dark:hover:bg-slate-800 text-left text-[11px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2 cursor-pointer"
+                          >
+                            <ArrowDownToLine className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                            <span>Pull Latest Specs &amp; Description from Catalog</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handlePushSubToCatalog(comp, rawLinkedProduct)}
+                            className="w-full px-2 py-1.5 rounded hover:bg-emerald-50 dark:hover:bg-slate-800 text-left text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-2 cursor-pointer"
+                          >
+                            <ArrowUpFromLine className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span>Push Sub-Item Edits to Catalog Product</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpenSyncMenuRowId(null);
+                              setShowCatalogPickerForRow(comp.id);
+                            }}
+                            className="w-full px-2 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-left text-[10.5px] text-slate-600 dark:text-slate-300 flex items-center gap-2 cursor-pointer"
+                          >
+                            <Link2 className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span>Relink to Different Catalog Product...</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpenSyncMenuRowId(null);
+                              handleUpdateSubPatch(comp.id, {
+                                product_id: undefined,
+                                sku: undefined,
+                              });
+                            }}
+                            className="w-full px-2 py-1 rounded hover:bg-rose-50 text-left text-[10.5px] text-rose-600 flex items-center gap-2 cursor-pointer"
+                          >
+                            <X className="w-3 h-3 shrink-0" />
+                            <span>Unlink from Catalog</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="inline-flex items-center gap-1">
+                      {activeCatalogProducts.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setShowCatalogPickerForRow((prev) => (prev === comp.id ? null : comp.id))
+                          }
+                          className="px-1.5 py-0.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-blue-600 hover:border-blue-300 text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer"
+                          title="Link to existing Catalog SKU"
+                        >
+                          <Link2 className="w-3 h-3" />
+                          <span>Link</span>
+                        </button>
+                      )}
+                      {comp.item_name?.trim() && (
+                        <button
+                          type="button"
+                          disabled={isRowSyncBusy}
+                          onClick={() => handleCreateNewCatalogProductFromSub(comp)}
+                          className="px-1.5 py-0.5 rounded-md border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100 text-emerald-800 text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer"
+                          title="Save this sub-item as a new Product in Catalog and link it"
+                        >
+                          <BookmarkPlus className="w-3 h-3 text-emerald-600" />
+                          <span>+ Catalog</span>
+                        </button>
+                      )}
+                    </div>
                   )}
 
+                  {/* Photo & Print Formatting Toggle */}
                   <button
                     type="button"
                     onClick={() => toggleFormatRow(comp.id)}
                     className={`p-1 rounded-md border text-[10px] transition cursor-pointer ${
                       isFmtOpen || activeFmtCount > 0
                         ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                        : 'text-slate-400 hover:text-slate-700 border-transparent hover:border-slate-200'
+                        : 'bg-white dark:bg-slate-800 text-slate-400 hover:text-slate-700 border-slate-200 dark:border-slate-700'
                     }`}
                     title="Photo & Print Formatting"
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
+                    <Sparkles className="w-3 h-3" />
                   </button>
 
                   {subComponents.length > 1 && (
@@ -1354,7 +1644,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                         type="button"
                         onClick={() => handleMoveSub(idx, 'up')}
                         disabled={idx === 0}
-                        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-25 cursor-pointer hidden sm:inline-flex"
+                        className="p-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-800 disabled:opacity-25 cursor-pointer"
                         title="Move Up"
                       >
                         <ArrowUp className="w-3 h-3" />
@@ -1363,7 +1653,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                         type="button"
                         onClick={() => handleMoveSub(idx, 'down')}
                         disabled={idx === subComponents.length - 1}
-                        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-25 cursor-pointer hidden sm:inline-flex"
+                        className="p-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-800 disabled:opacity-25 cursor-pointer"
                         title="Move Down"
                       >
                         <ArrowDown className="w-3 h-3" />
@@ -1374,10 +1664,10 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                   <button
                     type="button"
                     onClick={() => handleRemoveSub(comp.id)}
-                    className="p-1 text-slate-400 hover:text-rose-600 rounded-md cursor-pointer"
+                    className="p-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-400 hover:text-rose-600 hover:border-rose-200 cursor-pointer"
                     title="Remove Item"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-3 h-3" />
                   </button>
                 </div>
               </div>
@@ -1389,7 +1679,43 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                     <span className="text-[10px] font-mono uppercase tracking-wider font-bold text-indigo-700 dark:text-indigo-300">
                       Sub-Item #{idx + 1} Technical Specs &amp; Metadata
                     </span>
-                    <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      {/* Direct Catalog Sync Buttons inside Expanded Specs Panel */}
+                      {rawLinkedProduct ? (
+                        <div className="inline-flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handlePullSubFromCatalog(comp, rawLinkedProduct)}
+                            className="px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition"
+                            title="Overwrite sub-item specs, brand/model & description with latest from Catalog"
+                          >
+                            <ArrowDownToLine className="w-3 h-3" />
+                            <span>Pull from Catalog</span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isRowSyncBusy}
+                            onClick={() => handlePushSubToCatalog(comp, rawLinkedProduct)}
+                            className="px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition"
+                            title="Save this sub-item's current description, specs, brand/model & photo back to the linked Catalog Product"
+                          >
+                            <ArrowUpFromLine className="w-3 h-3" />
+                            <span>Push to Catalog</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={isRowSyncBusy || !comp.item_name?.trim()}
+                          onClick={() => handleCreateNewCatalogProductFromSub(comp)}
+                          className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer transition"
+                          title="Create a new Product in Catalog from this sub-item and link it automatically"
+                        >
+                          <BookmarkPlus className="w-3 h-3" />
+                          <span>+ Save Sub-Item to Catalog</span>
+                        </button>
+                      )}
+
                       <label className="inline-flex items-center gap-1.5 text-[10.5px] font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
                         <input
                           type="checkbox"
@@ -1424,8 +1750,34 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                     </div>
                   </div>
 
-                  {/* Brand / Model / Origin / Photo URL Quick Inputs */}
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-1.5">
+                  {/* Sub-Item Description / Print Subtitle Editor */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-[10px] font-mono font-bold text-slate-600 dark:text-slate-300">
+                        Sub-Item Description / Print Subtitle (Prints under sub-item name on PDF)
+                      </label>
+                      {hasDesc && (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateSub(comp.id, 'description', '')}
+                          className="px-1.5 py-0.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[9.5px] font-semibold cursor-pointer transition"
+                          title="Clear sub-item print subtitle"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <textarea
+                      rows={2}
+                      value={comp.description ?? ''}
+                      onChange={(e) => handleUpdateSub(comp.id, 'description', e.target.value)}
+                      placeholder="Optional sub-item description or subtitle printed below the sub-item name (leave blank if not needed)..."
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1.5 text-[11px] text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+
+                  {/* Brand / Model / Origin / Clean Photo Control */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1.5">
                     <input
                       type="text"
                       value={comp.brand_make ?? linkedProduct?.brand_make ?? ''}
@@ -1447,18 +1799,93 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                       placeholder="Origin (e.g. Italy, UAE)"
                       className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-[11px] text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:outline-none"
                     />
-                    <input
-                      type="text"
-                      value={comp.image_url ?? ''}
-                      onChange={(e) =>
-                        handleUpdateSubPatch(comp.id, {
-                          image_url: e.target.value,
-                          show_image: true,
-                        })
-                      }
-                      placeholder={linkedProduct?.image_url ? 'Using Catalog Photo (or paste URL)' : 'Paste Photo URL...'}
-                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-[11px] font-mono text-slate-700 dark:text-slate-300 focus:border-blue-500 focus:outline-none"
-                    />
+
+                    {/* Clean Photo Control (Never exposes raw data:image/... base64 string) */}
+                    {isEmbeddedImageBlob ? (
+                      <div className="flex items-center justify-between gap-1.5 bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-700 rounded px-2 py-1">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <img
+                            src={comp.image_url}
+                            alt={comp.item_name || 'Sub-item'}
+                            className="w-5 h-5 rounded object-contain border border-slate-200 shrink-0"
+                          />
+                          <span className="text-[10.5px] font-semibold text-emerald-700 dark:text-emerald-400 truncate">
+                            Custom Photo Attached
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <label
+                            className="px-1.5 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[9.5px] font-semibold cursor-pointer transition"
+                            title="Upload / Replace sub-item photo"
+                          >
+                            Change
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                e.target.value = '';
+                                if (f) handleUploadSubImage(comp.id, f);
+                              }}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateSub(comp.id, 'image_url', '')}
+                            className="p-0.5 text-slate-400 hover:text-rose-600 cursor-pointer"
+                            title="Remove custom photo"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5">
+                        <input
+                          type="text"
+                          value={comp.image_url ?? ''}
+                          onChange={(e) =>
+                            handleUpdateSubPatch(comp.id, {
+                              image_url: e.target.value,
+                              show_image: true,
+                            })
+                          }
+                          placeholder={
+                            linkedProduct?.image_url
+                              ? 'Catalog Photo (or paste URL)'
+                              : 'Paste https:// Photo URL...'
+                          }
+                          className="flex-1 min-w-0 bg-transparent text-[11px] font-mono text-slate-700 dark:text-slate-300 focus:outline-none"
+                        />
+                        <label
+                          className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 text-slate-600 dark:text-slate-300 hover:text-blue-700 text-[9.5px] font-semibold cursor-pointer shrink-0 transition"
+                          title="Upload photo file"
+                        >
+                          Upload
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              e.target.value = '';
+                              if (f) handleUploadSubImage(comp.id, f);
+                            }}
+                          />
+                        </label>
+                        {comp.image_url && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateSub(comp.id, 'image_url', '')}
+                            className="p-0.5 text-slate-400 hover:text-rose-600 cursor-pointer shrink-0"
+                            title="Remove photo URL"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Key:Value Attribute Pairs */}
@@ -1504,33 +1931,56 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                     </div>
                   ) : (
                     <div className="text-[11px] text-slate-400 italic">
-                      No technical attributes yet. Click "+ Add Spec" above to add key:value specifications (e.g. MOC: FRP, Size: 48&quot; x 72&quot;).
+                      No technical attributes yet. Click &quot;+ Add Spec&quot; above to add key:value specifications (e.g. MOC: FRP, Size: 48&quot; x 72&quot;).
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Optional Collapsible Spec / Application Note Row */}
+              {/* Optional Collapsible Description & Scope Note Row */}
               {isNoteOpen && (
-                <div className="pl-6 flex items-center gap-1.5">
-                  <input
-                    type="text"
-                    value={isMeaningfulRemark(comp.remark) ? comp.remark : comp.row_note || ''}
-                    onChange={(e) => handleUpdateSub(comp.id, 'remark', e.target.value)}
-                    placeholder="Optional spec / note (e.g. Factory pre-fitted, SS316, ASME standard)..."
-                    className="flex-1 bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1 text-[11px] text-slate-700 dark:text-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleUpdateSub(comp.id, 'remark', '');
-                      setExpandedRowNotes((prev) => ({ ...prev, [comp.id]: false }));
-                    }}
-                    className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
-                    title="Clear note"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
+                <div className="pl-6 space-y-1.5 pt-1">
+                  {!isSpecOpen && (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        value={comp.description ?? ''}
+                        onChange={(e) => handleUpdateSub(comp.id, 'description', e.target.value)}
+                        placeholder="Sub-Item Description / Print Subtitle (prints under sub-item name on PDF)..."
+                        className="flex-1 bg-amber-50/40 dark:bg-slate-800/60 border border-amber-200 dark:border-slate-700 rounded-md px-2.5 py-1 text-[11px] text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:bg-white focus:outline-none"
+                      />
+                      {hasDesc && (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateSub(comp.id, 'description', '')}
+                          className="px-1.5 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-semibold cursor-pointer"
+                          title="Clear sub-item description"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={isMeaningfulRemark(comp.remark) ? comp.remark : comp.row_note || ''}
+                      onChange={(e) => handleUpdateSub(comp.id, 'remark', e.target.value)}
+                      placeholder="Optional scope / application note (e.g. Factory pre-fitted, SS316, ASME standard)..."
+                      className="flex-1 bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1 text-[11px] text-slate-700 dark:text-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleUpdateSub(comp.id, 'remark', '');
+                        setExpandedRowNotes((prev) => ({ ...prev, [comp.id]: false }));
+                      }}
+                      className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
+                      title="Clear note"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -1546,7 +1996,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
 
         {subComponents.length === 0 && (
           <div className="py-4 text-center text-xs text-slate-400 italic">
-            No included items yet. Click "+ Add Included Item" below.
+            No included items yet. Click &quot;+ Add Included Item&quot; below.
           </div>
         )}
       </div>
