@@ -94,7 +94,7 @@ import { canManageWorkspace, isAdmin } from '../utils/permissions';
 
 const UNIVERSAL_QUICK_ATTRIBUTES = [
   'Dimensions / Size',
-  'Material / Grade',
+  'MOC',
   'Capacity / Rating',
   'Operating Pressure',
   'Power / Voltage',
@@ -190,6 +190,8 @@ export default function ProductManager({
   const [formVariantParentId, setFormVariantParentId] = useState<string | null>(null);
   const [formVariantLabel, setFormVariantLabel] = useState<string>('');
   const [formProductFamily, setFormProductFamily] = useState<string>('');
+  const [showVariantLinkEditor, setShowVariantLinkEditor] = useState<boolean>(false);
+  const [showSecondaryLogisticsFields, setShowSecondaryLogisticsFields] = useState<boolean>(false);
   const [quickLinkVariantTargetId, setQuickLinkVariantTargetId] = useState<string | null>(null);
   const [quickLinkParentSearch, setQuickLinkParentSearch] = useState<string>('');
 
@@ -356,9 +358,12 @@ export default function ProductManager({
       });
 
     const knownCategorySuggestions = formProductType ? CATEGORY_SUGGESTED_ATTRIBUTES[formProductType] || [] : [];
-    const merged = Array.from(
-      new Set([...Array.from(categoryUsedKeys), ...knownCategorySuggestions, ...UNIVERSAL_QUICK_ATTRIBUTES])
-    );
+    const normalizedCandidates = [
+      ...Array.from(categoryUsedKeys),
+      ...knownCategorySuggestions,
+      ...UNIVERSAL_QUICK_ATTRIBUTES
+    ].map((k) => (/^material(\s*\/\s*grade)?$/i.test(k.trim()) ? 'MOC' : k.trim()));
+    const merged = Array.from(new Set(normalizedCandidates));
     const existingKeysLower = new Set(formAttributes.map((a) => a.key.trim().toLowerCase()));
     return merged.filter((k) => !existingKeysLower.has(k.toLowerCase())).slice(0, 12);
   }, [products, formProductType, formAttributes]);
@@ -1006,6 +1011,8 @@ export default function ProductManager({
     setFormAiSelectedVariantIdx(0);
     setFormAiStatus('');
     setShowFormAiAutofill(false);
+    setShowVariantLinkEditor(false);
+    setShowSecondaryLogisticsFields(false);
   };
 
   // CRUD handlers
@@ -2229,8 +2236,8 @@ export default function ProductManager({
               }
             : undefined
         }
-        secondaryActions={
-          isEditable
+        secondaryActions={[
+          ...(isEditable
             ? [
                 {
                   label: '✨ AI Scan / Paste Products',
@@ -2255,34 +2262,54 @@ export default function ProductManager({
                   variant: 'outline' as const
                 }
               ]
-            : []
-        }
+            : []),
+          {
+            label: 'Stock Ledger',
+            icon: History,
+            onClick: () => setShowLedgerModal(true),
+            variant: 'outline' as const
+          },
+          ...(canViewConfidentialMargins && onOpenProcurement
+            ? [
+                {
+                  label: 'Procurement',
+                  icon: ShoppingBag,
+                  onClick: onOpenProcurement,
+                  variant: 'outline' as const
+                }
+              ]
+            : [])
+        ]}
       />
 
       <PageBody>
-        {/* Metrics Section */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Slimmer, Clickable KPI Strip */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
           <KpiStatCard
             label="Catalog Items"
             value={`${activeCatalogProducts.length} active`}
-            subtext="Standardized product catalog"
-            icon={<Package className="w-5 h-5" />}
+            subtext={stockFilter === 'All' ? 'Showing all catalog items' : 'Click to show all catalog items'}
+            icon={<Package className="w-4 h-4" />}
             tone="blue"
+            onClick={() => setStockFilter('All')}
+            active={stockFilter === 'All'}
           />
 
           <KpiStatCard
             label="Tracked Inventory"
             value={`${inventoriedProducts.length} physical SKUs`}
-            subtext="Warehouse stock tracking enabled"
-            icon={<Boxes className="w-5 h-5" />}
+            subtext={stockFilter === 'Tracked' ? 'Showing tracked SKUs (click to reset)' : 'Click to filter tracked inventory'}
+            icon={<Boxes className="w-4 h-4" />}
             tone="emerald"
+            onClick={() => setStockFilter((prev) => (prev === 'Tracked' ? 'All' : 'Tracked'))}
+            active={stockFilter === 'Tracked'}
           />
 
           <KpiStatCard
             label="Total Stock on Hand"
             value={`${activeCatalogProducts.reduce((acc, p) => acc + (p.stock_on_hand || 0), 0).toLocaleString()} units`}
             subtext="Aggregate available inventory"
-            icon={<ArrowDownToLine className="w-5 h-5" />}
+            icon={<ArrowDownToLine className="w-4 h-4" />}
             tone="indigo"
           />
 
@@ -2290,25 +2317,25 @@ export default function ProductManager({
             label="Low Stock Alerts"
             value={`${lowStockProducts.length} ${lowStockProducts.length === 1 ? 'item' : 'items'}`}
             subtext={stockFilter === 'LowStock' ? 'Showing low stock items (click to reset)' : 'Click to filter low stock SKUs'}
-            icon={<AlertTriangle className="w-5 h-5" />}
+            icon={<AlertTriangle className="w-4 h-4" />}
             tone={lowStockProducts.length > 0 ? 'amber' : 'slate'}
             onClick={() => setStockFilter((prev) => (prev === 'LowStock' ? 'All' : 'LowStock'))}
             active={stockFilter === 'LowStock'}
           />
         </div>
 
-        {/* Filters and Search Console */}
-        <div className="relative z-10 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
-          <div className="flex flex-wrap items-center gap-2.5 w-full">
+        {/* Single-Row Filters and Search Console */}
+        <div className="relative z-10 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-3.5 sm:p-4 shadow-xs space-y-2.5">
+          <div className="flex flex-wrap lg:flex-nowrap items-center gap-2.5 w-full">
             {/* Search bar */}
-            <div className="relative flex-1 min-w-[260px] flex items-center">
+            <div className="relative flex-1 min-w-[220px] flex items-center">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
               <input
                 type="text"
                 placeholder="Search by name, brand, model, SKU, or spec..."
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 focus:border-blue-500 rounded-xl py-2 pl-10 pr-8 text-xs font-semibold text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition h-10"
+                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 focus:border-blue-500 rounded-xl py-2 pl-10 pr-8 text-xs font-semibold text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition h-9.5"
               />
               {searchInput && (
                 <button
@@ -2322,7 +2349,7 @@ export default function ProductManager({
             </div>
 
             {/* Category filter */}
-            <div className="relative w-full sm:w-52 shrink-0 flex items-center bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-xl shadow-2xs h-10 transition">
+            <div className="relative w-full sm:w-48 shrink-0 flex items-center bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-xl shadow-2xs h-9.5 transition">
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
@@ -2339,7 +2366,7 @@ export default function ProductManager({
             </div>
 
             {/* Stock & Media Filter Segmented Control */}
-            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl h-10 shrink-0 overflow-x-auto max-w-full">
+            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl h-9.5 shrink-0 overflow-x-auto max-w-full">
               {(
                 [
                   { id: 'All', label: 'All' },
@@ -2364,12 +2391,12 @@ export default function ProductManager({
               ))}
             </div>
 
-            {/* Quick Tools Group */}
-            <div className="flex items-center gap-2 flex-wrap shrink-0 ml-auto">
+            {/* Group Variants Toggle */}
+            <div className="flex items-center shrink-0 ml-auto lg:ml-0">
               <button
                 type="button"
                 onClick={() => setGroupVariantsByFamily((prev) => !prev)}
-                className={`h-10 px-3 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer shrink-0 ${
+                className={`h-9.5 px-3 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer shrink-0 ${
                   groupVariantsByFamily
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
                     : 'bg-white dark:bg-slate-950 hover:bg-indigo-50/60 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-indigo-700 border-slate-200 dark:border-slate-800'
@@ -2390,28 +2417,6 @@ export default function ProductManager({
                   </span>
                 )}
               </button>
-
-              <button
-                type="button"
-                onClick={() => setShowLedgerModal(true)}
-                className="h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300 text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer shrink-0"
-                title="Open Inventory Stock Movement Ledger & Audit Log"
-              >
-                <History className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                <span>Stock Ledger</span>
-              </button>
-
-              {canViewConfidentialMargins && onOpenProcurement && (
-                <button
-                  type="button"
-                  onClick={onOpenProcurement}
-                  className="h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300 text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer shrink-0"
-                  title="Open Procurement & Payables Hub"
-                >
-                  <ShoppingBag className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                  <span>Procurement</span>
-                </button>
-              )}
             </div>
           </div>
 
@@ -2439,12 +2444,12 @@ export default function ProductManager({
                 <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse">
                   <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
                     <tr>
-                      <th className="py-3 px-4 w-[35%] truncate bg-slate-50 dark:bg-slate-900">Product &amp; Specifications</th>
-                      <th className="py-3 px-2.5 w-[13%] truncate bg-slate-50 dark:bg-slate-900">Category</th>
+                      <th className="py-3 px-4 w-[33%] truncate bg-slate-50 dark:bg-slate-900">Product &amp; Specifications</th>
+                      <th className="py-3 px-2.5 w-[15%] truncate bg-slate-50 dark:bg-slate-900">Category</th>
                       <th className="py-3 px-2.5 w-[14%] truncate bg-slate-50 dark:bg-slate-900">Brand &amp; SKU</th>
                       <th className="py-3 px-2.5 w-[12%] truncate bg-slate-50 dark:bg-slate-900">Stock &amp; Lead Time</th>
-                      <th className="py-3 pl-2 pr-4 w-[11%] text-right truncate bg-slate-50 dark:bg-slate-900">Unit Price</th>
-                      <th className="py-3 pl-2 pr-4 w-[150px] shrink-0 text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
+                      <th className="py-3 pl-2 pr-4 w-[14%] min-w-[145px] text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Unit Price</th>
+                      <th className="py-3 pl-2 pr-4 w-[124px] shrink-0 text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans text-sm">
@@ -2700,38 +2705,91 @@ export default function ProductManager({
                                 )}
 
                                 <div className="min-w-0 flex-1 overflow-hidden">
-                                  {/* Line 1: Bold Product Name + Compact Inline Kit/Origin/Datasheet Badge */}
-                                  <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
-                                    <span
-                                      className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate"
-                                      title={productTitle}
-                                    >
-                                      {productTitle}
-                                    </span>
-                                    {linkedParent && (
+                                  {/* Line 1: Bold Product Name (or Prominent Child Variant Label when indented) + Compact Inline Badges */}
+                                  <div className="flex items-start gap-1.5 min-w-0 flex-wrap">
+                                    {isIndentedChildRow ? (
                                       <>
                                         <span
-                                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0 max-w-[190px] truncate"
-                                          title={`Child Variant of ${linkedParent.name} (${linkedParent.sku || 'Parent'})`}
+                                          className="text-sm font-bold text-slate-900 dark:text-slate-100 line-clamp-2 leading-snug"
+                                          title={`${productTitle}${explicitVariantLabel ? ` — ${explicitVariantLabel}` : ''}`}
                                         >
-                                          <span>↳ Variant of {linkedParent.name || linkedParent.sku}</span>
+                                          {explicitVariantLabel || productTitle}
                                         </span>
-                                        {explicitVariantLabel && (
-                                          <span
-                                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-violet-100 dark:bg-violet-950/70 text-violet-800 dark:text-violet-200 border border-violet-300 dark:border-violet-700 shrink-0"
-                                            title={`Differentiating Variant Label: ${explicitVariantLabel}`}
-                                          >
-                                            <GitFork className="w-2.5 h-2.5" />
-                                            <span>{explicitVariantLabel}</span>
-                                          </span>
+                                        <span
+                                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-violet-100 dark:bg-violet-950/70 text-violet-800 dark:text-violet-200 border border-violet-300 dark:border-violet-700 shrink-0 mt-0.5"
+                                          title={`Child Variant of ${linkedParent?.name || 'Parent Family'}`}
+                                        >
+                                          <GitFork className="w-2.5 h-2.5" />
+                                          <span>Variant</span>
+                                        </span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <span
+                                          className="text-sm font-semibold text-slate-900 dark:text-slate-100 line-clamp-2 leading-snug"
+                                          title={productTitle}
+                                        >
+                                          {productTitle}
+                                        </span>
+                                        {linkedParent && (
+                                          <>
+                                            <span
+                                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0 max-w-[180px] truncate mt-0.5"
+                                              title={`Child Variant of ${linkedParent.name} (${linkedParent.sku || 'Parent'})`}
+                                            >
+                                              <span>↳ {linkedParent.name || linkedParent.sku}</span>
+                                            </span>
+                                            {explicitVariantLabel && (
+                                              <span
+                                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-violet-100 dark:bg-violet-950/70 text-violet-800 dark:text-violet-200 border border-violet-300 dark:border-violet-700 shrink-0 mt-0.5"
+                                                title={`Differentiating Variant Label: ${explicitVariantLabel}`}
+                                              >
+                                                <GitFork className="w-2.5 h-2.5" />
+                                                <span>{explicitVariantLabel}</span>
+                                              </span>
+                                            )}
+                                          </>
                                         )}
                                       </>
                                     )}
-                                    {!linkedParent && (childVariantsCount > 0 || (rawProd as any).has_variants) && (
-                                      <div className="inline-flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                    {p.is_composite_set && p.sub_components && p.sub_components.length > 0 ? (
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 shrink-0 mt-0.5">
+                                        <Layers className="w-2.5 h-2.5" />
+                                        <span>Kit / BOM</span>
+                                      </span>
+                                    ) : p.country_of_origin && !isIndentedChildRow ? (
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 shrink-0 mt-0.5">
+                                        <span>{p.country_of_origin}</span>
+                                      </span>
+                                    ) : null}
+                                    {p.datasheet_attachment?.url && (
+                                      <a
+                                        href={p.datasheet_attachment.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 hover:bg-indigo-100 transition shrink-0 mt-0.5"
+                                        title={`View Technical Datasheet: ${p.datasheet_attachment.name}`}
+                                      >
+                                        <FileText className="w-2.5 h-2.5" />
+                                        <span>PDF</span>
+                                      </a>
+                                    )}
+                                  </div>
+
+                                  {/* Line 2: Parent Variant Expand/Collapse Toggle + Compact Spec Chips OR Non-Repeating Subtitle */}
+                                  {(!linkedParent && (childVariantsCount > 0 || (rawProd as any).has_variants)) ||
+                                  hasStructuredAttrs ||
+                                  cleanSubtitle ? (
+                                    <div
+                                      className="flex flex-wrap items-center gap-1 max-w-full overflow-hidden mt-1"
+                                      title={allSpecsTooltip}
+                                    >
+                                      {!linkedParent && (childVariantsCount > 0 || (rawProd as any).has_variants) && (
                                         <button
                                           type="button"
-                                          onClick={() => {
+                                          onClick={(e) => {
+                                            e.stopPropagation();
                                             if (!p.id) return;
                                             if (!groupVariantsByFamily) {
                                               setGroupVariantsByFamily(true);
@@ -2750,85 +2808,47 @@ export default function ProductManager({
                                               : `Click to collapse ${childVariantsCount} child variant(s)`
                                           }
                                         >
-                                          <span>🧬 {childVariantsCount} Variant{childVariantsCount === 1 ? '' : 's'}</span>
-                                          <span className="text-[9px] text-indigo-500">
-                                            — {isParentCollapsed ? 'Expand ▸' : 'Collapse ▾'}
+                                          <GitFork className="w-2.5 h-2.5" />
+                                          <span>
+                                            {childVariantsCount} Variant{childVariantsCount === 1 ? '' : 's'}{' '}
+                                            {isParentCollapsed ? '▸' : '▾'}
                                           </span>
                                         </button>
-                                        {isEditable && (
-                                          <button
-                                            type="button"
-                                            onClick={() => openSpecVariantModal(rawProd)}
-                                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-white hover:bg-indigo-600 text-indigo-700 hover:text-white border border-indigo-200 hover:border-indigo-600 transition cursor-pointer shrink-0 shadow-2xs"
-                                            title="Add a new Size / Model Variant under this Parent Family"
-                                          >
-                                            <Plus className="w-2.5 h-2.5" />
-                                            <span>Add Variant</span>
-                                          </button>
-                                        )}
-                                      </div>
-                                    )}
-                                    {p.is_composite_set && p.sub_components && p.sub_components.length > 0 ? (
-                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 shrink-0">
-                                        <Layers className="w-2.5 h-2.5" />
-                                        <span>Kit / BOM</span>
-                                      </span>
-                                    ) : p.country_of_origin ? (
-                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 shrink-0">
-                                        <span>{p.country_of_origin}</span>
-                                      </span>
-                                    ) : null}
-                                    {p.datasheet_attachment?.url && (
-                                      <a
-                                        href={p.datasheet_attachment.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 hover:bg-indigo-100 transition shrink-0"
-                                        title={`View Technical Datasheet: ${p.datasheet_attachment.name}`}
-                                      >
-                                        <FileText className="w-2.5 h-2.5" />
-                                        <span>PDF</span>
-                                      </a>
-                                    )}
-                                  </div>
-
-                                  {/* Line 2: Up to 2 compact spec pills (+N more) constrained within column width OR a single non-repeating subtitle line */}
-                                  {hasStructuredAttrs ? (
-                                    <div
-                                      className="flex flex-wrap items-center gap-1 max-w-full overflow-hidden mt-1"
-                                      title={allSpecsTooltip}
-                                    >
-                                      {visibleAttrs.map((attr, idx) => {
-                                        const isDiff = isAttrDiffFromParent(attr);
-                                        return (
-                                          <span
-                                            key={idx}
-                                            className={`text-[10.5px] font-mono px-1.5 py-0.5 rounded border max-w-[180px] truncate shrink-0 ${
-                                              !attr.value
-                                                ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'
-                                                : isDiff
-                                                ? 'font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60'
-                                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
-                                            }`}
-                                          >
-                                            {attr.key}: {attr.value || '(Fill on Quote)'}
-                                          </span>
-                                        );
-                                      })}
-                                      {remainingAttrCount > 0 && (
-                                        <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/70 dark:border-slate-700 shrink-0">
-                                          +{remainingAttrCount} more
-                                        </span>
                                       )}
+                                      {hasStructuredAttrs ? (
+                                        <>
+                                          {visibleAttrs.map((attr, idx) => {
+                                            const isDiff = isAttrDiffFromParent(attr);
+                                            return (
+                                              <span
+                                                key={idx}
+                                                className={`text-[10.5px] font-mono px-1.5 py-0.5 rounded border max-w-[180px] truncate shrink-0 ${
+                                                  !attr.value
+                                                    ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'
+                                                    : isDiff
+                                                    ? 'font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60'
+                                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
+                                                }`}
+                                              >
+                                                {attr.key}: {attr.value || '(Fill on Quote)'}
+                                              </span>
+                                            );
+                                          })}
+                                          {remainingAttrCount > 0 && (
+                                            <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/70 dark:border-slate-700 shrink-0">
+                                              +{remainingAttrCount} more
+                                            </span>
+                                          )}
+                                        </>
+                                      ) : cleanSubtitle ? (
+                                        <span
+                                          className="text-xs text-slate-500 dark:text-slate-400 truncate"
+                                          title={cleanSubtitle}
+                                        >
+                                          {cleanSubtitle}
+                                        </span>
+                                      ) : null}
                                     </div>
-                                  ) : cleanSubtitle ? (
-                                    <span
-                                      className="text-xs text-slate-500 dark:text-slate-400 block truncate mt-0.5"
-                                      title={cleanSubtitle}
-                                    >
-                                      {cleanSubtitle}
-                                    </span>
                                   ) : null}
                                 </div>
                               </div>
@@ -2931,11 +2951,11 @@ export default function ProductManager({
                               </div>
                             </td>
 
-                            {/* 5. UNIT PRICE (Right-Aligned with pr-4, Max 2 Lines; Inherits Child Variant Price Range on Parent Families) */}
-                            <td className="py-3 pl-2 pr-4 text-right whitespace-nowrap overflow-hidden align-middle">
+                            {/* 5. UNIT PRICE (Right-Aligned with pr-4, whitespace-nowrap; Inherits Child Variant Price Range on Parent Families) */}
+                            <td className="py-3 pl-2 pr-4 text-right whitespace-nowrap align-middle">
                               {p.unit_price !== undefined && p.unit_price > 0 ? (
-                                <div className="flex flex-col items-end gap-0.5 min-w-0 overflow-hidden">
-                                  <span className="font-bold font-mono tabular-nums text-sm text-slate-900 dark:text-slate-100 truncate max-w-full">
+                                <div className="flex flex-col items-end gap-0.5 min-w-0">
+                                  <span className="font-bold font-mono tabular-nums text-sm text-slate-900 dark:text-slate-100 whitespace-nowrap">
                                     AED{' '}
                                     {p.unit_price.toLocaleString(undefined, {
                                       minimumFractionDigits: 2,
@@ -2961,8 +2981,8 @@ export default function ProductManager({
                                   })()}
                                 </div>
                               ) : minChildPrice > 0 ? (
-                                <div className="flex flex-col items-end gap-0.5 min-w-0 overflow-hidden">
-                                  <span className="font-bold font-mono tabular-nums text-sm text-indigo-700 dark:text-indigo-300 truncate max-w-full">
+                                <div className="flex flex-col items-end gap-0.5 min-w-0">
+                                  <span className="font-bold font-mono tabular-nums text-sm text-indigo-700 dark:text-indigo-300 whitespace-nowrap">
                                     {minChildPrice === maxChildPrice
                                       ? `AED ${minChildPrice.toLocaleString(undefined, {
                                           minimumFractionDigits: 2,
@@ -2973,22 +2993,22 @@ export default function ProductManager({
                                           maximumFractionDigits: 2
                                         })}`}
                                   </span>
-                                  <span className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
+                                  <span className="text-[11px] text-slate-400 dark:text-slate-500 whitespace-nowrap">
                                     {childVariantsCount} variant{childVariantsCount === 1 ? '' : 's'} · per {cleanUnit}
                                   </span>
                                 </div>
                               ) : (
-                                <div className="flex flex-col items-end gap-0.5 min-w-0 overflow-hidden">
+                                <div className="flex flex-col items-end gap-0.5 min-w-0">
                                   <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 whitespace-nowrap">
                                     Price on Request
                                   </span>
-                                  <span className="text-[11px] text-slate-400 dark:text-slate-500 truncate">per {cleanUnit}</span>
+                                  <span className="text-[11px] text-slate-400 dark:text-slate-500 whitespace-nowrap">per {cleanUnit}</span>
                                 </div>
                               )}
                             </td>
 
-                            {/* 6. ACTIONS (w-[150px] shrink-0 text-right pr-4; hides [+ Variant] on child rows so Edit & Delete never clip) */}
-                            <td className="py-3 pl-2 pr-4 w-[150px] shrink-0 text-right whitespace-nowrap align-middle relative" onClick={(e) => e.stopPropagation()}>
+                            {/* 6. ACTIONS (w-[124px] shrink-0 text-right pr-4; compact icon buttons) */}
+                            <td className="py-3 pl-2 pr-4 w-[124px] shrink-0 text-right whitespace-nowrap align-middle relative" onClick={(e) => e.stopPropagation()}>
                               <div className="inline-flex items-center justify-end gap-1">
                                 {isEditable ? (
                                   <>
@@ -2999,11 +3019,11 @@ export default function ProductManager({
                                           e.stopPropagation();
                                           openSpecVariantModal(rawProd);
                                         }}
-                                        className="h-7 px-1.5 rounded-lg inline-flex items-center justify-center gap-0.5 text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50/80 dark:bg-indigo-950/50 hover:bg-indigo-600 hover:text-white border border-indigo-200 dark:border-indigo-800 transition cursor-pointer shrink-0"
-                                        title="Add Child Variant inheriting this product's base attributes & media"
+                                        className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-indigo-700 dark:text-indigo-300 bg-indigo-50/80 dark:bg-indigo-950/50 hover:bg-indigo-600 hover:text-white border border-indigo-200 dark:border-indigo-800 transition cursor-pointer shrink-0"
+                                        title="Add Spec Variant"
+                                        aria-label="Add Spec Variant"
                                       >
-                                        <Plus className="w-3 h-3" />
-                                        <span>Variant</span>
+                                        <GitFork className="w-3.5 h-3.5" />
                                       </button>
                                     )}
                                     {linkedParent ? (
@@ -3646,6 +3666,43 @@ export default function ProductManager({
                         ((c as any).parent_product_id === editingProduct?.id ||
                           c.variant_parent_id === editingProduct?.id)
                     );
+
+                  if (!formVariantParentId && !showVariantLinkEditor) {
+                    return (
+                      <div className="px-4 py-2.5 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-800/70 flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Link2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                          <span className="text-xs font-bold text-indigo-950 dark:text-indigo-200">
+                            {isEditingAlreadyParent ? 'Master Parent Family Product' : 'Standalone / Master Product'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {!isEditingAlreadyParent && (
+                            <button
+                              type="button"
+                              onClick={() => setShowVariantLinkEditor(true)}
+                              className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 hover:bg-indigo-50 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700 text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                            >
+                              <Link2 className="w-3 h-3" />
+                              <span>🔗 Link as Variant of...</span>
+                            </button>
+                          )}
+                          {!isEditingAlreadyParent && formName.trim() && (
+                            <button
+                              type="button"
+                              onClick={() => handleCreateParentFamilyFromItem(null)}
+                              className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                              title="Automatically strip the size/capacity suffix from this item's name, create the Parent Family product with shared base specs & photo, and link this item as its child variant"
+                            >
+                              <Sparkles className="w-3 h-3" />
+                              <span>✨ Create Parent Family</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+
                   return (
                     <div className="p-4 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/35 border border-indigo-200/80 dark:border-indigo-800/70 space-y-3">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -3654,36 +3711,46 @@ export default function ProductManager({
                           <span>
                             {selectedParent
                               ? `Linked as Child Variant of "${selectedParent.name}"`
-                              : 'Parent Family / Variant Link (🔗 Make Variant Of...)'}
+                              : 'Parent Family / Variant Link'}
                           </span>
                         </span>
-                        {selectedParent ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFormVariantParentId(null);
-                              setFormVariantLabel('');
-                            }}
-                            className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 hover:bg-amber-50 text-amber-700 border border-amber-300 text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
-                          >
-                            <Unlink className="w-3 h-3" />
-                            <span>Detach as Standalone</span>
-                          </button>
-                        ) : !isEditingAlreadyParent && formName.trim() ? (
-                          <button
-                            type="button"
-                            onClick={() => handleCreateParentFamilyFromItem(null)}
-                            className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold inline-flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
-                            title="Automatically strip the size/capacity suffix from this item's name, create the Parent Family product with shared base specs & photo, and link this item as its child variant"
-                          >
-                            <Sparkles className="w-3 h-3" />
-                            <span>✨ Create Parent Family from This Item</span>
-                          </button>
-                        ) : (
-                          <span className="text-[11px] text-indigo-700 dark:text-indigo-300">
-                            Optional: Link this item under an existing Parent Product to inherit shared base specs &amp; media
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {selectedParent ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormVariantParentId(null);
+                                setFormVariantLabel('');
+                                setShowVariantLinkEditor(false);
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 hover:bg-amber-50 text-amber-700 border border-amber-300 text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer"
+                            >
+                              <Unlink className="w-3 h-3" />
+                              <span>Detach as Standalone</span>
+                            </button>
+                          ) : (
+                            <>
+                              {!isEditingAlreadyParent && formName.trim() && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCreateParentFamilyFromItem(null)}
+                                  className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold inline-flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                                  title="Automatically strip the size/capacity suffix from this item's name, create the Parent Family product with shared base specs & photo, and link this item as its child variant"
+                                >
+                                  <Sparkles className="w-3 h-3" />
+                                  <span>✨ Create Parent Family</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setShowVariantLinkEditor(false)}
+                                className="px-2 py-1 rounded-lg bg-white dark:bg-slate-900 hover:bg-slate-100 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold cursor-pointer"
+                              >
+                                Collapse
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
@@ -3742,53 +3809,6 @@ export default function ProductManager({
                           />
                         </div>
                       </div>
-
-                      {selectedParent && (
-                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
-                          <div className="sm:col-span-4">
-                            <label className="block text-[10px] font-mono uppercase font-bold text-indigo-900 dark:text-indigo-300 mb-1">
-                              Variant Selling Price (AED)
-                            </label>
-                            <input
-                              type="number"
-                              step="any"
-                              value={formUnitPrice ?? ''}
-                              onChange={(e) =>
-                                setFormUnitPrice(e.target.value === '' ? undefined : Number(e.target.value))
-                              }
-                              placeholder="0.00"
-                              className="w-full rounded-xl border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-mono font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
-                            />
-                          </div>
-                          <div className="sm:col-span-4">
-                            <label className="block text-[10px] font-mono uppercase font-bold text-indigo-900 dark:text-indigo-300 mb-1">
-                              Variant Cost Price (AED)
-                            </label>
-                            <input
-                              type="number"
-                              step="any"
-                              value={formCostPrice ?? ''}
-                              onChange={(e) =>
-                                setFormCostPrice(e.target.value === '' ? undefined : Number(e.target.value))
-                              }
-                              placeholder="0.00"
-                              className="w-full rounded-xl border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-mono font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
-                            />
-                          </div>
-                          <div className="sm:col-span-4">
-                            <label className="block text-[10px] font-mono uppercase font-bold text-indigo-900 dark:text-indigo-300 mb-1">
-                              Variant SKU / Code
-                            </label>
-                            <input
-                              type="text"
-                              value={formSku}
-                              onChange={(e) => setFormSku(e.target.value)}
-                              placeholder="Auto-generated if blank"
-                              className="w-full rounded-xl border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-mono font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
-                            />
-                          </div>
-                        </div>
-                      )}
 
                       {/* Inherited from Parent (Base Specs) Preview Strip */}
                       {selectedParent && Array.isArray(selectedParent.attributes) && selectedParent.attributes.length > 0 && (
@@ -4025,11 +4045,6 @@ export default function ProductManager({
                         </p>
                       </div>
                     </div>
-                    {(!formUnitPrice || formUnitPrice <= 0) && (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 whitespace-nowrap">
-                        Price on Request
-                      </span>
-                    )}
                   </div>
 
                   {/* Unit, Standard Selling Price, Cost Price */}
@@ -4365,51 +4380,76 @@ export default function ProductManager({
                       </div>
                     )}
 
-                    {/* Origin, Customs & Export Logistics */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-2 border-t border-slate-100 dark:border-slate-800/80">
-                      <div>
-                        <label className="block text-[11px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 font-bold">
-                          Country of Origin
-                        </label>
-                        <input
-                          type="text"
-                          value={formCountryOfOrigin}
-                          onChange={(e) => setFormCountryOfOrigin(e.target.value)}
-                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
-                          placeholder="e.g. USA, Germany, UAE, Italy"
-                        />
-                      </div>
+                    {/* Origin, Customs & Export Logistics (Progressive Disclosure when Empty) */}
+                    {(() => {
+                      const hasSecondaryLogisticsValues = Boolean(
+                        formCountryOfOrigin.trim() ||
+                          formHsCode.trim() ||
+                          (formGrossWeightKg !== undefined &&
+                            formGrossWeightKg !== null &&
+                            String(formGrossWeightKg) !== '')
+                      );
+                      if (!hasSecondaryLogisticsValues && !showSecondaryLogisticsFields) {
+                        return (
+                          <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                            <button
+                              type="button"
+                              onClick={() => setShowSecondaryLogisticsFields(true)}
+                              className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                              <span>Add Origin, HS Tariff Code &amp; Weight</span>
+                            </button>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                          <div>
+                            <label className="block text-[11px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 font-bold">
+                              Country of Origin
+                            </label>
+                            <input
+                              type="text"
+                              value={formCountryOfOrigin}
+                              onChange={(e) => setFormCountryOfOrigin(e.target.value)}
+                              className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
+                              placeholder="e.g. USA, Germany, UAE, Italy"
+                            />
+                          </div>
 
-                      <div>
-                        <label className="block text-[11px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 font-bold">
-                          HS Tariff Code
-                        </label>
-                        <input
-                          type="text"
-                          value={formHsCode}
-                          onChange={(e) => setFormHsCode(e.target.value)}
-                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-100 font-mono focus:outline-none"
-                          placeholder="e.g. 8421.21.00"
-                        />
-                      </div>
+                          <div>
+                            <label className="block text-[11px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 font-bold">
+                              HS Tariff Code
+                            </label>
+                            <input
+                              type="text"
+                              value={formHsCode}
+                              onChange={(e) => setFormHsCode(e.target.value)}
+                              className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-100 font-mono focus:outline-none"
+                              placeholder="e.g. 8421.21.00"
+                            />
+                          </div>
 
-                      <div>
-                        <label className="block text-[11px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 font-bold">
-                          Gross Unit Weight (kg)
-                        </label>
-                        <input
-                          type="number"
-                          min={0}
-                          step="any"
-                          value={formGrossWeightKg ?? ''}
-                          onChange={(e) =>
-                            setFormGrossWeightKg(e.target.value !== '' ? Number(e.target.value) : undefined)
-                          }
-                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-100 font-mono focus:outline-none"
-                          placeholder="e.g. 16.5"
-                        />
-                      </div>
-                    </div>
+                          <div>
+                            <label className="block text-[11px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 font-bold">
+                              Gross Unit Weight (kg)
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              step="any"
+                              value={formGrossWeightKg ?? ''}
+                              onChange={(e) =>
+                                setFormGrossWeightKg(e.target.value !== '' ? Number(e.target.value) : undefined)
+                              }
+                              className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl py-2 px-3 text-xs text-slate-800 dark:text-slate-100 font-mono focus:outline-none"
+                              placeholder="e.g. 16.5"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -4419,7 +4459,7 @@ export default function ProductManager({
                   onClick={() => setActiveFormTab('specs_media')}
                   className="scroll-mt-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-2xs p-5 space-y-4"
                 >
-                  <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800/80">
+                  <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800/80 flex-wrap">
                     <div className="flex items-center gap-2.5">
                       <span className="w-6 h-6 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-mono font-bold text-xs flex items-center justify-center shrink-0">
                         3
@@ -4433,29 +4473,40 @@ export default function ProductManager({
                         </p>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setFormAttributes((prev) => [...prev, { key: '', value: '' }])}
-                      className="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition shrink-0 shadow-2xs"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Add Spec Attribute</span>
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleCleanFormSiUnits}
+                        className="h-8 px-2.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800 text-xs font-bold inline-flex items-center gap-1 cursor-pointer transition"
+                        title="Standardize SI / ISO 80000 units, canonicalize spec keys, normalize UOM & Lead Time, and move duplicate Delivery/Origin/Model/Brand specs into dedicated fields"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>✨ Clean SI Units</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormAttributes((prev) => [...prev, { key: '', value: '' }])}
+                        className="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition shrink-0 shadow-2xs"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Spec Attribute</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* 1. Dynamic Multi-Tenant Specification Attributes with Progressive Disclosure Quick-Add Chips */}
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     {suggestedAttributeChips.length > 0 && (
-                      <div className="flex items-center flex-wrap gap-1.5">
-                        <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 font-semibold uppercase mr-0.5 flex items-center gap-1">
-                          <Sparkles className="w-3 h-3 text-blue-500" /> Quick-Add Spec Chips:
+                      <div className="flex items-center flex-wrap gap-1">
+                        <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 font-semibold uppercase mr-1 flex items-center gap-1">
+                          <Sparkles className="w-3 h-3 text-blue-500" /> Quick-Add:
                         </span>
                         {suggestedAttributeChips.map((chip) => (
                           <button
                             key={chip}
                             type="button"
                             onClick={() => setFormAttributes((prev) => [...prev, { key: chip, value: '' }])}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-50 dark:bg-slate-800/90 hover:bg-blue-50 dark:hover:bg-blue-950/50 text-slate-700 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 border border-slate-200/80 dark:border-slate-700 hover:border-blue-200 dark:hover:border-blue-800 transition cursor-pointer"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-50 dark:bg-slate-800/90 hover:bg-blue-50 dark:hover:bg-blue-950/50 text-slate-700 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 border border-slate-200/80 dark:border-slate-700 hover:border-blue-200 dark:hover:border-blue-800 transition cursor-pointer"
                           >
                             <Plus className="w-2.5 h-2.5 shrink-0 opacity-70" />
                             <span>{chip}</span>
@@ -4470,7 +4521,7 @@ export default function ProductManager({
                           <div key={index} className="flex items-center gap-2">
                             <input
                               type="text"
-                              placeholder="Spec Key (e.g. Color, Capacity, Range, Material)"
+                              placeholder="Spec Key (e.g. Color, Capacity, Range, MOC)"
                               value={attr.key ?? ''}
                               onChange={(e) => {
                                 const nextKey = e.target.value;
@@ -4541,28 +4592,17 @@ export default function ProductManager({
                       <label className="block text-[11px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider font-bold">
                         Commercial &amp; Technical Description
                       </label>
-                      <div className="flex items-center gap-3">
+                      {formAttributes.some((a) => a.key.trim() && a.value.trim()) && (
                         <button
                           type="button"
-                          onClick={handleCleanFormSiUnits}
-                          className="text-[11px] px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800 font-bold inline-flex items-center gap-1 cursor-pointer transition"
-                          title="Standardize SI / ISO 80000 units, canonicalize spec keys, normalize UOM & Lead Time, and move duplicate Delivery/Origin/Model/Brand specs into dedicated fields"
+                          onClick={() => setFormDescription(compileDescriptionWithSpecs(formName, formDescription, formAttributes))}
+                          className="text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-700 font-bold inline-flex items-center gap-1 cursor-pointer hover:underline"
+                          title="Compile structured specification attributes into the Commercial & Technical Description"
                         >
                           <Sparkles className="w-3 h-3" />
-                          <span>✨ Clean SI Units</span>
+                          <span>Sync from Spec Attributes</span>
                         </button>
-                        {formAttributes.some((a) => a.key.trim() && a.value.trim()) && (
-                          <button
-                            type="button"
-                            onClick={() => setFormDescription(compileDescriptionWithSpecs(formName, formDescription, formAttributes))}
-                            className="text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-700 font-bold inline-flex items-center gap-1 cursor-pointer hover:underline"
-                            title="Compile structured specification attributes into the Commercial & Technical Description"
-                          >
-                            <Sparkles className="w-3 h-3" />
-                            <span>Sync from Spec Attributes</span>
-                          </button>
-                        )}
-                      </div>
+                      )}
                     </div>
                     <textarea
                       rows={3}
@@ -4744,19 +4784,17 @@ export default function ProductManager({
               {/* Executive Sticky Footer Bar */}
               <div className="px-4 py-3 sm:px-6 sm:py-3.5 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shrink-0">
                 <div className="flex items-center gap-2 sm:gap-3 flex-wrap text-xs">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-mono uppercase text-slate-400 dark:text-slate-500">Rate:</span>
-                    {formUnitPrice !== undefined && formUnitPrice > 0 ? (
-                      <span className="font-mono font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
-                        AED {Number(formUnitPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / {formUnit || 'Nos'}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 whitespace-nowrap">
-                        Price on Request
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-slate-300 dark:text-slate-700">·</span>
+                  {formUnitPrice !== undefined && formUnitPrice > 0 && (
+                    <>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-mono uppercase text-slate-400 dark:text-slate-500">Rate:</span>
+                        <span className="font-mono font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                          AED {Number(formUnitPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / {formUnit || 'Nos'}
+                        </span>
+                      </div>
+                      <span className="text-slate-300 dark:text-slate-700">·</span>
+                    </>
+                  )}
                   <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400 whitespace-nowrap">
                     {formAttributes.filter((a) => a.key.trim() && a.value.trim()).length} Specs
                   </span>

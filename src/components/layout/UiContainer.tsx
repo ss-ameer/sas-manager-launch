@@ -107,30 +107,30 @@ export const KpiStatCard: React.FC<KpiStatCardProps> = ({
 
   const content = (
     <>
-      <div className="flex items-start justify-between gap-3 w-full">
+      <div className="flex items-start justify-between gap-2.5 w-full">
         <div className="min-w-0 flex-1">
           <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 truncate">
             {label}
           </div>
-          <div className="text-2xl font-bold font-mono tracking-tight tabular-nums text-slate-900 mt-1">
+          <div className="text-xl sm:text-2xl font-bold font-mono tracking-tight tabular-nums text-slate-900 mt-0.5 whitespace-nowrap truncate">
             {value}
           </div>
         </div>
         {icon && (
-          <div className={`p-2.5 rounded-xl flex items-center justify-center shrink-0 ${KPI_ICON_TONE_CLASSES[tone]}`}>
+          <div className={`p-2 rounded-xl flex items-center justify-center shrink-0 ${KPI_ICON_TONE_CLASSES[tone]}`}>
             {icon}
           </div>
         )}
       </div>
       {subtext && (
-        <div className="mt-2.5 text-xs text-slate-500 font-medium">
+        <div className="mt-1.5 text-xs text-slate-500 font-medium truncate">
           {subtext}
         </div>
       )}
     </>
   );
 
-  const wrapperClasses = `bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md transition-all text-left flex flex-col justify-between ${interactiveClasses} ${activeClasses} ${className}`;
+  const wrapperClasses = `bg-white border border-slate-200/80 rounded-2xl px-4 py-3.5 shadow-xs hover:shadow-md transition-all text-left flex flex-col justify-between ${interactiveClasses} ${activeClasses} ${className}`;
 
   if (onClick) {
     return (
