@@ -114,6 +114,7 @@ export default function AICatalogImporterModal({
   const [selectedModel, setSelectedModel] = useState<string>('auto');
   const [sourceCurrency, setSourceCurrency] = useState<string>(initialCurrency || 'AED');
   const [priceBasisMode, setPriceBasisMode] = useState<'selling' | 'cost_plus_markup'>('selling');
+  const [costCalcMode, setCostCalcMode] = useState<'margin' | 'markup'>('margin');
   const [defaultMarkupPct, setDefaultMarkupPct] = useState<number>(25);
 
   const [showWorkspaceRules, setShowWorkspaceRules] = useState<boolean>(false);
@@ -250,7 +251,8 @@ export default function AICatalogImporterModal({
     rawCost: number,
     curr: string,
     basis: 'selling' | 'cost_plus_markup',
-    markupPct: number
+    pctValue: number,
+    calcMode: 'margin' | 'markup' = costCalcMode
   ): { costAed: number; sellAed: number } => {
     const mult = resolveToAedMultiplier(curr || 'AED');
     const cleanSell = Math.max(0, Number(rawSell) || 0);
@@ -259,10 +261,20 @@ export default function AICatalogImporterModal({
     if (basis === 'cost_plus_markup') {
       const baseCostSource = cleanCost > 0 ? cleanCost : cleanSell;
       const costAed = Math.round(baseCostSource * mult * 100) / 100;
-      const sellAed =
-        cleanCost > 0 && cleanSell > cleanCost
-          ? Math.round(cleanSell * mult * 100) / 100
-          : Math.round(costAed * (1 + Math.max(0, markupPct) / 100) * 100) / 100;
+      if (cleanCost > 0 && cleanSell > cleanCost) {
+        return {
+          costAed,
+          sellAed: Math.round(cleanSell * mult * 100) / 100
+        };
+      }
+      const cleanPct = Math.max(0, Number(pctValue) || 0);
+      if (calcMode === 'margin') {
+        const safeMarginPct = Math.min(99.9, cleanPct);
+        const divisor = Math.max(0.001, 1 - safeMarginPct / 100);
+        const sellAed = Math.round((costAed / divisor) * 100) / 100;
+        return { costAed, sellAed };
+      }
+      const sellAed = Math.round(costAed * (1 + cleanPct / 100) * 100) / 100;
       return { costAed, sellAed };
     }
 
@@ -275,7 +287,8 @@ export default function AICatalogImporterModal({
     items: ExtractedCatalogProductItem[],
     detectedCurr: string,
     basis: 'selling' | 'cost_plus_markup',
-    markupPct: number
+    markupPct: number,
+    calcMode: 'margin' | 'markup' = costCalcMode
   ): StagedCatalogProductRow[] => {
     // Count how many extracted items share the same family_group_name
     const familyCounts = new Map<string, number>();
@@ -353,7 +366,8 @@ export default function AICatalogImporterModal({
           it.cost_price || 0,
           detectedCurr,
           basis,
-          markupPct
+          markupPct,
+          calcMode
         );
         if (sellAed > 0 && Math.abs((existingMatch.unit_price || 0) - sellAed) > 0.01) {
           diffParts.push(`Price: AED ${(existingMatch.unit_price || 0).toLocaleString()} → ${sellAed.toLocaleString()}`);
@@ -381,7 +395,8 @@ export default function AICatalogImporterModal({
         rawSourceCost,
         detectedCurr,
         basis,
-        markupPct
+        markupPct,
+        calcMode
       );
 
       const { attributes: cleanedTopAttrs, rescuedFields } =
@@ -428,7 +443,8 @@ export default function AICatalogImporterModal({
           rawSubCost,
           detectedCurr,
           basis,
-          markupPct
+          markupPct,
+          calcMode
         );
         const subQty = sc.quantity || 1;
         const { attributes: cleanedSubAttrs, rescuedFields: subRescued } =
@@ -509,11 +525,13 @@ export default function AICatalogImporterModal({
   const handleRecalculateAllCurrencyAndMarkup = (
     nextCurr: string,
     nextBasis: 'selling' | 'cost_plus_markup',
-    nextMarkup: number
+    nextMarkup: number,
+    nextCalcMode: 'margin' | 'markup' = costCalcMode
   ) => {
     setSourceCurrency(nextCurr);
     setPriceBasisMode(nextBasis);
     setDefaultMarkupPct(nextMarkup);
+    setCostCalcMode(nextCalcMode);
     setStagedRows((prev) =>
       prev.map((row) => {
         const hasParentRaw = row.rawSourcePrice > 0 || row.rawSourceCost > 0;
@@ -532,7 +550,8 @@ export default function AICatalogImporterModal({
               row.rawSourceCost,
               nextCurr,
               nextBasis,
-              nextMarkup
+              nextMarkup,
+              nextCalcMode
             )
           : { costAed: row.cost_price_aed, sellAed: row.unit_price_aed };
 
@@ -546,7 +565,8 @@ export default function AICatalogImporterModal({
                 rawSubCost,
                 nextCurr,
                 nextBasis,
-                nextMarkup
+                nextMarkup,
+                nextCalcMode
               );
               const subQty = Number(sc.quantity) || 1;
               return {
@@ -1115,11 +1135,12 @@ export default function AICatalogImporterModal({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
-          {/* 1. Source Input & AI Controls Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4">
-            {/* Left: File Dropzone */}
-            <div className="lg:col-span-5 flex flex-col justify-between gap-3">
-              <div>
+          {/* 1. Source Input & AI Controls Container */}
+          <div className="bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 space-y-3">
+            {/* Top 2-Column Grid: Strictly Upload Datasheet (Left) & Paste/Edit Raw Text (Right) with Matched Heights */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+              {/* Left: File Dropzone */}
+              <div className="lg:col-span-5 flex flex-col">
                 <label className="block text-[11px] font-mono uppercase font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                   1. Upload Datasheet, Price List, Excel or Image
                 </label>
@@ -1134,7 +1155,7 @@ export default function AICatalogImporterModal({
                     }
                   }}
                   onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-indigo-200 dark:border-indigo-800/70 hover:border-indigo-500 bg-white dark:bg-slate-900 rounded-xl p-4 text-center cursor-pointer transition flex flex-col items-center justify-center min-h-[126px]"
+                  className="flex-1 border-2 border-dashed border-indigo-200 dark:border-indigo-800/70 hover:border-indigo-500 bg-white dark:bg-slate-900 rounded-xl p-4 text-center cursor-pointer transition flex flex-col items-center justify-center min-h-[132px]"
                 >
                   <input
                     ref={fileInputRef}
@@ -1180,113 +1201,8 @@ export default function AICatalogImporterModal({
                 </div>
               </div>
 
-              {/* Model & Currency Controls */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-[10px] font-mono uppercase font-bold text-slate-500 mb-1">
-                    AI Engine
-                  </label>
-                  <select
-                    value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-100"
-                  >
-                    {AVAILABLE_GEMINI_MODELS.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-mono uppercase font-bold text-slate-500 mb-1">
-                    Source Currency → AED
-                  </label>
-                  <select
-                    value={sourceCurrency}
-                    onChange={(e) =>
-                      handleRecalculateAllCurrencyAndMarkup(
-                        e.target.value,
-                        priceBasisMode,
-                        defaultMarkupPct
-                      )
-                    }
-                    className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-mono font-bold text-slate-800 dark:text-slate-100"
-                  >
-                    {SOURCE_CURRENCIES.map((c) => (
-                      <option key={c} value={c}>
-                        {c} {c !== 'AED' ? `(×${resolveToAedMultiplier(c)} to AED)` : '(Base AED)'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Layer 2: Compact Collapsible Per-Workspace Catalog AI Rules */}
-              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setShowWorkspaceRules((prev) => !prev)}
-                  className="w-full px-3 py-2 flex items-center justify-between gap-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition cursor-pointer"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">
-                      ⚙️ Workspace Catalog AI Rules
-                    </span>
-                    {Boolean(
-                      workspaceRulesDraft.trim() ||
-                        activeWorkspace?.catalog_ai_guidelines?.trim()
-                    ) && (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9.5px] font-mono font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        <span>Active</span>
-                      </span>
-                    )}
-                  </div>
-                  {showWorkspaceRules ? (
-                    <ChevronUp className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  ) : (
-                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  )}
-                </button>
-
-                {showWorkspaceRules && (
-                  <div className="px-3 pb-3 pt-1.5 border-t border-slate-100 dark:border-slate-800 space-y-2 bg-slate-50/50 dark:bg-slate-950/40">
-                    <p className="text-[10.5px] text-slate-500 dark:text-slate-400 leading-snug">
-                      Optional custom AI catalog rules for{' '}
-                      <strong className="text-slate-700 dark:text-slate-200">
-                        {activeWorkspace?.name || 'this workspace'}
-                      </strong>{' '}
-                      (e.g., preferred brand naming, category conventions, SKU prefixes, or spec keys).
-                    </p>
-                    <textarea
-                      rows={3}
-                      value={workspaceRulesDraft}
-                      onChange={(e) => setWorkspaceRulesDraft(e.target.value)}
-                      placeholder={`Example rules for ${activeWorkspace?.name || 'this workspace'}:\n- Group all FRP Vessels under "AVENTURA Multimedia FRP Filter Vessel"\n- Use category "Filter Media" for sand, carbon, and anthracite`}
-                      className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 text-[11px] font-mono text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 resize-y"
-                    />
-                    <div className="flex items-center justify-end">
-                      <button
-                        type="button"
-                        disabled={isSavingWorkspaceRules || !activeWorkspace?.id}
-                        onClick={() => void handleSaveWorkspaceRules()}
-                        className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold transition cursor-pointer disabled:opacity-50"
-                      >
-                        {isSavingWorkspaceRules
-                          ? 'Saving...'
-                          : `Save Rules for ${activeWorkspace?.name || 'Workspace'}`}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Right: Persistent Editable Paste Textarea & Scan Triggers */}
-            <div className="lg:col-span-7 flex flex-col justify-between gap-2.5">
-              <div>
+              {/* Right: Persistent Editable Paste Textarea */}
+              <div className="lg:col-span-7 flex flex-col">
                 <div className="flex items-center justify-between gap-2 mb-1.5">
                   <label className="text-[11px] font-mono uppercase font-bold text-slate-700 dark:text-slate-300">
                     2. Or Paste / Edit Raw Text, Excel Rows, or Specification Table
@@ -1306,104 +1222,271 @@ export default function AICatalogImporterModal({
                   value={rawPasteText}
                   onChange={(e) => setRawPasteText(e.target.value)}
                   placeholder={`Paste multi-column Excel product rows, supplier quotation lines, or datasheet specs here...\nExample:\nAVENTURA FRP Filter Vessel 42" x 72" | 6 Bar | Top & Bottom Flange | AED 12,970\nAVENTURA FRP Filter Vessel 48" x 72" | 6 Bar | Top & Bottom Flange | AED 15,200`}
-                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 text-xs font-mono text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 resize-y"
+                  className="flex-1 w-full min-h-[132px] rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 text-xs font-mono text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 resize-y"
                 />
               </div>
+            </div>
 
-              {/* Price Basis & Action Buttons */}
-              <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="inline-flex rounded-xl bg-slate-200/70 dark:bg-slate-800 p-0.5 text-[11px] font-semibold">
+            {/* Full-Width Collapsible Bar: Workspace Catalog AI Rules */}
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowWorkspaceRules((prev) => !prev)}
+                className="w-full px-3.5 py-2 flex items-center justify-between gap-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition cursor-pointer"
+              >
+                <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                    ⚙️ Workspace Catalog AI Rules
+                  </span>
+                  {Boolean(
+                    workspaceRulesDraft.trim() ||
+                      activeWorkspace?.catalog_ai_guidelines?.trim()
+                  ) ? (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9.5px] font-mono font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      <span>Active for {activeWorkspace?.name || 'Workspace'}</span>
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
+                      Optional per-workspace brand, category, SKU prefix, and family grouping conventions
+                    </span>
+                  )}
+                </div>
+                <div className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 shrink-0">
+                  <span>{showWorkspaceRules ? 'Hide Rules' : 'Configure'}</span>
+                  {showWorkspaceRules ? (
+                    <ChevronUp className="w-3.5 h-3.5" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  )}
+                </div>
+              </button>
+
+              {showWorkspaceRules && (
+                <div className="px-3.5 pb-3.5 pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2 bg-slate-50/50 dark:bg-slate-950/40">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                    Custom AI catalog extraction instructions for{' '}
+                    <strong className="text-slate-700 dark:text-slate-200">
+                      {activeWorkspace?.name || 'this workspace'}
+                    </strong>{' '}
+                    (e.g., preferred brand naming, category conventions, SKU prefixes, or spec keys).
+                  </p>
+                  <textarea
+                    rows={3}
+                    value={workspaceRulesDraft}
+                    onChange={(e) => setWorkspaceRulesDraft(e.target.value)}
+                    placeholder={`Example rules for ${activeWorkspace?.name || 'this workspace'}:\n- Group all FRP Vessels under "AVENTURA Multimedia FRP Filter Vessel"\n- Use category "Filter Media" for sand, carbon, and anthracite`}
+                    className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 text-[11px] font-mono text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 resize-y"
+                  />
+                  <div className="flex items-center justify-end">
                     <button
                       type="button"
-                      onClick={() =>
-                        handleRecalculateAllCurrencyAndMarkup(
-                          sourceCurrency,
-                          'selling',
-                          defaultMarkupPct
-                        )
-                      }
-                      className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
-                        priceBasisMode === 'selling'
-                          ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-2xs'
-                          : 'text-slate-600 dark:text-slate-400'
-                      }`}
+                      disabled={isSavingWorkspaceRules || !activeWorkspace?.id}
+                      onClick={() => void handleSaveWorkspaceRules()}
+                      className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold transition cursor-pointer disabled:opacity-50"
                     >
-                      Source = Selling Prices
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleRecalculateAllCurrencyAndMarkup(
-                          sourceCurrency,
-                          'cost_plus_markup',
-                          defaultMarkupPct
-                        )
-                      }
-                      className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
-                        priceBasisMode === 'cost_plus_markup'
-                          ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-2xs'
-                          : 'text-slate-600 dark:text-slate-400'
-                      }`}
-                    >
-                      Source = Cost Prices (+Markup)
+                      {isSavingWorkspaceRules
+                        ? 'Saving...'
+                        : `Save Rules for ${activeWorkspace?.name || 'Workspace'}`}
                     </button>
                   </div>
+                </div>
+              )}
+            </div>
 
-                  {priceBasisMode === 'cost_plus_markup' && (
-                    <div className="inline-flex items-center gap-1 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-xl px-2 py-1">
-                      <span className="text-[10px] font-mono font-bold text-indigo-700 dark:text-indigo-300">
-                        Markup %:
-                      </span>
-                      <input
-                        type="number"
-                        step="1"
-                        value={defaultMarkupPct}
-                        onChange={(e) =>
+            {/* Dedicated Full-Width Action Bar: AI Engine, Source Currency, Price Basis (Margin/Markup) & Scan Buttons */}
+            <div className="pt-1 flex flex-wrap items-center justify-between gap-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* AI Engine */}
+                <div className="inline-flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 h-9">
+                  <span className="text-[10px] font-mono uppercase font-bold text-slate-400">
+                    AI:
+                  </span>
+                  <select
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    className="bg-transparent text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none cursor-pointer max-w-[190px] truncate"
+                  >
+                    {AVAILABLE_GEMINI_MODELS.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Source Currency → AED */}
+                <div className="inline-flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 h-9">
+                  <span className="text-[10px] font-mono uppercase font-bold text-slate-400">
+                    FX:
+                  </span>
+                  <select
+                    value={sourceCurrency}
+                    onChange={(e) =>
+                      handleRecalculateAllCurrencyAndMarkup(
+                        e.target.value,
+                        priceBasisMode,
+                        defaultMarkupPct,
+                        costCalcMode
+                      )
+                    }
+                    className="bg-transparent text-xs font-mono font-bold text-slate-800 dark:text-slate-100 focus:outline-none cursor-pointer"
+                  >
+                    {SOURCE_CURRENCIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c} {c !== 'AED' ? `→ AED (×${resolveToAedMultiplier(c)})` : '(Base AED)'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Price Basis Mode */}
+                <div className="inline-flex rounded-xl bg-slate-200/75 dark:bg-slate-800 p-0.5 text-[11px] font-semibold h-9 items-center">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleRecalculateAllCurrencyAndMarkup(
+                        sourceCurrency,
+                        'selling',
+                        defaultMarkupPct,
+                        costCalcMode
+                      )
+                    }
+                    className={`h-8 px-2.5 rounded-lg transition cursor-pointer whitespace-nowrap ${
+                      priceBasisMode === 'selling'
+                        ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-2xs'
+                        : 'text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    Source = Selling Prices
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleRecalculateAllCurrencyAndMarkup(
+                        sourceCurrency,
+                        'cost_plus_markup',
+                        defaultMarkupPct,
+                        costCalcMode
+                      )
+                    }
+                    className={`h-8 px-2.5 rounded-lg transition cursor-pointer whitespace-nowrap ${
+                      priceBasisMode === 'cost_plus_markup'
+                        ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-2xs'
+                        : 'text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    Source = Cost Prices
+                  </button>
+                </div>
+
+                {/* Gross Margin % vs Cost-Plus Markup % Toggle & Input */}
+                {priceBasisMode === 'cost_plus_markup' && (
+                  <div className="inline-flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-xl px-2 h-9">
+                    <div className="inline-flex rounded-lg bg-indigo-50 dark:bg-indigo-950/70 p-0.5 text-[10px] font-mono font-bold">
+                      <button
+                        type="button"
+                        onClick={() =>
                           handleRecalculateAllCurrencyAndMarkup(
                             sourceCurrency,
                             'cost_plus_markup',
-                            Number(e.target.value) || 0
+                            defaultMarkupPct,
+                            'margin'
                           )
                         }
-                        className="w-12 text-xs font-mono font-bold text-slate-900 dark:text-slate-100 focus:outline-none text-right"
-                      />
+                        className={`px-2 py-0.5 rounded-md transition cursor-pointer ${
+                          costCalcMode === 'margin'
+                            ? 'bg-indigo-600 text-white shadow-2xs'
+                            : 'text-indigo-700 dark:text-indigo-300 hover:text-indigo-900'
+                        }`}
+                        title="Gross Margin Formula: Selling Price = Cost ÷ (1 - Margin%)"
+                      >
+                        Margin %
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleRecalculateAllCurrencyAndMarkup(
+                            sourceCurrency,
+                            'cost_plus_markup',
+                            defaultMarkupPct,
+                            'markup'
+                          )
+                        }
+                        className={`px-2 py-0.5 rounded-md transition cursor-pointer ${
+                          costCalcMode === 'markup'
+                            ? 'bg-indigo-600 text-white shadow-2xs'
+                            : 'text-indigo-700 dark:text-indigo-300 hover:text-indigo-900'
+                        }`}
+                        title="Cost-Plus Markup Formula: Selling Price = Cost × (1 + Markup%)"
+                      >
+                        Markup %
+                      </button>
                     </div>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {rawPasteText.trim() && stagedRows.length > 0 && (
-                    <button
-                      type="button"
-                      disabled={isScanning}
-                      onClick={() => void runAiCatalogScan('fast', null, rawPasteText)}
-                      className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
-                      title="Re-scan the edited text in the box above"
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      max={costCalcMode === 'margin' ? '99' : '1000'}
+                      value={defaultMarkupPct}
+                      onChange={(e) =>
+                        handleRecalculateAllCurrencyAndMarkup(
+                          sourceCurrency,
+                          'cost_plus_markup',
+                          Number(e.target.value) || 0,
+                          costCalcMode
+                        )
+                      }
+                      className="w-11 text-xs font-mono font-bold text-slate-900 dark:text-slate-100 bg-transparent focus:outline-none text-right"
+                    />
+                    <span
+                      className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap"
+                      title={
+                        costCalcMode === 'margin'
+                          ? `Selling Price = Cost ÷ ${(1 - Math.min(99.9, Math.max(0, defaultMarkupPct)) / 100).toFixed(2)}`
+                          : `Selling Price = Cost × ${(1 + Math.max(0, defaultMarkupPct) / 100).toFixed(2)}`
+                      }
                     >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin' : ''}`} />
-                      <span>Re-Scan Text</span>
-                    </button>
-                  )}
+                      {costCalcMode === 'margin'
+                        ? `÷ ${(1 - Math.min(99.9, Math.max(0, defaultMarkupPct)) / 100).toFixed(2)}`
+                        : `× ${(1 + Math.max(0, defaultMarkupPct) / 100).toFixed(2)}`}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Right-Pinned Scan Action Buttons */}
+              <div className="flex items-center gap-2 ml-auto shrink-0">
+                {rawPasteText.trim() && stagedRows.length > 0 && (
                   <button
                     type="button"
                     disabled={isScanning}
-                    onClick={() => void runAiCatalogScan('fast')}
-                    className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition cursor-pointer disabled:opacity-50"
+                    onClick={() => void runAiCatalogScan('fast', null, rawPasteText)}
+                    className="h-9 px-3 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                    title="Re-scan the edited text in the box above"
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>⚡ Fast Scan</span>
+                    <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin' : ''}`} />
+                    <span>Re-Scan Text</span>
                   </button>
-                  <button
-                    type="button"
-                    disabled={isScanning}
-                    onClick={() => void runAiCatalogScan('deep')}
-                    className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-indigo-950 dark:hover:bg-indigo-900 text-white text-xs font-bold inline-flex items-center gap-1.5 border border-slate-800 dark:border-indigo-700 transition cursor-pointer disabled:opacity-50"
-                    title="Deep reasoning scan for dense multi-model datasheet tables"
-                  >
-                    <span>🧠 Deep Scan</span>
-                  </button>
-                </div>
+                )}
+                <button
+                  type="button"
+                  disabled={isScanning}
+                  onClick={() => void runAiCatalogScan('fast')}
+                  className="h-9 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>⚡ Fast Scan</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isScanning}
+                  onClick={() => void runAiCatalogScan('deep')}
+                  className="h-9 px-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-indigo-950 dark:hover:bg-indigo-900 text-white text-xs font-bold inline-flex items-center gap-1.5 border border-slate-800 dark:border-indigo-700 transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                  title="Deep reasoning scan for dense multi-model datasheet tables"
+                >
+                  <span>🧠 Deep Scan</span>
+                </button>
               </div>
             </div>
           </div>
@@ -1507,17 +1590,28 @@ export default function AICatalogImporterModal({
                     <thead>
                       <tr className="bg-slate-50 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 text-[10px] font-mono uppercase text-slate-500">
                         <th className="py-2.5 px-3 w-9 text-center">Use</th>
-                        <th className="py-2.5 px-3 w-[250px]">Catalog Resolution Mode</th>
-                        <th className="py-2.5 px-3">Product Name &amp; Variant Label</th>
-                        <th className="py-2.5 px-3 w-[145px]">Category</th>
-                        <th className="py-2.5 px-3 w-[150px]">Brand / Model / SKU</th>
-                        <th className="py-2.5 px-3 w-[185px]">Unit / Cost &amp; Sell (AED)</th>
-                        <th className="py-2.5 px-3 w-[125px] text-right">Specs &amp; BOM</th>
+                        <th className="py-2.5 px-3 w-[235px]">Catalog Resolution Mode</th>
+                        <th className="py-2.5 px-3">Product Name &amp; Variant</th>
+                        <th className="py-2.5 px-3 w-[195px]">Category</th>
+                        <th className="py-2.5 px-3 w-[155px]">Brand · Model · SKU</th>
+                        <th className="py-2.5 px-3 w-[175px]">Unit &amp; Sell Price (AED)</th>
+                        <th className="py-2.5 px-3 w-[135px] text-right">Details, Specs &amp; BOM</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-xs">
                       {stagedRows.map((row) => {
                         const isExpanded = expandedRowId === row.tempId;
+                        const showVariantInput =
+                          row.resolutionMode === 'new_variant_family' ||
+                          row.resolutionMode === 'variant_of_existing' ||
+                          Boolean(row.variantLabel.trim());
+                        const modelSkuSummary = [
+                          row.model_part_no.trim() || null,
+                          row.sku.trim() ? `SKU: ${row.sku.trim()}` : null
+                        ]
+                          .filter(Boolean)
+                          .join(' · ');
+
                         return (
                           <React.Fragment key={row.tempId}>
                             <tr
@@ -1648,23 +1742,33 @@ export default function AICatalogImporterModal({
                                   placeholder="Product Title"
                                   className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-xs font-bold text-slate-900 dark:text-slate-100"
                                 />
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-[10px] font-mono text-slate-400 shrink-0">
-                                    Variant / Size:
-                                  </span>
-                                  <input
-                                    type="text"
-                                    value={row.variantLabel}
-                                    onChange={(e) =>
-                                      updateRow(row.tempId, { variantLabel: e.target.value })
-                                    }
-                                    placeholder='e.g. 48" x 72" or 10 LPH'
-                                    className="flex-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-0.5 text-[11px] font-mono font-semibold text-violet-700 dark:text-violet-300"
-                                  />
-                                </div>
+                                {showVariantInput ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                                      Variant / Size:
+                                    </span>
+                                    <input
+                                      type="text"
+                                      value={row.variantLabel}
+                                      onChange={(e) =>
+                                        updateRow(row.tempId, { variantLabel: e.target.value })
+                                      }
+                                      placeholder='e.g. 48" x 72" or 10 LPH'
+                                      className="flex-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-0.5 text-[11px] font-mono font-semibold text-violet-700 dark:text-violet-300"
+                                    />
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setExpandedRowId(row.tempId)}
+                                    className="text-[10px] font-mono text-slate-400 hover:text-indigo-600 cursor-pointer"
+                                  >
+                                    + Set Variant / Size in Details
+                                  </button>
+                                )}
                               </td>
 
-                              {/* Category */}
+                              {/* Category (Widened for full readability) */}
                               <td className="py-2.5 px-3 align-top space-y-1">
                                 <input
                                   type="text"
@@ -1674,7 +1778,8 @@ export default function AICatalogImporterModal({
                                     updateRow(row.tempId, { category: e.target.value })
                                   }
                                   placeholder="Category"
-                                  className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-[11px] font-semibold text-slate-800 dark:text-slate-100"
+                                  title={row.category}
+                                  className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-slate-800 dark:text-slate-100"
                                 />
                                 {row.category &&
                                   !productCategories.some(
@@ -1686,38 +1791,30 @@ export default function AICatalogImporterModal({
                                   )}
                               </td>
 
-                              {/* Brand / Model / SKU */}
-                              <td className="py-2.5 px-3 align-top space-y-1">
-                                <input
-                                  type="text"
-                                  value={row.brand_make}
-                                  onChange={(e) =>
-                                    updateRow(row.tempId, { brand_make: e.target.value })
+                              {/* Brand · Model · SKU (Clean 2-Line Read-Only Metadata Stack, Clickable to Open Drawer) */}
+                              <td className="py-2.5 px-3 align-top">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedRowId((prev) =>
+                                      prev === row.tempId ? null : row.tempId
+                                    )
                                   }
-                                  placeholder="Brand / Make"
-                                  className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-0.5 text-[11px] font-semibold text-slate-800 dark:text-slate-100"
-                                />
-                                <div className="grid grid-cols-2 gap-1">
-                                  <input
-                                    type="text"
-                                    value={row.model_part_no}
-                                    onChange={(e) =>
-                                      updateRow(row.tempId, { model_part_no: e.target.value })
-                                    }
-                                    placeholder="Model"
-                                    className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1.5 py-0.5 text-[10.5px] font-mono text-slate-700 dark:text-slate-300"
-                                  />
-                                  <input
-                                    type="text"
-                                    value={row.sku}
-                                    onChange={(e) => updateRow(row.tempId, { sku: e.target.value })}
-                                    placeholder="SKU"
-                                    className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1.5 py-0.5 text-[10.5px] font-mono text-slate-700 dark:text-slate-300"
-                                  />
-                                </div>
+                                  className="w-full text-left rounded-lg px-2 py-1 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition cursor-pointer group"
+                                  title="Click to edit Brand, Model, and SKU in Details drawer"
+                                >
+                                  <div className="text-[11px] font-bold text-slate-800 dark:text-slate-100 truncate">
+                                    {row.brand_make.trim() || (
+                                      <span className="text-slate-400 font-normal">No brand set</span>
+                                    )}
+                                  </div>
+                                  <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                                    {modelSkuSummary || 'Set Model / SKU ▾'}
+                                  </div>
+                                </button>
                               </td>
 
-                              {/* Unit, Cost (AED) & Selling Price (AED) */}
+                              {/* Unit & Sell Price (AED) + Compact Clickable Cost Summary */}
                               <td className="py-2.5 px-3 align-top space-y-1">
                                 <div className="flex items-center gap-1">
                                   <select
@@ -1725,7 +1822,7 @@ export default function AICatalogImporterModal({
                                     onChange={(e) =>
                                       updateRow(row.tempId, { unit: e.target.value })
                                     }
-                                    className="w-16 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1 py-0.5 text-[10.5px] font-semibold"
+                                    className="w-16 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1 py-1 text-[11px] font-semibold"
                                   >
                                     {Array.from(new Set([row.unit, ...units])).map((u) => (
                                       <option key={u} value={u}>
@@ -1745,30 +1842,34 @@ export default function AICatalogImporterModal({
                                       }
                                       placeholder="Sell AED"
                                       title="Selling Price (AED)"
-                                      className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-0.5 text-[11px] font-mono font-bold text-slate-900 dark:text-slate-100"
+                                      className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-[11px] font-mono font-bold text-slate-900 dark:text-slate-100"
                                     />
                                   </div>
                                 </div>
-                                <div className="flex items-center gap-1">
-                                  <span className="text-[9.5px] font-mono text-slate-400 w-16">
-                                    Cost AED:
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedRowId((prev) =>
+                                      prev === row.tempId ? null : row.tempId
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 hover:bg-indigo-50 dark:bg-slate-800 dark:hover:bg-indigo-950/50 text-[10px] font-mono text-slate-600 dark:text-slate-300 hover:text-indigo-700 transition cursor-pointer"
+                                  title="Click to edit Cost Price (AED) in Details drawer"
+                                >
+                                  <span>
+                                    Cost:{' '}
+                                    {row.cost_price_aed > 0
+                                      ? `AED ${row.cost_price_aed.toLocaleString(undefined, {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2
+                                        })}`
+                                      : '—'}
                                   </span>
-                                  <input
-                                    type="number"
-                                    step="any"
-                                    value={row.cost_price_aed}
-                                    onChange={(e) =>
-                                      updateRow(row.tempId, {
-                                        cost_price_aed: Number(e.target.value) || 0
-                                      })
-                                    }
-                                    placeholder="Cost AED"
-                                    className="flex-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-0.5 text-[10.5px] font-mono text-slate-600 dark:text-slate-300"
-                                  />
-                                </div>
+                                  <span className="text-[9px] text-indigo-500">✎</span>
+                                </button>
                               </td>
 
-                              {/* Expandable Specs & BOM Pills */}
+                              {/* Expandable Details, Specs & BOM Pills */}
                               <td className="py-2.5 px-3 align-top text-right space-y-1">
                                 <button
                                   type="button"
@@ -1777,7 +1878,7 @@ export default function AICatalogImporterModal({
                                       prev === row.tempId ? null : row.tempId
                                     )
                                   }
-                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[10.5px] font-mono font-bold cursor-pointer"
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[10.5px] font-mono font-bold cursor-pointer whitespace-nowrap"
                                 >
                                   <span>Specs ({row.attributes.length})</span>
                                   {row.sub_components.length > 0 && (
@@ -1805,10 +1906,87 @@ export default function AICatalogImporterModal({
                               </td>
                             </tr>
 
-                            {/* Expanded Attributes & BOM Sub-Components Drawer */}
+                            {/* Expanded Details, Attributes & BOM Sub-Components Drawer */}
                             {isExpanded && (
                               <tr className="bg-slate-50/90 dark:bg-slate-950/70">
-                                <td colSpan={7} className="p-3.5 space-y-3 border-t border-slate-200/70 dark:border-slate-800">
+                                <td colSpan={7} className="p-3.5 space-y-3.5 border-t border-slate-200/70 dark:border-slate-800">
+                                  {/* Full-Width Editable Identity & Cost Strip Inside Drawer */}
+                                  <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5 pb-3 border-b border-slate-200/70 dark:border-slate-800">
+                                    <div>
+                                      <label className="block text-[9.5px] font-mono uppercase font-bold text-slate-500 mb-0.5">
+                                        Brand / Make
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={row.brand_make}
+                                        onChange={(e) =>
+                                          updateRow(row.tempId, { brand_make: e.target.value })
+                                        }
+                                        placeholder="e.g. AVENTURA, Grundfos"
+                                        className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-slate-800 dark:text-slate-100"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9.5px] font-mono uppercase font-bold text-slate-500 mb-0.5">
+                                        Model / Part No.
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={row.model_part_no}
+                                        onChange={(e) =>
+                                          updateRow(row.tempId, { model_part_no: e.target.value })
+                                        }
+                                        placeholder="Model / Part No."
+                                        className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-[11px] font-mono text-slate-800 dark:text-slate-100"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9.5px] font-mono uppercase font-bold text-slate-500 mb-0.5">
+                                        SKU / Internal Code
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={row.sku}
+                                        onChange={(e) =>
+                                          updateRow(row.tempId, { sku: e.target.value })
+                                        }
+                                        placeholder="Auto-generated if blank"
+                                        className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-[11px] font-mono text-slate-800 dark:text-slate-100"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9.5px] font-mono uppercase font-bold text-slate-500 mb-0.5">
+                                        Variant / Size Label
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={row.variantLabel}
+                                        onChange={(e) =>
+                                          updateRow(row.tempId, { variantLabel: e.target.value })
+                                        }
+                                        placeholder='e.g. 48" x 72"'
+                                        className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-[11px] font-mono text-violet-700 dark:text-violet-300"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9.5px] font-mono uppercase font-bold text-slate-500 mb-0.5">
+                                        Cost Price (AED)
+                                      </label>
+                                      <input
+                                        type="number"
+                                        step="any"
+                                        value={row.cost_price_aed}
+                                        onChange={(e) =>
+                                          updateRow(row.tempId, {
+                                            cost_price_aed: Number(e.target.value) || 0
+                                          })
+                                        }
+                                        placeholder="0.00"
+                                        className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-[11px] font-mono font-semibold text-slate-800 dark:text-slate-100"
+                                      />
+                                    </div>
+                                  </div>
+
                                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                     {/* Left: Technical Specification Attributes */}
                                     <div className="space-y-2">

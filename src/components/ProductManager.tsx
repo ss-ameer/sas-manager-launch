@@ -73,8 +73,7 @@ import { PageHeader, PageBody, KpiStatCard } from './layout/UiContainer';
 import {
   buildCatalogVariantAnalysisMap,
   resolveProductFamilyKey,
-  resolveProductFamilyDisplayName,
-  formatProductVariantSelectorLabel
+  resolveProductFamilyDisplayName
 } from '../utils/productVariantFormat';
 import {
   compileDescriptionWithSpecs,
@@ -275,6 +274,8 @@ export default function ProductManager({
   const [grnNotes, setGrnNotes] = useState('');
   const [grnSubmitting, setGrnSubmitting] = useState(false);
   const [grnFeedback, setGrnFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [isGrnProductPickerOpen, setIsGrnProductPickerOpen] = useState(false);
+  const [grnProductSearch, setGrnProductSearch] = useState('');
 
   // Quick Stock Adjustment Modal State
   const [showAdjustModal, setShowAdjustModal] = useState(false);
@@ -287,6 +288,8 @@ export default function ProductManager({
   const [adjustUnitCost, setAdjustUnitCost] = useState<number | string>('');
   const [adjustSubmitting, setAdjustSubmitting] = useState(false);
   const [adjustFeedback, setAdjustFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [isAdjustProductPickerOpen, setIsAdjustProductPickerOpen] = useState(false);
+  const [adjustProductSearch, setAdjustProductSearch] = useState('');
 
   // Stock Movement Ledger State
   const [showLedgerModal, setShowLedgerModal] = useState(false);
@@ -443,6 +446,17 @@ export default function ProductManager({
     };
   }, [formUnitPrice, formCostPrice]);
 
+  const resolveSavedProductCostForGrn = (p?: Product | null): number | string => {
+    if (!p) return '';
+    if (p.cost_price != null && Number(p.cost_price) > 0) {
+      return Number(p.cost_price);
+    }
+    if (p.last_landed_cost != null && Number(p.last_landed_cost) > 0) {
+      return Number(p.last_landed_cost);
+    }
+    return '';
+  };
+
   // Open Inbound GRN Modal (supports any product, auto-enables tracking if untracked)
   const openGrnModal = (prod?: Product) => {
     const year = new Date().getFullYear();
@@ -456,11 +470,13 @@ export default function ProductManager({
     setGrnSupplierId('');
     setGrnNotes('');
     setGrnUpdateCost(false);
+    setIsGrnProductPickerOpen(false);
+    setGrnProductSearch('');
 
     const target = prod || inventoriedProducts[0] || activeCatalogProducts[0];
     if (target) {
       setGrnProductId(target.id || '');
-      setGrnUnitCost(target.cost_price != null ? target.cost_price : target.unit_price ?? '');
+      setGrnUnitCost(resolveSavedProductCostForGrn(target));
       setGrnStorageLocation(target.storage_location || '');
     } else {
       setGrnProductId('');
@@ -472,16 +488,14 @@ export default function ProductManager({
 
   const handleGrnProductChange = (productId: string) => {
     setGrnProductId(productId);
+    setIsGrnProductPickerOpen(false);
     const p = activeCatalogProducts.find((item) => item.id === productId);
     if (p) {
-      if (p.cost_price != null && p.cost_price > 0) {
-        setGrnUnitCost(p.cost_price);
-      } else if (p.unit_price != null && p.unit_price > 0) {
-        setGrnUnitCost(p.unit_price);
-      } else {
-        setGrnUnitCost('');
-      }
+      setGrnUnitCost(resolveSavedProductCostForGrn(p));
       setGrnStorageLocation(p.storage_location || '');
+    } else {
+      setGrnUnitCost('');
+      setGrnStorageLocation('');
     }
   };
 
@@ -578,6 +592,8 @@ export default function ProductManager({
     setAdjustRef(`ADJ-${nowDate}-${Math.floor(1000 + Math.random() * 9000)}`);
     setAdjustFeedback(null);
     setAdjustReason('');
+    setIsAdjustProductPickerOpen(false);
+    setAdjustProductSearch('');
     if (target) {
       setAdjustProductId(target.id || '');
       const isUntrackedOrZero = !target.is_inventoried || (target.stock_on_hand || 0) === 0;
@@ -593,6 +609,175 @@ export default function ProductManager({
       setAdjustUnitCost('');
     }
     setShowAdjustModal(true);
+  };
+
+  const renderSearchableStockProductPicker = (params: {
+    selectedProduct: Product | null;
+    isOpen: boolean;
+    setIsOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    searchQuery: string;
+    setSearchQuery: React.Dispatch<React.SetStateAction<string>>;
+    onSelectProduct: (productId: string) => void;
+    placeholderText: string;
+  }) => {
+    const {
+      selectedProduct,
+      isOpen,
+      setIsOpen,
+      searchQuery,
+      setSearchQuery,
+      onSelectProduct,
+      placeholderText
+    } = params;
+
+    const q = searchQuery.trim().toLowerCase();
+    const filteredList = activeCatalogProducts.filter((p) => {
+      if (!q) return true;
+      const nameStr = (p.name || p.description || '').toLowerCase();
+      const variantStr = String((p as any).variant_label || '').toLowerCase();
+      const skuStr = (p.sku || '').toLowerCase();
+      const modelStr = (p.model_part_no || '').toLowerCase();
+      const brandStr = (p.brand_make || '').toLowerCase();
+      return (
+        nameStr.includes(q) ||
+        variantStr.includes(q) ||
+        skuStr.includes(q) ||
+        modelStr.includes(q) ||
+        brandStr.includes(q)
+      );
+    });
+
+    const getCleanProductMeta = (p: Product) => {
+      const rawTitle = (p.name || p.description || 'Unnamed Product').split('\n')[0].trim();
+      const variantPill = String((p as any).variant_label || '').trim();
+      const skuOrModel = (p.sku || p.model_part_no || '').trim();
+      const brand = (p.brand_make || '').trim();
+      const secondaryParts = [skuOrModel ? `SKU: ${skuOrModel}` : '', brand].filter(Boolean);
+      return {
+        title: rawTitle,
+        variantPill,
+        secondaryText: secondaryParts.join(' · ')
+      };
+    };
+
+    const selectedMeta = selectedProduct ? getCleanProductMeta(selectedProduct) : null;
+
+    return (
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setIsOpen((prev) => !prev)}
+          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 focus:border-blue-500 rounded-xl py-2 px-3 text-left flex items-center justify-between gap-2 transition cursor-pointer"
+        >
+          {selectedProduct && selectedMeta ? (
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                  {selectedMeta.title}
+                </span>
+                {selectedMeta.variantPill && (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60 shrink-0">
+                    {selectedMeta.variantPill}
+                  </span>
+                )}
+              </div>
+              {selectedMeta.secondaryText && (
+                <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                  {selectedMeta.secondaryText}
+                </div>
+              )}
+            </div>
+          ) : (
+            <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
+              {placeholderText}
+            </span>
+          )}
+          <div className="flex items-center gap-2 shrink-0">
+            {selectedProduct && (
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                {selectedProduct.stock_on_hand || 0} {selectedProduct.unit || 'Nos'}
+              </span>
+            )}
+            <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+          </div>
+        </button>
+
+        {isOpen && (
+          <div className="absolute left-0 right-0 mt-1.5 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden">
+            <div className="p-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 flex items-center gap-2">
+              <Search className="w-3.5 h-3.5 text-slate-400 shrink-0 ml-1" />
+              <input
+                type="text"
+                autoFocus
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by product name, variant, SKU, or brand..."
+                className="w-full bg-transparent text-xs font-medium text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60">
+              {filteredList.length === 0 ? (
+                <div className="py-6 px-4 text-center text-xs text-slate-400 dark:text-slate-500">
+                  No catalog products match "{searchQuery}"
+                </div>
+              ) : (
+                filteredList.map((p) => {
+                  const meta = getCleanProductMeta(p);
+                  const isSelected = p.id === selectedProduct?.id;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => {
+                        if (p.id) onSelectProduct(p.id);
+                      }}
+                      className={`w-full px-3 py-2 text-left flex items-center justify-between gap-3 transition cursor-pointer ${
+                        isSelected
+                          ? 'bg-blue-50/80 dark:bg-blue-950/40'
+                          : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                            {meta.title}
+                          </span>
+                          {meta.variantPill && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60 shrink-0">
+                              {meta.variantPill}
+                            </span>
+                          )}
+                        </div>
+                        {meta.secondaryText && (
+                          <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                            {meta.secondaryText}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                          {p.stock_on_hand || 0} {p.unit || 'Nos'}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const handleSubmitAdjustment = async (e: React.FormEvent) => {
@@ -5013,19 +5198,15 @@ export default function ProductManager({
                       <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
                         Catalog Product <span className="text-rose-500">*</span>
                       </label>
-                      <select
-                        required
-                        value={grnProductId}
-                        onChange={(e) => handleGrnProductChange(e.target.value)}
-                        className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl py-2 px-3 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none cursor-pointer"
-                      >
-                        <option value="">-- Select Product to Receive Stock --</option>
-                        {activeCatalogProducts.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {formatProductVariantSelectorLabel(p, activeCatalogProducts)}
-                          </option>
-                        ))}
-                      </select>
+                      {renderSearchableStockProductPicker({
+                        selectedProduct: selectedGrnProduct,
+                        isOpen: isGrnProductPickerOpen,
+                        setIsOpen: setIsGrnProductPickerOpen,
+                        searchQuery: grnProductSearch,
+                        setSearchQuery: setGrnProductSearch,
+                        onSelectProduct: (id) => handleGrnProductChange(id),
+                        placeholderText: '-- Select Product to Receive Stock --'
+                      })}
 
                       {selectedGrnProduct && !selectedGrnProduct.is_inventoried && (
                         <div className="mt-1.5 p-2 rounded-xl bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-[11px] text-blue-800 dark:text-blue-200 flex items-center gap-2">
@@ -5071,50 +5252,58 @@ export default function ProductManager({
                     </div>
 
                     {/* Quantity & Unit Cost */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                          Quantity Received <span className="text-rose-500">*</span>
-                        </label>
-                        <input
-                          type="number"
-                          min="1"
-                          step="any"
-                          required
-                          value={grnQuantity ?? ''}
-                          onChange={(e) => setGrnQuantity(e.target.value)}
-                          placeholder="e.g. 50"
-                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl py-1.5 px-3 text-xs font-semibold font-mono text-slate-800 dark:text-slate-100 focus:outline-none"
-                        />
-                      </div>
+                    <div className="space-y-1.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                            Quantity Received <span className="text-rose-500">*</span>
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            step="any"
+                            required
+                            value={grnQuantity ?? ''}
+                            onChange={(e) => setGrnQuantity(e.target.value)}
+                            placeholder="e.g. 50"
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl py-1.5 px-3 text-xs font-semibold font-mono text-slate-800 dark:text-slate-100 focus:outline-none"
+                          />
+                        </div>
 
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                          Landed Unit Cost (AED)
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={grnUnitCost ?? ''}
-                          onChange={(e) => setGrnUnitCost(e.target.value)}
-                          placeholder="0.00"
-                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl py-1.5 px-3 text-xs font-semibold font-mono text-slate-800 dark:text-slate-100 focus:outline-none"
-                        />
-                      </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                            Landed Unit Cost (AED)
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={grnUnitCost ?? ''}
+                            onChange={(e) => setGrnUnitCost(e.target.value)}
+                            placeholder="Enter supplier landed cost"
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl py-1.5 px-3 text-xs font-semibold font-mono text-slate-800 dark:text-slate-100 focus:outline-none"
+                          />
+                        </div>
 
-                      <div className="py-1.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                        <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">
-                          Receipt Value
-                        </span>
-                        <span className="text-xs font-bold font-mono text-slate-900 dark:text-slate-100">
-                          AED{' '}
-                          {((Number(grnQuantity) || 0) * (Number(grnUnitCost) || 0)).toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                          })}
-                        </span>
+                        <div className="py-1.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                          <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">
+                            Receipt Value
+                          </span>
+                          <span className="text-xs font-bold font-mono text-slate-900 dark:text-slate-100">
+                            AED{' '}
+                            {((Number(grnQuantity) || 0) * (Number(grnUnitCost) || 0)).toLocaleString(undefined, {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2
+                            })}
+                          </span>
+                        </div>
                       </div>
+                      {selectedGrnProduct && resolveSavedProductCostForGrn(selectedGrnProduct) === '' && (
+                        <p className="text-[11px] font-medium text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                          <span>No catalog cost saved — enter supplier cost manually</span>
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex items-center space-x-2 py-1.5 px-2.5 rounded-lg bg-slate-50/70 dark:bg-slate-950 border border-slate-200/70 dark:border-slate-800">
@@ -5316,28 +5505,24 @@ export default function ProductManager({
                       <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                         Select Product <span className="text-rose-500">*</span>
                       </label>
-                      <select
-                        required
-                        value={adjustProductId}
-                        onChange={(e) => {
-                          const id = e.target.value;
+                      {renderSearchableStockProductPicker({
+                        selectedProduct: selectedAdjustProduct,
+                        isOpen: isAdjustProductPickerOpen,
+                        setIsOpen: setIsAdjustProductPickerOpen,
+                        searchQuery: adjustProductSearch,
+                        setSearchQuery: setAdjustProductSearch,
+                        onSelectProduct: (id) => {
                           setAdjustProductId(id);
+                          setIsAdjustProductPickerOpen(false);
                           const p = activeCatalogProducts.find((item) => item.id === id);
                           if (p) {
                             setAdjustQty(p.stock_on_hand ?? 0);
                             setAdjustStorageLocation(p.storage_location || '');
                             setAdjustUnitCost(p.cost_price ?? '');
                           }
-                        }}
-                        className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl py-2.5 px-3 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none cursor-pointer"
-                      >
-                        <option value="">-- Choose Product --</option>
-                        {activeCatalogProducts.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {formatProductVariantSelectorLabel(p, activeCatalogProducts)}
-                          </option>
-                        ))}
-                      </select>
+                        },
+                        placeholderText: '-- Choose Product --'
+                      })}
                     </div>
 
                     {/* Adjustment Mode Selector */}
