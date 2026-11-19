@@ -548,3 +548,735 @@ Keep it warm, professional, and brief (3-5 sentences max). Output ONLY the Whats
   throw lastErr || new Error('Failed to generate AI Quick Assist response.');
 }
 
+// ============================================================================
+// AI CATALOG & PRODUCT EXTRACTOR ENGINE (FILES, RAW TEXT, EXCEL & DATASHEETS)
+// ============================================================================
+
+export interface ExtractedCatalogSubComponent {
+  item_name: string;
+  quantity: number;
+  unit: string;
+  description?: string;
+  brand_make?: string;
+  model_part_no?: string;
+  unit_price?: number;
+  cost_price?: number;
+  is_included_accessory?: boolean;
+  attributes?: Array<{ key: string; value: string }>;
+}
+
+export interface ExtractedCatalogProductItem {
+  name: string;
+  sku?: string;
+  category?: string;
+  brand_make?: string;
+  model_part_no?: string;
+  country_of_origin?: string;
+  hs_code?: string;
+  unit?: string;
+  cost_price?: number;
+  unit_price?: number;
+  currency?: string;
+  availability?: string;
+  description?: string;
+  attributes?: Array<{ key: string; value: string }>;
+  is_composite_set?: boolean;
+  sub_components?: ExtractedCatalogSubComponent[];
+  family_group_name?: string;
+  variant_label?: string;
+}
+
+export interface ExtractedCatalogBatchResult {
+  currency?: string;
+  detected_document_type?: string;
+  products: ExtractedCatalogProductItem[];
+  _ai_model_used?: string;
+}
+
+export function canonicalizeCatalogAttributeKey(rawKey: string): string {
+  const k = String(rawKey || '').trim();
+  if (!k) return '';
+  if (/^(lead\s*time|delivery|lead\s*time\s*\/\s*delivery|delivery\s*period|availability)$/i.test(k)) {
+    return 'Delivery';
+  }
+  if (/^(dimension|dimensions|size|dimensions\s*\/\s*size|vessel\s*size)$/i.test(k)) {
+    return 'Dimensions';
+  }
+  if (/^(design\s*pressure|operating\s*pressure|working\s*pressure|max\s*pressure|pressure\s*rating)$/i.test(k)) {
+    return 'Design Pressure';
+  }
+  if (/^(moc|material|material\s*of\s*construction|material\s*\/\s*grade|body\s*material)$/i.test(k)) {
+    return 'MOC';
+  }
+  if (/^(flow|flow\s*rate|rated\s*flow)$/i.test(k)) {
+    return 'Flow Rate';
+  }
+  if (/^(capacity|volume|tank\s*capacity|capacity\s*\/\s*rating)$/i.test(k)) {
+    return 'Capacity';
+  }
+  if (/^(operation|control|valve\s*operation)$/i.test(k)) {
+    return 'Operation';
+  }
+  if (/^(standard|certification|approval|connection\s*\/\s*standard)$/i.test(k)) {
+    return 'Standard';
+  }
+  return k;
+}
+
+export const getCatalogExtractionSystemPrompt = (existingCategories: string[] = []) => {
+  const categoryListHint =
+    existingCategories.length > 0
+      ? `EXISTING WORKSPACE CATEGORIES (match one of these when appropriate, or propose a clean, concise Title-Case category name if the item belongs to a new category):\n${existingCategories
+          .slice(0, 60)
+          .map((c) => `- "${c}"`)
+          .join('\n')}`
+      : `Suggest a clean commercial category name (e.g. "FRP Filter Vessels", "Dosing Pumps", "RO Membranes", "Valves & Instruments", "Filter Media", "Chemical Dosing Tanks", "Control Panels").`;
+
+  return `You are a Principal Engineering Catalog Architect and B2B Industrial Product Data Extractor.
+Your task is to analyze the provided document (PDF datasheet, manufacturer catalog page, supplier quotation, price list, image/screenshot of a specification table, Word document, or raw multi-column Excel/text paste) and extract EVERY product, model, or size variant into a structured JSON catalog payload.
+
+${categoryListHint}
+
+CRITICAL EXTRACTION & STRUCTURING RULES:
+1. MULTI-VARIANT & DATASHEET TABLE INTELLIGENCE (family_group_name & variant_label):
+   - Datasheets, price tables, and inquiries often list multiple sizes, capacities, or models of the SAME equipment family (for example: 5 sizes of "AVENTURA FRP Pressure Vessel" like 36"x72", 42"x72", 48"x72", 63"x67"; or 4 models of "SEKO Tekna Evo Dosing Pump" like 5 LPH, 10 LPH, 20 LPH).
+   - Whenever 2 or more rows belong to the same base product family:
+     * Set "family_group_name" on each sibling to the shared clean Parent Family Name (e.g., "AVENTURA Multimedia FRP Filter Vessel" or "SEKO Tekna Evo Solenoid Dosing Pump") — WITHOUT the specific size/capacity suffix.
+     * Set "variant_label" on each sibling to its concise differentiating size, dimension, flow, capacity, or model rating (e.g., "42\\" x 72\\"", "48\\" x 72\\"", "10 LPH @ 8 Bar", "100 Liters").
+     * Set "name" on each sibling to a descriptive title (e.g., "AVENTURA Multimedia FRP Filter Vessel (48\\" x 72\\")").
+   - If the document only has 1 standalone product with no sibling variants, leave "family_group_name": "" and "variant_label": "".
+
+2. PRICING & CURRENCY DETECTION:
+   - Detect the source currency ("AED", "USD", "EUR", "GBP", "SAR"). Default to "AED" if unspecified.
+   - If a single price is given per item, populate it in "unit_price" (and if both cost/net price and list/selling price are shown, populate BOTH "cost_price" and "unit_price").
+   - Never output NaN or formatted strings for prices; always output clean numbers (e.g., 12970).
+
+3. TECHNICAL ATTRIBUTES & CANONICAL KEYS:
+   - Extract technical parameters into the "attributes" array as [{ "key": "...", "value": "..." }].
+   - Use clean canonical attribute keys:
+     * "Dimensions" (for diameter x height, L x W x H, size, e.g. "48\\" x 72\\" (1200mm x 1800mm)")
+     * "Design Pressure" (e.g. "6 Bar" or "10.5 Bar (150 PSI)")
+     * "MOC" (Material of Construction, e.g. "FRP with PE Liner", "SS316L", "UPVC", "PVDF")
+     * "Flow Rate" (e.g. "10 LPH", "15 m3/hr")
+     * "Capacity" (e.g. "500 Liters", "45,000 Grains")
+     * "Operation" (e.g. "Automatic Duplex", "Manual Multiport")
+     * "Connection" (e.g. "4\\" Flanged Top & Bottom", "DN50 PN16")
+     * "Power / Voltage" (e.g. "230V / 1Ph / 50Hz, 0.55 kW")
+     * "Standard" (e.g. "ASME / NSF Certified", "CE")
+     * "Delivery" (canonical key for any Lead Time / Delivery / Availability note, e.g. "Ex-Stock", "8-10 Weeks")
+   - Do NOT repeat Brand/Make or Country of Origin inside "attributes" if already placed in "brand_make" and "country_of_origin".
+
+4. COMPOSITE PACKAGES / KITS / SKIDS (is_composite_set & sub_components):
+   - If a product is an assembly, package, skid, or vessel set that explicitly lists included sub-components or bill of materials (e.g. "Including: 1 x FRP Vessel, 1 x Top & Bottom Distributor Set, 1 x Internal Riser Pipe, 5 x Media Bags"), set "is_composite_set": true and populate "sub_components":
+     [{ "item_name": "...", "quantity": 1, "unit": "Nos", "description": "...", "brand_make": "...", "model_part_no": "...", "unit_price": 0, "is_included_accessory": true, "attributes": [{ "key": "...", "value": "..." }] }].
+
+5. SKU GENERATION:
+   - Extract the explicit SKU / Part Number / Item Code if present in the source.
+   - If no SKU is present, leave "sku": "" (or if model_part_no is an exact part code like "AKA6002", you may use it in model_part_no).
+
+REQUIRED JSON OUTPUT FORMAT:
+{
+  "currency": "AED",
+  "detected_document_type": "Datasheet / Price List / Quotation / Spec Table",
+  "products": [
+    {
+      "name": "string",
+      "sku": "string",
+      "category": "string",
+      "brand_make": "string",
+      "model_part_no": "string",
+      "country_of_origin": "string",
+      "hs_code": "string",
+      "unit": "Nos",
+      "cost_price": 0,
+      "unit_price": 0,
+      "currency": "AED",
+      "availability": "Ex-Stock",
+      "description": "Concise technical subtitle without repeating every attribute",
+      "family_group_name": "string (shared family name if multiple variants exist, else empty)",
+      "variant_label": "string (differentiating size/capacity/model label if part of a family, else empty)",
+      "is_composite_set": false,
+      "sub_components": [
+        {
+          "item_name": "string",
+          "quantity": 1,
+          "unit": "Nos",
+          "description": "string",
+          "brand_make": "string",
+          "model_part_no": "string",
+          "unit_price": 0,
+          "is_included_accessory": true,
+          "attributes": [
+            { "key": "string", "value": "string" }
+          ]
+        }
+      ],
+      "attributes": [
+        { "key": "Dimensions", "value": "48\\" x 72\\"" },
+        { "key": "Design Pressure", "value": "6 Bar" },
+        { "key": "MOC", "value": "FRP" }
+      ]
+    }
+  ]
+}`;
+};
+
+/**
+ * Lightweight zero-dependency browser .xlsx (OpenXML ZIP) parser using native DecompressionStream('deflate-raw').
+ * Extracts sharedStrings.xml and worksheet XML cells into tab-separated text lines for AI consumption.
+ */
+async function extractTextFromXlsxBuffer(arrayBuffer: ArrayBuffer): Promise<string> {
+  const bytes = new Uint8Array(arrayBuffer);
+  const view = new DataView(arrayBuffer);
+  const decoder = new TextDecoder('utf-8');
+  const entries = new Map<string, Uint8Array>();
+
+  // Walk ZIP Local File Headers (PK\x03\x04 = 0x04034b50)
+  let offset = 0;
+  while (offset + 30 <= bytes.length) {
+    const sig = view.getUint32(offset, true);
+    if (sig !== 0x04034b50) {
+      break;
+    }
+    const compression = view.getUint16(offset + 8, true);
+    const compressedSize = view.getUint32(offset + 18, true);
+    const fileNameLen = view.getUint16(offset + 26, true);
+    const extraLen = view.getUint16(offset + 28, true);
+    const nameBytes = bytes.subarray(offset + 30, offset + 30 + fileNameLen);
+    const entryName = decoder.decode(nameBytes);
+    const dataStart = offset + 30 + fileNameLen + extraLen;
+    const dataEnd = dataStart + compressedSize;
+    if (dataEnd > bytes.length) break;
+
+    const rawSlice = bytes.subarray(dataStart, dataEnd);
+    if (
+      entryName === 'xl/sharedStrings.xml' ||
+      entryName.startsWith('xl/worksheets/sheet')
+    ) {
+      if (compression === 0) {
+        entries.set(entryName, rawSlice);
+      } else if (compression === 8 && typeof DecompressionStream !== 'undefined') {
+        try {
+          const ds = new DecompressionStream('deflate-raw');
+          const writer = ds.writable.getWriter();
+          writer.write(rawSlice);
+          writer.close();
+          const decompressedBuf = await new Response(ds.readable).arrayBuffer();
+          entries.set(entryName, new Uint8Array(decompressedBuf));
+        } catch {
+          // ignore decompression failure on individual entry
+        }
+      }
+    }
+    offset = dataEnd;
+  }
+
+  const sharedStrings: string[] = [];
+  const sharedBytes = entries.get('xl/sharedStrings.xml');
+  if (sharedBytes) {
+    const xml = decoder.decode(sharedBytes);
+    const siMatches = xml.match(/<si[\s\S]*?<\/si>/g) || [];
+    for (const si of siMatches) {
+      const tMatches = si.match(/<t[^>]*>([\s\S]*?)<\/t>/g) || [];
+      const combined = tMatches
+        .map((t) => t.replace(/<[^>]+>/g, ''))
+        .join('')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'");
+      sharedStrings.push(combined);
+    }
+  }
+
+  const sheetTexts: string[] = [];
+  const sortedSheets = Array.from(entries.keys())
+    .filter((k) => k.startsWith('xl/worksheets/sheet'))
+    .sort();
+
+  for (const sheetKey of sortedSheets) {
+    const sheetBytes = entries.get(sheetKey);
+    if (!sheetBytes) continue;
+    const xml = decoder.decode(sheetBytes);
+    const rowMatches = xml.match(/<row[\s\S]*?<\/row>/g) || [];
+    const lines: string[] = [];
+    for (const rowXml of rowMatches) {
+      const cellMatches = rowXml.match(/<c\b[\s\S]*?(?:\/>|<\/c>)/g) || [];
+      const rowCells: string[] = [];
+      for (const cellXml of cellMatches) {
+        const typeMatch = cellXml.match(/\bt="([^"]+)"/);
+        const cellType = typeMatch ? typeMatch[1] : '';
+        const vMatch = cellXml.match(/<v>([\s\S]*?)<\/v>/);
+        const isMatch = cellXml.match(/<is>[\s\S]*?<t[^>]*>([\s\S]*?)<\/t>[\s\S]*?<\/is>/);
+        let val = '';
+        if (cellType === 's' && vMatch) {
+          const idx = parseInt(vMatch[1], 10);
+          val = !isNaN(idx) && sharedStrings[idx] !== undefined ? sharedStrings[idx] : vMatch[1];
+        } else if (isMatch) {
+          val = isMatch[1];
+        } else if (vMatch) {
+          val = vMatch[1];
+        }
+        val = val
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (val) rowCells.push(val);
+      }
+      if (rowCells.length > 0) {
+        lines.push(rowCells.join('\t'));
+      }
+    }
+    if (lines.length > 0) {
+      sheetTexts.push(`--- Sheet (${sheetKey.replace('xl/worksheets/', '')}) ---\n${lines.join('\n')}`);
+    }
+  }
+
+  return sheetTexts.join('\n\n');
+}
+
+async function downsampleCatalogImageToBase64(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const maxDim = 1600;
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Canvas context unavailable'));
+        return;
+      }
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.84);
+      resolve(dataUrl.split(',')[1] || dataUrl);
+    };
+    img.onerror = (err) => {
+      URL.revokeObjectURL(objectUrl);
+      reject(err);
+    };
+    img.src = objectUrl;
+  });
+}
+
+export async function prepareCatalogFileForAiExtraction(
+  file: File,
+  onStatus?: (msg: string) => void
+): Promise<{
+  content: string;
+  isBase64: boolean;
+  mimeType: string;
+  fileName: string;
+  extractedPlainTextPreview?: string;
+}> {
+  const lowerName = (file.name || '').toLowerCase();
+  const mime = (file.type || '').toLowerCase();
+
+  if (mime.startsWith('image/') || /\.(png|jpe?g|webp|bmp)$/i.test(lowerName)) {
+    onStatus?.(`Optimizing image "${file.name}" for AI vision scan...`);
+    const b64 = await downsampleCatalogImageToBase64(file);
+    return {
+      content: b64,
+      isBase64: true,
+      mimeType: 'image/jpeg',
+      fileName: file.name
+    };
+  }
+
+  if (mime === 'application/pdf' || lowerName.endsWith('.pdf')) {
+    onStatus?.(`Encoding PDF "${file.name}" for multimodal inspection...`);
+    const b64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const res = String(reader.result || '');
+        resolve(res.includes(',') ? res.split(',')[1] : res);
+      };
+      reader.onerror = (e) => reject(e);
+      reader.readAsDataURL(file);
+    });
+    return {
+      content: b64,
+      isBase64: true,
+      mimeType: 'application/pdf',
+      fileName: file.name
+    };
+  }
+
+  if (
+    mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    lowerName.endsWith('.docx')
+  ) {
+    onStatus?.(`Extracting specification tables & text from Word document "${file.name}"...`);
+    const arrayBuffer = await file.arrayBuffer();
+    const mammothMod = await import('mammoth');
+    const mammoth = (mammothMod as any).default || mammothMod;
+    const rawRes = await mammoth.extractRawText({ arrayBuffer });
+    const text = String(rawRes?.value || '').trim();
+    return {
+      content: text || `Word Document: ${file.name}`,
+      isBase64: false,
+      mimeType: 'text/plain',
+      fileName: file.name,
+      extractedPlainTextPreview: text
+    };
+  }
+
+  if (
+    lowerName.endsWith('.xlsx') ||
+    mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  ) {
+    onStatus?.(`Parsing Excel workbook "${file.name}"...`);
+    const arrayBuffer = await file.arrayBuffer();
+    const extractedSheetText = await extractTextFromXlsxBuffer(arrayBuffer);
+    if (extractedSheetText.trim()) {
+      return {
+        content: extractedSheetText,
+        isBase64: false,
+        mimeType: 'text/plain',
+        fileName: file.name,
+        extractedPlainTextPreview: extractedSheetText
+      };
+    }
+  }
+
+  // Fallback for .csv, .tsv, .txt, .xls
+  onStatus?.(`Reading "${file.name}"...`);
+  const textContent = await file.text();
+  return {
+    content: textContent,
+    isBase64: false,
+    mimeType: 'text/plain',
+    fileName: file.name,
+    extractedPlainTextPreview: textContent
+  };
+}
+
+function normalizeExtractedCatalogBatch(
+  raw: any,
+  modelUsed?: string
+): ExtractedCatalogBatchResult {
+  const rawList: any[] = Array.isArray(raw?.products)
+    ? raw.products
+    : Array.isArray(raw?.line_items)
+    ? raw.line_items
+    : Array.isArray(raw)
+    ? raw
+    : [];
+
+  const detectedCurrency = String(raw?.currency || 'AED').toUpperCase().trim() || 'AED';
+
+  const products: ExtractedCatalogProductItem[] = rawList
+    .map((item: any): ExtractedCatalogProductItem | null => {
+      if (!item || typeof item !== 'object') return null;
+      const name = String(item.name || item.item_name || item.description || '').trim();
+      if (!name) return null;
+
+      const rawAttrs: any[] = Array.isArray(item.attributes) ? item.attributes : [];
+      const seenKeys = new Set<string>();
+      const cleanAttrs: Array<{ key: string; value: string }> = [];
+      let extractedDeliveryFromAttr = '';
+
+      for (const a of rawAttrs) {
+        const key = canonicalizeCatalogAttributeKey(a?.key || '');
+        const value = String(a?.value ?? '').trim();
+        if (!key || !value) continue;
+        if (/^(brand|make|manufacturer)$/i.test(key)) continue;
+        if (key === 'Delivery' && !extractedDeliveryFromAttr) {
+          extractedDeliveryFromAttr = value;
+        }
+        const normKey = key.toLowerCase();
+        if (!seenKeys.has(normKey)) {
+          seenKeys.add(normKey);
+          cleanAttrs.push({ key, value });
+        }
+      }
+
+      const rawSubs: any[] = Array.isArray(item.sub_components) ? item.sub_components : [];
+      const cleanSubs: ExtractedCatalogSubComponent[] = rawSubs
+        .map((sub: any) => {
+          const subName = String(sub?.item_name || sub?.name || sub?.description || '').trim();
+          if (!subName) return null;
+          const subAttrs = Array.isArray(sub?.attributes)
+            ? sub.attributes
+                .map((sa: any) => ({
+                  key: canonicalizeCatalogAttributeKey(sa?.key || ''),
+                  value: String(sa?.value ?? '').trim()
+                }))
+                .filter((sa: any) => sa.key && sa.value)
+            : [];
+          return {
+            item_name: subName,
+            quantity: Math.max(1, Number(sub?.quantity) || 1),
+            unit: String(sub?.unit || 'Nos').trim() || 'Nos',
+            description: String(sub?.description || sub?.technical_Highlight || '').trim() || undefined,
+            brand_make: String(sub?.brand_make || '').trim() || undefined,
+            model_part_no: String(sub?.model_part_no || '').trim() || undefined,
+            unit_price: Number(sub?.unit_price) >= 0 ? Number(sub?.unit_price) : 0,
+            cost_price: Number(sub?.cost_price) >= 0 ? Number(sub?.cost_price) : undefined,
+            is_included_accessory: sub?.is_included_accessory !== false,
+            attributes: subAttrs.length > 0 ? subAttrs : undefined
+          };
+        })
+        .filter(Boolean) as ExtractedCatalogSubComponent[];
+
+      const unitPriceNum = Number(
+        String(item.unit_price ?? item.unit_price_aed ?? 0).replace(/,/g, '')
+      );
+      const costPriceNum = Number(
+        String(item.cost_price ?? item.cogs_amount ?? 0).replace(/,/g, '')
+      );
+
+      return {
+        name,
+        sku: String(item.sku || '').trim() || undefined,
+        category: String(item.category || item.product_type || 'General Equipment').trim(),
+        brand_make: String(item.brand_make || item.brand || item.make || '').trim() || undefined,
+        model_part_no: String(item.model_part_no || item.model || '').trim() || undefined,
+        country_of_origin: String(item.country_of_origin || item.origin || '').trim() || undefined,
+        hs_code: String(item.hs_code || '').trim() || undefined,
+        unit: String(item.unit || (cleanSubs.length > 0 ? 'SET' : 'Nos')).trim() || 'Nos',
+        cost_price: !isNaN(costPriceNum) && costPriceNum > 0 ? costPriceNum : undefined,
+        unit_price: !isNaN(unitPriceNum) && unitPriceNum >= 0 ? unitPriceNum : 0,
+        currency: String(item.currency || detectedCurrency).toUpperCase().trim() || detectedCurrency,
+        availability:
+          String(item.availability || item.default_availability || extractedDeliveryFromAttr || '').trim() ||
+          undefined,
+        description: String(item.description || '').trim() || name,
+        attributes: cleanAttrs,
+        is_composite_set: Boolean(item.is_composite_set || cleanSubs.length > 0),
+        sub_components: cleanSubs.length > 0 ? cleanSubs : undefined,
+        family_group_name: String(item.family_group_name || item.product_family || '').trim() || undefined,
+        variant_label: String(item.variant_label || '').trim() || undefined
+      };
+    })
+    .filter(Boolean) as ExtractedCatalogProductItem[];
+
+  return {
+    currency: detectedCurrency,
+    detected_document_type: String(raw?.detected_document_type || 'Catalog Extraction'),
+    products,
+    _ai_model_used: modelUsed || raw?._ai_model_used
+  };
+}
+
+/**
+ * Extracts structured catalog products (including variant family grouping, canonical attributes, and BOM sub-components)
+ * from an uploaded file or raw pasted text/Excel rows using the Gemini 4 / 3.8 / 3.6 Auto-Cascade with server-side fallback.
+ */
+export async function extractCatalogProductsWithAI(params: {
+  apiKey?: string;
+  content: string;
+  isBase64: boolean;
+  mimeType: string;
+  fileName: string;
+  existingCategories?: string[];
+  signal?: AbortSignal;
+  preferredModel?: string;
+  onStatusUpdate?: (status: string) => void;
+  scanMode?: 'fast' | 'deep';
+}): Promise<ExtractedCatalogBatchResult> {
+  const {
+    content,
+    isBase64,
+    mimeType,
+    fileName,
+    existingCategories = [],
+    signal,
+    preferredModel = 'auto',
+    onStatusUpdate,
+    scanMode = 'fast'
+  } = params;
+
+  const resolvedKey =
+    (params.apiKey && params.apiKey.trim()) ||
+    (typeof window !== 'undefined' ? localStorage.getItem('omni_user_gemini_api_key')?.trim() : '') ||
+    (import.meta as any).env?.VITE_GEMINI_API_KEY ||
+    '';
+
+  const systemInstruction = getCatalogExtractionSystemPrompt(existingCategories);
+
+  // 1. If a client-side / user key is present, run the direct multi-model cascade first
+  if (resolvedKey) {
+    const genAI = new GoogleGenerativeAI(resolvedKey);
+    const filePart = isBase64
+      ? {
+          inlineData: {
+            mimeType: mimeType || 'image/jpeg',
+            data: content.includes(',') ? content.split(',')[1] : content
+          }
+        }
+      : {
+          text: `Source File: ${fileName}\n\nRaw Content / Specification Table:\n${content}`
+        };
+
+    const baseCascade = scanMode === 'deep' ? DEEP_MODEL_CASCADE : DEFAULT_MODEL_CASCADE;
+    const primaryModel =
+      preferredModel && preferredModel !== 'auto' ? preferredModel : baseCascade[0];
+    const modelSequence = Array.from(
+      new Set([primaryModel, ...baseCascade.filter((m) => m !== primaryModel)])
+    );
+
+    const perModelTimeoutMs = scanMode === 'deep' ? 95000 : 48000;
+    let hasAttemptedLiveDiscovery = false;
+
+    for (let i = 0; i < modelSequence.length; i++) {
+      const modelName = modelSequence[i];
+      if (signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+
+      onStatusUpdate?.(
+        i === 0
+          ? `Extracting catalog specs with ${modelName} (${scanMode === 'deep' ? 'Deep Scan' : 'Fast Scan'})...`
+          : `Failing over to ${modelName} (${i + 1}/${modelSequence.length})...`
+      );
+
+      let modelTimeoutTimer: any = null;
+      let abortListener: (() => void) | undefined;
+
+      try {
+        const modelWithSystemPrompt = genAI.getGenerativeModel({
+          model: modelName,
+          systemInstruction
+        });
+
+        const generationConfig = buildCompatibleGenerationConfig(modelName, scanMode);
+
+        const callPromise = modelWithSystemPrompt.generateContent({
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                filePart as any,
+                {
+                  text: 'Extract all products, variant families, technical specification attributes, pricing, and BOM sub-components into the required JSON format.'
+                }
+              ]
+            }
+          ],
+          generationConfig
+        });
+
+        const perModelTimeoutPromise = new Promise<never>((_, reject) => {
+          modelTimeoutTimer = setTimeout(() => {
+            const timeoutErr: any = new Error(
+              `Model ${modelName} exceeded ${Math.round(perModelTimeoutMs / 1000)}s latency threshold.`
+            );
+            timeoutErr.isModelTimeout = true;
+            reject(timeoutErr);
+          }, perModelTimeoutMs);
+        });
+
+        const racePromises: Promise<any>[] = [callPromise, perModelTimeoutPromise];
+        if (signal) {
+          const abortPromise = new Promise<never>((_, reject) => {
+            if (signal.aborted) {
+              reject(new DOMException('Aborted', 'AbortError'));
+              return;
+            }
+            abortListener = () => reject(new DOMException('Aborted', 'AbortError'));
+            signal.addEventListener('abort', abortListener, { once: true });
+          });
+          racePromises.push(abortPromise);
+        }
+
+        const response: any = await Promise.race(racePromises);
+        const text = response.response.text();
+        let parsed: any;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          const stripped = text.replace(/^```json\n?/i, '').replace(/\n?```$/i, '').trim();
+          parsed = JSON.parse(stripped);
+        }
+
+        return normalizeExtractedCatalogBatch(parsed, modelName);
+      } catch (err: any) {
+        if (
+          err?.name === 'AbortError' ||
+          err?.message?.toLowerCase().includes('abort') ||
+          signal?.aborted
+        ) {
+          throw new DOMException('Aborted', 'AbortError');
+        }
+
+        if (i === modelSequence.length - 1 && !hasAttemptedLiveDiscovery) {
+          hasAttemptedLiveDiscovery = true;
+          const discovered = await discoverLiveGeminiModels(resolvedKey);
+          const untried = discovered.filter((m) => !modelSequence.includes(m));
+          if (untried.length > 0) {
+            modelSequence.push(...untried);
+          }
+        }
+
+        const hasNextModel = i < modelSequence.length - 1;
+        if (hasNextModel) {
+          await new Promise((r) => setTimeout(r, 60));
+          continue;
+        }
+        // If all client models failed, fall through to try the server endpoint
+      } finally {
+        if (modelTimeoutTimer) clearTimeout(modelTimeoutTimer);
+        if (signal && abortListener) signal.removeEventListener('abort', abortListener);
+      }
+    }
+  }
+
+  // 2. Server-side endpoint fallback (/api/gemini/extract-catalog-products)
+  onStatusUpdate?.('Scanning via server AI extraction engine...');
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (resolvedKey) {
+    headers['x-user-gemini-api-key'] = resolvedKey;
+  }
+  const serverRes = await fetch('/api/gemini/extract-catalog-products', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      fileName,
+      mimeType,
+      content: isBase64 && content.includes(',') ? content.split(',')[1] : content,
+      isBase64,
+      existingCategories,
+      preferredModel,
+      scanMode
+    }),
+    signal
+  });
+
+  if (!serverRes.ok) {
+    let errPayload: any = null;
+    try {
+      errPayload = await serverRes.json();
+    } catch {
+      // ignore
+    }
+    throw new Error(
+      errPayload?.error ||
+        `AI Catalog extraction failed (${serverRes.status}). Please verify your Gemini API key in Settings.`
+    );
+  }
+
+  const serverData = await serverRes.json();
+  return normalizeExtractedCatalogBatch(serverData, serverData?._ai_model_used || 'server-cascade');
+}
+
+

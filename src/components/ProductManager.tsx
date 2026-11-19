@@ -74,8 +74,16 @@ import {
   compileDescriptionWithSpecs,
   resolveEffectiveCatalogProduct,
   mergeParentAndVariantAttributes,
-  deriveSuggestedVariantLabel
+  deriveSuggestedVariantLabel,
+  resolveToAedMultiplier
 } from './SaveToCatalogModal';
+import {
+  AVAILABLE_GEMINI_MODELS,
+  ExtractedCatalogProductItem,
+  extractCatalogProductsWithAI,
+  prepareCatalogFileForAiExtraction
+} from '../utils/aiExtractionClient';
+import AICatalogImporterModal from './AICatalogImporterModal';
 import { canManageWorkspace, isAdmin } from '../utils/permissions';
 
 const UNIVERSAL_QUICK_ATTRIBUTES = [
@@ -253,6 +261,23 @@ export default function ProductManager({
   const [isLoadingMovements, setIsLoadingMovements] = useState(false);
   const [collapsedParentIds, setCollapsedParentIds] = useState<Record<string, boolean>>({});
   const variantLabelInputRef = useRef<HTMLInputElement | null>(null);
+
+  // AI Bulk Catalog Importer Modal State
+  const [showAiCatalogModal, setShowAiCatalogModal] = useState<boolean>(false);
+  const [aiModalInitialItems, setAiModalInitialItems] = useState<ExtractedCatalogProductItem[] | undefined>(undefined);
+  const [aiModalInitialCurrency, setAiModalInitialCurrency] = useState<string | undefined>(undefined);
+
+  // Single-Product / Datasheet AI Autofill Bar State (inside Add/Edit Product Modal)
+  const [showFormAiAutofill, setShowFormAiAutofill] = useState<boolean>(false);
+  const [formAiRawText, setFormAiRawText] = useState<string>('');
+  const [formAiFile, setFormAiFile] = useState<File | null>(null);
+  const [formAiModel, setFormAiModel] = useState<string>('auto');
+  const [formAiLoading, setFormAiLoading] = useState<boolean>(false);
+  const [formAiStatus, setFormAiStatus] = useState<string>('');
+  const [formAiDetectedVariants, setFormAiDetectedVariants] = useState<ExtractedCatalogProductItem[]>([]);
+  const [formAiDetectedCurrency, setFormAiDetectedCurrency] = useState<string>('AED');
+  const [formAiSelectedVariantIdx, setFormAiSelectedVariantIdx] = useState<number>(0);
+  const formAiFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Realtime subscription for stock movements ledger when modal is opened
   useEffect(() => {
@@ -1106,6 +1131,203 @@ export default function ProductManager({
     }
   };
 
+  // Apply an extracted AI catalog product item into the Single-Product Add/Edit form fields non-destructively
+  const applyExtractedItemToProductForm = async (
+    extracted: ExtractedCatalogProductItem,
+    detectedCurrency = 'AED'
+  ) => {
+    const mult = resolveToAedMultiplier(extracted.currency || detectedCurrency || 'AED');
+    if (extracted.name) {
+      setFormName(extracted.name.trim());
+    }
+    if (extracted.family_group_name) {
+      setFormProductFamily(extracted.family_group_name.trim());
+    }
+    if (extracted.variant_label && formVariantParentId) {
+      setFormVariantLabel(extracted.variant_label.trim());
+    }
+    if (extracted.sku && !formSku.trim()) {
+      setFormSku(extracted.sku.trim());
+    }
+    if (extracted.brand_make) {
+      setFormBrandMake(extracted.brand_make.trim());
+    }
+    if (extracted.model_part_no) {
+      setFormModelPartNo(extracted.model_part_no.trim());
+    }
+    if (extracted.country_of_origin) {
+      setFormCountryOfOrigin(extracted.country_of_origin.trim());
+    }
+    if (extracted.hs_code) {
+      setFormHsCode(extracted.hs_code.trim());
+    }
+    if (extracted.availability) {
+      setFormDefaultAvailability(extracted.availability.trim());
+    }
+    if (extracted.unit) {
+      setFormUnit(extracted.unit.trim());
+    }
+    if (typeof extracted.unit_price === 'number' && extracted.unit_price > 0) {
+      setFormUnitPrice(Math.round(extracted.unit_price * mult * 100) / 100);
+    }
+    if (typeof extracted.cost_price === 'number' && extracted.cost_price > 0) {
+      setFormCostPrice(Math.round(extracted.cost_price * mult * 100) / 100);
+    }
+    if (extracted.category) {
+      const catClean = extracted.category.trim();
+      const existingMatch = productCategories.find(
+        (c) => c.toLowerCase() === catClean.toLowerCase()
+      );
+      if (existingMatch) {
+        setFormProductType(existingMatch);
+      } else if (catClean) {
+        setFormProductType(catClean);
+        try {
+          const res = await safeAddDoc('dropdown_product_categories', {
+            name: catClean,
+            workspace_id: activeWorkspace?.id || undefined
+          });
+          const newCatDoc: DropdownOption = {
+            id: res?.id || `cat_${Date.now()}`,
+            name: catClean,
+            workspace_id: activeWorkspace?.id
+          };
+          if (setProductCategories) {
+            setProductCategories((prev) => [...prev, newCatDoc]);
+          }
+          const rawLs = localStorage.getItem('omni_product_categories');
+          const parsedLs: any[] = rawLs ? JSON.parse(rawLs) : [];
+          localStorage.setItem('omni_product_categories', JSON.stringify([...parsedLs, newCatDoc]));
+        } catch {
+          // ignore
+        }
+      }
+    }
+    if (Array.isArray(extracted.attributes) && extracted.attributes.length > 0) {
+      setFormAttributes((prev) => {
+        const merged = mergeParentAndVariantAttributes(
+          prev.filter((a) => a.key.trim() !== ''),
+          extracted.attributes || []
+        );
+        return merged.length > 0 ? merged : extracted.attributes || [];
+      });
+    }
+    if (extracted.description) {
+      setFormDescription(extracted.description.trim());
+    }
+    if (extracted.is_composite_set && Array.isArray(extracted.sub_components) && extracted.sub_components.length > 0) {
+      setFormIsCompositeSet(true);
+      setFormSubComponents(
+        extracted.sub_components.map((sc, idx) => ({
+          id: `comp_ai_${Date.now()}_${idx}`,
+          sn: String(idx + 1),
+          item_name: sc.item_name,
+          quantity: sc.quantity || 1,
+          unit: sc.unit || 'Nos',
+          description: sc.description || '',
+          brand_make: sc.brand_make || '',
+          model_part_no: sc.model_part_no || '',
+          unit_price: Number(sc.unit_price) ? Math.round(Number(sc.unit_price) * mult * 100) / 100 : 0,
+          total_price: Number(sc.unit_price)
+            ? Math.round(Number(sc.unit_price) * (sc.quantity || 1) * mult * 100) / 100
+            : 0,
+          cost_price: Number(sc.cost_price) ? Math.round(Number(sc.cost_price) * mult * 100) / 100 : 0,
+          is_included_accessory: sc.is_included_accessory !== false,
+          attributes: sc.attributes || []
+        }))
+      );
+    }
+  };
+
+  const handleRunSingleProductAiAutofill = async (
+    scanMode: 'fast' | 'deep' = 'fast',
+    explicitFile?: File | null
+  ) => {
+    const targetFile = explicitFile !== undefined ? explicitFile : formAiFile;
+    if (!targetFile && !formAiRawText.trim()) {
+      if (triggerToast) {
+        triggerToast('Drop a datasheet/file or paste raw specifications first.', 'error');
+      }
+      return;
+    }
+
+    setFormAiLoading(true);
+    setFormAiStatus('Preparing specification source...');
+    try {
+      let content = formAiRawText.trim();
+      let isBase64 = false;
+      let mimeType = 'text/plain';
+      let fileName = 'Pasted_Product_Specs.txt';
+
+      if (targetFile) {
+        const prepped = await prepareCatalogFileForAiExtraction(targetFile, (msg) =>
+          setFormAiStatus(msg)
+        );
+        content = prepped.content;
+        isBase64 = prepped.isBase64;
+        mimeType = prepped.mimeType;
+        fileName = prepped.fileName;
+        if (prepped.extractedPlainTextPreview && !formAiRawText.trim()) {
+          setFormAiRawText(prepped.extractedPlainTextPreview);
+        }
+        // Automatically attach PDF as Technical Datasheet or Image as Product Photo if none is attached yet
+        if (
+          (targetFile.type === 'application/pdf' || targetFile.name.toLowerCase().endsWith('.pdf')) &&
+          !formDatasheetAttachment
+        ) {
+          void handleDatasheetUpload(targetFile);
+        } else if (targetFile.type.startsWith('image/') && !formImageUrl) {
+          void handleProductImageUpload(targetFile);
+        }
+      }
+
+      const batch = await extractCatalogProductsWithAI({
+        content,
+        isBase64,
+        mimeType,
+        fileName,
+        existingCategories: productCategories,
+        preferredModel: formAiModel,
+        onStatusUpdate: (msg) => setFormAiStatus(msg),
+        scanMode
+      });
+
+      if (!batch.products || batch.products.length === 0) {
+        if (triggerToast) {
+          triggerToast('No structured product specs detected. Try Deep Scan or clearer text.', 'error');
+        }
+        return;
+      }
+
+      const detectedCurr = batch.currency || 'AED';
+      setFormAiDetectedVariants(batch.products);
+      setFormAiDetectedCurrency(detectedCurr);
+      setFormAiSelectedVariantIdx(0);
+      await applyExtractedItemToProductForm(batch.products[0], detectedCurr);
+
+      if (triggerToast) {
+        if (batch.products.length > 1) {
+          triggerToast(
+            `Autofilled first variant & detected ${batch.products.length} total variants in source! Use the banner to switch or import all ${batch.products.length} variants.`,
+            'success'
+          );
+        } else {
+          triggerToast(
+            `AI Autofill populated "${batch.products[0].name}" (${(batch.products[0].attributes || []).length} specs)!`,
+            'success'
+          );
+        }
+      }
+    } catch (err: any) {
+      if (triggerToast) {
+        triggerToast(`AI Autofill error: ${err?.message || 'Failed to extract specs'}`, 'error');
+      }
+    } finally {
+      setFormAiLoading(false);
+      setFormAiStatus('');
+    }
+  };
+
   // 1-Click Make Variant Of (converts any existing standalone item into a child variant of a chosen parent)
   const handleMakeProductVariantOf = async (childProd: Product, parentProd: Product) => {
     if (!childProd.id || !parentProd.id || childProd.id === parentProd.id) return;
@@ -1810,6 +2032,16 @@ export default function ProductManager({
         secondaryActions={
           isEditable
             ? [
+                {
+                  label: '✨ AI Scan / Paste Products',
+                  icon: Sparkles,
+                  onClick: () => {
+                    setAiModalInitialItems(undefined);
+                    setAiModalInitialCurrency(undefined);
+                    setShowAiCatalogModal(true);
+                  },
+                  variant: 'outline' as const
+                },
                 {
                   label: 'Receive Stock (GRN)',
                   icon: ArrowDownToLine,
@@ -3007,6 +3239,182 @@ export default function ProductManager({
 
               {/* Calm Tinted Scroll Canvas with Numbered Chapter Cards */}
               <div className="p-5 sm:p-6 pb-8 bg-slate-50/80 dark:bg-slate-950/70 overflow-y-auto flex-1 font-sans space-y-5 scroll-smooth">
+                {/* COLLAPSIBLE SINGLE-PRODUCT & DATASHEET AI AUTOFILL BAR */}
+                <div className="rounded-2xl bg-gradient-to-r from-indigo-50/90 via-white to-blue-50/80 dark:from-indigo-950/40 dark:via-slate-900 dark:to-slate-900 border border-indigo-200/90 dark:border-indigo-800/70 overflow-hidden shadow-2xs">
+                  <div
+                    onClick={() => setShowFormAiAutofill((prev) => !prev)}
+                    className="px-4 py-2.5 flex items-center justify-between gap-2 cursor-pointer hover:bg-indigo-50/60 dark:hover:bg-indigo-950/50 transition"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="p-1.5 rounded-lg bg-indigo-600 text-white shrink-0">
+                        <Sparkles className="w-3.5 h-3.5" />
+                      </span>
+                      <span className="text-xs font-bold text-indigo-950 dark:text-indigo-200 truncate">
+                        ✨ AI Autofill from File or Pasted Specs
+                      </span>
+                      <span className="hidden sm:inline-block px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-white dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                        Drop PDF Datasheet / Image / Excel or Paste Specs
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-xs font-bold text-indigo-700 dark:text-indigo-300 inline-flex items-center gap-1 cursor-pointer shrink-0"
+                    >
+                      <span>{showFormAiAutofill ? 'Hide' : 'Expand'}</span>
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 transition-transform ${
+                          showFormAiAutofill ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {showFormAiAutofill && (
+                    <div className="px-4 pb-3.5 pt-2 border-t border-indigo-200/60 dark:border-indigo-800/60 space-y-2.5">
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
+                        {/* File Drop / Picker */}
+                        <div className="md:col-span-4">
+                          <div
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              const file = e.dataTransfer.files?.[0];
+                              if (file) {
+                                setFormAiFile(file);
+                                void handleRunSingleProductAiAutofill('fast', file);
+                              }
+                            }}
+                            onClick={() => formAiFileInputRef.current?.click()}
+                            className="h-full min-h-[76px] border-2 border-dashed border-indigo-200 dark:border-indigo-800 hover:border-indigo-500 rounded-xl bg-white dark:bg-slate-900 p-2.5 flex flex-col items-center justify-center text-center cursor-pointer transition"
+                          >
+                            <input
+                              ref={formAiFileInputRef}
+                              type="file"
+                              accept=".pdf,.png,.jpg,.jpeg,.webp,.xlsx,.xls,.csv,.docx,.txt"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  setFormAiFile(file);
+                                  void handleRunSingleProductAiAutofill('fast', file);
+                                }
+                                e.target.value = '';
+                              }}
+                            />
+                            <UploadCloud className="w-5 h-5 text-indigo-500 mb-1" />
+                            {formAiFile ? (
+                              <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 truncate max-w-[200px]">
+                                {formAiFile.name}
+                              </span>
+                            ) : (
+                              <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                                Drop PDF Datasheet / Image / Excel
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Paste Raw Specs Textarea */}
+                        <div className="md:col-span-8 flex flex-col gap-1.5">
+                          <textarea
+                            rows={2}
+                            value={formAiRawText}
+                            onChange={(e) => setFormAiRawText(e.target.value)}
+                            placeholder="Or paste raw product description, datasheet specs, or Excel row here..."
+                            className="w-full rounded-xl border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 p-2 text-xs font-mono text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+                          />
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <select
+                              value={formAiModel}
+                              onChange={(e) => setFormAiModel(e.target.value)}
+                              className="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-2 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200 max-w-[240px]"
+                            >
+                              {AVAILABLE_GEMINI_MODELS.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.label}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                disabled={formAiLoading}
+                                onClick={() => void handleRunSingleProductAiAutofill('fast')}
+                                className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                              >
+                                <Sparkles className="w-3 h-3" />
+                                <span>{formAiLoading ? 'Scanning...' : '⚡ Autofill Fields'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={formAiLoading}
+                                onClick={() => void handleRunSingleProductAiAutofill('deep')}
+                                className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-bold cursor-pointer"
+                                title="Deep scan for complex datasheets"
+                              >
+                                🧠 Deep
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {formAiLoading && (
+                        <div className="text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 flex items-center gap-2">
+                          <RotateCcw className="w-3.5 h-3.5 animate-spin" />
+                          <span>{formAiStatus || 'Extracting technical specifications...'}</span>
+                        </div>
+                      )}
+
+                      {/* Multi-Variant Datasheet Detection Banner */}
+                      {formAiDetectedVariants.length > 1 && (
+                        <div className="p-2.5 rounded-xl bg-indigo-100/80 dark:bg-indigo-950/70 border border-indigo-300 dark:border-indigo-800 flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[11px] font-bold text-indigo-950 dark:text-indigo-200">
+                              🧬 Detected {formAiDetectedVariants.length} variants in source:
+                            </span>
+                            <select
+                              value={formAiSelectedVariantIdx}
+                              onChange={(e) => {
+                                const idx = Number(e.target.value);
+                                setFormAiSelectedVariantIdx(idx);
+                                if (formAiDetectedVariants[idx]) {
+                                  void applyExtractedItemToProductForm(
+                                    formAiDetectedVariants[idx],
+                                    formAiDetectedCurrency
+                                  );
+                                }
+                              }}
+                              className="rounded-lg border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900 px-2 py-0.5 text-[11px] font-bold text-indigo-900 dark:text-indigo-200"
+                            >
+                              {formAiDetectedVariants.map((v, vIdx) => (
+                                <option key={vIdx} value={vIdx}>
+                                  #{vIdx + 1}: {v.variant_label || v.model_part_no || v.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowFormModal(false);
+                              setAiModalInitialItems(formAiDetectedVariants);
+                              setAiModalInitialCurrency(formAiDetectedCurrency);
+                              setShowAiCatalogModal(true);
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                          >
+                            <GitFork className="w-3 h-3" />
+                            <span>
+                              👑 Open All {formAiDetectedVariants.length} Variants in Bulk Family Importer
+                            </span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 {/* PARENT FAMILY / VARIANT LINK CONTROL & INHERITED BASE SPECS STRIP */}
                 {(() => {
                   const selectedParent = formVariantParentId
@@ -5023,6 +5431,21 @@ export default function ProductManager({
             </div>
           </div>
         )}
+
+        {/* AI Bulk Catalog & Product Importer Modal */}
+        <AICatalogImporterModal
+          isOpen={showAiCatalogModal}
+          onClose={() => setShowAiCatalogModal(false)}
+          products={products}
+          setProducts={setProducts}
+          productCategories={productCategories}
+          setProductCategories={setProductCategories}
+          units={units}
+          activeWorkspace={activeWorkspace}
+          triggerToast={triggerToast}
+          initialExtractedItems={aiModalInitialItems}
+          initialCurrency={aiModalInitialCurrency}
+        />
       </PageBody>
     </div>
   );

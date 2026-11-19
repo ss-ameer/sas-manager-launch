@@ -31,7 +31,7 @@ async function startServer() {
   // Helper for exponential backoff retries on transient errors with model rotation pool support
   async function retryWithBackoffAndFallback<T>(
     fn: (modelName: string) => Promise<T>,
-    modelsPool = ["gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-flash-latest", "gemini-3.1-pro-preview"],
+    modelsPool = ["gemini-4-hydrogen", "gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"],
     retries = modelsPool.length,
     delayMs = 400
   ): Promise<T> {
@@ -497,6 +497,136 @@ Rules for the message:
           : isQuotaError
           ? "Gemini API quota exceeded. Please configure a personal API key."
           : errMsg,
+        isAuthError,
+        isQuotaError,
+      });
+    }
+  });
+
+  // AI Catalog & Product Extractor Route (Datasheets, Price Lists, Excel & Raw Specs)
+  app.post("/api/gemini/extract-catalog-products", async (req, res) => {
+    try {
+      const customUserKey = req.headers["x-user-gemini-api-key"] as string | undefined;
+      const ai = getGeminiClient(customUserKey);
+      if (!ai) {
+        return res.status(401).json({
+          error: "No active Gemini API Key found. Please enter your personal API key in Settings or AI Studio.",
+          isApiKeyMissing: true,
+        });
+      }
+
+      const {
+        fileName,
+        mimeType,
+        content,
+        isBase64,
+        existingCategories = [],
+        preferredModel = "auto",
+        scanMode = "fast",
+      } = req.body;
+
+      if (!content) {
+        return res.status(400).json({ error: "Missing file or text content to analyze." });
+      }
+
+      const filePart = isBase64
+        ? {
+            inlineData: {
+              mimeType: mimeType || "image/jpeg",
+              data: content,
+            },
+          }
+        : {
+            text: `Source File: ${fileName || "Pasted_Catalog_Data.txt"}\n\nRaw Content / Specification Table:\n${content}`,
+          };
+
+      const categoryListHint =
+        Array.isArray(existingCategories) && existingCategories.length > 0
+          ? `EXISTING WORKSPACE CATEGORIES:\n${existingCategories
+              .slice(0, 60)
+              .map((c: string) => `- "${c}"`)
+              .join("\n")}`
+          : "";
+
+      const systemInstruction = `You are a Principal Engineering Catalog Architect and B2B Industrial Product Data Extractor.
+Analyze the provided document or raw text/Excel paste and extract EVERY product, model, or size variant into the requested JSON format.
+${categoryListHint}
+Rules:
+1. If 2+ items belong to the same base product family (e.g. multiple sizes of FRP Vessels or multiple flow models of Dosing Pumps), assign them a shared clean "family_group_name" (without the size suffix) and put each item's differentiating size/capacity/rating in "variant_label".
+2. Extract technical parameters into "attributes" as [{ "key": "...", "value": "..." }] using canonical keys ("Dimensions", "Design Pressure", "MOC", "Flow Rate", "Capacity", "Operation", "Connection", "Power / Voltage", "Standard", "Delivery").
+3. If an item is a composite package/set listing included sub-items, set "is_composite_set": true and populate "sub_components".
+4. Output valid JSON with shape { "currency": "AED", "detected_document_type": "string", "products": [ ... ] }.`;
+
+      const defaultCascade =
+        scanMode === "deep"
+          ? ["gemini-4-argon", "gemini-4-hydrogen", "gemini-3.8-flash", "gemini-3.6-flash"]
+          : ["gemini-4-hydrogen", "gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"];
+
+      const modelsPool =
+        preferredModel && preferredModel !== "auto"
+          ? [preferredModel, ...defaultCascade.filter((m) => m !== preferredModel)]
+          : defaultCascade;
+
+      let usedModel = modelsPool[0];
+      const response = await retryWithBackoffAndFallback(async (modelName) => {
+        usedModel = modelName;
+        const isModern =
+          modelName.startsWith("gemini-4-") ||
+          modelName.startsWith("gemini-3.8-") ||
+          modelName.startsWith("gemini-3.6-") ||
+          modelName.startsWith("gemini-3.5-");
+        return ai.models.generateContent({
+          model: modelName,
+          contents: [
+            filePart,
+            {
+              text: "Extract all products, variant families, technical specification attributes, pricing, and BOM sub-components into the required JSON format.",
+            },
+          ],
+          config: isModern
+            ? {
+                systemInstruction,
+                responseMimeType: "application/json",
+                maxOutputTokens: 65536,
+              }
+            : {
+                systemInstruction,
+                temperature: 0.1,
+                responseMimeType: "application/json",
+                maxOutputTokens: 65536,
+              },
+        });
+      }, modelsPool);
+
+      const rawText = (response.text || "{}").trim();
+      let parsedData: any = {};
+      try {
+        parsedData = JSON.parse(rawText);
+      } catch {
+        const stripped = rawText.replace(/^```json\n?/i, "").replace(/\n?```$/i, "").trim();
+        parsedData = JSON.parse(stripped);
+      }
+
+      return res.json({
+        ...parsedData,
+        _ai_model_used: usedModel,
+      });
+    } catch (error: any) {
+      console.error("[extract-catalog-products error]", error);
+      const errMsg = String(error?.message || "Failed to extract catalog products.");
+      const isAuthError =
+        error?.status === 401 ||
+        error?.status === 403 ||
+        errMsg.includes("401") ||
+        errMsg.includes("UNAUTHENTICATED");
+      const isQuotaError =
+        error?.status === 429 ||
+        errMsg.includes("429") ||
+        errMsg.includes("Quota") ||
+        errMsg.includes("RESOURCE_EXHAUSTED");
+
+      return res.status(isAuthError ? 401 : isQuotaError ? 429 : 500).json({
+        error: errMsg,
         isAuthError,
         isQuotaError,
       });
