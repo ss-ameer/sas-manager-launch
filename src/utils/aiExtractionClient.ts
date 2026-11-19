@@ -731,44 +731,104 @@ async function extractTextFromXlsxBuffer(arrayBuffer: ArrayBuffer): Promise<stri
   const decoder = new TextDecoder('utf-8');
   const entries = new Map<string, Uint8Array>();
 
-  // Walk ZIP Local File Headers (PK\x03\x04 = 0x04034b50)
-  let offset = 0;
-  while (offset + 30 <= bytes.length) {
-    const sig = view.getUint32(offset, true);
-    if (sig !== 0x04034b50) {
-      break;
-    }
-    const compression = view.getUint16(offset + 8, true);
-    const compressedSize = view.getUint32(offset + 18, true);
-    const fileNameLen = view.getUint16(offset + 26, true);
-    const extraLen = view.getUint16(offset + 28, true);
-    const nameBytes = bytes.subarray(offset + 30, offset + 30 + fileNameLen);
-    const entryName = decoder.decode(nameBytes);
-    const dataStart = offset + 30 + fileNameLen + extraLen;
-    const dataEnd = dataStart + compressedSize;
-    if (dataEnd > bytes.length) break;
-
-    const rawSlice = bytes.subarray(dataStart, dataEnd);
+  const decompressEntryIfTarget = async (
+    entryName: string,
+    compression: number,
+    rawSlice: Uint8Array
+  ) => {
     if (
-      entryName === 'xl/sharedStrings.xml' ||
-      entryName.startsWith('xl/worksheets/sheet')
+      entryName !== 'xl/sharedStrings.xml' &&
+      !entryName.startsWith('xl/worksheets/sheet')
     ) {
-      if (compression === 0) {
-        entries.set(entryName, rawSlice);
-      } else if (compression === 8 && typeof DecompressionStream !== 'undefined') {
-        try {
-          const ds = new DecompressionStream('deflate-raw');
-          const writer = ds.writable.getWriter();
-          writer.write(rawSlice);
-          writer.close();
-          const decompressedBuf = await new Response(ds.readable).arrayBuffer();
-          entries.set(entryName, new Uint8Array(decompressedBuf));
-        } catch {
-          // ignore decompression failure on individual entry
-        }
+      return;
+    }
+    if (compression === 0) {
+      entries.set(entryName, rawSlice);
+    } else if (compression === 8 && typeof DecompressionStream !== 'undefined') {
+      try {
+        const ds = new DecompressionStream('deflate-raw');
+        const writer = ds.writable.getWriter();
+        writer.write(rawSlice);
+        writer.close();
+        const decompressedBuf = await new Response(ds.readable).arrayBuffer();
+        entries.set(entryName, new Uint8Array(decompressedBuf));
+      } catch {
+        // ignore decompression failure on individual entry
       }
     }
-    offset = dataEnd;
+  };
+
+  // 1. Prefer reading the ZIP Central Directory (0x02014b50) via End of Central Directory (0x06054b50)
+  // so streaming ZIPs with Bit 3 Data Descriptors (e.g. Google Sheets .xlsx exports) resolve true compressedSize & offsets.
+  let eocdOffset = -1;
+  const minEocdSearch = Math.max(0, bytes.length - 65557);
+  for (let i = bytes.length - 22; i >= minEocdSearch; i--) {
+    if (view.getUint32(i, true) === 0x06054b50) {
+      eocdOffset = i;
+      break;
+    }
+  }
+
+  if (eocdOffset >= 0) {
+    const totalEntries = view.getUint16(eocdOffset + 10, true);
+    const cdSize = view.getUint32(eocdOffset + 12, true);
+    const cdOffset = view.getUint32(eocdOffset + 16, true);
+    let ptr = cdOffset;
+    const cdEnd = Math.min(bytes.length, cdOffset + cdSize);
+
+    for (let e = 0; e < totalEntries && ptr + 46 <= cdEnd; e++) {
+      if (view.getUint32(ptr, true) !== 0x02014b50) break;
+      const compression = view.getUint16(ptr + 10, true);
+      const compressedSize = view.getUint32(ptr + 20, true);
+      const fileNameLen = view.getUint16(ptr + 28, true);
+      const extraLen = view.getUint16(ptr + 30, true);
+      const commentLen = view.getUint16(ptr + 32, true);
+      const localHeaderOffset = view.getUint32(ptr + 42, true);
+      const entryName = decoder.decode(bytes.subarray(ptr + 46, ptr + 46 + fileNameLen));
+
+      if (
+        (entryName === 'xl/sharedStrings.xml' || entryName.startsWith('xl/worksheets/sheet')) &&
+        localHeaderOffset + 30 <= bytes.length &&
+        view.getUint32(localHeaderOffset, true) === 0x04034b50
+      ) {
+        const localNameLen = view.getUint16(localHeaderOffset + 26, true);
+        const localExtraLen = view.getUint16(localHeaderOffset + 28, true);
+        const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
+        const dataEnd = dataStart + compressedSize;
+        if (dataEnd <= bytes.length) {
+          await decompressEntryIfTarget(
+            entryName,
+            compression,
+            bytes.subarray(dataStart, dataEnd)
+          );
+        }
+      }
+
+      ptr += 46 + fileNameLen + extraLen + commentLen;
+    }
+  }
+
+  // 2. Fallback: Walk ZIP Local File Headers (PK\x03\x04 = 0x04034b50) if Central Directory produced no entries
+  if (entries.size === 0) {
+    let offset = 0;
+    while (offset + 30 <= bytes.length) {
+      const sig = view.getUint32(offset, true);
+      if (sig !== 0x04034b50) {
+        break;
+      }
+      const compression = view.getUint16(offset + 8, true);
+      const compressedSize = view.getUint32(offset + 18, true);
+      const fileNameLen = view.getUint16(offset + 26, true);
+      const extraLen = view.getUint16(offset + 28, true);
+      const nameBytes = bytes.subarray(offset + 30, offset + 30 + fileNameLen);
+      const entryName = decoder.decode(nameBytes);
+      const dataStart = offset + 30 + fileNameLen + extraLen;
+      const dataEnd = dataStart + compressedSize;
+      if (compressedSize === 0 || dataEnd > bytes.length) break;
+
+      await decompressEntryIfTarget(entryName, compression, bytes.subarray(dataStart, dataEnd));
+      offset = dataEnd;
+    }
   }
 
   const sharedStrings: string[] = [];
@@ -802,7 +862,7 @@ async function extractTextFromXlsxBuffer(arrayBuffer: ArrayBuffer): Promise<stri
     const rowMatches = xml.match(/<row[\s\S]*?<\/row>/g) || [];
     const lines: string[] = [];
     for (const rowXml of rowMatches) {
-      const cellMatches = rowXml.match(/<c\b[\s\S]*?(?:\/>|<\/c>)/g) || [];
+      const cellMatches = rowXml.match(/<c\b[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g) || [];
       const rowCells: string[] = [];
       for (const cellXml of cellMatches) {
         const typeMatch = cellXml.match(/\bt="([^"]+)"/);
@@ -956,6 +1016,9 @@ export async function prepareCatalogFileForAiExtraction(
         extractedPlainTextPreview: extractedSheetText
       };
     }
+    throw new Error(
+      `Could not extract readable worksheet cells from "${file.name}". Please ensure the workbook is not password-protected or paste the rows directly.`
+    );
   }
 
   // Fallback for .csv, .tsv, .txt, .xls

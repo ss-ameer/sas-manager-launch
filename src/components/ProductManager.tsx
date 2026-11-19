@@ -966,8 +966,18 @@ export default function ProductManager({
     return productFamilyUnits.slice(startIndex, startIndex + itemsPerPage).flat();
   }, [orderedFilteredProducts, productFamilyUnits, currentPage, itemsPerPage]);
 
+  const resetFormAiAutofillState = () => {
+    setFormAiFile(null);
+    setFormAiRawText('');
+    setFormAiDetectedVariants([]);
+    setFormAiSelectedVariantIdx(0);
+    setFormAiStatus('');
+    setShowFormAiAutofill(false);
+  };
+
   // CRUD handlers
   const openAddModal = () => {
+    resetFormAiAutofillState();
     setEditingProduct(null);
     setPendingDeletedStorageUrls([]);
     setFormVariantParentId(null);
@@ -1010,6 +1020,7 @@ export default function ProductManager({
   };
 
   const openEditModal = (p: Product) => {
+    resetFormAiAutofillState();
     setEditingProduct(p);
     setPendingDeletedStorageUrls([]);
     const resolvedParentId = (p as any).parent_product_id || p.variant_parent_id || null;
@@ -1057,6 +1068,7 @@ export default function ProductManager({
   // 1-Click "+ Add Variant": Pre-links parent_product_id = parent.id, displays parent's shared attributes
   // as an "Inherited from Parent (Base Specs)" preview strip, and pre-populates any blank template keys
   const openSpecVariantModal = (p: Product) => {
+    resetFormAiAutofillState();
     const rootParentId = (p as any).parent_product_id || p.variant_parent_id || p.id || null;
     const parentProd = activeCatalogProducts.find((item) => item.id === rootParentId) || p;
     const baseName = (parentProd.name || parentProd.description || '').replace(/\s*\(copy\)\s*$/i, '').trim();
@@ -1134,7 +1146,8 @@ export default function ProductManager({
   // Apply an extracted AI catalog product item into the Single-Product Add/Edit form fields non-destructively
   const applyExtractedItemToProductForm = async (
     extracted: ExtractedCatalogProductItem,
-    detectedCurrency = 'AED'
+    detectedCurrency = 'AED',
+    allowOverwriteSku = false
   ) => {
     const mult = resolveToAedMultiplier(extracted.currency || detectedCurrency || 'AED');
     if (extracted.name) {
@@ -1143,10 +1156,10 @@ export default function ProductManager({
     if (extracted.family_group_name) {
       setFormProductFamily(extracted.family_group_name.trim());
     }
-    if (extracted.variant_label && formVariantParentId) {
+    if (extracted.variant_label) {
       setFormVariantLabel(extracted.variant_label.trim());
     }
-    if (extracted.sku && !formSku.trim()) {
+    if (extracted.sku && (!formSku.trim() || allowOverwriteSku || !editingProduct)) {
       setFormSku(extracted.sku.trim());
     }
     if (extracted.brand_make) {
@@ -1633,9 +1646,11 @@ export default function ProductManager({
 
   // 1-Click Duplicate / Clone Product for standalone copies
   const openDuplicateModal = (p: Product) => {
+    resetFormAiAutofillState();
     setEditingProduct(null);
     setPendingDeletedStorageUrls([]);
     setFormVariantParentId(null);
+    setFormVariantLabel('');
     setFormProductFamily('');
     setIsCreatingCategory(false);
     setNewCategoryInput('');
@@ -3381,7 +3396,8 @@ export default function ProductManager({
                                 if (formAiDetectedVariants[idx]) {
                                   void applyExtractedItemToProductForm(
                                     formAiDetectedVariants[idx],
-                                    formAiDetectedCurrency
+                                    formAiDetectedCurrency,
+                                    true
                                   );
                                 }
                               }}

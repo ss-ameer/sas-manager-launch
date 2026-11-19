@@ -293,21 +293,35 @@ export default function AICatalogImporterModal({
             )
           : '');
 
-      const subComponents: LineItemComponent[] = (it.sub_components || []).map((sc, sIdx) => ({
-        id: `ai_sub_${Date.now()}_${idx}_${sIdx}`,
-        sn: String(sIdx + 1),
-        item_name: sc.item_name,
-        quantity: sc.quantity || 1,
-        unit: sc.unit || 'Nos',
-        description: sc.description || '',
-        brand_make: sc.brand_make || '',
-        model_part_no: sc.model_part_no || '',
-        unit_price: Number(sc.unit_price) || 0,
-        total_price: (Number(sc.unit_price) || 0) * (sc.quantity || 1),
-        cost_price: Number(sc.cost_price) || 0,
-        is_included_accessory: sc.is_included_accessory !== false,
-        attributes: sc.attributes || []
-      }));
+      const subComponents: LineItemComponent[] = (it.sub_components || []).map((sc, sIdx) => {
+        const rawSubSell = Number(sc.unit_price) || 0;
+        const rawSubCost = Number(sc.cost_price) || 0;
+        const { costAed: subCostAed, sellAed: subSellAed } = computePricesInAed(
+          rawSubSell,
+          rawSubCost,
+          detectedCurr,
+          basis,
+          markupPct
+        );
+        const subQty = sc.quantity || 1;
+        return {
+          id: `ai_sub_${Date.now()}_${idx}_${sIdx}`,
+          sn: String(sIdx + 1),
+          item_name: sc.item_name,
+          quantity: subQty,
+          unit: sc.unit || 'Nos',
+          description: sc.description || '',
+          brand_make: sc.brand_make || '',
+          model_part_no: sc.model_part_no || '',
+          unit_price: subSellAed,
+          total_price: Math.round(subSellAed * subQty * 100) / 100,
+          cost_price: subCostAed,
+          is_included_accessory: sc.is_included_accessory !== false,
+          attributes: sc.attributes || [],
+          _raw_unit_price: rawSubSell,
+          _raw_cost_price: rawSubCost
+        } as LineItemComponent & { _raw_unit_price?: number; _raw_cost_price?: number };
+      });
 
       return {
         tempId: `staged_${Date.now()}_${idx}`,
@@ -369,18 +383,55 @@ export default function AICatalogImporterModal({
     setDefaultMarkupPct(nextMarkup);
     setStagedRows((prev) =>
       prev.map((row) => {
-        if (row.rawSourcePrice <= 0 && row.rawSourceCost <= 0) return row;
-        const { costAed, sellAed } = computePricesInAed(
-          row.rawSourcePrice,
-          row.rawSourceCost,
-          nextCurr,
-          nextBasis,
-          nextMarkup
-        );
+        const hasParentRaw = row.rawSourcePrice > 0 || row.rawSourceCost > 0;
+        const hasSubRaw =
+          Array.isArray(row.sub_components) &&
+          row.sub_components.some(
+            (sc: any) =>
+              Number(sc._raw_unit_price ?? sc.unit_price) > 0 ||
+              Number(sc._raw_cost_price ?? sc.cost_price) > 0
+          );
+        if (!hasParentRaw && !hasSubRaw) return row;
+
+        const { costAed, sellAed } = hasParentRaw
+          ? computePricesInAed(
+              row.rawSourcePrice,
+              row.rawSourceCost,
+              nextCurr,
+              nextBasis,
+              nextMarkup
+            )
+          : { costAed: row.cost_price_aed, sellAed: row.unit_price_aed };
+
+        const nextSubComponents = Array.isArray(row.sub_components)
+          ? row.sub_components.map((sc: any) => {
+              const rawSubSell = Number(sc._raw_unit_price ?? sc.unit_price) || 0;
+              const rawSubCost = Number(sc._raw_cost_price ?? sc.cost_price) || 0;
+              if (rawSubSell <= 0 && rawSubCost <= 0) return sc;
+              const { costAed: subCostAed, sellAed: subSellAed } = computePricesInAed(
+                rawSubSell,
+                rawSubCost,
+                nextCurr,
+                nextBasis,
+                nextMarkup
+              );
+              const subQty = Number(sc.quantity) || 1;
+              return {
+                ...sc,
+                unit_price: subSellAed,
+                total_price: Math.round(subSellAed * subQty * 100) / 100,
+                cost_price: subCostAed,
+                _raw_unit_price: rawSubSell,
+                _raw_cost_price: rawSubCost
+              };
+            })
+          : row.sub_components;
+
         return {
           ...row,
           cost_price_aed: costAed,
-          unit_price_aed: sellAed
+          unit_price_aed: sellAed,
+          sub_components: nextSubComponents
         };
       })
     );
@@ -603,15 +654,26 @@ export default function AICatalogImporterModal({
             }
           }
 
+          const varyingKeyRegex =
+            /^(size|dimension|dimensions|dimensions \/ size|diameter|vessel size|capacity|capacity \/ rating|volume|flow|flow rate|rating|model|model no|part no|model \/ part no)$/i;
           const parentAttributes: ProductAttribute[] = [];
           for (const [kNorm, valSet] of keyValSets.entries()) {
             const displayKey = keyDisplayNames.get(kNorm) || kNorm;
             const values = Array.from(valSet).filter(Boolean);
-            if (values.length === 1 && groupRows.length > 1) {
-              parentAttributes.push({ key: displayKey, value: values[0] });
+            if (groupRows.length > 1) {
+              if (values.length === 1) {
+                parentAttributes.push({ key: displayKey, value: values[0] });
+              } else {
+                // Varying attribute across siblings -> blank template slot on Parent
+                parentAttributes.push({ key: displayKey, value: '' });
+              }
             } else {
-              // Varying attribute across siblings -> blank template slot on Parent
-              parentAttributes.push({ key: displayKey, value: '' });
+              // Single-row family: keep shared base engineering specs populated on Parent and only blank out differentiating size/capacity/model slots
+              if (values.length === 1 && !varyingKeyRegex.test(displayKey)) {
+                parentAttributes.push({ key: displayKey, value: values[0] });
+              } else {
+                parentAttributes.push({ key: displayKey, value: '' });
+              }
             }
           }
 
@@ -787,7 +849,7 @@ export default function AICatalogImporterModal({
           is_composite_set: row.is_composite_set,
           sub_components: row.is_composite_set && row.sub_components.length > 0 ? row.sub_components : undefined,
           package_pricing_mode: row.is_composite_set ? 'lump_sum' : undefined,
-          is_inventoried: false,
+          is_inventoried: Boolean(parentProd?.is_inventoried),
           stock_on_hand: 0,
           stock_reserved: 0,
           search_terms: generateProductSearchTerms(
@@ -809,18 +871,31 @@ export default function AICatalogImporterModal({
         createdCount++;
       }
 
-      if (setProducts) {
-        setProducts((prev) => {
-          const existingIds = new Set(prev.map((p) => p.id));
-          const updatedPrev = prev.map((p) => (p.id && upsertedMap.has(p.id) ? upsertedMap.get(p.id)! : p));
-          const brandNew: Product[] = [];
-          for (const [id, prod] of upsertedMap.entries()) {
-            if (!existingIds.has(id)) {
-              brandNew.push(prod);
-            }
+      const mergeUpsertedProducts = (baseList: Product[]): Product[] => {
+        const existingIds = new Set(baseList.map((p) => p.id));
+        const updatedPrev = baseList.map((p) =>
+          p.id && upsertedMap.has(p.id) ? upsertedMap.get(p.id)! : p
+        );
+        const brandNew: Product[] = [];
+        for (const [id, prod] of upsertedMap.entries()) {
+          if (!existingIds.has(id)) {
+            brandNew.push(prod);
           }
-          return [...brandNew, ...updatedPrev];
-        });
+        }
+        return [...brandNew, ...updatedPrev];
+      };
+
+      try {
+        const rawLs = localStorage.getItem('omni_products');
+        const parsedLs: Product[] = rawLs ? JSON.parse(rawLs) : products;
+        const mergedLs = mergeUpsertedProducts(Array.isArray(parsedLs) ? parsedLs : products);
+        localStorage.setItem('omni_products', JSON.stringify(mergedLs));
+      } catch {
+        // ignore localStorage quota errors
+      }
+
+      if (setProducts) {
+        setProducts((prev) => mergeUpsertedProducts(prev));
       }
 
       if (triggerToast) {
