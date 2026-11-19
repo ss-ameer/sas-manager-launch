@@ -24,6 +24,12 @@ import { processStockGrn, processStockAdjustment, subscribeStockMovements } from
 import { uploadWorkspaceMediaAsset, deleteFromStorageBucket, formatByteSize, sanitizeFirestorePayload } from '../services/attachmentStorage';
 import CompositePackageEditor from './quotations/CompositePackageEditor';
 import { recalculateCompositeItemTotals } from '../utils/compositeBomUtils';
+import {
+  formatSiTechnicalValue,
+  normalizeCatalogUnit,
+  normalizeLeadTime,
+  cleanProductAttributesWithRescuedFields
+} from '../utils/siUnitFormatter';
 import LineItemImageOptionsPopover from './common/LineItemImageOptionsPopover';
 import ImageLightboxModal from './common/ImageLightboxModal';
 import {
@@ -1143,6 +1149,79 @@ export default function ProductManager({
     }
   };
 
+  // 1-Click ISO 80000 / SI Technical Unit & Attribute Hygiene Cleanup on the Product Edit Form
+  const handleCleanFormSiUnits = () => {
+    const { attributes: cleanedAttrs, rescuedFields } =
+      cleanProductAttributesWithRescuedFields(formAttributes, {
+        brand_make: formBrandMake,
+        model_part_no: formModelPartNo,
+        country_of_origin: formCountryOfOrigin,
+        availability: formDefaultAvailability,
+        hs_code: formHsCode
+      });
+
+    if (rescuedFields.brand_make && !formBrandMake.trim()) {
+      setFormBrandMake(rescuedFields.brand_make);
+    }
+    if (rescuedFields.model_part_no && !formModelPartNo.trim()) {
+      setFormModelPartNo(rescuedFields.model_part_no);
+    }
+    if (rescuedFields.country_of_origin && !formCountryOfOrigin.trim()) {
+      setFormCountryOfOrigin(rescuedFields.country_of_origin);
+    }
+    const normAvail = normalizeLeadTime(rescuedFields.availability || formDefaultAvailability);
+    if (normAvail !== formDefaultAvailability) {
+      setFormDefaultAvailability(normAvail);
+    }
+    if (rescuedFields.hs_code && !formHsCode.trim()) {
+      setFormHsCode(rescuedFields.hs_code);
+    }
+
+    const normUnit = normalizeCatalogUnit(formUnit);
+    if (normUnit) {
+      setFormUnit(normUnit);
+    }
+    if (formVariantLabel.trim()) {
+      setFormVariantLabel(formatSiTechnicalValue(formVariantLabel));
+    }
+
+    const prevCompiled = compileDescriptionWithSpecs(formName, '', formAttributes);
+    setFormAttributes(cleanedAttrs);
+    if (
+      !formDescription.trim() ||
+      formDescription.trim() === formName.trim() ||
+      formDescription.trim() === prevCompiled.trim()
+    ) {
+      setFormDescription(compileDescriptionWithSpecs(formName, '', cleanedAttrs));
+    }
+
+    if (formSubComponents.length > 0) {
+      setFormSubComponents((prevSubs) =>
+        prevSubs.map((sc) => {
+          const { attributes: scAttrs, rescuedFields: scRescued } =
+            cleanProductAttributesWithRescuedFields(sc.attributes || [], {
+              brand_make: sc.brand_make,
+              model_part_no: sc.model_part_no
+            });
+          return {
+            ...sc,
+            unit: normalizeCatalogUnit(sc.unit || 'Nos'),
+            brand_make: scRescued.brand_make || sc.brand_make || '',
+            model_part_no: scRescued.model_part_no || sc.model_part_no || '',
+            attributes: scAttrs
+          };
+        })
+      );
+    }
+
+    if (triggerToast) {
+      triggerToast(
+        'Standardized SI / ISO 80000 units, canonicalized spec keys, and stripped duplicate fields.',
+        'success'
+      );
+    }
+  };
+
   // Apply an extracted AI catalog product item into the Single-Product Add/Edit form fields non-destructively
   const applyExtractedItemToProductForm = async (
     extracted: ExtractedCatalogProductItem,
@@ -1150,6 +1229,15 @@ export default function ProductManager({
     allowOverwriteSku = false
   ) => {
     const mult = resolveToAedMultiplier(extracted.currency || detectedCurrency || 'AED');
+    const { attributes: cleanedExtractedAttrs, rescuedFields } =
+      cleanProductAttributesWithRescuedFields(extracted.attributes || [], {
+        brand_make: extracted.brand_make,
+        model_part_no: extracted.model_part_no,
+        country_of_origin: extracted.country_of_origin,
+        availability: extracted.availability,
+        hs_code: extracted.hs_code
+      });
+
     if (extracted.name) {
       setFormName(extracted.name.trim());
     }
@@ -1157,28 +1245,33 @@ export default function ProductManager({
       setFormProductFamily(extracted.family_group_name.trim());
     }
     if (extracted.variant_label) {
-      setFormVariantLabel(extracted.variant_label.trim());
+      setFormVariantLabel(formatSiTechnicalValue(extracted.variant_label.trim()));
     }
     if (extracted.sku && (!formSku.trim() || allowOverwriteSku || !editingProduct)) {
       setFormSku(extracted.sku.trim());
     }
-    if (extracted.brand_make) {
-      setFormBrandMake(extracted.brand_make.trim());
+    const effBrand = rescuedFields.brand_make || extracted.brand_make;
+    if (effBrand) {
+      setFormBrandMake(effBrand.trim());
     }
-    if (extracted.model_part_no) {
-      setFormModelPartNo(extracted.model_part_no.trim());
+    const effModel = rescuedFields.model_part_no || extracted.model_part_no;
+    if (effModel) {
+      setFormModelPartNo(effModel.trim());
     }
-    if (extracted.country_of_origin) {
-      setFormCountryOfOrigin(extracted.country_of_origin.trim());
+    const effOrigin = rescuedFields.country_of_origin || extracted.country_of_origin;
+    if (effOrigin) {
+      setFormCountryOfOrigin(effOrigin.trim());
     }
-    if (extracted.hs_code) {
-      setFormHsCode(extracted.hs_code.trim());
+    const effHs = rescuedFields.hs_code || extracted.hs_code;
+    if (effHs) {
+      setFormHsCode(effHs.trim());
     }
-    if (extracted.availability) {
-      setFormDefaultAvailability(extracted.availability.trim());
+    const effAvail = normalizeLeadTime(rescuedFields.availability || extracted.availability);
+    if (effAvail) {
+      setFormDefaultAvailability(effAvail);
     }
     if (extracted.unit) {
-      setFormUnit(extracted.unit.trim());
+      setFormUnit(normalizeCatalogUnit(extracted.unit.trim()));
     }
     if (typeof extracted.unit_price === 'number' && extracted.unit_price > 0) {
       setFormUnitPrice(Math.round(extracted.unit_price * mult * 100) / 100);
@@ -1216,13 +1309,22 @@ export default function ProductManager({
         }
       }
     }
-    if (Array.isArray(extracted.attributes) && extracted.attributes.length > 0) {
+    if (cleanedExtractedAttrs.length > 0) {
       setFormAttributes((prev) => {
-        const merged = mergeParentAndVariantAttributes(
-          prev.filter((a) => a.key.trim() !== ''),
-          extracted.attributes || []
-        );
-        return merged.length > 0 ? merged : extracted.attributes || [];
+        const merged = cleanProductAttributesWithRescuedFields(
+          mergeParentAndVariantAttributes(
+            prev.filter((a) => a.key.trim() !== ''),
+            cleanedExtractedAttrs
+          ),
+          {
+            brand_make: effBrand || formBrandMake,
+            model_part_no: effModel || formModelPartNo,
+            country_of_origin: effOrigin || formCountryOfOrigin,
+            availability: effAvail || formDefaultAvailability,
+            hs_code: effHs || formHsCode
+          }
+        ).attributes;
+        return merged.length > 0 ? merged : cleanedExtractedAttrs;
       });
     }
     if (extracted.description) {
@@ -1231,23 +1333,30 @@ export default function ProductManager({
     if (extracted.is_composite_set && Array.isArray(extracted.sub_components) && extracted.sub_components.length > 0) {
       setFormIsCompositeSet(true);
       setFormSubComponents(
-        extracted.sub_components.map((sc, idx) => ({
-          id: `comp_ai_${Date.now()}_${idx}`,
-          sn: String(idx + 1),
-          item_name: sc.item_name,
-          quantity: sc.quantity || 1,
-          unit: sc.unit || 'Nos',
-          description: sc.description || '',
-          brand_make: sc.brand_make || '',
-          model_part_no: sc.model_part_no || '',
-          unit_price: Number(sc.unit_price) ? Math.round(Number(sc.unit_price) * mult * 100) / 100 : 0,
-          total_price: Number(sc.unit_price)
-            ? Math.round(Number(sc.unit_price) * (sc.quantity || 1) * mult * 100) / 100
-            : 0,
-          cost_price: Number(sc.cost_price) ? Math.round(Number(sc.cost_price) * mult * 100) / 100 : 0,
-          is_included_accessory: sc.is_included_accessory !== false,
-          attributes: sc.attributes || []
-        }))
+        extracted.sub_components.map((sc, idx) => {
+          const { attributes: scCleanAttrs, rescuedFields: scRescued } =
+            cleanProductAttributesWithRescuedFields(sc.attributes || [], {
+              brand_make: sc.brand_make,
+              model_part_no: sc.model_part_no
+            });
+          return {
+            id: `comp_ai_${Date.now()}_${idx}`,
+            sn: String(idx + 1),
+            item_name: sc.item_name,
+            quantity: sc.quantity || 1,
+            unit: normalizeCatalogUnit(sc.unit || 'Nos'),
+            description: sc.description || '',
+            brand_make: scRescued.brand_make || sc.brand_make || '',
+            model_part_no: scRescued.model_part_no || sc.model_part_no || '',
+            unit_price: Number(sc.unit_price) ? Math.round(Number(sc.unit_price) * mult * 100) / 100 : 0,
+            total_price: Number(sc.unit_price)
+              ? Math.round(Number(sc.unit_price) * (sc.quantity || 1) * mult * 100) / 100
+              : 0,
+            cost_price: Number(sc.cost_price) ? Math.round(Number(sc.cost_price) * mult * 100) / 100 : 0,
+            is_included_accessory: sc.is_included_accessory !== false,
+            attributes: scCleanAttrs
+          };
+        })
       );
     }
   };
@@ -1320,8 +1429,16 @@ export default function ProductManager({
 
       if (triggerToast) {
         if (batch.products.length > 1) {
+          const firstFam = (batch.products[0].family_group_name || '').trim().toLowerCase();
+          const allShareFamily =
+            Boolean(firstFam) &&
+            batch.products.every(
+              (p) => (p.family_group_name || '').trim().toLowerCase() === firstFam
+            );
           triggerToast(
-            `Autofilled first variant & detected ${batch.products.length} total variants in source! Use the banner to switch or import all ${batch.products.length} variants.`,
+            allShareFamily
+              ? `Autofilled first variant & detected ${batch.products.length} total variants in source! Use the banner to switch or import all ${batch.products.length} variants.`
+              : `Autofilled first item & detected ${batch.products.length} total items in source! Use the banner to switch or import all ${batch.products.length} items.`,
             'success'
           );
         } else {
@@ -3381,52 +3498,63 @@ export default function ProductManager({
                         </div>
                       )}
 
-                      {/* Multi-Variant Datasheet Detection Banner */}
-                      {formAiDetectedVariants.length > 1 && (
-                        <div className="p-2.5 rounded-xl bg-indigo-100/80 dark:bg-indigo-950/70 border border-indigo-300 dark:border-indigo-800 flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-[11px] font-bold text-indigo-950 dark:text-indigo-200">
-                              🧬 Detected {formAiDetectedVariants.length} variants in source:
-                            </span>
-                            <select
-                              value={formAiSelectedVariantIdx}
-                              onChange={(e) => {
-                                const idx = Number(e.target.value);
-                                setFormAiSelectedVariantIdx(idx);
-                                if (formAiDetectedVariants[idx]) {
-                                  void applyExtractedItemToProductForm(
-                                    formAiDetectedVariants[idx],
-                                    formAiDetectedCurrency,
-                                    true
-                                  );
-                                }
+                      {/* Multi-Variant / Multi-Item Datasheet Detection Banner */}
+                      {formAiDetectedVariants.length > 1 && (() => {
+                        const firstFam = (formAiDetectedVariants[0]?.family_group_name || '').trim().toLowerCase();
+                        const allShareFamily =
+                          Boolean(firstFam) &&
+                          formAiDetectedVariants.every(
+                            (v) => (v.family_group_name || '').trim().toLowerCase() === firstFam
+                          );
+                        return (
+                          <div className="p-2.5 rounded-xl bg-indigo-100/80 dark:bg-indigo-950/70 border border-indigo-300 dark:border-indigo-800 flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[11px] font-bold text-indigo-950 dark:text-indigo-200">
+                                🧬 Detected {formAiDetectedVariants.length}{' '}
+                                {allShareFamily ? 'variants' : 'items'} in source:
+                              </span>
+                              <select
+                                value={formAiSelectedVariantIdx}
+                                onChange={(e) => {
+                                  const idx = Number(e.target.value);
+                                  setFormAiSelectedVariantIdx(idx);
+                                  if (formAiDetectedVariants[idx]) {
+                                    void applyExtractedItemToProductForm(
+                                      formAiDetectedVariants[idx],
+                                      formAiDetectedCurrency,
+                                      true
+                                    );
+                                  }
+                                }}
+                                className="rounded-lg border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900 px-2 py-0.5 text-[11px] font-bold text-indigo-900 dark:text-indigo-200"
+                              >
+                                {formAiDetectedVariants.map((v, vIdx) => (
+                                  <option key={vIdx} value={vIdx}>
+                                    #{vIdx + 1}: {v.variant_label || v.model_part_no || v.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowFormModal(false);
+                                setAiModalInitialItems(formAiDetectedVariants);
+                                setAiModalInitialCurrency(formAiDetectedCurrency);
+                                setShowAiCatalogModal(true);
                               }}
-                              className="rounded-lg border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900 px-2 py-0.5 text-[11px] font-bold text-indigo-900 dark:text-indigo-200"
+                              className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer shadow-2xs"
                             >
-                              {formAiDetectedVariants.map((v, vIdx) => (
-                                <option key={vIdx} value={vIdx}>
-                                  #{vIdx + 1}: {v.variant_label || v.model_part_no || v.name}
-                                </option>
-                              ))}
-                            </select>
+                              <GitFork className="w-3 h-3" />
+                              <span>
+                                {allShareFamily
+                                  ? `👑 Open All ${formAiDetectedVariants.length} Variants in Bulk Family Importer`
+                                  : `👑 Open All ${formAiDetectedVariants.length} Items in Bulk Importer`}
+                              </span>
+                            </button>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowFormModal(false);
-                              setAiModalInitialItems(formAiDetectedVariants);
-                              setAiModalInitialCurrency(formAiDetectedCurrency);
-                              setShowAiCatalogModal(true);
-                            }}
-                            className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer shadow-2xs"
-                          >
-                            <GitFork className="w-3 h-3" />
-                            <span>
-                              👑 Open All {formAiDetectedVariants.length} Variants in Bulk Family Importer
-                            </span>
-                          </button>
-                        </div>
-                      )}
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -4341,21 +4469,32 @@ export default function ProductManager({
 
                   {/* 2. Commercial & Technical Description */}
                   <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80">
-                    <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center justify-between flex-wrap gap-2 mb-1.5">
                       <label className="block text-[11px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-wider font-bold">
                         Commercial &amp; Technical Description
                       </label>
-                      {formAttributes.some((a) => a.key.trim() && a.value.trim()) && (
+                      <div className="flex items-center gap-3">
                         <button
                           type="button"
-                          onClick={() => setFormDescription(compileDescriptionWithSpecs(formName, formDescription, formAttributes))}
-                          className="text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-700 font-bold inline-flex items-center gap-1 cursor-pointer hover:underline"
-                          title="Compile structured specification attributes into the Commercial & Technical Description"
+                          onClick={handleCleanFormSiUnits}
+                          className="text-[11px] px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800 font-bold inline-flex items-center gap-1 cursor-pointer transition"
+                          title="Standardize SI / ISO 80000 units, canonicalize spec keys, normalize UOM & Lead Time, and move duplicate Delivery/Origin/Model/Brand specs into dedicated fields"
                         >
                           <Sparkles className="w-3 h-3" />
-                          <span>Sync from Spec Attributes</span>
+                          <span>✨ Clean SI Units</span>
                         </button>
-                      )}
+                        {formAttributes.some((a) => a.key.trim() && a.value.trim()) && (
+                          <button
+                            type="button"
+                            onClick={() => setFormDescription(compileDescriptionWithSpecs(formName, formDescription, formAttributes))}
+                            className="text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-700 font-bold inline-flex items-center gap-1 cursor-pointer hover:underline"
+                            title="Compile structured specification attributes into the Commercial & Technical Description"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            <span>Sync from Spec Attributes</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <textarea
                       rows={3}

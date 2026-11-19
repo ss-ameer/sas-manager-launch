@@ -1,4 +1,11 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import {
+  formatSiTechnicalValue,
+  normalizeCatalogUnit,
+  normalizeLeadTime,
+  normalizeSpecKey,
+  cleanProductAttributesWithRescuedFields
+} from './siUnitFormatter';
 
 export const getExtractionSystemPrompt = (salespersons: any[]) => {
   let salespersonExclusionPrompt = "";
@@ -594,33 +601,7 @@ export interface ExtractedCatalogBatchResult {
 }
 
 export function canonicalizeCatalogAttributeKey(rawKey: string): string {
-  const k = String(rawKey || '').trim();
-  if (!k) return '';
-  if (/^(lead\s*time|delivery|lead\s*time\s*\/\s*delivery|delivery\s*period|availability)$/i.test(k)) {
-    return 'Delivery';
-  }
-  if (/^(dimension|dimensions|size|dimensions\s*\/\s*size|vessel\s*size)$/i.test(k)) {
-    return 'Dimensions';
-  }
-  if (/^(design\s*pressure|operating\s*pressure|working\s*pressure|max\s*pressure|pressure\s*rating)$/i.test(k)) {
-    return 'Design Pressure';
-  }
-  if (/^(moc|material|material\s*of\s*construction|material\s*\/\s*grade|body\s*material)$/i.test(k)) {
-    return 'MOC';
-  }
-  if (/^(flow|flow\s*rate|rated\s*flow)$/i.test(k)) {
-    return 'Flow Rate';
-  }
-  if (/^(capacity|volume|tank\s*capacity|capacity\s*\/\s*rating)$/i.test(k)) {
-    return 'Capacity';
-  }
-  if (/^(operation|control|valve\s*operation)$/i.test(k)) {
-    return 'Operation';
-  }
-  if (/^(standard|certification|approval|connection\s*\/\s*standard)$/i.test(k)) {
-    return 'Standard';
-  }
-  return k;
+  return normalizeSpecKey(rawKey);
 }
 
 export const getCatalogExtractionSystemPrompt = (existingCategories: string[] = []) => {
@@ -639,11 +620,11 @@ ${categoryListHint}
 
 CRITICAL EXTRACTION & STRUCTURING RULES:
 1. MULTI-VARIANT & DATASHEET TABLE INTELLIGENCE (family_group_name & variant_label):
-   - Datasheets, price tables, and inquiries often list multiple sizes, capacities, or models of the SAME equipment family (for example: 5 sizes of "AVENTURA FRP Pressure Vessel" like 36"x72", 42"x72", 48"x72", 63"x67"; or 4 models of "SEKO Tekna Evo Dosing Pump" like 5 LPH, 10 LPH, 20 LPH).
+   - Datasheets, price tables, and inquiries often list multiple sizes, capacities, or models of the SAME equipment family (for example: 5 sizes of "AVENTURA FRP Pressure Vessel" like 36"x72", 42"x72", 48"x72", 63"x67"; or 4 models of "SEKO Tekna Evo Dosing Pump" like 5 L/h, 10 L/h, 20 L/h).
    - Whenever 2 or more rows belong to the same base product family:
      * Set "family_group_name" on each sibling to the shared clean Parent Family Name (e.g., "AVENTURA Multimedia FRP Filter Vessel" or "SEKO Tekna Evo Solenoid Dosing Pump") — WITHOUT the specific size/capacity suffix.
-     * Set "variant_label" on each sibling to its concise differentiating size, dimension, flow, capacity, or model rating (e.g., "42\\" x 72\\"", "48\\" x 72\\"", "10 LPH @ 8 Bar", "100 Liters").
-     * Set "name" on each sibling to a descriptive title (e.g., "AVENTURA Multimedia FRP Filter Vessel (48\\" x 72\\")").
+     * Set "variant_label" on each sibling to its concise differentiating size, dimension, flow, capacity, or model rating (e.g., "42\\" × 72\\"", "48\\" × 72\\"", "10 L/h @ 8 bar", "100 L").
+     * Set "name" on each sibling to a descriptive title (e.g., "AVENTURA Multimedia FRP Filter Vessel (48\\" × 72\\")").
    - If the document only has 1 standalone product with no sibling variants, leave "family_group_name": "" and "variant_label": "".
 
 2. PRICING & CURRENCY DETECTION:
@@ -651,27 +632,32 @@ CRITICAL EXTRACTION & STRUCTURING RULES:
    - If a single price is given per item, populate it in "unit_price" (and if both cost/net price and list/selling price are shown, populate BOTH "cost_price" and "unit_price").
    - Never output NaN or formatted strings for prices; always output clean numbers (e.g., 12970).
 
-3. TECHNICAL ATTRIBUTES & CANONICAL KEYS:
+3. TECHNICAL ATTRIBUTES, CANONICAL KEYS & ISO 80000 / SI UNIT FORMATTING:
    - Extract technical parameters into the "attributes" array as [{ "key": "...", "value": "..." }].
    - Use clean canonical attribute keys:
-     * "Dimensions" (for diameter x height, L x W x H, size, e.g. "48\\" x 72\\" (1200mm x 1800mm)")
-     * "Design Pressure" (e.g. "6 Bar" or "10.5 Bar (150 PSI)")
+     * "Dimensions" (for diameter × height, L × W × H, size, e.g. "48\\" × 72\\" (1200 × 1800 mm)")
+     * "Design Pressure" (e.g. "6 bar" or "10.5 bar (150 PSI)")
      * "MOC" (Material of Construction, e.g. "FRP with PE Liner", "SS316L", "UPVC", "PVDF")
-     * "Flow Rate" (e.g. "10 LPH", "15 m3/hr")
-     * "Capacity" (e.g. "500 Liters", "45,000 Grains")
+     * "Flow Rate" (e.g. "10 L/h", "15 m³/h")
+     * "Capacity" (e.g. "500 L", "45,000 Grains")
      * "Operation" (e.g. "Automatic Duplex", "Manual Multiport")
      * "Connection" (e.g. "4\\" Flanged Top & Bottom", "DN50 PN16")
-     * "Power / Voltage" (e.g. "230V / 1Ph / 50Hz, 0.55 kW")
+     * "Power / Voltage" (e.g. "230 V / 1Ph / 50 Hz, 0.55 kW")
      * "Standard" (e.g. "ASME / NSF Certified", "CE")
-     * "Delivery" (canonical key for any Lead Time / Delivery / Availability note, e.g. "Ex-Stock", "8-10 Weeks")
-   - Do NOT repeat Brand/Make or Country of Origin inside "attributes" if already placed in "brand_make" and "country_of_origin".
+   - STRICT ISO 80000 / SI UNIT CONVENTIONS:
+     * Enforce a single space between number and SI symbol ("10 kg", "10.5 bar", "40 L", "1.1 mm", "45 °C", "5 μm"), keeping inch/percent tight ("60\\"", "70%").
+     * Format numeric ranges with an en-dash ("–"), matched decimal places, and a single unit at the end ("2.0 – 3.5 mm", "0.4 – 0.8 mm", "20 – 32 A").
+     * Format compound packaging and flow units with a tight slash ("10 kg/bag", "25 kg/bag", "27.5 m³/h", "10 L/h", "1600 m²/m³") and dimensions with "×" ("48\\" × 72\\"").
+     * Standardize UOM ("unit") to singular clean casing ("Nos", "Set", "Bag", "Bucket", "Drum", "Kg", "m³", "Mtr", "Lot", "Roll", "Box", "Pack").
+   - DO NOT DUPLICATE DEDICATED FIELDS IN ATTRIBUTES:
+     * Never place Brand/Make, Model/Part No, Country of Origin, or Delivery/Lead Time/Availability inside "attributes" — place them ONLY in "brand_make", "model_part_no", "country_of_origin", and "availability".
 
 4. COMPOSITE PACKAGES / KITS / SKIDS (is_composite_set & sub_components):
    - If a product is an assembly, package, skid, or vessel set that explicitly lists included sub-components or bill of materials (e.g. "Including: 1 x FRP Vessel, 1 x Top & Bottom Distributor Set, 1 x Internal Riser Pipe, 5 x Media Bags"), set "is_composite_set": true and populate "sub_components":
      [{ "item_name": "...", "quantity": 1, "unit": "Nos", "description": "...", "brand_make": "...", "model_part_no": "...", "unit_price": 0, "is_included_accessory": true, "attributes": [{ "key": "...", "value": "..." }] }].
 
 5. SKU GENERATION:
-   - Extract the explicit SKU / Part Number / Item Code if present in the source.
+   - Extract the explicit SKU / Part Number / Item Code if present in the source (NEVER alter or reformat part codes).
    - If no SKU is present, leave "sku": "" (or if model_part_no is an exact part code like "AKA6002", you may use it in model_part_no).
 
 REQUIRED JSON OUTPUT FORMAT:
@@ -1054,49 +1040,49 @@ function normalizeExtractedCatalogBatch(
       if (!name) return null;
 
       const rawAttrs: any[] = Array.isArray(item.attributes) ? item.attributes : [];
-      const seenKeys = new Set<string>();
-      const cleanAttrs: Array<{ key: string; value: string }> = [];
-      let extractedDeliveryFromAttr = '';
+      const initialBrand = String(item.brand_make || item.brand || item.make || '').trim();
+      const initialModel = String(item.model_part_no || item.model || '').trim();
+      const initialOrigin = String(item.country_of_origin || item.origin || '').trim();
+      const initialAvailability = normalizeLeadTime(item.availability || item.default_availability || '');
+      const initialHsCode = String(item.hs_code || '').trim();
 
-      for (const a of rawAttrs) {
-        const key = canonicalizeCatalogAttributeKey(a?.key || '');
-        const value = String(a?.value ?? '').trim();
-        if (!key || !value) continue;
-        if (/^(brand|make|manufacturer)$/i.test(key)) continue;
-        if (key === 'Delivery' && !extractedDeliveryFromAttr) {
-          extractedDeliveryFromAttr = value;
+      const { attributes: cleanAttrs, rescuedFields } = cleanProductAttributesWithRescuedFields(
+        rawAttrs,
+        {
+          brand_make: initialBrand,
+          model_part_no: initialModel,
+          country_of_origin: initialOrigin,
+          availability: initialAvailability,
+          hs_code: initialHsCode
         }
-        const normKey = key.toLowerCase();
-        if (!seenKeys.has(normKey)) {
-          seenKeys.add(normKey);
-          cleanAttrs.push({ key, value });
-        }
-      }
+      );
 
       const rawSubs: any[] = Array.isArray(item.sub_components) ? item.sub_components : [];
       const cleanSubs: ExtractedCatalogSubComponent[] = rawSubs
         .map((sub: any) => {
           const subName = String(sub?.item_name || sub?.name || sub?.description || '').trim();
           if (!subName) return null;
-          const subAttrs = Array.isArray(sub?.attributes)
-            ? sub.attributes
-                .map((sa: any) => ({
-                  key: canonicalizeCatalogAttributeKey(sa?.key || ''),
-                  value: String(sa?.value ?? '').trim()
-                }))
-                .filter((sa: any) => sa.key && sa.value)
-            : [];
+          const subBrandInit = String(sub?.brand_make || '').trim();
+          const subModelInit = String(sub?.model_part_no || '').trim();
+          const { attributes: subCleanAttrs, rescuedFields: subRescued } =
+            cleanProductAttributesWithRescuedFields(
+              Array.isArray(sub?.attributes) ? sub.attributes : [],
+              {
+                brand_make: subBrandInit,
+                model_part_no: subModelInit
+              }
+            );
           return {
             item_name: subName,
             quantity: Math.max(1, Number(sub?.quantity) || 1),
-            unit: String(sub?.unit || 'Nos').trim() || 'Nos',
+            unit: normalizeCatalogUnit(sub?.unit || 'Nos'),
             description: String(sub?.description || sub?.technical_Highlight || '').trim() || undefined,
-            brand_make: String(sub?.brand_make || '').trim() || undefined,
-            model_part_no: String(sub?.model_part_no || '').trim() || undefined,
+            brand_make: subRescued.brand_make || undefined,
+            model_part_no: subRescued.model_part_no || undefined,
             unit_price: Number(sub?.unit_price) >= 0 ? Number(sub?.unit_price) : 0,
             cost_price: Number(sub?.cost_price) >= 0 ? Number(sub?.cost_price) : undefined,
             is_included_accessory: sub?.is_included_accessory !== false,
-            attributes: subAttrs.length > 0 ? subAttrs : undefined
+            attributes: subCleanAttrs.length > 0 ? subCleanAttrs : undefined
           };
         })
         .filter(Boolean) as ExtractedCatalogSubComponent[];
@@ -1108,27 +1094,28 @@ function normalizeExtractedCatalogBatch(
         String(item.cost_price ?? item.cogs_amount ?? 0).replace(/,/g, '')
       );
 
+      const rawVarLabel = String(item.variant_label || '').trim();
+      const formattedVarLabel = rawVarLabel ? formatSiTechnicalValue(rawVarLabel) : undefined;
+
       return {
         name,
         sku: String(item.sku || '').trim() || undefined,
         category: String(item.category || item.product_type || 'General Equipment').trim(),
-        brand_make: String(item.brand_make || item.brand || item.make || '').trim() || undefined,
-        model_part_no: String(item.model_part_no || item.model || '').trim() || undefined,
-        country_of_origin: String(item.country_of_origin || item.origin || '').trim() || undefined,
-        hs_code: String(item.hs_code || '').trim() || undefined,
-        unit: String(item.unit || (cleanSubs.length > 0 ? 'SET' : 'Nos')).trim() || 'Nos',
+        brand_make: rescuedFields.brand_make || undefined,
+        model_part_no: rescuedFields.model_part_no || undefined,
+        country_of_origin: rescuedFields.country_of_origin || undefined,
+        hs_code: rescuedFields.hs_code || undefined,
+        unit: normalizeCatalogUnit(item.unit || (cleanSubs.length > 0 ? 'Set' : 'Nos')),
         cost_price: !isNaN(costPriceNum) && costPriceNum > 0 ? costPriceNum : undefined,
         unit_price: !isNaN(unitPriceNum) && unitPriceNum >= 0 ? unitPriceNum : 0,
         currency: String(item.currency || detectedCurrency).toUpperCase().trim() || detectedCurrency,
-        availability:
-          String(item.availability || item.default_availability || extractedDeliveryFromAttr || '').trim() ||
-          undefined,
+        availability: rescuedFields.availability || undefined,
         description: String(item.description || '').trim() || name,
         attributes: cleanAttrs,
         is_composite_set: Boolean(item.is_composite_set || cleanSubs.length > 0),
         sub_components: cleanSubs.length > 0 ? cleanSubs : undefined,
         family_group_name: String(item.family_group_name || item.product_family || '').trim() || undefined,
-        variant_label: String(item.variant_label || '').trim() || undefined
+        variant_label: formattedVarLabel
       };
     })
     .filter(Boolean) as ExtractedCatalogProductItem[];

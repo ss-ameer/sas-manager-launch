@@ -11,9 +11,14 @@ import {
   AVAILABLE_GEMINI_MODELS,
   ExtractedCatalogProductItem,
   extractCatalogProductsWithAI,
-  prepareCatalogFileForAiExtraction,
-  canonicalizeCatalogAttributeKey
+  prepareCatalogFileForAiExtraction
 } from '../utils/aiExtractionClient';
+import {
+  formatSiTechnicalValue,
+  normalizeCatalogUnit,
+  normalizeLeadTime,
+  cleanProductAttributesWithRescuedFields
+} from '../utils/siUnitFormatter';
 import {
   resolveToAedMultiplier,
   compileDescriptionWithSpecs,
@@ -275,23 +280,41 @@ export default function AICatalogImporterModal({
         markupPct
       );
 
-      const derivedVarLabel =
+      const { attributes: cleanedTopAttrs, rescuedFields } =
+        cleanProductAttributesWithRescuedFields(it.attributes || [], {
+          brand_make: cleanBrand,
+          model_part_no: cleanModel,
+          country_of_origin: (it.country_of_origin || '').trim(),
+          availability: (it.availability || '').trim(),
+          hs_code: (it.hs_code || '').trim()
+        });
+
+      const resolvedBrand = rescuedFields.brand_make || cleanBrand;
+      const resolvedModel = rescuedFields.model_part_no || cleanModel;
+      const resolvedOrigin = rescuedFields.country_of_origin || (it.country_of_origin || '').trim();
+      const resolvedAvailability = rescuedFields.availability || normalizeLeadTime(it.availability || '');
+      const resolvedHsCode = rescuedFields.hs_code || (it.hs_code || '').trim();
+
+      const rawDerivedVarLabel =
         cleanVariant ||
         (cleanFamily || matchingExistingParent
           ? deriveSuggestedVariantLabel(
               {
                 item_name: cleanName,
-                model_part_no: cleanModel,
-                attributes: it.attributes || []
+                model_part_no: resolvedModel,
+                attributes: cleanedTopAttrs
               },
               matchingExistingParent || {
                 name: cleanFamily || cleanName,
                 product_type: matchedCat,
                 description: cleanName,
-                unit: (it.unit || 'Nos') as UnitType
+                unit: normalizeCatalogUnit(it.unit || 'Nos') as UnitType
               }
             )
           : '');
+      const derivedVarLabel = rawDerivedVarLabel
+        ? formatSiTechnicalValue(rawDerivedVarLabel)
+        : '';
 
       const subComponents: LineItemComponent[] = (it.sub_components || []).map((sc, sIdx) => {
         const rawSubSell = Number(sc.unit_price) || 0;
@@ -304,20 +327,25 @@ export default function AICatalogImporterModal({
           markupPct
         );
         const subQty = sc.quantity || 1;
+        const { attributes: cleanedSubAttrs, rescuedFields: subRescued } =
+          cleanProductAttributesWithRescuedFields(sc.attributes || [], {
+            brand_make: sc.brand_make || '',
+            model_part_no: sc.model_part_no || ''
+          });
         return {
           id: `ai_sub_${Date.now()}_${idx}_${sIdx}`,
           sn: String(sIdx + 1),
           item_name: sc.item_name,
           quantity: subQty,
-          unit: sc.unit || 'Nos',
+          unit: normalizeCatalogUnit(sc.unit || 'Nos'),
           description: sc.description || '',
-          brand_make: sc.brand_make || '',
-          model_part_no: sc.model_part_no || '',
+          brand_make: subRescued.brand_make || sc.brand_make || '',
+          model_part_no: subRescued.model_part_no || sc.model_part_no || '',
           unit_price: subSellAed,
           total_price: Math.round(subSellAed * subQty * 100) / 100,
           cost_price: subCostAed,
           is_included_accessory: sc.is_included_accessory !== false,
-          attributes: sc.attributes || [],
+          attributes: cleanedSubAttrs,
           _raw_unit_price: rawSubSell,
           _raw_cost_price: rawSubCost
         } as LineItemComponent & { _raw_unit_price?: number; _raw_cost_price?: number };
@@ -333,22 +361,19 @@ export default function AICatalogImporterModal({
         name: cleanName,
         variantLabel: derivedVarLabel,
         category: matchedCat,
-        brand_make: cleanBrand,
-        model_part_no: cleanModel,
+        brand_make: resolvedBrand,
+        model_part_no: resolvedModel,
         sku: cleanSku,
-        country_of_origin: (it.country_of_origin || '').trim(),
-        hs_code: (it.hs_code || '').trim(),
-        unit: (it.unit || (subComponents.length > 0 ? 'SET' : 'Nos')).trim(),
-        availability: (it.availability || '').trim(),
+        country_of_origin: resolvedOrigin,
+        hs_code: resolvedHsCode,
+        unit: normalizeCatalogUnit(it.unit || (subComponents.length > 0 ? 'Set' : 'Nos')),
+        availability: resolvedAvailability,
         rawSourcePrice,
         rawSourceCost,
         cost_price_aed: costAed,
         unit_price_aed: sellAed,
         description: (it.description || cleanName).trim(),
-        attributes: (it.attributes || []).map((a) => ({
-          key: canonicalizeCatalogAttributeKey(a.key),
-          value: String(a.value || '').trim()
-        })),
+        attributes: cleanedTopAttrs,
         is_composite_set: Boolean(it.is_composite_set || subComponents.length > 0),
         sub_components: subComponents,
         updateDiffBadge
@@ -727,25 +752,45 @@ export default function AICatalogImporterModal({
 
       for (let i = 0; i < selectedRows.length; i++) {
         const row = selectedRows[i];
-        const cleanAttrs = row.attributes
-          .map((a) => ({ key: a.key.trim(), value: a.value.trim() }))
-          .filter((a) => a.key !== '');
+        const { attributes: cleanAttrs, rescuedFields } =
+          cleanProductAttributesWithRescuedFields(row.attributes, {
+            brand_make: row.brand_make,
+            model_part_no: row.model_part_no,
+            country_of_origin: row.country_of_origin,
+            availability: row.availability,
+            hs_code: row.hs_code
+          });
+        const effBrand = (rescuedFields.brand_make || row.brand_make).trim();
+        const effModel = (rescuedFields.model_part_no || row.model_part_no).trim();
+        const effOrigin = (rescuedFields.country_of_origin || row.country_of_origin).trim();
+        const effAvailability = normalizeLeadTime(rescuedFields.availability || row.availability);
+        const effHsCode = (rescuedFields.hs_code || row.hs_code).trim();
+        const effUnit = normalizeCatalogUnit(row.unit || (row.is_composite_set ? 'Set' : 'Nos'));
 
         if (row.resolutionMode === 'update_existing' && row.targetExistingProductId) {
           const existingProd = workingProducts.find((p) => p.id === row.targetExistingProductId);
           if (existingProd && existingProd.id) {
-            const mergedAttrs = mergeParentAndVariantAttributes(existingProd.attributes, cleanAttrs);
+            const mergedAttrs = cleanProductAttributesWithRescuedFields(
+              mergeParentAndVariantAttributes(existingProd.attributes, cleanAttrs),
+              {
+                brand_make: effBrand || existingProd.brand_make,
+                model_part_no: effModel || existingProd.model_part_no,
+                country_of_origin: effOrigin || existingProd.country_of_origin,
+                availability: effAvailability || existingProd.default_availability,
+                hs_code: effHsCode || existingProd.hs_code
+              }
+            ).attributes;
             const updatedProd: Product = {
               ...existingProd,
               name: row.name.trim() || existingProd.name,
               product_type: row.category || existingProd.product_type,
-              brand_make: row.brand_make.trim() || existingProd.brand_make,
-              model_part_no: row.model_part_no.trim() || existingProd.model_part_no,
+              brand_make: effBrand || existingProd.brand_make,
+              model_part_no: effModel || existingProd.model_part_no,
               sku: row.sku.trim() || existingProd.sku,
-              country_of_origin: row.country_of_origin.trim() || existingProd.country_of_origin,
-              hs_code: row.hs_code.trim() || existingProd.hs_code,
-              unit: (row.unit || existingProd.unit || 'Nos') as UnitType,
-              default_availability: row.availability.trim() || existingProd.default_availability,
+              country_of_origin: effOrigin || existingProd.country_of_origin,
+              hs_code: effHsCode || existingProd.hs_code,
+              unit: (effUnit || existingProd.unit || 'Nos') as UnitType,
+              default_availability: effAvailability || existingProd.default_availability,
               unit_price: row.unit_price_aed > 0 ? row.unit_price_aed : existingProd.unit_price,
               cost_price: row.cost_price_aed > 0 ? row.cost_price_aed : existingProd.cost_price,
               attributes: mergedAttrs,
@@ -762,7 +807,7 @@ export default function AICatalogImporterModal({
                 row.name.trim() || existingProd.name || '',
                 row.category || existingProd.product_type,
                 row.sku.trim() || existingProd.sku || '',
-                row.brand_make.trim() || row.model_part_no.trim()
+                effBrand || effModel
               ),
               updatedAt: nowIso
             };
