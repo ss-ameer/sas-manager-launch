@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Enquiry, Company, Contact, AuditLog, UserProfile, Salesperson, Workspace, Attachment, Project, ProjectMilestone, Product, LineItem, QuotationLineItem, DropdownOption, ENQUIRY_STATUS_OPTIONS, normalizeEnquiryStatus, resolveSalespersonIdentifier, resolveSalespersonName, normalizeEnquirySource, PIPELINE_STATUS_GROUPS } from '../types';
 import { sanitizeAuditPayload } from '../utils/sanitizeAuditLog';
@@ -336,21 +336,42 @@ export default function EnquiryDetail({
     matchedProduct?: Product;
   } | null>(null);
 
+  const prevEnquiryIdRef = useRef<string | undefined>(enquiry?.id);
+  const isInlineEditingItemsRef = useRef<boolean>(false);
+  useEffect(() => {
+    isInlineEditingItemsRef.current = isInlineEditingItems;
+  }, [isInlineEditingItems]);
+
   // Synchronize local enquiry when prop updates
   useEffect(() => {
+    const isNewEnquiryId = enquiry?.id !== prevEnquiryIdRef.current;
+    prevEnquiryIdRef.current = enquiry?.id;
+
     const hydratedItems = rehydrateLineItemsFromCatalog(enquiry.line_items || [], products);
     const initialEnq = { ...enquiry, line_items: hydratedItems };
     setCurrentEnquiry(initialEnq);
-    setDraftLineItems(hydratedItems);
-    setIsInlineEditingItems(false);
-    setShowQuoteSyncPrompt(false);
-    setActiveOptionTab('ALL');
+
+    if (isNewEnquiryId) {
+      setDraftLineItems(hydratedItems);
+      setIsInlineEditingItems(false);
+      isInlineEditingItemsRef.current = false;
+      setShowQuoteSyncPrompt(false);
+      setActiveOptionTab('ALL');
+    } else if (!isInlineEditingItemsRef.current) {
+      setDraftLineItems(hydratedItems);
+    } else {
+      setDraftLineItems((prev) => rehydrateLineItemsFromCatalog(prev, products));
+    }
+
+    const targetEnqId = enquiry?.id;
     rehydrateDocumentBlobsFromLocal(initialEnq)
       .then((rehydrated) => {
-        if (rehydrated) {
+        if (rehydrated && prevEnquiryIdRef.current === targetEnqId) {
           const finalItems = rehydrateLineItemsFromCatalog(rehydrated.line_items || [], products);
           setCurrentEnquiry({ ...rehydrated, line_items: finalItems });
-          setDraftLineItems(finalItems);
+          if (!isInlineEditingItemsRef.current) {
+            setDraftLineItems(finalItems);
+          }
         }
       })
       .catch(() => {});
@@ -1092,7 +1113,9 @@ export default function EnquiryDetail({
         page_break_after: (li as any).page_break_after,
         row_spacer_after_mm: (li as any).row_spacer_after_mm,
         image_url: li.image_url,
+        image_storage_key: (li as any).image_storage_key,
         secondary_image_url: li.secondary_image_url,
+        secondary_image_storage_key: (li as any).secondary_image_storage_key,
         image_caption: li.image_caption,
         secondary_image_caption: li.secondary_image_caption,
         image_adjustments: li.image_adjustments,
@@ -1104,8 +1127,112 @@ export default function EnquiryDetail({
         is_composite_set: li.is_composite_set,
         sub_components: li.sub_components,
         package_pricing_mode: li.package_pricing_mode
-      };
+      } as QuotationLineItem;
     });
+  };
+
+  const mergeFreshEnquiryItemIntoQuoteItem = (
+    freshIt: QuotationLineItem,
+    existingLineItems: QuotationLineItem[] | undefined,
+    idx: number
+  ): QuotationLineItem => {
+    const list = existingLineItems || [];
+    const prevIt =
+      (freshIt.id && list.find((oldIt) => oldIt.id === freshIt.id)) ||
+      list.find(
+        (oldIt, oldIdx) =>
+          oldIdx === idx &&
+          (oldIt.id === `item_${idx}` ||
+            oldIt.id === `item_${idx + 1}` ||
+            (!oldIt.id && (oldIt.sn === idx + 1 || oldIdx === idx)) ||
+            (freshIt.product_id && oldIt.product_id === freshIt.product_id) ||
+            (freshIt.item_name &&
+              oldIt.item_name &&
+              freshIt.item_name.trim().toLowerCase() === oldIt.item_name.trim().toLowerCase()))
+      );
+    const rawLinkedCatProd =
+      freshIt.product_id && Array.isArray(products)
+        ? products.find((p) => p.id === freshIt.product_id)
+        : undefined;
+    const linkedCatProd = rawLinkedCatProd
+      ? resolveEffectiveCatalogProduct(rawLinkedCatProd, products)
+      : undefined;
+    const freshImgIsJustCatalogDefault =
+      Boolean(freshIt.image_url) &&
+      Boolean(linkedCatProd?.image_url) &&
+      freshIt.image_url === linkedCatProd?.image_url &&
+      !(freshIt as any).image_storage_key;
+    const freshSecImgIsJustCatalogDefault =
+      Boolean(freshIt.secondary_image_url) &&
+      Boolean(linkedCatProd?.secondary_image_url) &&
+      freshIt.secondary_image_url === linkedCatProd?.secondary_image_url &&
+      !(freshIt as any).secondary_image_storage_key;
+    const effectiveImageDisplayOverride =
+      freshIt.image_display_override ?? prevIt?.image_display_override;
+    const preservePrevCustomImg =
+      Boolean(prevIt) &&
+      (!freshIt.image_url || freshImgIsJustCatalogDefault) &&
+      (Boolean((prevIt as any)?.image_storage_key) ||
+        (Boolean(prevIt?.image_url) && prevIt?.image_url !== linkedCatProd?.image_url) ||
+        effectiveImageDisplayOverride === 'hidden' ||
+        String(effectiveImageDisplayOverride) === 'none');
+    const preservePrevCustomSecImg =
+      Boolean(prevIt) &&
+      (!freshIt.secondary_image_url || freshSecImgIsJustCatalogDefault) &&
+      (Boolean((prevIt as any)?.secondary_image_storage_key) ||
+        (Boolean(prevIt?.secondary_image_url) &&
+          prevIt?.secondary_image_url !== linkedCatProd?.secondary_image_url));
+    const resolvedImgStorageKey =
+      (freshIt as any).image_storage_key ||
+      (preservePrevCustomImg ? (prevIt as any)?.image_storage_key : undefined);
+    const resolvedSecImgStorageKey =
+      (freshIt as any).secondary_image_storage_key ||
+      (preservePrevCustomSecImg ? (prevIt as any)?.secondary_image_storage_key : undefined);
+
+    return {
+      ...(prevIt || {}),
+      ...freshIt,
+      id: prevIt?.id || freshIt.id || `item_${idx + 1}`,
+      attributes:
+        Array.isArray(freshIt.attributes) && freshIt.attributes.length > 0
+          ? freshIt.attributes
+          : prevIt?.attributes || [],
+      technical_attributes:
+        (freshIt as any).technical_attributes ?? (prevIt as any)?.technical_attributes,
+      visible_attributes: freshIt.visible_attributes ?? prevIt?.visible_attributes,
+      hidden_attributes: freshIt.hidden_attributes ?? prevIt?.hidden_attributes,
+      attribute_order: freshIt.attribute_order ?? prevIt?.attribute_order,
+      attribute_line_breaks_after:
+        freshIt.attribute_line_breaks_after ?? prevIt?.attribute_line_breaks_after,
+      attribute_full_width_keys:
+        freshIt.attribute_full_width_keys ?? prevIt?.attribute_full_width_keys,
+      page_break_after: freshIt.page_break_after ?? prevIt?.page_break_after,
+      row_spacer_after_mm: freshIt.row_spacer_after_mm ?? prevIt?.row_spacer_after_mm,
+      row_note: freshIt.row_note ?? prevIt?.row_note,
+      row_highlight: freshIt.row_highlight ?? prevIt?.row_highlight,
+      row_bold: freshIt.row_bold ?? prevIt?.row_bold,
+      hide_row_price: freshIt.hide_row_price ?? prevIt?.hide_row_price,
+      image_url: preservePrevCustomImg
+        ? prevIt?.image_url ?? ''
+        : freshIt.image_url || prevIt?.image_url,
+      ...(resolvedImgStorageKey ? { image_storage_key: resolvedImgStorageKey } : {}),
+      secondary_image_url: preservePrevCustomSecImg
+        ? prevIt?.secondary_image_url ?? ''
+        : freshIt.secondary_image_url || prevIt?.secondary_image_url,
+      ...(resolvedSecImgStorageKey
+        ? { secondary_image_storage_key: resolvedSecImgStorageKey }
+        : {}),
+      image_caption: freshIt.image_caption ?? prevIt?.image_caption,
+      secondary_image_caption:
+        freshIt.secondary_image_caption ?? prevIt?.secondary_image_caption,
+      image_adjustments: freshIt.image_adjustments ?? prevIt?.image_adjustments,
+      image_display_override: effectiveImageDisplayOverride,
+      image_size_override: freshIt.image_size_override ?? prevIt?.image_size_override,
+      image_aspect_override: freshIt.image_aspect_override ?? prevIt?.image_aspect_override,
+      datasheet_attachment: freshIt.datasheet_attachment || prevIt?.datasheet_attachment,
+      include_datasheet_in_quote:
+        freshIt.include_datasheet_in_quote ?? prevIt?.include_datasheet_in_quote ?? true
+    } as QuotationLineItem;
   };
 
   // Helper to synthesize a Quotation representation from an Enquiry record (baseline proposal or linked sheet revision)
@@ -1458,12 +1585,14 @@ export default function EnquiryDetail({
       const deliverNow = remainingToDeliver > 0 ? remainingToDeliver : orderedQty;
       const nextSubComponents = Array.isArray(item.sub_components)
         ? item.sub_components.map((sub) => {
-            const subOrd = Number(sub.qty_ordered ?? sub.quantity) || 0;
+            const perSetSubQty = Number(sub.quantity) || 0;
+            const totalSubOrd = Math.round(perSetSubQty * Math.max(1, orderedQty) * 100) / 100;
+            const totalSubDel = Math.round(perSetSubQty * Math.max(0, deliverNow) * 100) / 100;
             return {
               ...sub,
-              qty_ordered: subOrd,
-              qty_delivered: subOrd,
-              qty_balance: 0
+              qty_ordered: totalSubOrd,
+              qty_delivered: totalSubDel,
+              qty_balance: Math.max(0, Math.round((totalSubOrd - totalSubDel) * 100) / 100)
             };
           })
         : undefined;
@@ -2924,31 +3053,9 @@ export default function EnquiryDetail({
           const mappedQuoteItems = buildBaseLineItemsFromSource(null, updatedEnquiry);
           const syncedDrafts: Quotation[] = [];
           for (const dq of draftQuotes) {
-            const mergedItems: QuotationLineItem[] = mappedQuoteItems.map((freshIt, idx) => {
-              const prevIt = freshIt.id
-                ? (dq.line_items || []).find((oldIt) => oldIt.id === freshIt.id)
-                : undefined;
-              return {
-                ...(prevIt || {}),
-                ...freshIt,
-                id: prevIt?.id || freshIt.id || `item_${idx + 1}`,
-                attributes: Array.isArray(freshIt.attributes) ? freshIt.attributes : prevIt?.attributes || [],
-                visible_attributes: freshIt.visible_attributes ?? prevIt?.visible_attributes,
-                hidden_attributes: freshIt.hidden_attributes ?? prevIt?.hidden_attributes,
-                attribute_order: freshIt.attribute_order ?? prevIt?.attribute_order,
-                attribute_line_breaks_after: freshIt.attribute_line_breaks_after ?? prevIt?.attribute_line_breaks_after,
-                attribute_full_width_keys: freshIt.attribute_full_width_keys ?? prevIt?.attribute_full_width_keys,
-                page_break_after: freshIt.page_break_after ?? prevIt?.page_break_after,
-                row_spacer_after_mm: freshIt.row_spacer_after_mm ?? prevIt?.row_spacer_after_mm,
-                row_note: freshIt.row_note ?? prevIt?.row_note,
-                row_highlight: freshIt.row_highlight ?? prevIt?.row_highlight,
-                row_bold: freshIt.row_bold ?? prevIt?.row_bold,
-                hide_row_price: freshIt.hide_row_price ?? prevIt?.hide_row_price,
-                image_display_override: freshIt.image_display_override ?? prevIt?.image_display_override,
-                image_size_override: freshIt.image_size_override ?? prevIt?.image_size_override,
-                image_aspect_override: freshIt.image_aspect_override ?? prevIt?.image_aspect_override
-              };
-            });
+            const mergedItems: QuotationLineItem[] = mappedQuoteItems.map((freshIt, idx) =>
+              mergeFreshEnquiryItemIntoQuoteItem(freshIt, dq.line_items, idx)
+            );
             const totals = QuotationRepository.calculateTotals(
               mergedItems,
               dq.freight_amount || 0,
@@ -3013,17 +3120,9 @@ export default function EnquiryDetail({
       });
       if (savedEnq && resolvedQuote && String(resolvedQuote.status || 'Draft').toLowerCase() === 'draft') {
         const mappedQuoteItems = buildBaseLineItemsFromSource(null, savedEnq);
-        const mergedItems: QuotationLineItem[] = mappedQuoteItems.map((freshIt, idx) => {
-          const prevIt = freshIt.id
-            ? (resolvedQuote?.line_items || []).find((oldIt) => oldIt.id === freshIt.id)
-            : undefined;
-          return {
-            ...(prevIt || {}),
-            ...freshIt,
-            id: prevIt?.id || freshIt.id || `item_${idx + 1}`,
-            attributes: Array.isArray(freshIt.attributes) ? freshIt.attributes : prevIt?.attributes || []
-          };
-        });
+        const mergedItems: QuotationLineItem[] = mappedQuoteItems.map((freshIt, idx) =>
+          mergeFreshEnquiryItemIntoQuoteItem(freshIt, resolvedQuote?.line_items, idx)
+        );
         const totals = QuotationRepository.calculateTotals(
           mergedItems,
           resolvedQuote.freight_amount || 0,
@@ -8237,6 +8336,8 @@ export default function EnquiryDetail({
                               parentQuantity={item.quantity || 1}
                               currency={(currentEnquiry.currency as string) || 'USD'}
                               products={products || []}
+                              setProducts={setProducts}
+                              activeWorkspace={activeWorkspace}
                               onChange={(patch) => {
                                 const effectivePricingMode =
                                   patch.package_pricing_mode || item.package_pricing_mode || 'lump_sum';

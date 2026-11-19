@@ -920,9 +920,18 @@ export class QuotationRepository {
     );
 
     const suffixMode = source.recipient_config?.revisionSuffixMode || 'hyphen';
-    const rawBaseFormatted = stripKnownRevSuffix(source.formatted_quote_ref || baseQuoteNumber);
+    const rawSourceFormatted = (source.formatted_quote_ref || '').trim();
+    const rawBaseFormatted = stripKnownRevSuffix(rawSourceFormatted || baseQuoteNumber);
     const formattedQuoteRef =
-      suffixMode === 'hidden'
+      suffixMode === 'custom' && rawSourceFormatted
+        ? /-R\d+$/i.test(rawSourceFormatted)
+          ? rawSourceFormatted.replace(/-R\d+$/i, `-R${nextRev}`)
+          : /\/Rev\.?\s*\d+$/i.test(rawSourceFormatted)
+          ? rawSourceFormatted.replace(/\/Rev\.?\s*\d+$/i, `/Rev.${nextRev}`)
+          : /\(Rev\.?\s*\d+\)$/i.test(rawSourceFormatted)
+          ? rawSourceFormatted.replace(/\(Rev\.?\s*\d+\)$/i, `(Rev ${nextRev})`)
+          : rawSourceFormatted
+        : suffixMode === 'hidden'
         ? rawBaseFormatted
         : suffixMode === 'slash'
         ? `${rawBaseFormatted}/Rev.${nextRev}`

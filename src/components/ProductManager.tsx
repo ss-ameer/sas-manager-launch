@@ -4015,6 +4015,8 @@ export default function ProductManager({
                         }}
                         currency="AED"
                         products={activeCatalogProducts.filter((p) => p.id !== editingProduct?.id)}
+                        setProducts={setProducts}
+                        activeWorkspace={activeWorkspace}
                         onChange={(updates) => {
                           if (updates.is_composite_set !== undefined) {
                             setFormIsCompositeSet(updates.is_composite_set);

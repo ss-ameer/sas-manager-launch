@@ -79,6 +79,8 @@ interface CompositePackageEditorProps {
   parentQuantity?: number;
   currency?: string;
   products?: Product[];
+  setProducts?: React.Dispatch<React.SetStateAction<Product[]>>;
+  onCatalogProductUpserted?: (product: Product) => void;
   activeWorkspace?: any;
   onChange: (patch: {
     is_composite_set: boolean;
@@ -106,6 +108,8 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
   parentQuantity: propParentQuantity,
   currency = 'AED',
   products = [],
+  setProducts,
+  onCatalogProductUpserted,
   activeWorkspace,
   onChange,
   compact = false,
@@ -747,6 +751,16 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
       });
       if (upserted) {
         setLocalSavedProducts((prev) => [...prev.filter((p) => p.id !== upserted.id), upserted]);
+        if (typeof setProducts === 'function') {
+          setProducts((prev) =>
+            prev.some((p) => p.id === upserted.id)
+              ? prev.map((p) => (p.id === upserted.id ? upserted : p))
+              : [upserted, ...prev]
+          );
+        }
+        if (onCatalogProductUpserted) {
+          onCatalogProductUpserted(upserted);
+        }
       }
       if (!comp.product_id || comp.product_id !== targetProd.id) {
         handleUpdateSubPatch(comp.id, {
@@ -814,6 +828,12 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
       };
       await MetadataRepository.upsertLocalProduct(savedProd);
       setLocalSavedProducts((prev) => [...prev.filter((p) => p.id !== createdId), savedProd]);
+      if (typeof setProducts === 'function') {
+        setProducts((prev) => [savedProd, ...prev.filter((p) => p.id !== createdId)]);
+      }
+      if (onCatalogProductUpserted) {
+        onCatalogProductUpserted(savedProd);
+      }
       handleUpdateSubPatch(comp.id, {
         product_id: createdId,
         sku: generatedSku,

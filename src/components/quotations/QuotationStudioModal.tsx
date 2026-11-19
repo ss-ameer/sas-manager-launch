@@ -2666,6 +2666,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     );
   });
 
+  const hasHydratedConcreteQuoteRef = useRef<boolean>(false);
+  const lastActiveQuotationIdRef = useRef<string | undefined>(editingQuotation?.id);
+  const sessionDocDraftsRef = useRef<Record<string, Quotation>>({});
+
   // Complete, leak-free state hydration helper when switching quotations, enquiries, or revisions (R1 <-> R2)
   const hydrateStudioFromQuotation = useCallback(
     (targetQuote: Quotation | null) => {
@@ -2677,6 +2681,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           !String(targetQuote.id).startsWith('baseline_') &&
           !String(targetQuote.id).startsWith('preview_')
       );
+      if (isSavedConcreteQuotation) {
+        hasHydratedConcreteQuoteRef.current = true;
+      }
       const isBaselineOrUnstyledDraft =
         !targetQuote ||
         Boolean((targetQuote as any)._isBaselineEnquiryProposal) ||
@@ -2699,6 +2706,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       );
       const resolvedDocType = hydrated.documentType || initialDocumentType || 'quotation';
       setDocumentType(resolvedDocType);
+      if (resolvedDocType === 'quotation' && hydrated.activeQuotationId) {
+        lastActiveQuotationIdRef.current = hydrated.activeQuotationId;
+      }
       if (resolvedDocType !== 'quotation') {
         setActiveLeftTab('content');
         setIsLeftDrawerOpen(true);
@@ -3077,24 +3087,37 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         const rawSourceItems: QuotationLineItem[] | null =
           hasSavedQuotationItems
             ? targetQuote.line_items.map((item, idx) => {
-                const enqIt = (enquiry?.line_items || []).find(
-                  (li) =>
-                    (item.id && li.id && item.id === li.id) ||
-                    (!item.id &&
-                      !li.id &&
-                      item.product_id &&
-                      li.product_id &&
-                      item.product_id === li.product_id &&
-                      item.sn === idx + 1)
-                );
+                const enqIt =
+                  (item.id && (enquiry?.line_items || []).find((li) => li.id === item.id)) ||
+                  (enquiry?.line_items || []).find(
+                    (li, eIdx) =>
+                      eIdx === idx &&
+                      (item.id === `item_${idx}` ||
+                        item.id === `item_${idx + 1}` ||
+                        (!item.id && !li.id) ||
+                        (item.product_id && li.product_id === item.product_id) ||
+                        (item.item_name &&
+                          li.item_name &&
+                          item.item_name.trim().toLowerCase() === li.item_name.trim().toLowerCase()))
+                  );
+                const hasItemStorageKey = Boolean((item as any).image_storage_key);
+                const hasItemSecStorageKey = Boolean((item as any).secondary_image_storage_key);
+                const isImageHidden =
+                  item.image_display_override === 'hidden' ||
+                  String(item.image_display_override) === 'none';
                 return {
                   ...(enqIt || {}),
                   ...item,
                   id: item.id || enqIt?.id || `item_${idx + 1}`,
                   sn: item.sn || idx + 1,
-                  image_url: item.image_url || enqIt?.image_url,
+                  image_url:
+                    hasItemStorageKey || isImageHidden
+                      ? item.image_url || ''
+                      : item.image_url || enqIt?.image_url,
                   image_storage_key: (item as any).image_storage_key || (enqIt as any)?.image_storage_key,
-                  secondary_image_url: item.secondary_image_url || enqIt?.secondary_image_url,
+                  secondary_image_url: hasItemSecStorageKey
+                    ? item.secondary_image_url || ''
+                    : item.secondary_image_url || enqIt?.secondary_image_url,
                   secondary_image_storage_key:
                     (item as any).secondary_image_storage_key ||
                     (enqIt as any)?.secondary_image_storage_key
@@ -3102,16 +3125,19 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               })
             : isDraftQuote && hasFreshEnquiryItems
             ? enquiry!.line_items.map((li, idx) => {
-                const prevIt = (targetQuote.line_items || []).find(
-                  (oldIt) =>
-                    (oldIt.id && li.id && oldIt.id === li.id) ||
-                    (!oldIt.id &&
-                      !li.id &&
-                      oldIt.product_id &&
-                      li.product_id &&
-                      oldIt.product_id === li.product_id &&
-                      oldIt.sn === idx + 1)
-                );
+                const prevIt =
+                  (li.id && (targetQuote.line_items || []).find((oldIt) => oldIt.id === li.id)) ||
+                  (targetQuote.line_items || []).find(
+                    (oldIt, oldIdx) =>
+                      oldIdx === idx &&
+                      (oldIt.id === `item_${idx}` ||
+                        oldIt.id === `item_${idx + 1}` ||
+                        (!oldIt.id && !li.id) ||
+                        (oldIt.product_id && oldIt.product_id === li.product_id) ||
+                        (oldIt.item_name &&
+                          li.item_name &&
+                          oldIt.item_name.trim().toLowerCase() === li.item_name.trim().toLowerCase()))
+                  );
                 const qty = Number(li.quantity) || 1;
                 const rate = Number(li.unit_price) || 0;
                 const tot =
@@ -3199,9 +3225,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                   attribute_order: li.attribute_order ?? prevIt?.attribute_order,
                   attribute_line_breaks_after: li.attribute_line_breaks_after ?? prevIt?.attribute_line_breaks_after,
                   attribute_full_width_keys: li.attribute_full_width_keys ?? prevIt?.attribute_full_width_keys,
-                  image_url: prevIt?.image_url || li.image_url,
+                  image_url:
+                    (prevIt as any)?.image_storage_key ||
+                    (prevIt?.image_display_override ?? li.image_display_override) === 'hidden' ||
+                    String(prevIt?.image_display_override ?? li.image_display_override) === 'none'
+                      ? prevIt?.image_url || ''
+                      : prevIt?.image_url || li.image_url,
                   image_storage_key: (prevIt as any)?.image_storage_key || (li as any).image_storage_key,
-                  secondary_image_url: prevIt?.secondary_image_url || li.secondary_image_url,
+                  secondary_image_url: (prevIt as any)?.secondary_image_storage_key
+                    ? prevIt?.secondary_image_url || ''
+                    : prevIt?.secondary_image_url || li.secondary_image_url,
                   secondary_image_storage_key:
                     (prevIt as any)?.secondary_image_storage_key ||
                     (li as any).secondary_image_storage_key,
@@ -3789,6 +3822,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           loadedPresets[0];
 
         const isSavedConcreteQuote =
+          hasHydratedConcreteQuoteRef.current ||
           Boolean(
             editingQuotation?.id &&
               !(editingQuotation as any)._isBaselineEnquiryProposal &&
@@ -4863,11 +4897,19 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           ? compOverride.image_url
           : itemImageOverrides[itemKey] !== undefined
           ? itemImageOverrides[itemKey]
-          : item.image_url || matchedCatalogProduct?.image_url;
+          : item.image_url ||
+            ((item as any).image_storage_key ||
+            (compOverride.image_display_override ?? item.image_display_override) === 'hidden' ||
+            String(compOverride.image_display_override ?? item.image_display_override) === 'none'
+              ? ''
+              : matchedCatalogProduct?.image_url);
       const resolvedSecondaryImageUrl =
         compOverride.secondary_image_url !== undefined
           ? compOverride.secondary_image_url
-          : item.secondary_image_url ?? matchedCatalogProduct?.secondary_image_url;
+          : item.secondary_image_url ??
+            ((item as any).secondary_image_storage_key
+              ? ''
+              : matchedCatalogProduct?.secondary_image_url);
       const resolvedImageCaption =
         compOverride.image_caption !== undefined
           ? compOverride.image_caption
@@ -5317,6 +5359,31 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         ...prev,
         [itemKey]: Boolean(patch.page_break_after)
       }));
+    }
+    if ('product_id' in patch) {
+      setItemLinkedProductIds((prev) => ({
+        ...prev,
+        [itemKey]: patch.product_id || ''
+      }));
+    }
+    if ('image_url' in patch) {
+      setItemImageOverrides((prev) => {
+        if (!(itemKey in prev)) return prev;
+        const next = { ...prev };
+        delete next[itemKey];
+        return next;
+      });
+    }
+    if ('attributes' in patch && Array.isArray(patch.attributes)) {
+      setItemVisibleAttributes((prev) => {
+        if (!(itemKey in prev)) return prev;
+        const existingVis = prev[itemKey] || [];
+        const newKeys = patch.attributes!
+          .map((a) => String(a?.key || '').trim())
+          .filter(Boolean);
+        const mergedVis = Array.from(new Set([...existingVis, ...newKeys]));
+        return { ...prev, [itemKey]: mergedVis };
+      });
     }
     setItemCompositeOverrides((prev) => ({
       ...prev,
@@ -5904,6 +5971,25 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   const handleSwitchDocumentType = (nextType: CommercialDocumentType) => {
     if (nextType === documentType) return;
     const prevType = documentType;
+
+    // Snapshot current in-memory document state so switching document tabs never loses unsaved edits
+    const currentSnapshot: Quotation = {
+      ...liveQuotation,
+      document_type: prevType
+    };
+    sessionDocDraftsRef.current[prevType] = currentSnapshot;
+    if (prevType === 'quotation' && currentSnapshot.id) {
+      lastActiveQuotationIdRef.current = currentSnapshot.id;
+      sessionDocDraftsRef.current[`quotation:${currentSnapshot.id}`] = currentSnapshot;
+    }
+    setEnquiryRevisions((prev) => {
+      if (!currentSnapshot.id) return prev;
+      const exists = prev.some((d) => d.id === currentSnapshot.id);
+      return exists
+        ? prev.map((d) => (d.id === currentSnapshot.id ? currentSnapshot : d))
+        : [...prev, currentSnapshot];
+    });
+
     setDocumentType(nextType);
     if (selectedSection) {
       const normalizedSectionId = String(selectedSection).replace(/^block:/, '');
@@ -5935,11 +6021,29 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         ? baseQuoteRef
         : `QT-${new Date().getFullYear()}-${String(enquiry.sn || 1).padStart(4, '0')}`;
 
-    // Ensure switching document types inside Studio targets a standalone document ID for that type
-    // so saving an auxiliary document never overwrites the baseline Quotation record.
-    const existingForNextType = enquiryRevisions.find(
-      (doc) => (doc.document_type || 'quotation') === nextType
-    );
+    // Ensure switching document types inside Studio targets the active revision or session draft for that type
+    // so saving an auxiliary document never overwrites the baseline Quotation record or loses unsaved Studio edits.
+    const existingForNextType: Quotation | undefined =
+      nextType === 'quotation'
+        ? (lastActiveQuotationIdRef.current
+            ? sessionDocDraftsRef.current[`quotation:${lastActiveQuotationIdRef.current}`]
+            : undefined) ||
+          sessionDocDraftsRef.current['quotation'] ||
+          (lastActiveQuotationIdRef.current
+            ? enquiryRevisions.find(
+                (doc) =>
+                  (doc.document_type || 'quotation') === 'quotation' &&
+                  doc.id === lastActiveQuotationIdRef.current
+              )
+            : undefined) ||
+          [...enquiryRevisions]
+            .filter((doc) => (doc.document_type || 'quotation') === 'quotation')
+            .sort((a, b) => (b.revision_number || 1) - (a.revision_number || 1))
+            .find((doc) => doc.status !== 'Superseded' && doc.status !== 'Declined') ||
+          enquiryRevisions.find((doc) => (doc.document_type || 'quotation') === 'quotation')
+        : sessionDocDraftsRef.current[nextType] ||
+          enquiryRevisions.find((doc) => (doc.document_type || 'quotation') === nextType);
+
     if (existingForNextType?.id) {
       hydrateStudioFromQuotation(existingForNextType);
       setDocumentType(nextType);
@@ -6193,7 +6297,25 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       }
       const cleanQuoteNumber = cleanBaseRef.replace(/-R\d+$/i, '');
       const revNum = revisionNumber ?? editingQuotation?.revision_number ?? 1;
-      setFormattedQuoteRefOverride(`${cleanQuoteNumber}-R${revNum}`);
+      const activeSuffixMode =
+        recipientConfig?.revisionSuffixMode ||
+        editingQuotation?.recipient_config?.revisionSuffixMode;
+      if (activeSuffixMode === 'custom') {
+        const preservedCustomRef =
+          editingQuotation?.formatted_quote_ref ||
+          editingQuotation?.quote_number ||
+          enquiry.quote_ref_no ||
+          cleanBaseRef;
+        setFormattedQuoteRefOverride(preservedCustomRef);
+      } else if (activeSuffixMode === 'hidden') {
+        setFormattedQuoteRefOverride(cleanQuoteNumber);
+      } else if (activeSuffixMode === 'slash') {
+        setFormattedQuoteRefOverride(`${cleanQuoteNumber}/Rev.${revNum}`);
+      } else if (activeSuffixMode === 'parens') {
+        setFormattedQuoteRefOverride(`${cleanQuoteNumber} (Rev ${revNum})`);
+      } else {
+        setFormattedQuoteRefOverride(`${cleanQuoteNumber}-R${revNum}`);
+      }
     }
 
     // Automatically select the matching default preset for the target document type
@@ -6203,10 +6325,16 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     const matchingDefault = matchingPresets.find((p) => p.is_default) || matchingPresets[0];
     if (matchingDefault) {
       setSelectedPresetId(matchingDefault.id || '');
-      if (matchingDefault.header_layout) setHeaderLayout(matchingDefault.header_layout);
-      if (matchingDefault.table_density) setTableDensity(matchingDefault.table_density);
-      if (matchingDefault.theme_accent) setThemeAccent(matchingDefault.theme_accent);
-      if (matchingDefault.block_style) setBlockStyle(matchingDefault.block_style);
+      const shouldApplyDefaultVisuals =
+        nextType !== 'quotation' ||
+        (!hasHydratedConcreteQuoteRef.current &&
+          (!editingQuotation || Boolean((editingQuotation as any)._isBaselineEnquiryProposal)));
+      if (shouldApplyDefaultVisuals) {
+        if (matchingDefault.header_layout) setHeaderLayout(matchingDefault.header_layout);
+        if (matchingDefault.table_density) setTableDensity(matchingDefault.table_density);
+        if (matchingDefault.theme_accent) setThemeAccent(matchingDefault.theme_accent);
+        if (matchingDefault.block_style) setBlockStyle(matchingDefault.block_style);
+      }
     } else {
       setSelectedPresetId('');
     }
@@ -19297,6 +19425,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 parentQuantity={curItem.quantity || 1}
                                 currency={liveQuotation.currency || 'AED'}
                                 products={workspaceProducts}
+                                setProducts={(updater) => {
+                                  setWorkspaceProducts(updater);
+                                  if (propSetProducts) propSetProducts(updater);
+                                }}
                                 activeWorkspace={activeWorkspace}
                                 tokenContext={studioTokenContext}
                                 onChange={(patch) => {
@@ -20455,6 +20587,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                               rIdx === idx ? { ...row, ...patch } : row
                                             )
                                           );
+                                          handleUpdateTopItemRowOption(itemKey, patch);
                                         }}
                                       />
                                       <VariantFamilyBar
@@ -20483,6 +20616,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                               rIdx === idx ? { ...row, ...nextItem } : row
                                             )
                                           );
+                                          handleUpdateTopItemRowOption(itemKey, nextItem);
                                         }}
                                       />
                                     </div>
@@ -20546,6 +20680,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         parentQuantity={item.quantity || 1}
                                         currency={liveQuotation.currency || (enquiry?.currency as string) || 'AED'}
                                         products={workspaceProducts}
+                                        setProducts={(updater) => {
+                                          setWorkspaceProducts(updater);
+                                          if (propSetProducts) propSetProducts(updater);
+                                        }}
                                         activeWorkspace={activeWorkspace}
                                         tokenContext={studioTokenContext}
                                         onChange={(patch) =>
@@ -29659,10 +29797,24 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         activeWorkspace={activeWorkspace}
         user={user}
         products={workspaceProducts}
-        setProducts={setWorkspaceProducts}
-        onSaved={(newProd) => {
+        setProducts={(updater) => {
+          setWorkspaceProducts(updater);
+          if (propSetProducts) propSetProducts(updater);
+        }}
+        onSaved={(newProd, updatedParentProd) => {
+          const upsertBoth = (prev: Product[]) => {
+            let list = [...prev];
+            if (updatedParentProd?.id) {
+              list = list.some((p) => p.id === updatedParentProd.id)
+                ? list.map((p) => (p.id === updatedParentProd.id ? updatedParentProd : p))
+                : [updatedParentProd, ...list];
+            }
+            list = [newProd, ...list.filter((p) => p.id !== newProd.id)];
+            return list;
+          };
+          setWorkspaceProducts(upsertBoth);
           if (propSetProducts) {
-            propSetProducts((prev) => [newProd, ...prev.filter((p) => p.id !== newProd.id)]);
+            propSetProducts(upsertBoth);
           }
           if (catalogModalTarget?.itemKey && newProd.id) {
             const targetKey = catalogModalTarget.itemKey;

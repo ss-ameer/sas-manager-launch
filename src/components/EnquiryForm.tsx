@@ -5330,11 +5330,17 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             const updatedQuoteLineItems = cleanLineItems.map((li, idx) => {
               const existingQuoteItem =
                 (li.id && activeDraftQuote.line_items?.find((qi) => qi.id === li.id)) ||
-                (!li.id &&
-                  li.product_id &&
-                  activeDraftQuote.line_items?.find(
-                    (qi, qIdx) => qi.product_id === li.product_id && qIdx === idx
-                  ));
+                activeDraftQuote.line_items?.find(
+                  (qi, qIdx) =>
+                    qIdx === idx &&
+                    (qi.id === `item_${idx}` ||
+                      qi.id === `item_${idx + 1}` ||
+                      (!qi.id && !li.id) ||
+                      (li.product_id && qi.product_id === li.product_id) ||
+                      (li.item_name &&
+                        qi.item_name &&
+                        li.item_name.trim().toLowerCase() === qi.item_name.trim().toLowerCase()))
+                );
               const qty = Number(li.quantity) || 1;
               const uPrice = Number(li.unit_price) || 0;
               const tPrice =
@@ -5364,6 +5370,47 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 resolvedOpt.toLowerCase().includes('optional') ||
                 resolvedOpt.toLowerCase().includes('add-on') ||
                 (Boolean((li as any).is_optional) && !/^option\s+[a-z0-9]/i.test(resolvedOpt));
+              const rawLinkedCatProd =
+                li.product_id && Array.isArray(products)
+                  ? products.find((p) => p.id === li.product_id)
+                  : undefined;
+              const linkedCatProd = rawLinkedCatProd
+                ? resolveEffectiveCatalogProduct(rawLinkedCatProd, products)
+                : undefined;
+              const liImgIsJustCatalogDefault =
+                Boolean(li.image_url) &&
+                Boolean(linkedCatProd?.image_url) &&
+                li.image_url === linkedCatProd?.image_url &&
+                !(li as any).image_storage_key;
+              const liSecImgIsJustCatalogDefault =
+                Boolean(li.secondary_image_url) &&
+                Boolean(linkedCatProd?.secondary_image_url) &&
+                li.secondary_image_url === linkedCatProd?.secondary_image_url &&
+                !(li as any).secondary_image_storage_key;
+              const effectiveImageDisplayOverride =
+                li.image_display_override ?? existingQuoteItem?.image_display_override;
+              const preserveExistingCustomImg =
+                Boolean(existingQuoteItem) &&
+                (!li.image_url || liImgIsJustCatalogDefault) &&
+                (Boolean((existingQuoteItem as any)?.image_storage_key) ||
+                  (Boolean(existingQuoteItem?.image_url) &&
+                    existingQuoteItem?.image_url !== linkedCatProd?.image_url) ||
+                  (effectiveImageDisplayOverride as any) === 'hidden' ||
+                  String(effectiveImageDisplayOverride) === 'none');
+              const preserveExistingCustomSecImg =
+                Boolean(existingQuoteItem) &&
+                (!li.secondary_image_url || liSecImgIsJustCatalogDefault) &&
+                (Boolean((existingQuoteItem as any)?.secondary_image_storage_key) ||
+                  (Boolean(existingQuoteItem?.secondary_image_url) &&
+                    existingQuoteItem?.secondary_image_url !== linkedCatProd?.secondary_image_url));
+              const resolvedImgStorageKey =
+                (li as any).image_storage_key ||
+                (preserveExistingCustomImg ? (existingQuoteItem as any)?.image_storage_key : undefined);
+              const resolvedSecImgStorageKey =
+                (li as any).secondary_image_storage_key ||
+                (preserveExistingCustomSecImg
+                  ? (existingQuoteItem as any)?.secondary_image_storage_key
+                  : undefined);
               return {
                 ...(existingQuoteItem || {}),
                 id: existingQuoteItem?.id || li.id || `item_${idx}`,
@@ -5390,12 +5437,18 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                 model_part_no: li.model_part_no || existingQuoteItem?.model_part_no,
                 country_of_origin: li.country_of_origin || existingQuoteItem?.country_of_origin,
                 hs_code: li.hs_code || existingQuoteItem?.hs_code,
-                image_url: li.image_url || existingQuoteItem?.image_url,
-                secondary_image_url: li.secondary_image_url || existingQuoteItem?.secondary_image_url,
+                image_url: preserveExistingCustomImg
+                  ? existingQuoteItem?.image_url ?? ''
+                  : li.image_url || existingQuoteItem?.image_url,
+                image_storage_key: resolvedImgStorageKey,
+                secondary_image_url: preserveExistingCustomSecImg
+                  ? existingQuoteItem?.secondary_image_url ?? ''
+                  : li.secondary_image_url || existingQuoteItem?.secondary_image_url,
+                secondary_image_storage_key: resolvedSecImgStorageKey,
                 image_caption: li.image_caption ?? existingQuoteItem?.image_caption,
                 secondary_image_caption: li.secondary_image_caption ?? existingQuoteItem?.secondary_image_caption,
                 image_adjustments: li.image_adjustments ?? existingQuoteItem?.image_adjustments,
-                image_display_override: li.image_display_override ?? existingQuoteItem?.image_display_override,
+                image_display_override: effectiveImageDisplayOverride,
                 image_size_override: li.image_size_override ?? existingQuoteItem?.image_size_override,
                 image_aspect_override: li.image_aspect_override ?? existingQuoteItem?.image_aspect_override,
                 datasheet_attachment: li.datasheet_attachment || existingQuoteItem?.datasheet_attachment,
@@ -5444,13 +5497,27 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             );
             const assignedRep = resolveSalespersonName(updatedDoc);
             const rawSyncedRef = (updatedDoc.quote_ref_no || quoteRefNo || '').trim();
-            const baseSyncedRef = rawSyncedRef.replace(/-R\d+$/i, '');
+            const baseSyncedRef = rawSyncedRef
+              .replace(/-R\d+$/i, '')
+              .replace(/\/Rev\.?\s*\d+$/i, '')
+              .replace(/\s*\(Rev\.?\s*\d+\)$/i, '')
+              .trim();
             const draftRevNum = Math.max(1, Number(activeDraftQuote.revision_number) || 1);
-            const syncedFormattedQuoteRef = baseSyncedRef
-              ? draftRevNum > 1
-                ? `${baseSyncedRef}-R${draftRevNum}`
+            const draftSuffixMode = activeDraftQuote.recipient_config?.revisionSuffixMode;
+            const syncedFormattedQuoteRef =
+              draftSuffixMode === 'custom'
+                ? rawSyncedRef || activeDraftQuote.formatted_quote_ref || baseSyncedRef
+                : draftSuffixMode === 'hidden'
+                ? baseSyncedRef || activeDraftQuote.formatted_quote_ref
                 : baseSyncedRef
-              : activeDraftQuote.formatted_quote_ref;
+                ? draftSuffixMode === 'slash'
+                  ? `${baseSyncedRef}/Rev.${draftRevNum}`
+                  : draftSuffixMode === 'parens'
+                  ? `${baseSyncedRef} (Rev ${draftRevNum})`
+                  : draftRevNum > 1
+                  ? `${baseSyncedRef}-R${draftRevNum}`
+                  : activeDraftQuote.formatted_quote_ref || baseSyncedRef
+                : activeDraftQuote.formatted_quote_ref;
             const existingQuoteCurrency = String(activeDraftQuote.currency || '').trim().toUpperCase();
             const isForeignStudioCurrency =
               existingQuoteCurrency &&
@@ -5466,7 +5533,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
               currency: syncedDraftCurrency,
               ...(baseSyncedRef
                 ? {
-                    quote_number: baseSyncedRef,
+                    quote_number: draftSuffixMode === 'custom' ? (rawSyncedRef || baseSyncedRef) : baseSyncedRef,
                     formatted_quote_ref: syncedFormattedQuoteRef
                   }
                 : {}),
@@ -8508,6 +8575,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                 parentQuantity={item.quantity || 1}
                                 currency={formCurrency || 'AED'}
                                 products={products || []}
+                                setProducts={setProducts}
                                 activeWorkspace={activeWorkspace}
                                 onChange={(patch) => {
                                   if (patch.is_composite_set === false) {

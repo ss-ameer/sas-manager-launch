@@ -13,6 +13,7 @@ import { safeAddDoc, safeUpdateDoc } from '../firebase';
 import { generateProductSearchTerms } from '../utils/defaults';
 import { UNIVERSAL_CATEGORIES, UNIVERSAL_UNITS } from '../constants';
 import { uploadWorkspaceMediaAsset } from '../services/attachmentStorage';
+import { MetadataRepository } from '../services/repositories/MetadataRepository';
 import LineItemImageOptionsPopover from './common/LineItemImageOptionsPopover';
 import {
   Package,
@@ -669,6 +670,8 @@ export async function syncLineItemToCatalogProduct(
     ...product,
     ...patch
   };
+
+  await MetadataRepository.upsertLocalProduct(mergedProduct).catch(() => {});
 
   if (typeof setProducts === 'function') {
     setProducts((prev: Product[]) => prev.map((p) => (p.id === product.id ? mergedProduct : p)));
@@ -1557,6 +1560,9 @@ export async function saveLineItemAsSpecVariant(params: {
   }
   const targetVariantProdId = createdVariantProduct.id;
 
+  await MetadataRepository.upsertLocalProduct(updatedParentProduct).catch(() => {});
+  await MetadataRepository.upsertLocalProduct(createdVariantProduct).catch(() => {});
+
   if (typeof setProducts === 'function') {
     setProducts((prev: Product[]) => {
       const updatedList = (prev || []).map((p) => (p.id === parentProduct.id ? updatedParentProduct : p));
@@ -2402,8 +2408,8 @@ interface SaveToCatalogModalProps {
   units?: string[];
   setProducts?: React.Dispatch<React.SetStateAction<Product[]>>;
   setProductCategories?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
-  onSaved?: (newProduct: Product) => void;
-  onProductSaved?: (newProduct: Product) => void;
+  onSaved?: (newProduct: Product, updatedParentProduct?: Product) => void;
+  onProductSaved?: (newProduct: Product, updatedParentProduct?: Product) => void;
   triggerToast?: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
 
@@ -2865,8 +2871,8 @@ export default function SaveToCatalogModal({
         });
 
         if (res?.createdVariantProduct) {
-          if (onSaved) onSaved(res.createdVariantProduct);
-          if (onProductSaved) onProductSaved(res.createdVariantProduct);
+          if (onSaved) onSaved(res.createdVariantProduct, res.updatedParentProduct);
+          if (onProductSaved) onProductSaved(res.createdVariantProduct, res.updatedParentProduct);
           onClose();
         }
         return;
@@ -2961,6 +2967,8 @@ export default function SaveToCatalogModal({
           id: existingMatch.id
         } as Product;
 
+        await MetadataRepository.upsertLocalProduct(updatedProduct).catch(() => {});
+
         const nextProductsList = (products || []).map((p) =>
           p.id === existingMatch.id ? updatedProduct : p
         );
@@ -3026,6 +3034,8 @@ export default function SaveToCatalogModal({
         id: newId,
         ...productPayload
       } as Product;
+
+      await MetadataRepository.upsertLocalProduct(createdProduct).catch(() => {});
 
       const nextProductsList = [createdProduct, ...(products || []).filter((p) => p.id !== newId)];
       if (setProducts) {

@@ -388,6 +388,7 @@ export function splitLineItemsIntoChunks(
     autoPaginate?: boolean;
     columnConfig?: QuotationPresetColumns;
     preTableOverheadMm?: number;
+    quotation?: Quotation;
   } | boolean,
   _density?: 'compact' | 'comfortable' | 'spacious',
   preTableOverheadMm: number = 0
@@ -406,6 +407,7 @@ export function splitLineItemsIntoChunks(
   const autoPaginate =
     typeof options === 'boolean' ? options : Boolean(options?.autoPaginate);
   const colCfg = (typeof options === 'object' && options !== null ? options.columnConfig : undefined) || {};
+  const quoteObj = typeof options === 'object' && options !== null ? options.quotation : undefined;
   const resolvedPreTableOverheadMm =
     typeof options === 'object' && options !== null && typeof options.preTableOverheadMm === 'number'
       ? options.preTableOverheadMm
@@ -417,10 +419,43 @@ export function splitLineItemsIntoChunks(
   const bomSubImgMode = colCfg.bomSubComponentImageMode || 'small';
   const showSubAttrsGlobal = colCfg.showBomSubComponentAttributes !== false;
   const showAttrs = colCfg.showItemAttributes !== false;
+  const showBrand = colCfg.brand ?? true;
+  const showModel = colCfg.model ?? true;
+  const showOrigin = colCfg.origin ?? true;
+  const showAvailability = colCfg.availability ?? true;
   const attrFormat = colCfg.attributeDisplayFormat || 'grid_2col_balanced';
+  const balanceOrphan = colCfg.balanceOrphanAttributeRow ?? true;
   const hiddenAttrKeys = new Set(
     (colCfg.hiddenAttributeKeys || []).map((k) => String(k).trim().toLowerCase())
   );
+  const showDedicatedImageCol =
+    showImgs &&
+    ((baseImgLayout as string) === 'Dedicated Column' || (baseImgLayout as string) === 'table_col');
+
+  const rawFontScale = String(
+    quoteObj?.table_font_scale ||
+      (colCfg as any).tableFontScale ||
+      quoteObj?.font_size_scale ||
+      (quoteObj as any)?.fontSizeScale ||
+      'standard'
+  ).toLowerCase();
+  const fontScaleMultiplier =
+    rawFontScale === 'xs'
+      ? 0.9
+      : rawFontScale === 'sm' || rawFontScale === 'compact'
+      ? 0.95
+      : rawFontScale === 'lg' || rawFontScale === 'large'
+      ? 1.09
+      : rawFontScale === 'xl'
+      ? 1.18
+      : 1.0;
+
+  const rawDensity = String(_density || quoteObj?.table_density || 'compact').toLowerCase();
+  const densityExtraPadMm =
+    rawDensity === 'spacious' ? 2.6 : rawDensity === 'comfortable' ? 1.1 : 0;
+
+  const isFullRepeatContHeader =
+    quoteObj?.header_config?.continuationHeaderMode === 'full_repeat';
 
   const resolveSizePx = (sizeKey?: string): number => {
     switch (sizeKey) {
@@ -447,125 +482,72 @@ export function splitLineItemsIntoChunks(
   const countWrappedLines = (text: string, charsPerLine: number): number => {
     const trimmed = (text || '').trim();
     if (!trimmed) return 0;
+    const safeChars = Math.max(12, charsPerLine);
     return trimmed
       .split(/\r?\n/)
-      .reduce((sum, seg) => sum + Math.max(1, Math.ceil(seg.trim().length / charsPerLine)), 0);
+      .reduce((sum, seg) => sum + Math.max(1, Math.ceil(seg.trim().length / safeChars)), 0);
   };
 
-  const SHEET_1_BUDGET_MM = Math.max(65, 175 - Math.max(0, resolvedPreTableOverheadMm));
-  const CONTINUATION_SHEET_BUDGET_MM = 220;
+  const canonicalEstimatorAttrKey = (rawKey: string): string => {
+    const norm = String(rawKey || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .replace(/\bcolours\b/g, 'color')
+      .replace(/\bcolour\b/g, 'color')
+      .replace(/\bdimensions\b/g, 'dimension');
+    if (
+      norm === 'brand' ||
+      norm === 'make' ||
+      norm === 'brand make' ||
+      norm === 'make brand' ||
+      norm === 'manufacturer' ||
+      norm === 'brand manufacturer'
+    ) {
+      return 'brand';
+    }
+    if (
+      norm === 'model' ||
+      norm === 'model no' ||
+      norm === 'part no' ||
+      norm === 'part' ||
+      norm === 'model part' ||
+      norm === 'model part no'
+    ) {
+      return 'model';
+    }
+    if (
+      norm === 'origin' ||
+      norm === 'country' ||
+      norm === 'country of origin' ||
+      norm === 'origin country'
+    ) {
+      return 'origin';
+    }
+    if (
+      norm === 'delivery' ||
+      norm === 'availability' ||
+      norm === 'delivery availability' ||
+      norm === 'lead time' ||
+      norm === 'lead time delivery' ||
+      norm === 'delivery lead time' ||
+      norm === 'delivery time' ||
+      norm === 'delivery period'
+    ) {
+      return 'delivery';
+    }
+    return norm;
+  };
+
+  const SHEET_1_BUDGET_MM = Math.max(65, 172 - Math.max(0, resolvedPreTableOverheadMm));
+  const CONTINUATION_SHEET_BUDGET_MM = isFullRepeatContHeader ? 184 : 206;
+  const hasAnyBomSetInTable = lineItems.some(
+    (it) => Array.isArray(it?.sub_components) && it.sub_components.length > 0
+  );
+  const TABLE_CONT_FOOTER_ROW_MM = 9.5;
+  const MID_SET_CONT_NOTICE_ROW_MM = 7.5;
 
   const estimateParentRowHeightMm = (item: QuotationLineItem): number => {
-    const { cleanDescription, extractedSpecsAttrs } =
-      extractLineItemAttributesAndCleanDescription(item);
-    const titleLines = Math.max(
-      1,
-      countWrappedLines(item.item_name || item.description || '', 62)
-    );
-    const descLines =
-      cleanDescription && cleanDescription.trim() !== (item.item_name || '').trim()
-        ? countWrappedLines(cleanDescription, 68)
-        : 0;
-    const noteLines = countWrappedLines(item.row_note || '', 68);
-    const hasSubs = Array.isArray(item.sub_components) && item.sub_components.length > 0;
-    const spacerMm = !hasSubs ? Number(item.row_spacer_after_mm || 0) : 0;
-
-    // Calculate technical attributes & metadata badges vertical height
-    let attributesHeightMm = 0;
-    if (showAttrs) {
-      const normSpecKey = (k: string) => String(k || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-      const itemVisibleKeySet = Array.isArray(item.visible_attributes)
-        ? new Set(item.visible_attributes.map((k) => normSpecKey(k)))
-        : null;
-      const itemHiddenKeySet = Array.isArray(item.hidden_attributes)
-        ? new Set(item.hidden_attributes.map((k) => normSpecKey(k)))
-        : null;
-      const isItemAttrKeyAllowed = (rawKey: string): boolean => {
-        const kLower = String(rawKey || '').trim().toLowerCase();
-        const kNorm = normSpecKey(rawKey);
-        if (!kLower || hiddenAttrKeys.has(kLower)) return false;
-        if (itemVisibleKeySet !== null) {
-          return (
-            itemVisibleKeySet.has(kNorm) ||
-            item.visible_attributes!.some((k) => String(k || '').trim().toLowerCase() === kLower)
-          );
-        }
-        if (itemHiddenKeySet !== null) {
-          return (
-            !itemHiddenKeySet.has(kNorm) &&
-            !item.hidden_attributes!.some((k) => String(k || '').trim().toLowerCase() === kLower)
-          );
-        }
-        return true;
-      };
-
-      const explicitAttrs: Array<{ key: string; value: string }> = Array.isArray(item.attributes)
-        ? item.attributes
-            .filter(
-              (a) =>
-                a &&
-                Boolean((a.key || (a as any).name) && String(a.value ?? '').trim()) &&
-                isItemAttrKeyAllowed(String(a.key || (a as any).name))
-            )
-            .map((a) => ({
-              key: String(a.key || (a as any).name).trim(),
-              value: String(a.value).trim()
-            }))
-        : item.attributes && typeof item.attributes === 'object'
-        ? Object.entries(item.attributes)
-            .filter(
-              ([k, v]) =>
-                Boolean(k && String(v ?? '').trim()) &&
-                isItemAttrKeyAllowed(String(k))
-            )
-            .map(([k, v]) => ({ key: String(k).trim(), value: String(v).trim() }))
-        : [];
-      const seenKeys = new Set(explicitAttrs.map((a) => normSpecKey(a.key)));
-      const extraSpecs = extractedSpecsAttrs.filter(
-        (pair) =>
-          !seenKeys.has(normSpecKey(pair.key)) &&
-          isItemAttrKeyAllowed(pair.key)
-      );
-      const totalAttrCount = explicitAttrs.length + extraSpecs.length;
-      const lineBreakExtraSlots = Array.isArray(item.attribute_line_breaks_after)
-        ? item.attribute_line_breaks_after.filter((k) => isItemAttrKeyAllowed(k)).length
-        : 0;
-      const fullWidthExtraSlots = Array.isArray(item.attribute_full_width_keys)
-        ? item.attribute_full_width_keys.filter((k) => isItemAttrKeyAllowed(k)).length
-        : 0;
-      const effectiveAttrSlots = totalAttrCount + lineBreakExtraSlots + fullWidthExtraSlots;
-      if (effectiveAttrSlots > 0) {
-        if (attrFormat === 'grid_3col') {
-          attributesHeightMm += 3 + Math.ceil(effectiveAttrSlots / 3) * 4.4;
-        } else if (attrFormat === 'pills' || attrFormat === 'inline_text') {
-          attributesHeightMm += 3 + Math.ceil(effectiveAttrSlots / 3) * 4.2;
-        } else {
-          // grid_2col_balanced or table_2col
-          attributesHeightMm += 3.5 + Math.ceil(effectiveAttrSlots / 2) * 4.6;
-        }
-      }
-      const hasMetaBadges = Boolean(
-        item.brand_make ||
-          (item as any).brand ||
-          item.sku ||
-          item.country_of_origin ||
-          item.hs_code ||
-          item.availability ||
-          (item as any).lead_time_note ||
-          (item as any).delivery_time
-      );
-      if (hasMetaBadges) {
-        attributesHeightMm += 4.5;
-      }
-    }
-
-    const textHeightMm =
-      9.5 +
-      Math.max(0, titleLines - 1) * 3.8 +
-      descLines * 3.6 +
-      attributesHeightMm +
-      (noteLines > 0 ? Math.max(4.5, noteLines * 3.6) : 0);
-
     const itemOverride = item.image_display_override || 'inherit';
     const effectiveLayout =
       itemOverride !== 'inherit'
@@ -577,22 +559,244 @@ export function splitLineItemsIntoChunks(
         : 'hidden';
 
     const hasVisual = Boolean(item.image_url || item.secondary_image_url);
-    if (!hasVisual || effectiveLayout === 'hidden' || effectiveLayout === 'photo_schedule') {
-      return textHeightMm + spacerMm;
-    }
-
     const effSizeKey =
       item.image_size_override && item.image_size_override !== 'inherit'
         ? item.image_size_override
         : baseImgSize;
     const px = resolveSizePx(effSizeKey);
+    const hasInlineVisual =
+      hasVisual &&
+      !showDedicatedImageCol &&
+      (effectiveLayout === 'inline_left' || effectiveLayout === 'inline_right');
+    const inlineImgWidthMm = hasInlineVisual ? Math.ceil(px / 3.78) + 3.5 : 0;
+    const textWidthRatio = hasInlineVisual
+      ? Math.max(0.45, (94 - inlineImgWidthMm) / 94)
+      : 1.0;
+
+    const titleCharsPerLine = Math.max(
+      26,
+      Math.floor((58 / fontScaleMultiplier) * textWidthRatio)
+    );
+    const descCharsPerLine = Math.max(
+      30,
+      Math.floor((64 / fontScaleMultiplier) * textWidthRatio)
+    );
+    const pillCharsBudget2Col = Math.max(
+      13,
+      Math.floor((24 / fontScaleMultiplier) * textWidthRatio)
+    );
+
+    const { cleanDescription, extractedSpecsAttrs } =
+      extractLineItemAttributesAndCleanDescription(item);
+    const titleLines = Math.max(
+      1,
+      countWrappedLines(item.item_name || item.description || '', titleCharsPerLine)
+    );
+    const descLines =
+      cleanDescription && cleanDescription.trim() !== (item.item_name || '').trim()
+        ? countWrappedLines(cleanDescription, descCharsPerLine)
+        : 0;
+    const noteLines = countWrappedLines(item.row_note || '', descCharsPerLine);
+    const hasSubs = Array.isArray(item.sub_components) && item.sub_components.length > 0;
+    const spacerMm = !hasSubs ? Number(item.row_spacer_after_mm || 0) : 0;
+
+    // Calculate technical attributes & metadata pills vertical height matching renderItemsTable
+    let attributesHeightMm = 0;
+    if (showAttrs) {
+      const allAttrs: Array<{ key: string; value: string }> = [];
+      if (showBrand && item.brand_make && item.brand_make.trim() && item.brand_make !== '—') {
+        allAttrs.push({ key: 'Brand', value: item.brand_make.trim() });
+      }
+      if (showModel && item.model_part_no && item.model_part_no.trim() && item.model_part_no !== '—') {
+        allAttrs.push({ key: 'Model', value: item.model_part_no.trim() });
+      }
+      if (showOrigin && item.country_of_origin && item.country_of_origin.trim() && item.country_of_origin !== '—') {
+        allAttrs.push({ key: 'Origin', value: item.country_of_origin.trim() });
+      }
+      const effAvail =
+        item.availability || (item as any).lead_time_note || (item as any).delivery_time;
+      if (showAvailability && effAvail && String(effAvail).trim()) {
+        allAttrs.push({ key: 'Delivery', value: String(effAvail).trim() });
+      }
+
+      const rawAttrs: Array<{ key: string; value: string }> = [];
+      const itemAny = item as any;
+      if (Array.isArray(item.attributes)) {
+        item.attributes.forEach((a) => {
+          if (a && (a.key || (a as any).name) && String(a.value ?? '').trim()) {
+            rawAttrs.push({
+              key: String(a.key || (a as any).name).trim(),
+              value: String(a.value).trim()
+            });
+          }
+        });
+      } else if (itemAny.attributes && typeof itemAny.attributes === 'object') {
+        Object.entries(itemAny.attributes).forEach(([k, v]) => {
+          if (k && v !== undefined && v !== null && String(v).trim() !== '') {
+            rawAttrs.push({ key: String(k).trim(), value: String(v).trim() });
+          }
+        });
+      }
+      if (Array.isArray(itemAny.specs)) {
+        itemAny.specs.forEach((s: any) => {
+          if (s && s.key && s.value) {
+            rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
+          }
+        });
+      }
+      if (Array.isArray(itemAny.specifications)) {
+        itemAny.specifications.forEach((s: any) => {
+          if (s && s.key && s.value) {
+            rawAttrs.push({ key: String(s.key).trim(), value: String(s.value).trim() });
+          }
+        });
+      }
+      extractedSpecsAttrs.forEach((ea) => {
+        if (ea && ea.key && ea.value) {
+          rawAttrs.push({ key: String(ea.key).trim(), value: String(ea.value).trim() });
+        }
+      });
+
+      rawAttrs.forEach((attr) => {
+        const cKey = canonicalEstimatorAttrKey(attr.key);
+        if (cKey === 'brand' && !showBrand) return;
+        if (cKey === 'model' && !showModel) return;
+        if (cKey === 'origin' && !showOrigin) return;
+        if (cKey === 'delivery' && !showAvailability) return;
+        if (!allAttrs.some((a) => canonicalEstimatorAttrKey(a.key) === cKey)) {
+          allAttrs.push(attr);
+        }
+      });
+
+      const itemVisibleKeys = Array.isArray(item.visible_attributes)
+        ? item.visible_attributes.map((k) => canonicalEstimatorAttrKey(k))
+        : undefined;
+      const itemHiddenKeys = Array.isArray(item.hidden_attributes)
+        ? item.hidden_attributes.map((k) => canonicalEstimatorAttrKey(k))
+        : undefined;
+
+      const visibleAttrs = allAttrs.filter((attr) => {
+        const kLower = attr.key.toLowerCase();
+        const cKey = canonicalEstimatorAttrKey(attr.key);
+        if (
+          hiddenAttrKeys.has(kLower) ||
+          Array.from(hiddenAttrKeys).some((hk) => canonicalEstimatorAttrKey(hk) === cKey)
+        ) {
+          return false;
+        }
+        if (itemVisibleKeys !== undefined) {
+          return (
+            itemVisibleKeys.includes(cKey) ||
+            item.visible_attributes!.some((k) => String(k || '').toLowerCase() === kLower)
+          );
+        }
+        if (itemHiddenKeys !== undefined) {
+          return (
+            !itemHiddenKeys.includes(cKey) &&
+            !item.hidden_attributes!.some((k) => String(k || '').toLowerCase() === kLower)
+          );
+        }
+        return true;
+      });
+
+      if (visibleAttrs.length > 0) {
+        const breakSet = new Set<string>(
+          (
+            Array.isArray(item.attribute_line_breaks_after)
+              ? item.attribute_line_breaks_after
+              : colCfg.attributeLineBreaksAfter || []
+          ).map((k) => canonicalEstimatorAttrKey(k))
+        );
+        const fullWidthSet = new Set<string>(
+          (
+            Array.isArray(item.attribute_full_width_keys)
+              ? item.attribute_full_width_keys
+              : colCfg.attributeFullWidthKeys || []
+          ).map((k) => canonicalEstimatorAttrKey(k))
+        );
+
+        const maxCols = attrFormat === 'grid_3col' ? 3 : 2;
+        const rows: Array<Array<{ key: string; value: string; isFullWidth: boolean }>> = [];
+        let curRow: Array<{ key: string; value: string; isFullWidth: boolean }> = [];
+
+        visibleAttrs.forEach((attr) => {
+          const cKey = canonicalEstimatorAttrKey(attr.key);
+          const isFull = fullWidthSet.has(cKey);
+          const hasBreak = breakSet.has(cKey);
+          if (isFull) {
+            if (curRow.length > 0) {
+              rows.push(curRow);
+              curRow = [];
+            }
+            rows.push([{ ...attr, isFullWidth: true }]);
+            return;
+          }
+          curRow.push({ ...attr, isFullWidth: false });
+          if (hasBreak || curRow.length >= maxCols) {
+            rows.push(curRow);
+            curRow = [];
+          }
+        });
+        if (curRow.length > 0) {
+          rows.push(curRow);
+        }
+
+        if (attrFormat === 'pills' || attrFormat === 'inline_text') {
+          const totalChars = visibleAttrs.reduce(
+            (sum, a) => sum + a.key.length + a.value.length + 5,
+            0
+          );
+          const pillLines = Math.max(1, Math.ceil(totalChars / Math.max(24, descCharsPerLine - 4)));
+          attributesHeightMm += 3.2 + pillLines * 4.4 * fontScaleMultiplier;
+        } else {
+          let gridHeightMm = 3.5;
+          rows.forEach((r) => {
+            if (r.length === 1 && (r[0].isFullWidth || balanceOrphan)) {
+              const cellLen = r[0].key.length + 2 + r[0].value.length;
+              const fullCharsBudget = pillCharsBudget2Col * 2 + 4;
+              const lines = Math.max(1, Math.ceil(cellLen / fullCharsBudget));
+              gridHeightMm += (4.8 + Math.max(0, lines - 1) * 3.6) * fontScaleMultiplier;
+            } else {
+              const cellBudget =
+                maxCols === 3 ? Math.max(11, Math.floor(pillCharsBudget2Col * 0.66)) : pillCharsBudget2Col;
+              const maxLinesInRow = r.reduce((m, cell) => {
+                const cellLen = cell.key.length + 2 + cell.value.length;
+                const lines = Math.max(1, Math.ceil(cellLen / cellBudget));
+                return Math.max(m, lines);
+              }, 1);
+              gridHeightMm += (4.8 + Math.max(0, maxLinesInRow - 1) * 3.6) * fontScaleMultiplier;
+            }
+          });
+          attributesHeightMm += gridHeightMm;
+        }
+      }
+    }
+
+    const textHeightMm =
+      (10.0 +
+        Math.max(0, titleLines - 1) * 3.9 +
+        descLines * 3.7 +
+        (noteLines > 0 ? Math.max(4.6, noteLines * 3.7) : 0)) *
+        fontScaleMultiplier +
+      attributesHeightMm +
+      densityExtraPadMm;
+
+    if (
+      !hasVisual ||
+      effectiveLayout === 'hidden' ||
+      String(effectiveLayout) === 'none' ||
+      effectiveLayout === 'photo_schedule'
+    ) {
+      return textHeightMm + spacerMm;
+    }
+
     const captionExtraMm = item.image_caption || item.secondary_image_caption ? 4.5 : 0;
-    const imgHeightMm = Math.ceil(px / 3.78) + 3 + captionExtraMm;
+    const imgHeightMm = Math.ceil(px / 3.78) + 4 + captionExtraMm;
 
     if (effectiveLayout === 'below_specs') {
       return textHeightMm + imgHeightMm + spacerMm;
     }
-    return Math.max(textHeightMm, imgHeightMm + 3) + spacerMm;
+    return Math.max(textHeightMm, imgHeightMm + 3.5) + spacerMm;
   };
 
   const estimateSubRowHeightMm = (sub: {
@@ -602,6 +806,7 @@ export function splitLineItemsIntoChunks(
     model_part_no?: string;
     country_of_origin?: string;
     attributes?: Array<{ key: string; value: string }>;
+    specifications?: Record<string, any>;
     show_attributes?: boolean;
     show_image?: boolean;
     technical_highlight?: string;
@@ -609,43 +814,123 @@ export function splitLineItemsIntoChunks(
     row_note?: string;
     row_spacer_after_mm?: number;
     image_url?: string;
+    image_caption?: string;
   }): number => {
-    const nameLines = Math.max(1, countWrappedLines(sub.item_name || '', 68));
-    const descClean = String(sub.description || '')
-      .split(/\r?\n/)
-      .filter((l) => !/^specs?\s*:/i.test(l.trim()))
-      .join('\n')
-      .trim();
+    const subHasImg = bomSubImgMode !== 'off' && sub.show_image !== false && Boolean(sub.image_url);
+    const subHasInlineImg = subHasImg && !showDedicatedImageCol;
+    const subCharsPerLine = Math.max(
+      28,
+      Math.floor((subHasInlineImg ? 44 : 62) / fontScaleMultiplier)
+    );
+    const subPillCharsBudget = Math.max(
+      12,
+      Math.floor((subHasInlineImg ? 18 : 24) / fontScaleMultiplier)
+    );
+
+    const resolvedSubAttrs: Array<{ key: string; value: string }> = [];
+    const subSeenKeys = new Set<string>();
+    if (Array.isArray(sub.attributes)) {
+      sub.attributes.forEach((a) => {
+        const k = String(a?.key || '').trim();
+        const v = String(a?.value || '').replace(/^[•▪▸\-*]\s*/, '').trim();
+        if (k && v && !subSeenKeys.has(k.toLowerCase())) {
+          subSeenKeys.add(k.toLowerCase());
+          resolvedSubAttrs.push({ key: k, value: v });
+        }
+      });
+    }
+    if (sub.specifications && typeof sub.specifications === 'object') {
+      Object.entries(sub.specifications).forEach(([kRaw, vRaw]) => {
+        const k = String(kRaw || '').trim();
+        const v = String(vRaw || '').replace(/^[•▪▸\-*]\s*/, '').trim();
+        if (k && v && !subSeenKeys.has(k.toLowerCase())) {
+          subSeenKeys.add(k.toLowerCase());
+          resolvedSubAttrs.push({ key: k, value: v });
+        }
+      });
+    }
+    const subDescLines: string[] = [];
+    if (sub.description && sub.description.trim()) {
+      sub.description.split(/\r?\n/).forEach((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        if (/^specs?\s*:/i.test(trimmed)) {
+          const body = trimmed.replace(/^specs?\s*:\s*/i, '');
+          body.split(/\s*[|;•]\s*/).forEach((seg) => {
+            const kv = seg.match(/^([^:=]+)[:=]\s*(.+)$/);
+            if (kv) {
+              const k = kv[1].trim();
+              const v = kv[2].replace(/^[•▪▸\-*]\s*/, '').trim();
+              if (k && v && !subSeenKeys.has(k.toLowerCase())) {
+                subSeenKeys.add(k.toLowerCase());
+                resolvedSubAttrs.push({ key: k, value: v });
+              }
+            }
+          });
+          return;
+        }
+        subDescLines.push(trimmed);
+      });
+    }
+
+    const nameLines = Math.max(1, countWrappedLines(sub.item_name || '', subCharsPerLine));
+    const descClean = subDescLines.join('\n').trim();
     const descLines =
       descClean && descClean.toLowerCase() !== String(sub.item_name || '').trim().toLowerCase()
-        ? countWrappedLines(descClean, 68)
+        ? countWrappedLines(descClean, subCharsPerLine)
         : 0;
-    const hasMeta = Boolean(sub.brand_make || sub.model_part_no || sub.country_of_origin);
-    const metaMm = hasMeta ? 3.4 : 0;
-    const validSubAttrs =
-      showSubAttrsGlobal && sub.show_attributes !== false && Array.isArray(sub.attributes)
-        ? sub.attributes.filter((a) => a && a.key?.trim() && a.value?.trim())
-        : [];
-    const subAttrMm =
-      validSubAttrs.length > 0 ? 2.2 + Math.ceil(validSubAttrs.length / 2) * 3.8 : 0;
+    const subMetaText = [
+      sub.brand_make ? `Brand: ${sub.brand_make}` : '',
+      sub.model_part_no ? `Model: ${sub.model_part_no}` : '',
+      sub.country_of_origin ? `Origin: ${sub.country_of_origin}` : ''
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    const metaLines = subMetaText ? countWrappedLines(subMetaText, subCharsPerLine) : 0;
+    const metaMm = metaLines * 3.5;
+
+    let subAttrMm = 0;
+    if (showSubAttrsGlobal && sub.show_attributes !== false && resolvedSubAttrs.length > 0) {
+      subAttrMm += 2.8;
+      for (let i = 0; i < resolvedSubAttrs.length; i += 2) {
+        const c1 = resolvedSubAttrs[i];
+        const c2 = resolvedSubAttrs[i + 1];
+        const l1 = Math.max(1, Math.ceil((c1.key.length + 2 + c1.value.length) / subPillCharsBudget));
+        const l2 = c2
+          ? Math.max(1, Math.ceil((c2.key.length + 2 + c2.value.length) / subPillCharsBudget))
+          : 1;
+        const rowLines = Math.max(l1, l2);
+        subAttrMm += (3.9 + Math.max(0, rowLines - 1) * 3.3) * fontScaleMultiplier;
+      }
+    }
+
     const highlightLines = sub.technical_highlight
-      ? countWrappedLines(sub.technical_highlight, 68)
+      ? countWrappedLines(sub.technical_highlight, subCharsPerLine)
       : 0;
-    const remarkMm = sub.remark && sub.remark.trim() ? 3.5 : 0;
-    const noteLines = countWrappedLines(sub.row_note || '', 68);
-    const noteMm = noteLines > 0 ? Math.max(3.5, noteLines * 3.5) : 0;
+    const remarkLines = sub.remark && sub.remark.trim()
+      ? countWrappedLines(`Remark : ${sub.remark.trim()}`, subCharsPerLine)
+      : 0;
+    const noteLines = countWrappedLines(sub.row_note || '', subCharsPerLine);
+    const noteMm = noteLines > 0 ? Math.max(3.6, noteLines * 3.5) : 0;
+    const captionMm = subHasImg && sub.image_caption ? 3.2 : 0;
     const spacerMm = Number(sub.row_spacer_after_mm || 0);
+
     const baseSubMm =
-      7.5 +
-      Math.max(0, nameLines - 1) * 3.4 +
-      descLines * 3.3 +
-      metaMm +
+      (7.8 +
+        Math.max(0, nameLines - 1) * 3.6 +
+        descLines * 3.5 +
+        metaMm +
+        highlightLines * 3.5 +
+        remarkLines * 3.5 +
+        noteMm +
+        captionMm) *
+        fontScaleMultiplier +
       subAttrMm +
-      highlightLines * 3.4 +
-      remarkMm +
-      noteMm;
-    const subHasImg = bomSubImgMode !== 'off' && sub.show_image !== false && Boolean(sub.image_url);
-    return (subHasImg ? Math.max(baseSubMm, 11.5) : baseSubMm) + spacerMm;
+      densityExtraPadMm * 0.6;
+
+    const minImgHeightMm =
+      bomSubImgMode === 'match_parent' || String(bomSubImgMode) === 'medium' ? 16.5 : 12.5;
+    return (subHasImg ? Math.max(baseSubMm, minImgHeightMm) : baseSubMm) + spacerMm;
   };
 
   // Pre-pass: assign stable parentItemNumber, globalOptionItemNumber, and sub_component IDs
@@ -696,7 +981,9 @@ export function splitLineItemsIntoChunks(
 
     if (subs.length === 0) {
       const itemH = estimateParentRowHeightMm(item);
-      const budgetMm = chunks.length === 0 ? SHEET_1_BUDGET_MM : CONTINUATION_SHEET_BUDGET_MM;
+      const rawBudgetMm = chunks.length === 0 ? SHEET_1_BUDGET_MM : CONTINUATION_SHEET_BUDGET_MM;
+      const footerReserveMm = !isLastTopItem && hasAnyBomSetInTable ? TABLE_CONT_FOOTER_ROW_MM : 0;
+      const budgetMm = rawBudgetMm - footerReserveMm;
       if (autoPaginate && currentItems.length > 0 && runningHeightMm + itemH > budgetMm) {
         flushChunk(Math.max(1, parentNum - 1), idx);
       }
@@ -717,14 +1004,22 @@ export function splitLineItemsIntoChunks(
 
     // Composite BOM Set with sub_components
     const parentH = estimateParentRowHeightMm(item);
-    const firstSubH = estimateSubRowHeightMm(subs[0]);
+    const subHeights = subs.map((s) => estimateSubRowHeightMm(s));
+    const firstSubH = subHeights[0] || 0;
+    const totalSetH = parentH + subHeights.reduce((a, b) => a + b, 0);
     const initialBudgetMm = chunks.length === 0 ? SHEET_1_BUDGET_MM : CONTINUATION_SHEET_BUDGET_MM;
+    const initialMidSetReserveMm =
+      runningHeightMm + totalSetH > initialBudgetMm
+        ? MID_SET_CONT_NOTICE_ROW_MM + TABLE_CONT_FOOTER_ROW_MM
+        : !isLastTopItem
+        ? TABLE_CONT_FOOTER_ROW_MM
+        : 0;
 
     // Orphan-free Set header guard: keep parent Set header and first sub-row (1.1) together
     if (
       autoPaginate &&
       currentItems.length > 0 &&
-      runningHeightMm + parentH + firstSubH > initialBudgetMm
+      runningHeightMm + parentH + firstSubH + initialMidSetReserveMm > initialBudgetMm
     ) {
       flushChunk(Math.max(1, parentNum - 1), idx);
     }
@@ -735,11 +1030,26 @@ export function splitLineItemsIntoChunks(
 
     for (let sIdx = 0; sIdx < subs.length; sIdx++) {
       const sub = subs[sIdx];
-      const subH = estimateSubRowHeightMm(sub);
+      const subH = subHeights[sIdx];
       const activeBudgetMm = chunks.length === 0 ? SHEET_1_BUDGET_MM : CONTINUATION_SHEET_BUDGET_MM;
+      const remainingSubsHeightFromHere =
+        (currentSliceSubs.length === 0 && !isContinuationSlice ? parentH : 0) +
+        subHeights.slice(sIdx).reduce((a, b) => a + b, 0);
+      const setCanFinishOnThisSheet =
+        runningHeightMm + remainingSubsHeightFromHere <=
+        activeBudgetMm - (!isLastTopItem ? TABLE_CONT_FOOTER_ROW_MM : TABLE_CONT_FOOTER_ROW_MM * 0.5);
+      const activeContinuationReserveMm = setCanFinishOnThisSheet
+        ? !isLastTopItem
+          ? TABLE_CONT_FOOTER_ROW_MM
+          : TABLE_CONT_FOOTER_ROW_MM * 0.5
+        : MID_SET_CONT_NOTICE_ROW_MM + TABLE_CONT_FOOTER_ROW_MM;
 
-      // Auto-paginate mid-Set split if adding this sub-row exceeds the active sheet budget
-      if (autoPaginate && currentSliceSubs.length > 0 && runningHeightMm + subH > activeBudgetMm) {
+      // Auto-paginate mid-Set split if adding this sub-row exceeds the active sheet budget minus continuation rows
+      if (
+        autoPaginate &&
+        currentSliceSubs.length > 0 &&
+        runningHeightMm + subH + activeContinuationReserveMm > activeBudgetMm
+      ) {
         currentItems.push({
           ...item,
           sub_components: currentSliceSubs,
@@ -753,7 +1063,7 @@ export function splitLineItemsIntoChunks(
         currentSliceSubs = [];
         sliceStartSubIdx = sIdx;
         isContinuationSlice = true;
-        runningHeightMm = 8.5; // Continuation Set header height
+        runningHeightMm = 10.5; // Continuation Set header row height
       }
 
       if (currentSliceSubs.length === 0 && !isContinuationSlice) {
@@ -777,7 +1087,7 @@ export function splitLineItemsIntoChunks(
         currentSliceSubs = [];
         sliceStartSubIdx = sIdx + 1;
         isContinuationSlice = true;
-        runningHeightMm = 8.5;
+        runningHeightMm = 10.5;
       }
     }
 
@@ -4375,7 +4685,11 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     customerAcceptanceEnabled,
     preTableBlocks,
     resolvedRecipientConfig,
-    preTableOverheadMm
+    preTableOverheadMm,
+    quotation.table_font_scale,
+    quotation.font_size_scale,
+    quotation.table_density,
+    quotation.header_config?.continuationHeaderMode
   ]);
 
   const coverSheets = paginationWithAnnexes.coverSheets;
@@ -12884,19 +13198,58 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                       {showImageColumn && !isImgColBeforeDesc && renderSubImageCell()}
                                       {isDeliveryNote ? (
                                         (() => {
-                                          const subOrd = Number(sub.qty_ordered ?? sub.quantity ?? 0);
-                                          const subDel = Number(sub.qty_delivered ?? sub.quantity ?? 0);
+                                          const parentOrdSets = Math.max(
+                                            1,
+                                            Number(item.qty_ordered ?? item.quantity) || 1
+                                          );
+                                          const parentDelSets = Math.max(
+                                            0,
+                                            item.qty_delivered !== undefined
+                                              ? Number(item.qty_delivered)
+                                              : Number(item.quantity ?? parentOrdSets)
+                                          );
+                                          const perSetSubQty = Math.max(0, Number(sub.quantity ?? 0));
+                                          const subOrd =
+                                            sub.qty_ordered !== undefined &&
+                                            !(
+                                              parentOrdSets > 1 &&
+                                              Number(sub.qty_ordered) === perSetSubQty
+                                            )
+                                              ? Number(sub.qty_ordered)
+                                              : Math.round(perSetSubQty * parentOrdSets * 100) / 100;
+                                          const subDel =
+                                            sub.qty_delivered !== undefined &&
+                                            !(
+                                              parentDelSets > 1 &&
+                                              Number(sub.qty_delivered) === perSetSubQty
+                                            )
+                                              ? Number(sub.qty_delivered)
+                                              : Math.round(perSetSubQty * parentDelSets * 100) / 100;
                                           const subBal =
-                                            sub.qty_balance !== undefined
+                                            sub.qty_balance !== undefined &&
+                                            !(
+                                              (parentOrdSets > 1 || parentDelSets !== parentOrdSets) &&
+                                              Number(sub.qty_ordered ?? perSetSubQty) === perSetSubQty
+                                            )
                                               ? Number(sub.qty_balance)
-                                              : Math.max(0, subOrd - subDel);
+                                              : Math.max(0, Math.round((subOrd - subDel) * 100) / 100);
                                           return (
                                             <>
                                               <td className={`py-1.5 px-1 text-center font-mono text-slate-600 align-top ${tableFontSize} whitespace-nowrap`}>
-                                                {subOrd}
+                                                <div>{subOrd}</div>
+                                                {parentOrdSets > 1 && perSetSubQty > 0 && (
+                                                  <div className="text-[7.5px] text-slate-400 leading-none mt-0.5">
+                                                    ({perSetSubQty}/set)
+                                                  </div>
+                                                )}
                                               </td>
                                               <td className={`py-1.5 px-1 text-center font-mono font-bold text-slate-800 align-top ${tableFontSize} whitespace-nowrap`}>
-                                                {subDel}
+                                                <div>{subDel}</div>
+                                                {parentDelSets > 1 && perSetSubQty > 0 && (
+                                                  <div className="text-[7.5px] font-normal text-slate-400 leading-none mt-0.5">
+                                                    ({perSetSubQty}/set)
+                                                  </div>
+                                                )}
                                               </td>
                                               <td className={`py-1.5 px-1 text-center font-mono ${subBal > 0 ? 'text-amber-700 font-bold' : 'text-slate-500'} align-top ${tableFontSize} whitespace-nowrap`}>
                                                 {subBal}
