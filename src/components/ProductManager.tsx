@@ -124,6 +124,7 @@ interface ProductManagerProps {
   setProductCategories?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   setUnits?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   activeWorkspace?: Workspace;
+  setWorkspaces?: React.Dispatch<React.SetStateAction<Workspace[]>>;
   onOpenMobileMenu?: () => void;
   onOpenProcurement?: () => void;
   companies?: Company[];
@@ -139,6 +140,7 @@ export default function ProductManager({
   setProductCategories,
   setUnits,
   activeWorkspace,
+  setWorkspaces,
   onOpenMobileMenu,
   onOpenProcurement,
   companies,
@@ -148,6 +150,31 @@ export default function ProductManager({
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
   const [stockFilter, setStockFilter] = useState<'All' | 'Tracked' | 'LowStock' | 'WithDatasheet' | 'CompositeKit'>('All');
   const [groupVariantsByFamily, setGroupVariantsByFamily] = useState<boolean>(true);
+  const [workspaceCatalogGuidelines, setWorkspaceCatalogGuidelines] = useState<string>(
+    activeWorkspace?.catalog_ai_guidelines || ''
+  );
+
+  useEffect(() => {
+    if (!activeWorkspace?.id) return;
+    let resolvedRules = activeWorkspace.catalog_ai_guidelines || '';
+    if (!resolvedRules) {
+      try {
+        const rawWs = localStorage.getItem('omni_workspaces');
+        if (rawWs) {
+          const parsedWs: Workspace[] = JSON.parse(rawWs);
+          const matched = Array.isArray(parsedWs)
+            ? parsedWs.find((w) => w.id === activeWorkspace.id)
+            : undefined;
+          if (matched?.catalog_ai_guidelines) {
+            resolvedRules = matched.catalog_ai_guidelines;
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    setWorkspaceCatalogGuidelines(resolvedRules);
+  }, [activeWorkspace?.id, activeWorkspace?.catalog_ai_guidelines]);
 
   // Inline Category & Unit Creation States
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
@@ -1327,8 +1354,22 @@ export default function ProductManager({
         return merged.length > 0 ? merged : cleanedExtractedAttrs;
       });
     }
-    if (extracted.description) {
-      setFormDescription(extracted.description.trim());
+    const rawExtractedDesc = (extracted.description || '').trim();
+    const cleanExtractedDesc =
+      rawExtractedDesc &&
+      rawExtractedDesc.toLowerCase() !== (extracted.name || '').trim().toLowerCase()
+        ? rawExtractedDesc
+        : '';
+    if (cleanExtractedDesc) {
+      setFormDescription(cleanExtractedDesc);
+    } else if (extracted.name || cleanedExtractedAttrs.length > 0) {
+      setFormDescription(
+        compileDescriptionWithSpecs(
+          (extracted.name || formName || '').trim(),
+          '',
+          cleanedExtractedAttrs
+        )
+      );
     }
     if (extracted.is_composite_set && Array.isArray(extracted.sub_components) && extracted.sub_components.length > 0) {
       setFormIsCompositeSet(true);
@@ -1403,12 +1444,39 @@ export default function ProductManager({
         }
       }
 
+      const parentCandidatesForContext = activeCatalogProducts.filter(
+        (p) => !p.variant_parent_id && !(p as any).parent_product_id
+      );
+      const sortedParents = [...parentCandidatesForContext].sort((a, b) => {
+        const aIsFam = Boolean((a as any).has_variants || a.product_family) ? 1 : 0;
+        const bIsFam = Boolean((b as any).has_variants || b.product_family) ? 1 : 0;
+        return bIsFam - aIsFam;
+      });
+      const seenFam = new Set<string>();
+      const existingParentFamilies: Array<{ name: string; category?: string; unit?: string }> = [];
+      for (const p of sortedParents) {
+        const famName = (p.product_family || p.name || '').trim();
+        if (!famName) continue;
+        const key = famName.toLowerCase();
+        if (seenFam.has(key)) continue;
+        seenFam.add(key);
+        existingParentFamilies.push({
+          name: famName,
+          category: p.product_type || undefined,
+          unit: p.unit || undefined
+        });
+        if (existingParentFamilies.length >= 60) break;
+      }
+
       const batch = await extractCatalogProductsWithAI({
         content,
         isBase64,
         mimeType,
         fileName,
         existingCategories: productCategories,
+        existingParentFamilies,
+        workspaceCatalogGuidelines:
+          workspaceCatalogGuidelines || activeWorkspace?.catalog_ai_guidelines || '',
         preferredModel: formAiModel,
         onStatusUpdate: (msg) => setFormAiStatus(msg),
         scanMode
@@ -5599,6 +5667,18 @@ export default function ProductManager({
           setProductCategories={setProductCategories}
           units={units}
           activeWorkspace={activeWorkspace}
+          onUpdateWorkspaceGuidelines={(newGuidelines) => {
+            setWorkspaceCatalogGuidelines(newGuidelines);
+            if (setWorkspaces && activeWorkspace?.id) {
+              setWorkspaces((prev) =>
+                prev.map((w) =>
+                  w.id === activeWorkspace.id
+                    ? { ...w, catalog_ai_guidelines: newGuidelines }
+                    : w
+                )
+              );
+            }
+          }}
           triggerToast={triggerToast}
           initialExtractedItems={aiModalInitialItems}
           initialCurrency={aiModalInitialCurrency}

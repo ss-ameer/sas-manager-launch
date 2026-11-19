@@ -25,7 +25,7 @@ import {
   mergeParentAndVariantAttributes,
   deriveSuggestedVariantLabel
 } from './SaveToCatalogModal';
-import { safeAddDoc, safeUpdateDoc } from '../firebase';
+import { safeAddDoc, safeUpdateDoc, safeSetDoc } from '../firebase';
 import { MetadataRepository } from '../services/repositories/MetadataRepository';
 import { sanitizeFirestorePayload } from '../services/attachmentStorage';
 import { generateProductSearchTerms } from '../utils/defaults';
@@ -89,6 +89,7 @@ interface AICatalogImporterModalProps {
   setProductCategories?: React.Dispatch<React.SetStateAction<DropdownOption[]>>;
   units: string[];
   activeWorkspace?: Workspace;
+  onUpdateWorkspaceGuidelines?: (guidelines: string) => void;
   triggerToast?: (msg: string, type?: 'success' | 'error' | 'info') => void;
   initialExtractedItems?: ExtractedCatalogProductItem[];
   initialCurrency?: string;
@@ -105,6 +106,7 @@ export default function AICatalogImporterModal({
   setProductCategories,
   units,
   activeWorkspace,
+  onUpdateWorkspaceGuidelines,
   triggerToast,
   initialExtractedItems,
   initialCurrency
@@ -113,6 +115,12 @@ export default function AICatalogImporterModal({
   const [sourceCurrency, setSourceCurrency] = useState<string>(initialCurrency || 'AED');
   const [priceBasisMode, setPriceBasisMode] = useState<'selling' | 'cost_plus_markup'>('selling');
   const [defaultMarkupPct, setDefaultMarkupPct] = useState<number>(25);
+
+  const [showWorkspaceRules, setShowWorkspaceRules] = useState<boolean>(false);
+  const [workspaceRulesDraft, setWorkspaceRulesDraft] = useState<string>(
+    activeWorkspace?.catalog_ai_guidelines || ''
+  );
+  const [isSavingWorkspaceRules, setIsSavingWorkspaceRules] = useState<boolean>(false);
 
   const [rawPasteText, setRawPasteText] = useState<string>('');
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -128,6 +136,28 @@ export default function AICatalogImporterModal({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  useEffect(() => {
+    if (!activeWorkspace?.id) return;
+    let resolvedRules = activeWorkspace.catalog_ai_guidelines || '';
+    if (!resolvedRules) {
+      try {
+        const rawWs = localStorage.getItem('omni_workspaces');
+        if (rawWs) {
+          const parsedWs: Workspace[] = JSON.parse(rawWs);
+          const matched = Array.isArray(parsedWs)
+            ? parsedWs.find((w) => w.id === activeWorkspace.id)
+            : undefined;
+          if (matched?.catalog_ai_guidelines) {
+            resolvedRules = matched.catalog_ai_guidelines;
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    setWorkspaceRulesDraft(resolvedRules);
+  }, [activeWorkspace?.id, activeWorkspace?.catalog_ai_guidelines, isOpen]);
+
   const activeCatalogProducts = useMemo(
     () => (products || []).filter((p) => !p.is_deleted),
     [products]
@@ -140,6 +170,80 @@ export default function AICatalogImporterModal({
       ),
     [activeCatalogProducts]
   );
+
+  const existingParentFamiliesContext = useMemo(() => {
+    const sorted = [...parentCandidates].sort((a, b) => {
+      const aIsFam = Boolean((a as any).has_variants || a.product_family) ? 1 : 0;
+      const bIsFam = Boolean((b as any).has_variants || b.product_family) ? 1 : 0;
+      return bIsFam - aIsFam;
+    });
+    const seen = new Set<string>();
+    const result: Array<{ name: string; category?: string; unit?: string }> = [];
+    for (const p of sorted) {
+      const famName = (p.product_family || p.name || '').trim();
+      if (!famName) continue;
+      const key = famName.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push({
+        name: famName,
+        category: p.product_type || undefined,
+        unit: p.unit || undefined
+      });
+      if (result.length >= 60) break;
+    }
+    return result;
+  }, [parentCandidates]);
+
+  const handleSaveWorkspaceRules = async () => {
+    if (!activeWorkspace?.id || isSavingWorkspaceRules) return;
+    setIsSavingWorkspaceRules(true);
+    const cleanedRules = workspaceRulesDraft.trim();
+    try {
+      await safeUpdateDoc('workspaces', activeWorkspace.id, {
+        catalog_ai_guidelines: cleanedRules
+      }).catch(async () => {
+        await safeSetDoc(
+          'workspaces',
+          activeWorkspace.id,
+          { catalog_ai_guidelines: cleanedRules },
+          { merge: true }
+        );
+      });
+      activeWorkspace.catalog_ai_guidelines = cleanedRules;
+      try {
+        const rawWs = localStorage.getItem('omni_workspaces');
+        if (rawWs) {
+          const parsedWs: Workspace[] = JSON.parse(rawWs);
+          if (Array.isArray(parsedWs)) {
+            const updatedWs = parsedWs.map((w) =>
+              w.id === activeWorkspace.id
+                ? { ...w, catalog_ai_guidelines: cleanedRules }
+                : w
+            );
+            localStorage.setItem('omni_workspaces', JSON.stringify(updatedWs));
+          }
+        }
+      } catch {
+        // ignore localStorage errors
+      }
+      onUpdateWorkspaceGuidelines?.(cleanedRules);
+      setWorkspaceRulesDraft(cleanedRules);
+      triggerToast?.(
+        cleanedRules
+          ? `Saved Catalog AI Rules for ${activeWorkspace.name || 'Workspace'}.`
+          : `Cleared custom Catalog AI Rules for ${activeWorkspace.name || 'Workspace'}.`,
+        'success'
+      );
+    } catch (err: any) {
+      triggerToast?.(
+        `Failed to save workspace rules: ${err?.message || 'Error'}`,
+        'error'
+      );
+    } finally {
+      setIsSavingWorkspaceRules(false);
+    }
+  };
 
   const computePricesInAed = (
     rawSell: number,
@@ -351,6 +455,10 @@ export default function AICatalogImporterModal({
         } as LineItemComponent & { _raw_unit_price?: number; _raw_cost_price?: number };
       });
 
+      const rawItDesc = (it.description || '').trim();
+      const cleanItDesc =
+        rawItDesc && rawItDesc.toLowerCase() !== cleanName.toLowerCase() ? rawItDesc : '';
+
       return {
         tempId: `staged_${Date.now()}_${idx}`,
         selected: true,
@@ -372,7 +480,7 @@ export default function AICatalogImporterModal({
         rawSourceCost,
         cost_price_aed: costAed,
         unit_price_aed: sellAed,
-        description: (it.description || cleanName).trim(),
+        description: cleanItDesc,
         attributes: cleanedTopAttrs,
         is_composite_set: Boolean(it.is_composite_set || subComponents.length > 0),
         sub_components: subComponents,
@@ -521,6 +629,9 @@ export default function AICatalogImporterModal({
         mimeType: payloadMime,
         fileName: payloadFileName,
         existingCategories: productCategories,
+        existingParentFamilies: existingParentFamiliesContext,
+        workspaceCatalogGuidelines:
+          workspaceRulesDraft.trim() || activeWorkspace?.catalog_ai_guidelines || '',
         signal: controller.signal,
         preferredModel: selectedModel,
         onStatusUpdate: (msg) => setScanStatusText(msg),
@@ -874,7 +985,7 @@ export default function AICatalogImporterModal({
             compileDescriptionWithSpecs(baseName, row.description.trim(), finalAttrs) ||
             row.description.trim() ||
             baseName,
-          unit: (row.unit || parentProd?.unit || (row.is_composite_set ? 'SET' : 'Nos')) as UnitType,
+          unit: (effUnit || parentProd?.unit || (row.is_composite_set ? 'Set' : 'Nos')) as UnitType,
           unit_price: row.unit_price_aed >= 0 ? row.unit_price_aed : undefined,
           cost_price: row.cost_price_aed > 0 ? row.cost_price_aed : undefined,
           currency: 'AED',
@@ -1110,6 +1221,66 @@ export default function AICatalogImporterModal({
                     ))}
                   </select>
                 </div>
+              </div>
+
+              {/* Layer 2: Compact Collapsible Per-Workspace Catalog AI Rules */}
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowWorkspaceRules((prev) => !prev)}
+                  className="w-full px-3 py-2 flex items-center justify-between gap-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition cursor-pointer"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">
+                      ⚙️ Workspace Catalog AI Rules
+                    </span>
+                    {Boolean(
+                      workspaceRulesDraft.trim() ||
+                        activeWorkspace?.catalog_ai_guidelines?.trim()
+                    ) && (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9.5px] font-mono font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        <span>Active</span>
+                      </span>
+                    )}
+                  </div>
+                  {showWorkspaceRules ? (
+                    <ChevronUp className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  )}
+                </button>
+
+                {showWorkspaceRules && (
+                  <div className="px-3 pb-3 pt-1.5 border-t border-slate-100 dark:border-slate-800 space-y-2 bg-slate-50/50 dark:bg-slate-950/40">
+                    <p className="text-[10.5px] text-slate-500 dark:text-slate-400 leading-snug">
+                      Optional custom AI catalog rules for{' '}
+                      <strong className="text-slate-700 dark:text-slate-200">
+                        {activeWorkspace?.name || 'this workspace'}
+                      </strong>{' '}
+                      (e.g., preferred brand naming, category conventions, SKU prefixes, or spec keys).
+                    </p>
+                    <textarea
+                      rows={3}
+                      value={workspaceRulesDraft}
+                      onChange={(e) => setWorkspaceRulesDraft(e.target.value)}
+                      placeholder={`Example rules for ${activeWorkspace?.name || 'this workspace'}:\n- Group all FRP Vessels under "AVENTURA Multimedia FRP Filter Vessel"\n- Use category "Filter Media" for sand, carbon, and anthracite`}
+                      className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 text-[11px] font-mono text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 resize-y"
+                    />
+                    <div className="flex items-center justify-end">
+                      <button
+                        type="button"
+                        disabled={isSavingWorkspaceRules || !activeWorkspace?.id}
+                        onClick={() => void handleSaveWorkspaceRules()}
+                        className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold transition cursor-pointer disabled:opacity-50"
+                      >
+                        {isSavingWorkspaceRules
+                          ? 'Saving...'
+                          : `Save Rules for ${activeWorkspace?.name || 'Workspace'}`}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

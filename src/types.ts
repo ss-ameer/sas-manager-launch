@@ -96,6 +96,7 @@ export interface Workspace {
   dataVisibilityScope?: 'ALL_DATA' | 'OWN_DATA_ONLY' | 'ASSIGNED_ONLY' | string;
   document_profile?: any;
   settings?: WorkspaceSettings;
+  catalog_ai_guidelines?: string;
 }
 
 export type LegalSuffix = 'None / To Be Added Later' | 'None' | 'LLC' | 'FZE' | 'FZC' | 'Co. LLC' | 'Ltd' | 'W.L.L.' | 'Est.' | 'PJSC' | 'PrJSC' | 'None / Other';

@@ -2470,6 +2470,7 @@ export default function App() {
             setProductCategories={setProductCategories}
             setUnits={setUnits}
             activeWorkspace={activeWorkspace}
+            setWorkspaces={setWorkspaces}
             onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
             onOpenProcurement={() => setCurrentTab('procurement')}
             companies={workspaceCompanies}

@@ -600,32 +600,71 @@ export interface ExtractedCatalogBatchResult {
   _ai_model_used?: string;
 }
 
+export interface CatalogParentFamilyHint {
+  name: string;
+  category?: string;
+  unit?: string;
+}
+
+export interface CatalogExtractionPromptContext {
+  existingCategories?: string[];
+  existingParentFamilies?: CatalogParentFamilyHint[];
+  workspaceCatalogGuidelines?: string;
+}
+
 export function canonicalizeCatalogAttributeKey(rawKey: string): string {
   return normalizeSpecKey(rawKey);
 }
 
-export const getCatalogExtractionSystemPrompt = (existingCategories: string[] = []) => {
+export const getCatalogExtractionSystemPrompt = (
+  contextOrCategories: string[] | CatalogExtractionPromptContext = []
+) => {
+  const existingCategories = Array.isArray(contextOrCategories)
+    ? contextOrCategories
+    : contextOrCategories.existingCategories || [];
+  const existingParentFamilies = Array.isArray(contextOrCategories)
+    ? []
+    : contextOrCategories.existingParentFamilies || [];
+  const workspaceCatalogGuidelines = Array.isArray(contextOrCategories)
+    ? ''
+    : (contextOrCategories.workspaceCatalogGuidelines || '').trim();
+
   const categoryListHint =
     existingCategories.length > 0
-      ? `EXISTING WORKSPACE CATEGORIES (match one of these when appropriate, or propose a clean, concise Title-Case category name if the item belongs to a new category):\n${existingCategories
+      ? `EXISTING WORKSPACE CATEGORIES (PREFER matching one of these exact categories when applicable instead of inventing near-duplicate categories — e.g. do NOT create "Media" if "Filter Media" exists):\n${existingCategories
           .slice(0, 60)
           .map((c) => `- "${c}"`)
           .join('\n')}`
       : `Suggest a clean commercial category name (e.g. "FRP Filter Vessels", "Dosing Pumps", "RO Membranes", "Valves & Instruments", "Filter Media", "Chemical Dosing Tanks", "Control Panels").`;
 
+  const parentFamiliesHint =
+    existingParentFamilies.length > 0
+      ? `\nEXISTING WORKSPACE PARENT PRODUCT FAMILIES (when an extracted item belongs to one of these product families, reuse its exact family name in "family_group_name" and align its category/UOM):\n${existingParentFamilies
+          .slice(0, 60)
+          .map(
+            (pf) =>
+              `- "${pf.name}"${pf.category ? ` [Category: ${pf.category}]` : ''}${pf.unit ? ` [UOM: ${pf.unit}]` : ''}`
+          )
+          .join('\n')}\n`
+      : '';
+
+  const customGuidelinesSection = workspaceCatalogGuidelines
+    ? `\nACTIVE WORKSPACE CATALOG AI RULES (APPLY THESE WORKSPACE-SPECIFIC STANDARDS):\n${workspaceCatalogGuidelines}\n`
+    : '';
+
   return `You are a Principal Engineering Catalog Architect and B2B Industrial Product Data Extractor.
 Your task is to analyze the provided document (PDF datasheet, manufacturer catalog page, supplier quotation, price list, image/screenshot of a specification table, Word document, or raw multi-column Excel/text paste) and extract EVERY product, model, or size variant into a structured JSON catalog payload.
 
-${categoryListHint}
-
-CRITICAL EXTRACTION & STRUCTURING RULES:
-1. MULTI-VARIANT & DATASHEET TABLE INTELLIGENCE (family_group_name & variant_label):
-   - Datasheets, price tables, and inquiries often list multiple sizes, capacities, or models of the SAME equipment family (for example: 5 sizes of "AVENTURA FRP Pressure Vessel" like 36"x72", 42"x72", 48"x72", 63"x67"; or 4 models of "SEKO Tekna Evo Dosing Pump" like 5 L/h, 10 L/h, 20 L/h).
-   - Whenever 2 or more rows belong to the same base product family:
+${categoryListHint}${parentFamiliesHint}${customGuidelinesSection}
+UNIVERSAL CATALOG HYGIENE & EXTRACTION RULES (APPLIES TO ALL WORKSPACES):
+1. PRODUCT TITLES, PARENT FAMILIES & VARIANT LABELS (name, family_group_name, variant_label):
+   - Format product titles as "[BRAND] [Clean Product Name]" when a brand/make is known.
+   - NEVER hardcode a size, capacity, or model code into a "family_group_name" / parent title — put differentiating sizes, capacities, dimensions, or models into "variant_label" and "model_part_no".
+   - Whenever 2 or more rows belong to the same base product family (or when an item matches one of the EXISTING WORKSPACE PARENT PRODUCT FAMILIES above):
      * Set "family_group_name" on each sibling to the shared clean Parent Family Name (e.g., "AVENTURA Multimedia FRP Filter Vessel" or "SEKO Tekna Evo Solenoid Dosing Pump") — WITHOUT the specific size/capacity suffix.
      * Set "variant_label" on each sibling to its concise differentiating size, dimension, flow, capacity, or model rating (e.g., "42\\" × 72\\"", "48\\" × 72\\"", "10 L/h @ 8 bar", "100 L").
-     * Set "name" on each sibling to a descriptive title (e.g., "AVENTURA Multimedia FRP Filter Vessel (48\\" × 72\\")").
-   - If the document only has 1 standalone product with no sibling variants, leave "family_group_name": "" and "variant_label": "".
+     * Set "name" on each sibling to a clean title.
+   - Leave "description" blank ("") unless there is a genuine concise technical subtitle distinct from the title and spec attributes (NEVER copy-paste or repeat the product title into "description").
 
 2. PRICING & CURRENCY DETECTION:
    - Detect the source currency ("AED", "USD", "EUR", "GBP", "SAR"). Default to "AED" if unspecified.
@@ -635,22 +674,24 @@ CRITICAL EXTRACTION & STRUCTURING RULES:
 3. TECHNICAL ATTRIBUTES, CANONICAL KEYS & ISO 80000 / SI UNIT FORMATTING:
    - Extract technical parameters into the "attributes" array as [{ "key": "...", "value": "..." }].
    - Use clean canonical attribute keys:
-     * "Dimensions" (for diameter × height, L × W × H, size, e.g. "48\\" × 72\\" (1200 × 1800 mm)")
+     * "MOC" (for Material, Material of Construction, Body Material, Construction Material — ALWAYS use "MOC", never "Material")
+     * "Dimensions" (for diameter × height, L × W × H, Dimension (mm), e.g. "48\\" × 72\\" (1200 × 1800 mm)"). Note: do NOT map generic "Size" to "Grain Size" — only use "Grain Size" for actual filter media particle/granule size, and keep "Bulk Density" as "Bulk Density".
      * "Design Pressure" (e.g. "6 bar" or "10.5 bar (150 PSI)")
-     * "MOC" (Material of Construction, e.g. "FRP with PE Liner", "SS316L", "UPVC", "PVDF")
+     * "Operating Temperature" (e.g. "45 °C")
      * "Flow Rate" (e.g. "10 L/h", "15 m³/h")
-     * "Capacity" (e.g. "500 L", "45,000 Grains")
+     * "Capacity" (e.g. "500 L")
      * "Operation" (e.g. "Automatic Duplex", "Manual Multiport")
      * "Connection" (e.g. "4\\" Flanged Top & Bottom", "DN50 PN16")
      * "Power / Voltage" (e.g. "230 V / 1Ph / 50 Hz, 0.55 kW")
      * "Standard" (e.g. "ASME / NSF Certified", "CE")
+     * "Packing" (e.g. "25 kg/bag", "20 L/drum")
    - STRICT ISO 80000 / SI UNIT CONVENTIONS:
      * Enforce a single space between number and SI symbol ("10 kg", "10.5 bar", "40 L", "1.1 mm", "45 °C", "5 μm"), keeping inch/percent tight ("60\\"", "70%").
      * Format numeric ranges with an en-dash ("–"), matched decimal places, and a single unit at the end ("2.0 – 3.5 mm", "0.4 – 0.8 mm", "20 – 32 A").
-     * Format compound packaging and flow units with a tight slash ("10 kg/bag", "25 kg/bag", "27.5 m³/h", "10 L/h", "1600 m²/m³") and dimensions with "×" ("48\\" × 72\\"").
-     * Standardize UOM ("unit") to singular clean casing ("Nos", "Set", "Bag", "Bucket", "Drum", "Kg", "m³", "Mtr", "Lot", "Roll", "Box", "Pack").
+     * Format compound packaging and flow units with a tight slash ("10 kg/bag", "25 kg/bag", "22.68 kg/bag", "27.5 m³/h", "10 L/h", "1600 m²/m³") and dimensions with "×" ("48\\" × 72\\"").
+     * Standardize commercial UOM ("unit") to singular Title-Case ("Nos", "Set", "Bag", "Bucket", "Drum", "Kg", "m³", "Mtr", "Lot", "Roll", "Box", "Pack", "Carton", "Pair", "Ltr", "Unit").
    - DO NOT DUPLICATE DEDICATED FIELDS IN ATTRIBUTES:
-     * Never place Brand/Make, Model/Part No, Country of Origin, or Delivery/Lead Time/Availability inside "attributes" — place them ONLY in "brand_make", "model_part_no", "country_of_origin", and "availability".
+     * NEVER place Brand/Make, Model/Part No, Country of Origin, or Delivery/Lead Time/Availability inside "attributes" — place them ONLY in "brand_make", "model_part_no", "country_of_origin", and "availability".
 
 4. COMPOSITE PACKAGES / KITS / SKIDS (is_composite_set & sub_components):
    - If a product is an assembly, package, skid, or vessel set that explicitly lists included sub-components or bill of materials (e.g. "Including: 1 x FRP Vessel, 1 x Top & Bottom Distributor Set, 1 x Internal Riser Pipe, 5 x Media Bags"), set "is_composite_set": true and populate "sub_components":
@@ -678,8 +719,8 @@ REQUIRED JSON OUTPUT FORMAT:
       "unit_price": 0,
       "currency": "AED",
       "availability": "Ex-Stock",
-      "description": "Concise technical subtitle without repeating every attribute",
-      "family_group_name": "string (shared family name if multiple variants exist, else empty)",
+      "description": "",
+      "family_group_name": "string (shared clean parent family name without size/model if multiple variants exist, else empty)",
       "variant_label": "string (differentiating size/capacity/model label if part of a family, else empty)",
       "is_composite_set": false,
       "sub_components": [
@@ -698,8 +739,8 @@ REQUIRED JSON OUTPUT FORMAT:
         }
       ],
       "attributes": [
-        { "key": "Dimensions", "value": "48\\" x 72\\"" },
-        { "key": "Design Pressure", "value": "6 Bar" },
+        { "key": "Dimensions", "value": "48\\" × 72\\"" },
+        { "key": "Design Pressure", "value": "6 bar" },
         { "key": "MOC", "value": "FRP" }
       ]
     }
@@ -1096,6 +1137,9 @@ function normalizeExtractedCatalogBatch(
 
       const rawVarLabel = String(item.variant_label || '').trim();
       const formattedVarLabel = rawVarLabel ? formatSiTechnicalValue(rawVarLabel) : undefined;
+      const rawDesc = String(item.description || '').trim();
+      const cleanDesc =
+        rawDesc && rawDesc.toLowerCase() !== name.toLowerCase() ? rawDesc : '';
 
       return {
         name,
@@ -1110,7 +1154,7 @@ function normalizeExtractedCatalogBatch(
         unit_price: !isNaN(unitPriceNum) && unitPriceNum >= 0 ? unitPriceNum : 0,
         currency: String(item.currency || detectedCurrency).toUpperCase().trim() || detectedCurrency,
         availability: rescuedFields.availability || undefined,
-        description: String(item.description || '').trim() || name,
+        description: cleanDesc,
         attributes: cleanAttrs,
         is_composite_set: Boolean(item.is_composite_set || cleanSubs.length > 0),
         sub_components: cleanSubs.length > 0 ? cleanSubs : undefined,
@@ -1139,6 +1183,8 @@ export async function extractCatalogProductsWithAI(params: {
   mimeType: string;
   fileName: string;
   existingCategories?: string[];
+  existingParentFamilies?: CatalogParentFamilyHint[];
+  workspaceCatalogGuidelines?: string;
   signal?: AbortSignal;
   preferredModel?: string;
   onStatusUpdate?: (status: string) => void;
@@ -1150,6 +1196,8 @@ export async function extractCatalogProductsWithAI(params: {
     mimeType,
     fileName,
     existingCategories = [],
+    existingParentFamilies = [],
+    workspaceCatalogGuidelines = '',
     signal,
     preferredModel = 'auto',
     onStatusUpdate,
@@ -1162,7 +1210,11 @@ export async function extractCatalogProductsWithAI(params: {
     (import.meta as any).env?.VITE_GEMINI_API_KEY ||
     '';
 
-  const systemInstruction = getCatalogExtractionSystemPrompt(existingCategories);
+  const systemInstruction = getCatalogExtractionSystemPrompt({
+    existingCategories,
+    existingParentFamilies,
+    workspaceCatalogGuidelines
+  });
 
   // 1. If a client-side / user key is present, run the direct multi-model cascade first
   if (resolvedKey) {
@@ -1306,6 +1358,8 @@ export async function extractCatalogProductsWithAI(params: {
       content: isBase64 && content.includes(',') ? content.split(',')[1] : content,
       isBase64,
       existingCategories,
+      existingParentFamilies,
+      workspaceCatalogGuidelines,
       preferredModel,
       scanMode
     }),

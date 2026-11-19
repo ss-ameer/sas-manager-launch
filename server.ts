@@ -521,6 +521,8 @@ Rules for the message:
         content,
         isBase64,
         existingCategories = [],
+        existingParentFamilies = [],
+        workspaceCatalogGuidelines = "",
         preferredModel = "auto",
         scanMode = "fast",
       } = req.body;
@@ -542,20 +544,40 @@ Rules for the message:
 
       const categoryListHint =
         Array.isArray(existingCategories) && existingCategories.length > 0
-          ? `EXISTING WORKSPACE CATEGORIES:\n${existingCategories
+          ? `EXISTING WORKSPACE CATEGORIES (PREFER matching one of these exact categories when applicable instead of inventing near-duplicate categories — e.g. do NOT create "Media" if "Filter Media" exists):\n${existingCategories
               .slice(0, 60)
               .map((c: string) => `- "${c}"`)
               .join("\n")}`
           : "";
 
+      const parentFamiliesHint =
+        Array.isArray(existingParentFamilies) && existingParentFamilies.length > 0
+          ? `\nEXISTING WORKSPACE PARENT PRODUCT FAMILIES (when an extracted item belongs to one of these product families, reuse its exact family name in "family_group_name" and align its category/UOM):\n${existingParentFamilies
+              .slice(0, 60)
+              .map(
+                (pf: any) =>
+                  `- "${pf.name}"${pf.category ? ` [Category: ${pf.category}]` : ""}${pf.unit ? ` [UOM: ${pf.unit}]` : ""}`
+              )
+              .join("\n")}\n`
+          : "";
+
+      const cleanGuidelines = String(workspaceCatalogGuidelines || "").trim();
+      const customGuidelinesSection = cleanGuidelines
+        ? `\nACTIVE WORKSPACE CATALOG AI RULES (APPLY THESE WORKSPACE-SPECIFIC STANDARDS):\n${cleanGuidelines}\n`
+        : "";
+
       const systemInstruction = `You are a Principal Engineering Catalog Architect and B2B Industrial Product Data Extractor.
 Analyze the provided document or raw text/Excel paste and extract EVERY product, model, or size variant into the requested JSON format.
-${categoryListHint}
-Rules:
-1. If 2+ items belong to the same base product family (e.g. multiple sizes of FRP Vessels or multiple flow models of Dosing Pumps), assign them a shared clean "family_group_name" (without the size suffix) and put each item's differentiating size/capacity/rating in "variant_label".
-2. Extract technical parameters into "attributes" as [{ "key": "...", "value": "..." }] using canonical keys ("Dimensions", "Design Pressure", "MOC", "Flow Rate", "Capacity", "Operation", "Connection", "Power / Voltage", "Standard", "Delivery").
-3. If an item is a composite package/set listing included sub-items, set "is_composite_set": true and populate "sub_components".
-4. Output valid JSON with shape { "currency": "AED", "detected_document_type": "string", "products": [ ... ] }.`;
+${categoryListHint}${parentFamiliesHint}${customGuidelinesSection}
+UNIVERSAL CATALOG HYGIENE & EXTRACTION RULES:
+1. Format product titles as "[BRAND] [Clean Product Name]". Never hardcode a size or model into a "family_group_name" / parent title — put differentiating sizes, capacities, or models into "variant_label" and "model_part_no".
+2. Leave "description" blank ("") unless there is a genuine concise technical subtitle distinct from the title and spec attributes (never copy-paste the title into "description").
+3. Prefer matching the active workspace's existingCategories and existingParentFamilies when applicable instead of inventing near-duplicate categories.
+4. Extract technical parameters into "attributes" as [{ "key": "...", "value": "..." }] using canonical keys ("MOC" for Material/Material of Construction/Body Material, "Dimensions", "Design Pressure", "Operating Temperature", "Flow Rate", "Capacity", "Operation", "Connection", "Power / Voltage", "Standard", "Packing", "Micron Rating"; do NOT map generic "Size" to "Grain Size", and keep "Bulk Density" as "Bulk Density").
+5. Format technical spec values according to ISO 80000 / SI conventions ("10 kg", "10.5 bar", "2.0 – 3.5 mm", "25 kg/bag", "48\\" × 72\\"", "27.5 m³/h") and commercial UOM ("unit") in singular Title-Case ("Nos", "Set", "Bag", "Bucket", "Drum", "Kg", "m³", "Mtr", "Lot", "Roll", "Box", "Pack", "Carton", "Pair", "Ltr", "Unit").
+6. NEVER emit Brand, Model, Origin, or Delivery / Lead Time inside "attributes" — place them ONLY in "brand_make", "model_part_no", "country_of_origin", and "availability".
+7. If an item is a composite package/set listing included sub-items, set "is_composite_set": true and populate "sub_components".
+8. Output valid JSON with shape { "currency": "AED", "detected_document_type": "string", "products": [ ... ] }.`;
 
       const defaultCascade =
         scanMode === "deep"

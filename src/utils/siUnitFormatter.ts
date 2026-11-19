@@ -199,9 +199,9 @@ export function formatSiTechnicalValue(raw: string): string {
   );
 
   // 2. Compound packaging units (tight slash)
-  // e.g. 10kg / Bag, 25 Kg / Bags, 22.68 Kg Bags, 50Kg/bag -> 10 kg/bag, 25 kg/bag, 22.68 kg/bag
+  // e.g. 10kg / Bag, 25 Kg / Bags, 22.68 Kg Bags, 50Kg/bag -> 10 kg/bag, 25 kg/bag, 22.68 kg/bag, 50 kg/bag
   text = text.replace(
-    /(\d+(?:\.\d+)?)\s*(?:kgs?|kilograms?)\s*(?:\/\s*|\s+per\s+|\s+)(bag|bags|drum|drums|bucket|buckets|pack|packs|sack|sacks|box|boxes|carton|cartons)\b/gi,
+    /(\d+(?:\.\d+)?)\s*(?:kgs?|kilograms?)\s*(?:\/\s*|\s+per\s+|\s+)(bag|bags|drum|drums|bucket|buckets|pail|pails|pack|packs|sack|sacks|box|boxes|carton|cartons)\b/gi,
     (_, num, container) => {
       const singular = String(container).toLowerCase().replace(/es$/, 'e').replace(/s$/, '');
       const cleanContainer = singular === 'boxe' ? 'box' : singular;
@@ -209,7 +209,7 @@ export function formatSiTechnicalValue(raw: string): string {
     }
   );
   text = text.replace(
-    /(\d+(?:\.\d+)?)\s*(?:l|ltrs?|liters?|litres?)\s*(?:\/\s*|\s+per\s+|\s+)(drum|drums|can|cans|bucket|buckets|bottle|bottles|jerrycan|jerrycans)\b/gi,
+    /(\d+(?:\.\d+)?)\s*(?:l|ltrs?|liters?|litres?)\s*(?:\/\s*|\s+per\s+|\s+)(drum|drums|can|cans|bucket|buckets|pail|pails|bottle|bottles|jerrycan|jerrycans)\b/gi,
     (_, num, container) => {
       const singular = String(container).toLowerCase().replace(/s$/, '');
       return `${num} L/${singular}`;
@@ -315,7 +315,7 @@ export function formatSiTechnicalValue(raw: string): string {
 }
 
 /**
- * Standardizes Catalog Unit of Measure (UOM) to singular clean casing.
+ * Standardizes Catalog Commercial Unit of Measure (UOM) to singular Title-Case matching SAS Manager dropdowns.
  */
 export function normalizeCatalogUnit(uom?: string | null): string {
   const raw = String(uom || '').trim();
@@ -329,8 +329,8 @@ export function normalizeCatalogUnit(uom?: string | null): string {
   if (/^(bucket|buckets|pail|pails)$/i.test(lower)) return 'Bucket';
   if (/^(drum|drums|barrel|barrels)$/i.test(lower)) return 'Drum';
   if (/^(kg|kgs|kilogram|kilograms)$/i.test(lower)) return 'Kg';
-  if (/^(m3|m³|cbm|cu\.?\s*m)$/i.test(lower)) return 'm³';
-  if (/^(m2|m²|sqm|sq\.?\s*m)$/i.test(lower)) return 'm²';
+  if (/^(m3|m\^3|m³|cbm|cu\.?\s*m|cubic\s*met(?:er|re)s?)$/i.test(lower)) return 'm³';
+  if (/^(m2|m\^2|m²|sqm|sq\.?\s*m|square\s*met(?:er|re)s?)$/i.test(lower)) return 'm²';
   if (/^(m|mtr|mtrs|meter|meters|metre|metres)$/i.test(lower)) return 'Mtr';
   if (/^(lot|lots|ls|lumpsum|lump\s*sum)$/i.test(lower)) return 'Lot';
   if (/^(roll|rolls)$/i.test(lower)) return 'Roll';
@@ -381,24 +381,35 @@ export function normalizeLeadTime(leadTime?: string | null): string {
 
 /**
  * Standardizes redundant technical specification attribute keys.
+ * Maps Material/Material of Construction/Body Material/Construction Material -> MOC.
+ * Never maps generic "Size" to "Grain Size" and preserves "Bulk Density" as "Bulk Density".
  */
 export function normalizeSpecKey(rawKey?: string | null): string {
   const k = String(rawKey || '').trim();
   if (!k) return '';
 
   if (
-    /^(moc|material|materials|material\s*of\s*construction|moc\s*of\s*.*|body\s*material|housing\s*material|vessel\s*material|material\s*\/\s*grade)$/i.test(
+    /^(moc|material|materials|material\s*of\s*construction|moc\s*of\s*.*|body\s*material|construction\s*material|housing\s*material|vessel\s*material|material\s*\/\s*grade)$/i.test(
       k
     )
   ) {
     return 'MOC';
   }
   if (
-    /^(dimension|dimensions|dimension\s*\([^)]+\)|dimensions\s*\([^)]+\)|size|dimensions\s*\/\s*size|vessel\s*size|overall\s*dimensions)$/i.test(
+    /^(dimension|dimensions|dimension\s*\([^)]+\)|dimensions\s*\([^)]+\)|dimensions\s*\/\s*size|vessel\s*size|overall\s*dimensions)$/i.test(
       k
     )
   ) {
     return 'Dimensions';
+  }
+  if (/^(particle\s*size|granule\s*size|grain\s*size)$/i.test(k)) {
+    return 'Grain Size';
+  }
+  if (/^effective\s*size$/i.test(k)) {
+    return 'Effective Size';
+  }
+  if (/^bulk\s*density$/i.test(k)) {
+    return 'Bulk Density';
   }
   if (
     /^(design\s*pressure|operating\s*pressure|working\s*pressure|max\.?\s*pressure|pressure\s*rating|max\.?\s*working\s*pressure)$/i.test(
