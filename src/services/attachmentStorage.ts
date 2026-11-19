@@ -1374,7 +1374,11 @@ export function rehydrateLineItemsFromCatalog(
       ...li,
       image_url:
         li.image_url ||
-        (li.image_storage_key || li.image_display_override === 'none' ? '' : catProd.image_url),
+        (li.image_storage_key ||
+        li.image_display_override === 'none' ||
+        li.image_display_override === 'hidden'
+          ? ''
+          : catProd.image_url),
       secondary_image_url:
         li.secondary_image_url ||
         (li.secondary_image_storage_key ? '' : catProd.secondary_image_url),

@@ -44,6 +44,56 @@ export interface ReleaseResult {
  * When `includeAllConfirmedOptions` is true (e.g. for already-filtered Project line items),
  * all non-optional confirmed items are processed regardless of whether their option label is Option A/B/C.
  */
+function resolveCatalogProductIdSync(ref?: {
+  product_id?: string;
+  variant_id?: string;
+  sku?: string;
+  part_no?: string;
+  model_part_no?: string;
+} | null): string {
+  if (!ref) return '';
+  const directPid = (ref.product_id || '').trim();
+  const variantId = (ref.variant_id || '').trim();
+  const rawSku = (ref.sku || ref.part_no || ref.model_part_no || '').trim().toLowerCase();
+
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const raw = window.localStorage.getItem('omni_products');
+      if (raw) {
+        const list: Product[] = JSON.parse(raw);
+        if (Array.isArray(list)) {
+          if (variantId) {
+            const byVarId = list.find((p) => !p.is_deleted && p.id === variantId);
+            if (byVarId) return byVarId.id;
+          }
+          if (rawSku) {
+            // Prefer a child variant matching the parent product_id + SKU if product_id is set
+            if (directPid) {
+              const childMatch = list.find(
+                (p) =>
+                  !p.is_deleted &&
+                  ((p as any).variant_of === directPid || (p as any).parent_product_id === directPid) &&
+                  ((p.sku || '').trim().toLowerCase() === rawSku ||
+                    (p.part_no || '').trim().toLowerCase() === rawSku)
+              );
+              if (childMatch) return childMatch.id;
+            }
+            const skuMatch = list.find(
+              (p) =>
+                !p.is_deleted &&
+                ((p.sku || '').trim().toLowerCase() === rawSku ||
+                  (p.part_no || '').trim().toLowerCase() === rawSku)
+            );
+            if (skuMatch) return skuMatch.id;
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
+  return directPid;
+}
+
 export function extractEffectiveStockRequirements(
   lineItems: LineItem[],
   designatedWinningOption?: string,
@@ -52,10 +102,13 @@ export function extractEffectiveStockRequirements(
   const aggregated = new Map<string, { quantity: number; description: string }>();
 
   for (const item of lineItems || []) {
+    if ((item as any).is_optional) {
+      continue;
+    }
     const itemOpt = item.option || item.item_option || item.option_designation;
     if (includeAllConfirmedOptions) {
       const optLower = (itemOpt || '').trim().toLowerCase();
-      if ((item as any).is_optional || optLower.includes('optional')) {
+      if (optLower.includes('optional')) {
         continue;
       }
     } else if (!isOptionActiveForInventoryAndBaseline(itemOpt, designatedWinningOption)) {
@@ -67,26 +120,30 @@ export function extractEffectiveStockRequirements(
 
     const hasLinkedSubComponents =
       Array.isArray(item.sub_components) &&
-      item.sub_components.some((sub) => Boolean(sub.product_id));
+      item.sub_components.some((sub) => Boolean(resolveCatalogProductIdSync(sub as any)));
 
     if (hasLinkedSubComponents && item.sub_components) {
       for (const sub of item.sub_components) {
-        if (!sub.product_id) continue;
+        const resolvedSubPid = resolveCatalogProductIdSync(sub as any);
+        if (!resolvedSubPid) continue;
         const subQty = Math.max(0, Number(sub.quantity) || 0);
         const totalSubQty = parentQty * subQty;
         if (totalSubQty <= 0) continue;
-        const existing = aggregated.get(sub.product_id);
-        aggregated.set(sub.product_id, {
+        const existing = aggregated.get(resolvedSubPid);
+        aggregated.set(resolvedSubPid, {
           quantity: (existing?.quantity || 0) + totalSubQty,
           description: existing?.description || sub.item_name || item.item_name || item.description || 'BOM Sub-Component',
         });
       }
-    } else if (item.product_id) {
-      const existing = aggregated.get(item.product_id);
-      aggregated.set(item.product_id, {
-        quantity: (existing?.quantity || 0) + parentQty,
-        description: existing?.description || item.item_name || item.description || 'Product',
-      });
+    } else {
+      const resolvedItemPid = resolveCatalogProductIdSync(item as any);
+      if (resolvedItemPid) {
+        const existing = aggregated.get(resolvedItemPid);
+        aggregated.set(resolvedItemPid, {
+          quantity: (existing?.quantity || 0) + parentQty,
+          description: existing?.description || item.item_name || item.description || 'Product',
+        });
+      }
     }
   }
 
@@ -954,6 +1011,69 @@ async function getProductLiveOrLocal(productId: string): Promise<Product | null>
   return null;
 }
 
+async function resolveProductLiveOrLocal(ref?: {
+  product_id?: string;
+  variant_id?: string;
+  sku?: string;
+  part_no?: string;
+  model_part_no?: string;
+} | null): Promise<Product | null> {
+  if (!ref) return null;
+  const directPid = (ref.product_id || '').trim();
+  const variantId = (ref.variant_id || '').trim();
+  const rawSku = (ref.sku || ref.part_no || ref.model_part_no || '').trim().toLowerCase();
+
+  if (variantId) {
+    const byVariant = await getProductLiveOrLocal(variantId);
+    if (byVariant && !byVariant.is_deleted) return byVariant;
+  }
+
+  let catalogList: Product[] = [];
+  try {
+    catalogList = (await getFromLocalStore<Product>('products')) || [];
+  } catch (_) {}
+  if (catalogList.length === 0) {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const raw = window.localStorage.getItem('omni_products');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) catalogList = parsed;
+        }
+      }
+    } catch (_) {}
+  }
+
+  if (rawSku && catalogList.length > 0) {
+    if (directPid) {
+      const childVariant = catalogList.find(
+        (p) =>
+          !p.is_deleted &&
+          ((p as any).variant_of === directPid || (p as any).parent_product_id === directPid) &&
+          ((p.sku || '').trim().toLowerCase() === rawSku ||
+            (p.part_no || '').trim().toLowerCase() === rawSku)
+      );
+      if (childVariant) {
+        return (await getProductLiveOrLocal(childVariant.id)) || childVariant;
+      }
+    }
+    const bySku = catalogList.find(
+      (p) =>
+        !p.is_deleted &&
+        ((p.sku || '').trim().toLowerCase() === rawSku ||
+          (p.part_no || '').trim().toLowerCase() === rawSku)
+    );
+    if (bySku) {
+      return (await getProductLiveOrLocal(bySku.id)) || bySku;
+    }
+  }
+
+  if (directPid) {
+    return await getProductLiveOrLocal(directPid);
+  }
+  return null;
+}
+
 /**
  * Processes a PO-linked Goods Receipt Note (GRN) across multiple PO line items with Landed Cost allocation.
  * - Updates each catalog product's stock_on_hand and last_landed_cost WITHOUT overwriting base catalog cost_price
@@ -993,6 +1113,82 @@ export async function processPoBatchGrn(
     let movementsCreated = 0;
     const updatedProducts: Array<{ productId: string; newOnHand: number; landedUnitCost: number; updatedBaseCost?: number }> = [];
 
+    const recordCatalogProductStockIn = async (
+      prodData: Product,
+      qtyReceivedNow: number,
+      poUnitCost: number,
+      allocatedFreight: number,
+      computedLandedUnit: number,
+      itemName?: string,
+      storageLocation?: string
+    ) => {
+      const targetProdId = prodData.id;
+      const prevOnHand = Number(prodData?.stock_on_hand) || 0;
+      const newOnHand = prevOnHand + qtyReceivedNow;
+
+      const productUpdate: Partial<Product> & { updatedAt: string } = {
+        is_inventoried: true,
+        stock_on_hand: newOnHand,
+        last_landed_cost: computedLandedUnit,
+        last_grn_ref: input.grn_number,
+        updatedAt: nowIso
+      };
+
+      if (storageLocation?.trim()) {
+        productUpdate.storage_location = storageLocation.trim();
+      }
+
+      if (input.update_base_catalog_cost && poUnitCost > 0) {
+        productUpdate.cost_price = poUnitCost;
+      }
+
+      await safeUpdateDoc('products', targetProdId, productUpdate);
+      await MetadataRepository.upsertLocalProduct({
+        ...(prodData || {}),
+        ...productUpdate,
+        id: targetProdId
+      }).catch(() => {});
+      updatedProducts.push({
+        productId: targetProdId,
+        newOnHand,
+        landedUnitCost: computedLandedUnit,
+        updatedBaseCost: input.update_base_catalog_cost && poUnitCost > 0 ? poUnitCost : undefined
+      });
+
+      const movement: StockMovement = {
+        workspace_id: wsId,
+        product_id: targetProdId,
+        product_name: itemName || prodData?.name || prodData?.description || 'PO Item',
+        movement_type: 'STOCK_IN',
+        quantity: qtyReceivedNow,
+        previous_on_hand: prevOnHand,
+        new_on_hand: newOnHand,
+        reference_type: 'PO',
+        reference_id: input.po_id,
+        reference_number: input.grn_number,
+        po_id: input.po_id,
+        po_ref: input.po_ref,
+        grn_number: input.grn_number,
+        received_date: input.received_date,
+        supplier_id: input.supplier_id,
+        supplier_name: input.supplier_name,
+        delivery_note_ref: input.delivery_note_ref,
+        unit_cost: poUnitCost,
+        allocated_freight_cost: allocatedFreight,
+        landed_unit_cost: computedLandedUnit,
+        total_cost: QuotationRepository.roundCurrency(computedLandedUnit * qtyReceivedNow),
+        reason_notes: `PO GRN Receipt (${input.grn_number}) against ${input.po_ref}${
+          allocatedFreight > 0 ? ` • Landed Unit Cost: ${computedLandedUnit.toFixed(2)}` : ''
+        }${input.notes ? ` • ${input.notes}` : ''}`,
+        created_at: nowIso,
+        created_by_uid: userUid,
+        created_by_name: userName
+      };
+
+      await safeAddDoc('stock_movements', movement);
+      movementsCreated++;
+    };
+
     for (const line of activeLinesToReceive) {
       const qtyReceivedNow = Number(line.qty_receiving_now) || 0;
       const poUnitCost = QuotationRepository.roundCurrency(Number(line.po_unit_cost) || 0);
@@ -1004,73 +1200,63 @@ export async function processPoBatchGrn(
           ? QuotationRepository.roundCurrency(poUnitCost + allocatedFreight / qtyReceivedNow)
           : poUnitCost;
 
-      if (line.product_id) {
-        let prodData = await getProductLiveOrLocal(line.product_id);
-        const prevOnHand = Number(prodData?.stock_on_hand) || 0;
-        const newOnHand = prevOnHand + qtyReceivedNow;
+      const parentPoIdx = (line as any).po_line_index !== undefined ? Number((line as any).po_line_index) : line.line_index;
+      const subCompIdx = (line as any).sub_component_index;
+      const poLine = (poDoc.line_items || [])[parentPoIdx];
 
-        const productUpdate: Partial<Product> & { updatedAt: string } = {
-          is_inventoried: true,
-          stock_on_hand: newOnHand,
-          last_landed_cost: computedLandedUnit,
-          last_grn_ref: input.grn_number,
-          updatedAt: nowIso
-        };
-
-        if (line.storage_location?.trim()) {
-          productUpdate.storage_location = line.storage_location.trim();
+      // Case 1: unexpanded BOM parent PO line received directly -> expand its sub_components
+      if (
+        subCompIdx === undefined &&
+        poLine &&
+        Array.isArray(poLine.sub_components) &&
+        poLine.sub_components.length > 0
+      ) {
+        let handledAnySub = false;
+        for (const sub of poLine.sub_components) {
+          const subProd = await resolveProductLiveOrLocal({
+            product_id: sub.product_id,
+            variant_id: (sub as any).variant_id,
+            sku: sub.sku || (sub as any).part_no || sub.model_part_no
+          });
+          if (!subProd) continue;
+          const subMult = Math.max(1, Number(sub.quantity) || 1);
+          const subQtyReceived = qtyReceivedNow * subMult;
+          const subUnitCost = QuotationRepository.roundCurrency(
+            Number(sub.cost_price ?? sub.unit_price) || poUnitCost / Math.max(1, poLine.sub_components.length)
+          );
+          await recordCatalogProductStockIn(
+            subProd,
+            subQtyReceived,
+            subUnitCost,
+            0,
+            subUnitCost,
+            sub.item_name || subProd.name,
+            line.storage_location
+          );
+          handledAnySub = true;
         }
-
-        // Strict Base Catalog Cost Protection: never overwrite base cost_price unless explicitly requested
-        if (input.update_base_catalog_cost && poUnitCost > 0) {
-          productUpdate.cost_price = poUnitCost;
+        if (handledAnySub) {
+          continue;
         }
+      }
 
-        await safeUpdateDoc('products', line.product_id, productUpdate);
-        await MetadataRepository.upsertLocalProduct({
-          ...(prodData || {}),
-          ...productUpdate,
-          id: line.product_id
-        }).catch(() => {});
-        updatedProducts.push({
-          productId: line.product_id,
-          newOnHand,
-          landedUnitCost: computedLandedUnit,
-          updatedBaseCost: input.update_base_catalog_cost && poUnitCost > 0 ? poUnitCost : undefined
-        });
+      // Case 2: standard line or expanded BOM sub-component line
+      const resolvedProd = await resolveProductLiveOrLocal({
+        product_id: line.product_id,
+        variant_id: (line as any).variant_id || (subCompIdx === undefined ? (poLine as any)?.variant_id : undefined),
+        sku: line.sku || (line as any).part_no || (subCompIdx === undefined ? (poLine as any)?.part_no || (poLine as any)?.sku : undefined)
+      });
 
-        const movement: StockMovement = {
-          workspace_id: wsId,
-          product_id: line.product_id,
-          product_name: line.item_name || prodData?.name || prodData?.description || 'PO Item',
-          movement_type: 'STOCK_IN',
-          quantity: qtyReceivedNow,
-          previous_on_hand: prevOnHand,
-          new_on_hand: newOnHand,
-          reference_type: 'PO',
-          reference_id: input.po_id,
-          reference_number: input.grn_number,
-          po_id: input.po_id,
-          po_ref: input.po_ref,
-          grn_number: input.grn_number,
-          received_date: input.received_date,
-          supplier_id: input.supplier_id,
-          supplier_name: input.supplier_name,
-          delivery_note_ref: input.delivery_note_ref,
-          unit_cost: poUnitCost,
-          allocated_freight_cost: allocatedFreight,
-          landed_unit_cost: computedLandedUnit,
-          total_cost: QuotationRepository.roundCurrency(computedLandedUnit * qtyReceivedNow),
-          reason_notes: `PO GRN Receipt (${input.grn_number}) against ${input.po_ref}${
-            allocatedFreight > 0 ? ` • Landed Unit Cost: ${computedLandedUnit.toFixed(2)}` : ''
-          }${input.notes ? ` • ${input.notes}` : ''}`,
-          created_at: nowIso,
-          created_by_uid: userUid,
-          created_by_name: userName
-        };
-
-        await safeAddDoc('stock_movements', movement);
-        movementsCreated++;
+      if (resolvedProd) {
+        await recordCatalogProductStockIn(
+          resolvedProd,
+          qtyReceivedNow,
+          poUnitCost,
+          allocatedFreight,
+          computedLandedUnit,
+          line.item_name,
+          line.storage_location
+        );
       } else {
         // Custom / non-catalog PO line item: record traceable STOCK_IN receipt log without altering catalog product doc
         const movement: StockMovement = {
@@ -1109,7 +1295,18 @@ export async function processPoBatchGrn(
 
     // Update PO line items and receiving status
     const receiptByLineIdx = new Map<number, typeof activeLinesToReceive[number]>();
-    activeLinesToReceive.forEach((l) => receiptByLineIdx.set(l.line_index, l));
+    const subReceiptsByParentIdx = new Map<number, Map<number, typeof activeLinesToReceive[number]>>();
+    activeLinesToReceive.forEach((l) => {
+      const parentIdx = (l as any).po_line_index !== undefined ? Number((l as any).po_line_index) : l.line_index;
+      const subIdx = (l as any).sub_component_index;
+      if (subIdx !== undefined && subIdx !== null) {
+        const subMap = subReceiptsByParentIdx.get(parentIdx) || new Map<number, typeof activeLinesToReceive[number]>();
+        subMap.set(Number(subIdx), l);
+        subReceiptsByParentIdx.set(parentIdx, subMap);
+      } else {
+        receiptByLineIdx.set(parentIdx, l);
+      }
+    });
 
     let totalOrderedAll = 0;
     let totalReceivedAll = 0;
@@ -1118,6 +1315,57 @@ export async function processPoBatchGrn(
       const ordered = Math.max(0, Number(item.qty_ordered ?? item.quantity ?? (item as any).qty) || 0);
       const prevReceived = Math.max(0, Number(item.qty_received) || 0);
       const matchedInput = receiptByLineIdx.get(idx);
+      const matchedSubMap = subReceiptsByParentIdx.get(idx);
+
+      if (matchedSubMap && Array.isArray(item.sub_components) && item.sub_components.length > 0) {
+        let addedFreightForParent = 0;
+        const nextSubs = item.sub_components.map((sub, sIdx) => {
+          const subPerSet = Math.max(1, Number(sub.quantity) || 1);
+          const subOrderedTotal = ordered * subPerSet;
+          const prevSubRec = Math.max(
+            0,
+            Number((sub as any).qty_received ?? prevReceived * subPerSet) || 0
+          );
+          const subInput = matchedSubMap.get(sIdx);
+          const addSubRec = subInput ? Math.max(0, Number(subInput.qty_receiving_now) || 0) : 0;
+          if (subInput) {
+            addedFreightForParent += Number(subInput.allocated_freight_cost) || 0;
+          }
+          const nextSubRec = prevSubRec + addSubRec;
+          return {
+            ...sub,
+            qty_ordered: subOrderedTotal,
+            qty_received: nextSubRec,
+            qty_pending: Math.max(0, subOrderedTotal - nextSubRec)
+          };
+        });
+
+        const subOrderedSum = nextSubs.reduce((s, sub) => s + (Number((sub as any).qty_ordered) || 0), 0);
+        const subReceivedSum = nextSubs.reduce((s, sub) => s + (Number((sub as any).qty_received) || 0), 0);
+        totalOrderedAll += subOrderedSum;
+        totalReceivedAll += subReceivedSum;
+
+        const completedSets = nextSubs.reduce((minSets, sub) => {
+          const subPerSet = Math.max(1, Number(sub.quantity) || 1);
+          const setsForSub = Math.floor((Number((sub as any).qty_received) || 0) / subPerSet);
+          return Math.min(minSets, setsForSub);
+        }, ordered);
+        const nextReceived = Math.max(prevReceived, completedSets);
+        const nextPending = Math.max(0, ordered - nextReceived);
+        const prevFreight = Number(item.allocated_freight_cost) || 0;
+        const newFreight = QuotationRepository.roundCurrency(prevFreight + addedFreightForParent);
+
+        return {
+          ...item,
+          sub_components: nextSubs,
+          quantity: ordered,
+          qty_ordered: ordered,
+          qty_received: nextReceived,
+          qty_pending: nextPending,
+          allocated_freight_cost: newFreight
+        };
+      }
+
       const addReceived = matchedInput ? Math.max(0, Number(matchedInput.qty_receiving_now) || 0) : 0;
       const nextReceived = prevReceived + addReceived;
       const nextPending = Math.max(0, ordered - nextReceived);
@@ -1232,7 +1480,17 @@ export async function processVendorReturnStockDeduction(
   const userUid = user?.uid || 'system';
   const wsId = returnDoc.workspace_id || returnDoc.workspaceId || 'ws_default';
   const vMeta = returnDoc.vendor_return_metadata || {};
-  const mrnRef = vMeta.mrn_ref || returnDoc.formatted_quote_ref || returnDoc.quote_number || 'MRN';
+  const mrnRef =
+    (vMeta as any).return_ref ||
+    vMeta.mrn_ref ||
+    returnDoc.formatted_quote_ref ||
+    returnDoc.quote_number ||
+    'MRN';
+  const linkedPoId = (vMeta as any).original_po_id || vMeta.linked_po_id;
+  const linkedPoRef = (vMeta as any).original_po_ref || vMeta.linked_po_ref;
+  const supplierId = (vMeta as any).vendor_id || vMeta.supplier_id;
+  const supplierName =
+    (vMeta as any).vendor_name || vMeta.supplier_name || returnDoc.client_snapshot?.entity_name;
 
   if (vMeta.stock_deducted) {
     return {
@@ -1247,34 +1505,35 @@ export async function processVendorReturnStockDeduction(
     let deductedCount = 0;
     const updatedProducts: Array<{ productId: string; newOnHand: number }> = [];
 
-    for (const item of returnDoc.line_items || []) {
-      const returnQty = Math.max(0, Number(item.qty_returned ?? item.quantity) || 0);
-      if (!item.product_id || returnQty <= 0) continue;
-
-      const prodData = await getProductLiveOrLocal(item.product_id);
-      if (!prodData) continue;
-
+    const deductSingleResolvedProduct = async (
+      prodData: Product,
+      returnQty: number,
+      itemName: string,
+      unitCost: number
+    ) => {
+      if (returnQty <= 0) return;
+      const targetProdId = prodData.id;
       const prevOnHand = Math.max(0, Number(prodData.stock_on_hand) || 0);
       const newOnHand = Math.max(0, prevOnHand - returnQty);
 
       // Update ONLY stock_on_hand (never alter stock_reserved for client orders)
-      await safeUpdateDoc('products', item.product_id, {
+      await safeUpdateDoc('products', targetProdId, {
         stock_on_hand: newOnHand,
         updatedAt: nowIso
       });
       await MetadataRepository.upsertLocalProduct({
         ...prodData,
-        id: item.product_id,
+        id: targetProdId,
         stock_on_hand: newOnHand,
         updatedAt: nowIso
       }).catch(() => {});
 
-      updatedProducts.push({ productId: item.product_id, newOnHand });
+      updatedProducts.push({ productId: targetProdId, newOnHand });
 
       const movement: StockMovement = {
         workspace_id: wsId,
-        product_id: item.product_id,
-        product_name: item.item_name || prodData.name || prodData.description || 'Returned Item',
+        product_id: targetProdId,
+        product_name: itemName || prodData.name || prodData.description || 'Returned Item',
         movement_type: 'RETURN_TO_VENDOR',
         quantity: -returnQty,
         previous_on_hand: prevOnHand,
@@ -1282,14 +1541,14 @@ export async function processVendorReturnStockDeduction(
         reference_type: 'MRN',
         reference_id: returnDoc.id,
         reference_number: mrnRef,
-        po_id: vMeta.linked_po_id,
-        po_ref: vMeta.linked_po_ref,
-        supplier_id: vMeta.supplier_id,
-        supplier_name: vMeta.supplier_name || returnDoc.client_snapshot?.entity_name,
-        unit_cost: Number(item.unit_price) || 0,
+        po_id: linkedPoId,
+        po_ref: linkedPoRef,
+        supplier_id: supplierId,
+        supplier_name: supplierName,
+        unit_cost: unitCost,
         reason_notes: `Material Return to Vendor (${mrnRef})${
           vMeta.return_reason ? ` • Reason: ${vMeta.return_reason}` : ''
-        }${vMeta.linked_po_ref ? ` • Linked PO: ${vMeta.linked_po_ref}` : ''}`,
+        }${linkedPoRef ? ` • Linked PO: ${linkedPoRef}` : ''}`,
         created_at: nowIso,
         created_by_uid: userUid,
         created_by_name: userName
@@ -1297,6 +1556,49 @@ export async function processVendorReturnStockDeduction(
 
       await safeAddDoc('stock_movements', movement);
       deductedCount++;
+    };
+
+    for (const item of returnDoc.line_items || []) {
+      const returnQty = Math.max(
+        0,
+        Number((item as any).return_qty ?? item.qty_returned ?? item.quantity ?? (item as any).qty) || 0
+      );
+      if (returnQty <= 0) continue;
+
+      if (Array.isArray(item.sub_components) && item.sub_components.length > 0) {
+        let deductedAnySub = false;
+        for (const sub of item.sub_components) {
+          const subProd = await resolveProductLiveOrLocal({
+            product_id: sub.product_id,
+            variant_id: (sub as any).variant_id,
+            sku: sub.sku || (sub as any).part_no || sub.model_part_no
+          });
+          if (!subProd) continue;
+          const subQty = Math.max(1, Number(sub.quantity) || 1) * returnQty;
+          await deductSingleResolvedProduct(
+            subProd,
+            subQty,
+            sub.item_name || subProd.name || 'Returned Sub-Component',
+            Number(sub.cost_price ?? sub.unit_price) || 0
+          );
+          deductedAnySub = true;
+        }
+        if (deductedAnySub) continue;
+      }
+
+      const prodData = await resolveProductLiveOrLocal({
+        product_id: item.product_id,
+        variant_id: (item as any).variant_id,
+        sku: (item as any).sku || item.part_no || (item as any).model_part_no
+      });
+      if (!prodData) continue;
+
+      await deductSingleResolvedProduct(
+        prodData,
+        returnQty,
+        item.item_name || prodData.name || prodData.description || 'Returned Item',
+        Number(item.unit_price) || 0
+      );
     }
 
     return {
@@ -1347,18 +1649,12 @@ export async function reconcileProcurementDocumentStockOnLifecycleChange(
   const userName = user?.displayName || user?.name || user?.email || 'System';
   const docRef = doc.formatted_quote_ref || doc.id;
 
-  for (const item of doc.line_items) {
-    if (!item.product_id || item.item_type === 'charge' || item.item_type === 'discount') continue;
-
-    // For PO: only rollback/restore qty_received > 0
-    // For MRN: rollback/restore item.quantity > 0
-    const targetQty = isPO ? Number(item.qty_received) || 0 : Number(item.quantity) || 0;
-    if (targetQty <= 0) continue;
-
-    // soft_delete on PO -> deduct received stock (-targetQty)
-    // restore on PO -> re-add received stock (+targetQty)
-    // soft_delete on MRN -> restore returned stock (+targetQty)
-    // restore on MRN -> re-deduct returned stock (-targetQty)
+  const reconcileSingleResolvedProduct = async (
+    product: Product,
+    targetQty: number,
+    unitCost: number
+  ) => {
+    if (targetQty <= 0) return;
     const delta = isPO
       ? action === 'soft_delete'
         ? -targetQty
@@ -1366,9 +1662,6 @@ export async function reconcileProcurementDocumentStockOnLifecycleChange(
       : action === 'soft_delete'
       ? targetQty
       : -targetQty;
-
-    const product = await getProductLiveOrLocal(item.product_id);
-    if (!product) continue;
 
     const prevOnHand = Number(product.stock_on_hand) || 0;
     const prevReserved = Number(product.stock_reserved) || 0;
@@ -1403,7 +1696,7 @@ export async function reconcileProcurementDocumentStockOnLifecycleChange(
       reference_type: isPO ? 'PO' : 'MRN',
       reference_id: doc.id,
       reference_number: docRef,
-      unit_cost: Number(item.unit_price) || 0,
+      unit_cost: unitCost,
       reason_notes: `${action === 'soft_delete' ? 'Soft-Delete Rollback' : 'Restore Re-Application'} for ${
         isPO ? 'Purchase Order' : 'Material Return Note'
       } (${docRef})`,
@@ -1414,6 +1707,49 @@ export async function reconcileProcurementDocumentStockOnLifecycleChange(
 
     await safeAddDoc('stock_movements', movement);
     adjustedCount++;
+  };
+
+  for (const item of doc.line_items) {
+    if (item.item_type === 'charge' || item.item_type === 'discount') continue;
+
+    const parentTargetQty = isPO
+      ? Number(item.qty_received) || 0
+      : Number((item as any).return_qty ?? item.qty_returned ?? item.quantity ?? (item as any).qty) || 0;
+
+    if (Array.isArray(item.sub_components) && item.sub_components.length > 0) {
+      let reconciledAnySub = false;
+      for (const sub of item.sub_components) {
+        const subProd = await resolveProductLiveOrLocal({
+          product_id: sub.product_id,
+          variant_id: (sub as any).variant_id,
+          sku: sub.sku || (sub as any).part_no || sub.model_part_no
+        });
+        if (!subProd) continue;
+        const subMult = Math.max(1, Number(sub.quantity) || 1);
+        const subTargetQty = isPO
+          ? Number((sub as any).qty_received ?? parentTargetQty * subMult) || 0
+          : parentTargetQty * subMult;
+        if (subTargetQty <= 0) continue;
+        await reconcileSingleResolvedProduct(
+          subProd,
+          subTargetQty,
+          Number(sub.cost_price ?? sub.unit_price) || 0
+        );
+        reconciledAnySub = true;
+      }
+      if (reconciledAnySub) continue;
+    }
+
+    if (parentTargetQty <= 0) continue;
+
+    const product = await resolveProductLiveOrLocal({
+      product_id: item.product_id,
+      variant_id: (item as any).variant_id,
+      sku: (item as any).sku || item.part_no || (item as any).model_part_no
+    });
+    if (!product) continue;
+
+    await reconcileSingleResolvedProduct(product, parentTargetQty, Number(item.unit_price) || 0);
   }
 
   return { adjustedCount, updatedProducts };

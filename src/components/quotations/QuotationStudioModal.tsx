@@ -58,7 +58,8 @@ import { QuotationRepository } from '../../services/repositories/QuotationReposi
 import { ProcurementRepository } from '../../services/repositories/ProcurementRepository';
 import { CompanyRepository } from '../../services/repositories/CompanyRepository';
 import { MetadataRepository } from '../../services/repositories/MetadataRepository';
-import { processVendorReturnStockDeduction } from '../../services/inventoryService';
+import { processVendorReturnStockDeduction, isOptionActiveForInventoryAndBaseline } from '../../services/inventoryService';
+import { getProjectForEnquiry } from '../../services/projectService';
 import {
   uploadWorkspaceMediaAsset,
   deleteFromStorageBucket,
@@ -6342,36 +6343,174 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
   // Load Supplier Cost Prices from Line Items / Product Catalog for Outbound Supplier PO
   const handleLoadSupplierCostsForPO = () => {
+    const docCurrency = String(liveQuotation.currency || 'AED').toUpperCase();
+    const getFxFromProd = (prodCurr?: string | null) => {
+      const pCurr = String(prodCurr || 'AED').toUpperCase();
+      return docCurrency === pCurr
+        ? 1
+        : resolveToAedMultiplier(pCurr) / resolveToAedMultiplier(docCurrency);
+    };
+
+    const resolveCatalogCostForEntry = (entry: {
+      product_id?: string;
+      variant_id?: string;
+      sku?: string;
+      product_sku?: string;
+      part_no?: string;
+      model_part_no?: string;
+      item_name?: string;
+      cost_price?: number;
+    }): number => {
+      if (
+        entry.cost_price !== undefined &&
+        entry.cost_price !== null &&
+        Number(entry.cost_price) > 0
+      ) {
+        return QuotationRepository.roundCurrency(Number(entry.cost_price));
+      }
+      const entrySku = String(
+        entry.sku || entry.product_sku || entry.part_no || entry.model_part_no || ''
+      )
+        .trim()
+        .toLowerCase();
+
+      // 1. Check if variant_id or entrySku matches a standalone child variant Product
+      const matchedVariantProd = workspaceProducts.find(
+        (p) =>
+          !p.is_deleted &&
+          ((entry.variant_id && p.id === entry.variant_id) ||
+            (entrySku && p.sku && p.sku.trim().toLowerCase() === entrySku && (p.variant_parent_id || (p as any).parent_product_id)))
+      );
+      if (
+        matchedVariantProd &&
+        matchedVariantProd.cost_price !== undefined &&
+        matchedVariantProd.cost_price !== null &&
+        Number(matchedVariantProd.cost_price) > 0
+      ) {
+        return QuotationRepository.roundCurrency(
+          Number(matchedVariantProd.cost_price) * getFxFromProd(matchedVariantProd.currency)
+        );
+      }
+
+      // 2. Match parent/base product
+      const matchedProd = workspaceProducts.find(
+        (p) =>
+          !p.is_deleted &&
+          ((entry.product_id && p.id === entry.product_id) ||
+            (entrySku && p.sku && p.sku.trim().toLowerCase() === entrySku) ||
+            (entry.item_name &&
+              (p.name || p.description || '').trim().toLowerCase() ===
+                entry.item_name.trim().toLowerCase()))
+      );
+
+      // 3. Check inline spec_variants on matchedProd
+      if (matchedProd) {
+        const inlineVariants = Array.isArray(matchedProd.spec_variants)
+          ? matchedProd.spec_variants
+          : Array.isArray(matchedProd.variants)
+          ? matchedProd.variants
+          : [];
+        const matchedInlineVar = inlineVariants.find(
+          (sv) =>
+            (entry.variant_id && sv.id === entry.variant_id) ||
+            (entrySku && sv.sku && sv.sku.trim().toLowerCase() === entrySku)
+        );
+        if (
+          matchedInlineVar &&
+          matchedInlineVar.cost_price !== undefined &&
+          matchedInlineVar.cost_price !== null &&
+          Number(matchedInlineVar.cost_price) > 0
+        ) {
+          return QuotationRepository.roundCurrency(
+            Number(matchedInlineVar.cost_price) * getFxFromProd(matchedProd.currency)
+          );
+        }
+        if (
+          matchedProd.cost_price !== undefined &&
+          matchedProd.cost_price !== null &&
+          Number(matchedProd.cost_price) > 0
+        ) {
+          return QuotationRepository.roundCurrency(
+            Number(matchedProd.cost_price) * getFxFromProd(matchedProd.currency)
+          );
+        }
+      }
+      return 0;
+    };
+
+    const computedUpdatesByKey: Record<
+      string,
+      {
+        unit_price: number;
+        cost_price: number;
+        total_price: number;
+        sub_components?: LineItemComponent[];
+      }
+    > = {};
+
+    quotationLineItems.forEach((item, idx) => {
+      const itemKey = item.id || `item_${idx}`;
+      let resolvedCost = resolveCatalogCostForEntry(item);
+      let updatedSubs: LineItemComponent[] | undefined = undefined;
+
+      if (Array.isArray(item.sub_components) && item.sub_components.length > 0) {
+        let subCostRollup = 0;
+        updatedSubs = item.sub_components.map((sub) => {
+          const subCost = resolveCatalogCostForEntry(sub as any);
+          const subQty = Math.max(0, Number(sub.quantity) || 1);
+          const subTotal = sub.is_included_accessory
+            ? 0
+            : QuotationRepository.roundCurrency(subQty * subCost);
+          if (!sub.is_included_accessory) {
+            subCostRollup += subQty * subCost;
+          }
+          return {
+            ...sub,
+            cost_price: subCost,
+            unit_price: sub.is_included_accessory ? 0 : subCost,
+            total_price: subTotal,
+            line_total: subTotal
+          };
+        });
+        if (resolvedCost <= 0 && subCostRollup > 0) {
+          resolvedCost = QuotationRepository.roundCurrency(subCostRollup);
+        }
+      }
+
+      const qty = Number(item.quantity) || 1;
+      computedUpdatesByKey[itemKey] = {
+        unit_price: resolvedCost,
+        cost_price: resolvedCost,
+        total_price: QuotationRepository.roundCurrency(qty * resolvedCost),
+        ...(updatedSubs ? { sub_components: updatedSubs } : {})
+      };
+    });
+
     setItemCompositeOverrides((prev) => {
       const next = { ...prev };
-      quotationLineItems.forEach((item, idx) => {
-        const itemKey = item.id || `item_${idx}`;
-        const matchedProd = workspaceProducts.find(
-          (p) =>
-            (item.product_id && p.id === item.product_id) ||
-            (item.sku && p.sku && p.sku.toLowerCase() === item.sku.toLowerCase()) ||
-            (item.item_name &&
-              (p.name || p.description || '').trim().toLowerCase() ===
-                item.item_name.trim().toLowerCase())
-        );
-        const resolvedCost =
-          item.cost_price !== undefined && item.cost_price !== null && Number(item.cost_price) > 0
-            ? Number(item.cost_price)
-            : matchedProd?.cost_price !== undefined && matchedProd?.cost_price !== null
-            ? Number(matchedProd.cost_price)
-            : 0;
-        const qty = Number(item.quantity) || 1;
+      Object.entries(computedUpdatesByKey).forEach(([itemKey, patch]) => {
         next[itemKey] = {
           ...(next[itemKey] || {}),
-          unit_price: resolvedCost,
-          cost_price: resolvedCost,
-          total_price: QuotationRepository.roundCurrency(qty * resolvedCost)
+          ...patch
         };
       });
       return next;
     });
+
+    if (customStudioLineItems) {
+      setCustomStudioLineItems((prev) =>
+        prev
+          ? prev.map((item, idx) => {
+              const itemKey = item.id || `item_${idx}`;
+              const patch = computedUpdatesByKey[itemKey];
+              return patch ? { ...item, ...patch } : item;
+            })
+          : prev
+      );
+    }
+
     triggerToast?.(
-      'Initialized PO unit rates from item & catalog cost prices (client selling prices hidden).',
+      'Initialized PO unit rates from item, variant & BOM sub-component supplier cost prices.',
       'info'
     );
   };
@@ -6379,24 +6518,163 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
   // Optional 1-click stock deduction when issuing a Delivery Note (works for both standalone Enquiry and Project-linked DOs)
   const handleDeductDeliveredStock = async () => {
     if (isDeductingStock || stockDeductedForDoc || deliveryMetadata.stock_deducted) return;
-    const trackedItems = quotationLineItems
-      .map((item) => {
-        const matchedProd = workspaceProducts.find(
-          (p) =>
-            (item.product_id && p.id === item.product_id) ||
-            (item.sku && p.sku && p.sku.toLowerCase() === item.sku.toLowerCase()) ||
-            (item.item_name &&
-              (p.name || p.description || '').trim().toLowerCase() ===
-                item.item_name.trim().toLowerCase())
+
+    const resolveCatalogProductForStock = (ref: {
+      product_id?: string;
+      variant_id?: string;
+      sku?: string;
+      product_sku?: string;
+      part_no?: string;
+      model_part_no?: string;
+      item_name?: string;
+      description?: string;
+    }): Product | undefined => {
+      const refSku = String(
+        ref.sku || ref.product_sku || ref.part_no || ref.model_part_no || ''
+      )
+        .trim()
+        .toLowerCase();
+
+      // 1. Check if variant_id matches a standalone child variant Product
+      if (ref.variant_id) {
+        const directVariantProd = workspaceProducts.find(
+          (p) => !p.is_deleted && p.id === ref.variant_id
         );
-        const deliveredQty =
-          item.qty_delivered !== undefined ? Number(item.qty_delivered) : Number(item.quantity) || 0;
-        return { item, matchedProd, deliveredQty };
-      })
-      .filter((entry) => entry.matchedProd?.id && entry.deliveredQty > 0);
+        if (directVariantProd) return directVariantProd;
+      }
+
+      // 2. If product_id points to a parent product, check if variant_id or refSku identifies a child variant Product
+      if (ref.product_id) {
+        const byId = workspaceProducts.find((p) => !p.is_deleted && p.id === ref.product_id);
+        if (byId) {
+          if (ref.variant_id || refSku) {
+            const inlineVars = Array.isArray(byId.spec_variants)
+              ? byId.spec_variants
+              : Array.isArray(byId.variants)
+              ? byId.variants
+              : [];
+            const matchedInline = inlineVars.find(
+              (sv) =>
+                (ref.variant_id && sv.id === ref.variant_id) ||
+                (refSku && sv.sku && sv.sku.trim().toLowerCase() === refSku)
+            );
+            const targetChildSku = (matchedInline?.sku || refSku || '').trim().toLowerCase();
+            const targetChildLabel = (matchedInline?.variant_name || '').trim().toLowerCase();
+            const childProd = workspaceProducts.find((p) => {
+              if (!p || p.is_deleted || p.id === byId.id) return false;
+              const pParentId = (p as any).parent_product_id || p.variant_parent_id;
+              if (pParentId !== byId.id) return false;
+              if (targetChildSku && p.sku && p.sku.trim().toLowerCase() === targetChildSku) return true;
+              if (
+                targetChildLabel &&
+                String((p as any).variant_label || '').trim().toLowerCase() === targetChildLabel
+              ) {
+                return true;
+              }
+              return false;
+            });
+            if (childProd) return childProd;
+          }
+          return byId;
+        }
+      }
+
+      // 3. Fallback to SKU or exact item_name match
+      return workspaceProducts.find(
+        (p) =>
+          !p.is_deleted &&
+          ((refSku && p.sku && p.sku.trim().toLowerCase() === refSku) ||
+            (ref.item_name &&
+              (p.name || p.description || '').trim().toLowerCase() ===
+                ref.item_name.trim().toLowerCase()))
+      );
+    };
+
+    const aggregatedDeductions = new Map<
+      string,
+      { matchedProd: Product; deliveredQty: number; label: string }
+    >();
+
+    for (const item of quotationLineItems) {
+      if ((item as any).is_optional || item.item_type === 'charge' || item.item_type === 'discount') {
+        continue;
+      }
+      const itemOpt =
+        item.option ||
+        (item as any).item_option ||
+        (item as any).option_designation ||
+        item.option_group;
+      if (!isOptionActiveForInventoryAndBaseline(itemOpt, enquiry?.proposal_option)) {
+        continue;
+      }
+
+      const parentDeliveredQty =
+        item.qty_delivered !== undefined
+          ? Number(item.qty_delivered)
+          : Number(item.quantity) || 0;
+      if (parentDeliveredQty <= 0) continue;
+
+      const resolvedSubDeductions: Array<{
+        matchedProd: Product;
+        deliveredQty: number;
+        label: string;
+      }> = [];
+
+      if (Array.isArray(item.sub_components) && item.sub_components.length > 0) {
+        for (const sub of item.sub_components) {
+          const subProd = resolveCatalogProductForStock(sub as any);
+          if (!subProd?.id) continue;
+          const perSetSubQty = Math.max(0, Number(sub.quantity) || 0);
+          const isAlreadyMultiplied = Boolean((sub as any)._do_qty_multiplied);
+          const subDeliveredQty =
+            isAlreadyMultiplied && sub.qty_delivered !== undefined
+              ? Number(sub.qty_delivered)
+              : sub.qty_delivered !== undefined &&
+                !(parentDeliveredQty > 1 && Number(sub.qty_delivered) === perSetSubQty)
+              ? Number(sub.qty_delivered)
+              : Math.round(perSetSubQty * parentDeliveredQty * 100) / 100;
+          if (subDeliveredQty <= 0) continue;
+          resolvedSubDeductions.push({
+            matchedProd: subProd,
+            deliveredQty: subDeliveredQty,
+            label: sub.item_name || subProd.name || subProd.description || 'BOM Sub-Component'
+          });
+        }
+      }
+
+      if (resolvedSubDeductions.length > 0) {
+        for (const subEntry of resolvedSubDeductions) {
+          const existing = aggregatedDeductions.get(subEntry.matchedProd.id);
+          aggregatedDeductions.set(subEntry.matchedProd.id, {
+            matchedProd: subEntry.matchedProd,
+            deliveredQty: (existing?.deliveredQty || 0) + subEntry.deliveredQty,
+            label: existing?.label || subEntry.label
+          });
+        }
+      } else {
+        const matchedProd = resolveCatalogProductForStock(item);
+        if (matchedProd?.id) {
+          const existing = aggregatedDeductions.get(matchedProd.id);
+          aggregatedDeductions.set(matchedProd.id, {
+            matchedProd,
+            deliveredQty: (existing?.deliveredQty || 0) + parentDeliveredQty,
+            label:
+              existing?.label ||
+              item.item_name ||
+              matchedProd.name ||
+              matchedProd.description ||
+              'Delivered Item'
+          });
+        }
+      }
+    }
+
+    const trackedItems = Array.from(aggregatedDeductions.values()).filter(
+      (entry) => entry.matchedProd?.id && entry.deliveredQty > 0
+    );
 
     if (trackedItems.length === 0) {
-      triggerToast?.('No catalog-linked line items with delivered quantity > 0 found.', 'info');
+      triggerToast?.('No catalog-linked line items or BOM sub-components with delivered quantity > 0 found.', 'info');
       return;
     }
 
@@ -6412,7 +6690,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         user?.full_name || (user as any)?.username || user?.email || 'Warehouse Operator';
       let updatedCount = 0;
 
-      for (const { item, matchedProd, deliveredQty } of trackedItems) {
+      for (const { matchedProd, deliveredQty, label } of trackedItems) {
         if (!matchedProd?.id) continue;
         const currentStock = Number(matchedProd.stock_on_hand ?? matchedProd.current_stock ?? 0);
         const currentReserved = Number(matchedProd.stock_reserved ?? 0);
@@ -6433,7 +6711,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         await safeAddDoc('stock_movements', {
           workspace_id: activeWorkspaceId || 'ws_default',
           product_id: matchedProd.id,
-          product_name: item.item_name || matchedProd.name || matchedProd.description || 'Delivered Item',
+          product_name: label,
           movement_type: 'STOCK_OUT',
           quantity: deliveredQty,
           previous_on_hand: currentStock,
@@ -6450,6 +6728,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         });
 
         const updatedProduct: Product = { ...matchedProd, ...patch };
+        await MetadataRepository.upsertLocalProduct(updatedProduct).catch(() => {});
         setWorkspaceProducts((prev) => {
           const next = prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p));
           try {
@@ -6464,6 +6743,31 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
         }
         updatedCount++;
       }
+
+      if (updatedCount > 0) {
+        if (enquiry?.id && enquiry?.stock_reserved) {
+          await safeUpdateDoc('enquiries', enquiry.id, {
+            stock_reserved: false,
+            updatedAt: nowIso
+          }).catch(() => {});
+        }
+        try {
+          const linkedProjectId =
+            enquiry?.project_id ||
+            (enquiry?.id ? (await getProjectForEnquiry(enquiry.id))?.id : undefined);
+          if (linkedProjectId) {
+            await safeUpdateDoc('projects', linkedProjectId, {
+              status: 'Delivered',
+              dispatched_at: nowIso,
+              stock_deducted: true,
+              dispatched_items_count: updatedCount,
+              fulfillment_type: 'WAREHOUSE_DISPATCH',
+              updated_at: nowIso
+            }).catch(() => {});
+          }
+        } catch (_) {}
+      }
+
       setStockDeductedForDoc(true);
       setDeliveryMetadata((prev) => ({
         ...prev,
@@ -6491,6 +6795,29 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       if (res.deductedCount === 0) {
         triggerToast?.('No catalog-linked line items with return quantity > 0 found.', 'info');
       } else {
+        if (res.updatedProducts.length > 0) {
+          const updatedMap = new Map(res.updatedProducts.map((u) => [u.productId, u.newOnHand]));
+          setWorkspaceProducts((prev) => {
+            const next = prev.map((p) =>
+              p.id && updatedMap.has(p.id)
+                ? { ...p, stock_on_hand: updatedMap.get(p.id)!, current_stock: updatedMap.get(p.id)! }
+                : p
+            );
+            try {
+              localStorage.setItem('omni_products', JSON.stringify(next));
+            } catch (_) {}
+            return next;
+          });
+          if (propSetProducts) {
+            propSetProducts((prev) =>
+              prev.map((p) =>
+                p.id && updatedMap.has(p.id)
+                  ? { ...p, stock_on_hand: updatedMap.get(p.id)!, current_stock: updatedMap.get(p.id)! }
+                  : p
+              )
+            );
+          }
+        }
         setStockDeductedForDoc(true);
         setVendorReturnMetadata((prev) => ({
           ...prev,
@@ -19104,8 +19431,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          updateCurItem({ image_url: undefined });
-                                          handleUpdateTopItemRowOption(itemKey, { image_url: undefined });
+                                          const clearPrimaryPatch = {
+                                            image_url: '',
+                                            image_storage_key: '',
+                                            image_display_override: 'none' as const
+                                          };
+                                          updateCurItem(clearPrimaryPatch as any);
+                                          handleUpdateTopItemRowOption(itemKey, clearPrimaryPatch as any);
                                           setItemImageOverrides((prev) => ({ ...prev, [itemKey]: '' }));
                                         }}
                                         className="p-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-md transition cursor-pointer"
@@ -19150,8 +19482,18 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                           reader.onload = (evt) => {
                                             const base64 = evt.target?.result as string;
                                             if (base64) {
-                                              updateCurItem({ image_url: base64 });
-                                              handleUpdateTopItemRowOption(itemKey, { image_url: base64 });
+                                              const nextDisplayOverride =
+                                                curItem.image_display_override === 'none' ||
+                                                curItem.image_display_override === 'hidden'
+                                                  ? ('inherit' as const)
+                                                  : curItem.image_display_override;
+                                              const uploadPatch = {
+                                                image_url: base64,
+                                                image_storage_key: '',
+                                                ...(nextDisplayOverride ? { image_display_override: nextDisplayOverride } : {})
+                                              };
+                                              updateCurItem(uploadPatch as any);
+                                              handleUpdateTopItemRowOption(itemKey, uploadPatch as any);
                                               setItemImageOverrides((prev) => ({ ...prev, [itemKey]: base64 }));
                                               setVisibleColumns((prev) => ({ ...prev, showLineItemImages: true }));
                                             }
@@ -19167,10 +19509,22 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       type="text"
                                       value={curItem.image_url || ''}
                                       onChange={(e) => {
-                                        updateCurItem({ image_url: e.target.value });
-                                        handleUpdateTopItemRowOption(itemKey, { image_url: e.target.value });
-                                        setItemImageOverrides((prev) => ({ ...prev, [itemKey]: e.target.value }));
-                                        if (e.target.value) setVisibleColumns((prev) => ({ ...prev, showLineItemImages: true }));
+                                        const val = e.target.value;
+                                        const nextDisplayOverride =
+                                          val &&
+                                          (curItem.image_display_override === 'none' ||
+                                            curItem.image_display_override === 'hidden')
+                                            ? ('inherit' as const)
+                                            : curItem.image_display_override;
+                                        const urlPatch = {
+                                          image_url: val,
+                                          image_storage_key: '',
+                                          ...(nextDisplayOverride ? { image_display_override: nextDisplayOverride } : {})
+                                        };
+                                        updateCurItem(urlPatch as any);
+                                        handleUpdateTopItemRowOption(itemKey, urlPatch as any);
+                                        setItemImageOverrides((prev) => ({ ...prev, [itemKey]: val }));
+                                        if (val) setVisibleColumns((prev) => ({ ...prev, showLineItemImages: true }));
                                       }}
                                       placeholder="https://..."
                                       className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-mono"
@@ -19312,8 +19666,12 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          updateCurItem({ secondary_image_url: undefined });
-                                          handleUpdateTopItemRowOption(itemKey, { secondary_image_url: undefined });
+                                          const clearSecPatch = {
+                                            secondary_image_url: '',
+                                            secondary_image_storage_key: ''
+                                          };
+                                          updateCurItem(clearSecPatch as any);
+                                          handleUpdateTopItemRowOption(itemKey, clearSecPatch as any);
                                         }}
                                         className="absolute top-2 right-2 p-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-md transition cursor-pointer"
                                         title="Remove Secondary Diagram"
@@ -19351,8 +19709,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                           reader.onload = (evt) => {
                                             const base64 = evt.target?.result as string;
                                             if (base64) {
-                                              updateCurItem({ secondary_image_url: base64 });
-                                              handleUpdateTopItemRowOption(itemKey, { secondary_image_url: base64 });
+                                              updateCurItem({ secondary_image_url: base64, secondary_image_storage_key: '' } as any);
+                                              handleUpdateTopItemRowOption(itemKey, { secondary_image_url: base64, secondary_image_storage_key: '' } as any);
                                             }
                                           };
                                           reader.readAsDataURL(file);
@@ -19373,7 +19731,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       matchedProduct={matchedProd}
                                       products={workspaceProducts}
                                       setProducts={(updater) => {
-                                        setWorkspaceProducts(updater);
+                                        setWorkspaceProducts((prev) => {
+                                          const next = typeof updater === 'function' ? updater(prev) : updater;
+                                          try {
+                                            localStorage.setItem('omni_products', JSON.stringify(next));
+                                          } catch (_) {}
+                                          return next;
+                                        });
                                         if (propSetProducts) propSetProducts(updater);
                                       }}
                                       currency={liveQuotation.currency}
@@ -19426,7 +19790,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                 currency={liveQuotation.currency || 'AED'}
                                 products={workspaceProducts}
                                 setProducts={(updater) => {
-                                  setWorkspaceProducts(updater);
+                                  setWorkspaceProducts((prev) => {
+                                    const next = typeof updater === 'function' ? updater(prev) : updater;
+                                    try {
+                                      localStorage.setItem('omni_products', JSON.stringify(next));
+                                    } catch (_) {}
+                                    return next;
+                                  });
                                   if (propSetProducts) propSetProducts(updater);
                                 }}
                                 activeWorkspace={activeWorkspace}

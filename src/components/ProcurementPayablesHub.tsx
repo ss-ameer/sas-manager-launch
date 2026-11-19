@@ -132,6 +132,11 @@ export default function ProcurementPayablesHub({
       product_id: string;
       item_name: string;
       part_no: string;
+      sku?: string;
+      variant_id?: string;
+      variant_name?: string;
+      is_composite_set?: boolean;
+      sub_components?: any[];
       qty: number;
       unit: string;
       unit_cost: number;
@@ -149,8 +154,12 @@ export default function ProcurementPayablesHub({
   const [grnLines, setGrnLines] = useState<
     Array<{
       line_item_id: string;
+      po_line_index?: number;
+      sub_component_index?: number;
       product_id?: string;
+      variant_id?: string;
       part_no?: string;
+      sku?: string;
       item_name: string;
       qty_ordered: number;
       qty_already_received: number;
@@ -224,6 +233,11 @@ export default function ProcurementPayablesHub({
       product_id?: string;
       item_name: string;
       part_no: string;
+      sku?: string;
+      variant_id?: string;
+      variant_name?: string;
+      is_composite_set?: boolean;
+      sub_components?: any[];
       qty: number;
       unit: string;
       unit_cost: number;
@@ -441,13 +455,24 @@ export default function ProcurementPayablesHub({
           : (docRecord.line_items || []).map((li: any) => {
               const resolvedQty = Number(li.qty_ordered ?? li.quantity ?? li.qty) || 1;
               return {
+                ...li,
                 id: li.id,
                 product_id: li.product_id,
-                product_type: 'Standard',
+                product_type: li.product_type || 'Standard',
                 item_name: li.item_name || li.description,
-                part_no: li.part_no || '',
+                part_no: li.part_no || li.sku || '',
+                sku: li.sku || li.part_no || '',
+                model_part_no: li.model_part_no || li.part_no || li.sku || '',
+                variant_id: li.variant_id,
+                variant_name: li.variant_name,
                 brand_make: li.brand || li.brand_make || '',
                 description: li.description,
+                is_composite_set: Boolean(
+                  li.is_composite_set || (Array.isArray(li.sub_components) && li.sub_components.length > 0)
+                ),
+                sub_components: Array.isArray(li.sub_components)
+                  ? li.sub_components.map((sub: any) => ({ ...sub }))
+                  : undefined,
                 quantity: resolvedQty,
                 qty: resolvedQty,
                 unit: li.unit || 'pcs',
@@ -480,24 +505,63 @@ export default function ProcurementPayablesHub({
     setGrnAllocationMode('proportional_value');
     setGrnUpdateCatalogCost(false);
     setGrnNotes('');
-    setGrnLines(
-      (po.line_items || []).map((li: any) => {
-        const ordered = Math.max(0, Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0);
-        const received = Math.max(0, Number(li.qty_received) || 0);
-        const pending = Math.max(0, ordered - received);
-        return {
+    const expandedGrnLines: typeof grnLines = [];
+    (po.line_items || []).forEach((li: any, poIdx: number) => {
+      const parentOrdered = Math.max(0, Number(li.qty_ordered ?? li.quantity ?? li.qty) || 0);
+      const parentReceived = Math.max(0, Number(li.qty_received) || 0);
+      if (Array.isArray(li.sub_components) && li.sub_components.length > 0) {
+        const parentLabel = li.item_name || li.description || `Set #${poIdx + 1}`;
+        li.sub_components.forEach((sub: any, subIdx: number) => {
+          const subPerSet = Math.max(1, Number(sub.quantity) || 1);
+          const subOrdered = parentOrdered * subPerSet;
+          const subReceived = Math.max(
+            0,
+            Number(sub.qty_received ?? parentReceived * subPerSet) || 0
+          );
+          const subPending = Math.max(0, subOrdered - subReceived);
+          const subProd = products.find((p) => p.id === sub.product_id);
+          const subUnitCost = Number(
+            sub.cost_price ??
+              sub.unit_price ??
+              subProd?.cost_price ??
+              subProd?.last_landed_cost ??
+              0
+          );
+          expandedGrnLines.push({
+            line_item_id: `${li.id || poIdx}_sub_${sub.id || subIdx}`,
+            po_line_index: poIdx,
+            sub_component_index: subIdx,
+            product_id: sub.product_id,
+            variant_id: sub.variant_id,
+            part_no: sub.sku || sub.part_no || sub.model_part_no || subProd?.part_no || subProd?.sku,
+            sku: sub.sku || sub.part_no || sub.model_part_no || subProd?.sku || subProd?.part_no,
+            item_name: `[${parentLabel}] ${sub.item_name || subProd?.name || 'Sub-Component'}`,
+            qty_ordered: subOrdered,
+            qty_already_received: subReceived,
+            qty_receiving_now: subPending,
+            po_unit_cost: subUnitCost,
+            manual_landed_cost_addition: 0
+          });
+        });
+      } else {
+        const pending = Math.max(0, parentOrdered - parentReceived);
+        expandedGrnLines.push({
           line_item_id: li.id,
+          po_line_index: poIdx,
           product_id: li.product_id,
-          part_no: li.part_no,
+          variant_id: li.variant_id,
+          part_no: li.part_no || li.sku,
+          sku: li.sku || li.part_no,
           item_name: li.item_name || li.description || 'Item',
-          qty_ordered: ordered,
-          qty_already_received: received,
+          qty_ordered: parentOrdered,
+          qty_already_received: parentReceived,
           qty_receiving_now: pending,
           po_unit_cost: Number(li.unit_price) || 0,
           manual_landed_cost_addition: 0
-        };
-      })
-    );
+        });
+      }
+    });
+    setGrnLines(expandedGrnLines);
   };
 
   // Live Landed Cost Preview in GRN Modal
@@ -554,8 +618,11 @@ export default function ProcurementPayablesHub({
           notes: grnNotes,
           lines: grnLandedPreview.map((l, idx) => ({
             line_index: idx,
+            po_line_index: l.po_line_index ?? idx,
+            sub_component_index: l.sub_component_index,
             product_id: l.product_id,
-            sku: l.part_no,
+            variant_id: l.variant_id,
+            sku: l.sku || l.part_no,
             item_name: l.item_name,
             qty_ordered: l.qty_ordered,
             qty_previously_received: l.qty_already_received,
@@ -564,7 +631,7 @@ export default function ProcurementPayablesHub({
             allocated_freight_cost: l.allocatedFreight,
             manual_landed_cost_override: grnAllocationMode === 'manual' ? l.landedUnitCost : undefined,
             landed_unit_cost: l.landedUnitCost
-          }))
+          })) as any
         },
         grnTargetPo as any,
         user
@@ -632,14 +699,31 @@ export default function ProcurementPayablesHub({
         const qty = Math.max(1, Number(l.qty) || 1);
         const rate = Math.max(0, Number(l.unit_cost) || 0);
         const lineSub = QuotationRepository.roundCurrency(qty * rate);
+        const rawSubs = Array.isArray(l.sub_components)
+          ? l.sub_components
+          : Array.isArray(prod?.sub_components)
+          ? prod.sub_components
+          : undefined;
+        const clonedSubs = Array.isArray(rawSubs)
+          ? rawSubs.map((sub: any) => ({ ...sub }))
+          : undefined;
         return {
           id: `poli_${Date.now()}_${idx}`,
           sr_no: idx + 1,
           product_id: l.product_id || undefined,
-          part_no: l.part_no || prod?.part_no || '',
+          variant_id: l.variant_id,
+          variant_name: l.variant_name,
+          part_no: l.part_no || prod?.part_no || prod?.sku || '',
+          sku: l.sku || l.part_no || prod?.sku || prod?.part_no || '',
+          model_part_no: l.part_no || prod?.part_no || prod?.sku || '',
           item_name: l.item_name || prod?.name || 'Item',
           brand: prod?.brand || '',
+          brand_make: prod?.brand || '',
           description: prod?.description || l.item_name,
+          is_composite_set: Boolean(
+            l.is_composite_set || prod?.is_composite_set || (clonedSubs && clonedSubs.length > 0)
+          ),
+          sub_components: clonedSubs,
           quantity: qty,
           qty,
           qty_ordered: qty,
@@ -1478,7 +1562,16 @@ export default function ProcurementPayablesHub({
         po.line_items.map((li: any) => ({
           product_id: li.product_id,
           item_name: li.item_name || li.description || '',
-          part_no: li.part_no || '',
+          part_no: li.part_no || li.sku || '',
+          sku: li.sku || li.part_no || '',
+          variant_id: li.variant_id,
+          variant_name: li.variant_name,
+          is_composite_set: Boolean(
+            li.is_composite_set || (Array.isArray(li.sub_components) && li.sub_components.length > 0)
+          ),
+          sub_components: Array.isArray(li.sub_components)
+            ? li.sub_components.map((sub: any) => ({ ...sub }))
+            : undefined,
           qty: Number(li.qty_received || li.qty_ordered || li.quantity || li.qty) || 1,
           unit: li.unit || 'Nos',
           unit_cost: Number(li.unit_price ?? li.cost_price ?? 0)
@@ -1533,19 +1626,37 @@ export default function ProcurementPayablesHub({
     const sourceLines: QuotationLineItem[] = retLines
       .filter((l) => l.item_name.trim() !== '')
       .map((l, idx) => {
+        const prod = products.find((p) => p.id === l.product_id);
         const qty = Math.max(1, Number(l.qty) || 1);
         const rate = Math.max(0, Number(l.unit_cost) || 0);
+        const rawSubs = Array.isArray(l.sub_components)
+          ? l.sub_components
+          : Array.isArray(prod?.sub_components)
+          ? prod.sub_components
+          : undefined;
+        const clonedSubs = Array.isArray(rawSubs)
+          ? rawSubs.map((sub: any) => ({ ...sub }))
+          : undefined;
         return {
           id: `retli_${Date.now()}_${idx}`,
           sr_no: idx + 1,
           product_id: l.product_id || undefined,
-          part_no: l.part_no || '',
+          variant_id: l.variant_id,
+          variant_name: l.variant_name,
+          part_no: l.part_no || prod?.part_no || prod?.sku || '',
+          sku: l.sku || l.part_no || prod?.sku || prod?.part_no || '',
+          model_part_no: l.part_no || prod?.part_no || prod?.sku || '',
           item_name: l.item_name,
           description: l.item_name,
+          is_composite_set: Boolean(
+            l.is_composite_set || prod?.is_composite_set || (clonedSubs && clonedSubs.length > 0)
+          ),
+          sub_components: clonedSubs,
           quantity: qty,
           qty,
           qty_ordered: qty,
           return_qty: qty,
+          qty_returned: qty,
           return_reason: retReason,
           unit: l.unit || 'Nos',
           unit_price: rate,
@@ -3847,17 +3958,59 @@ export default function ProcurementPayablesHub({
                             const enq = enquiries.find((x) => x.id === enqId);
                             if (enq && enq.line_items && enq.line_items.length > 0) {
                               setNewPoLines(
-                                enq.line_items.map((li) => {
-                                  const prod = products.find((p) => p.id === li.product_id);
-                                  return {
-                                    product_id: li.product_id || '',
-                                    item_name: li.item_name || li.description || '',
-                                    part_no: li.part_no || prod?.part_no || '',
-                                    qty: Number(li.quantity ?? li.qty) || 1,
-                                    unit: li.unit || prod?.unit || 'Nos',
-                                    unit_cost: Number(li.cost_price ?? prod?.cost_price ?? 0) || 0
-                                  };
-                                })
+                                enq.line_items
+                                  .filter((li) => !(li as any).is_optional)
+                                  .map((li) => {
+                                    const prod = products.find((p) => p.id === li.product_id);
+                                    const rawSubs = Array.isArray(li.sub_components)
+                                      ? li.sub_components
+                                      : Array.isArray(prod?.sub_components)
+                                      ? prod.sub_components
+                                      : undefined;
+                                    const clonedSubs = Array.isArray(rawSubs)
+                                      ? rawSubs.map((sub: any) => {
+                                          const subProd = products.find((p) => p.id === sub.product_id);
+                                          const subCost = Number(
+                                            sub.cost_price ??
+                                              subProd?.cost_price ??
+                                              subProd?.last_landed_cost ??
+                                              sub.unit_price ??
+                                              0
+                                          );
+                                          return {
+                                            ...sub,
+                                            cost_price: subCost
+                                          };
+                                        })
+                                      : undefined;
+                                    const subCostRollup = clonedSubs
+                                      ? clonedSubs.reduce(
+                                          (sum, sub) =>
+                                            sum + (Number(sub.quantity) || 1) * (Number(sub.cost_price) || 0),
+                                          0
+                                        )
+                                      : 0;
+                                    const directCost = Number(
+                                      li.cost_price ?? prod?.cost_price ?? prod?.last_landed_cost ?? 0
+                                    );
+                                    return {
+                                      product_id: li.product_id || '',
+                                      item_name: li.item_name || li.description || '',
+                                      part_no: li.part_no || (li as any).sku || prod?.part_no || prod?.sku || '',
+                                      sku: (li as any).sku || li.part_no || prod?.sku || prod?.part_no || '',
+                                      variant_id: (li as any).variant_id,
+                                      variant_name: (li as any).variant_name,
+                                      is_composite_set: Boolean(
+                                        li.is_composite_set ||
+                                          prod?.is_composite_set ||
+                                          (clonedSubs && clonedSubs.length > 0)
+                                      ),
+                                      sub_components: clonedSubs,
+                                      qty: Number(li.quantity ?? li.qty) || 1,
+                                      unit: li.unit || prod?.unit || 'Nos',
+                                      unit_cost: directCost > 0 ? directCost : subCostRollup
+                                    };
+                                  })
                               );
                             }
                           }}
@@ -3936,6 +4089,36 @@ export default function ProcurementPayablesHub({
                               onChange={(e) => {
                                 const pid = e.target.value;
                                 const prod = products.find((p) => p.id === pid);
+                                const clonedSubs = Array.isArray(prod?.sub_components)
+                                  ? prod.sub_components.map((sub: any) => {
+                                      const subProd = products.find((p) => p.id === sub.product_id);
+                                      const subCost = Number(
+                                        sub.cost_price ??
+                                          subProd?.cost_price ??
+                                          subProd?.last_landed_cost ??
+                                          sub.unit_price ??
+                                          0
+                                      );
+                                      return { ...sub, cost_price: subCost };
+                                    })
+                                  : undefined;
+                                const subCostRollup = clonedSubs
+                                  ? clonedSubs.reduce(
+                                      (sum, sub) =>
+                                        sum + (Number(sub.quantity) || 1) * (Number(sub.cost_price) || 0),
+                                      0
+                                    )
+                                  : 0;
+                                const directCost = Number(
+                                  prod?.cost_price ||
+                                    prod?.last_landed_cost ||
+                                    (prod as any)?.selling_price ||
+                                    (prod as any)?.unit_price ||
+                                    l_unitCostFallback(line.unit_cost)
+                                );
+                                function l_unitCostFallback(fallback: number) {
+                                  return subCostRollup > 0 ? subCostRollup : fallback || 0;
+                                }
                                 setNewPoLines((prev) =>
                                   prev.map((l, i) =>
                                     i === idx
@@ -3944,15 +4127,13 @@ export default function ProcurementPayablesHub({
                                           product_id: pid,
                                           item_name: prod?.name || prod?.description || l.item_name,
                                           part_no: prod?.part_no || prod?.sku || l.part_no,
+                                          sku: prod?.sku || prod?.part_no || l.sku,
+                                          is_composite_set: Boolean(
+                                            prod?.is_composite_set || (clonedSubs && clonedSubs.length > 0)
+                                          ),
+                                          sub_components: clonedSubs,
                                           unit: prod?.unit || l.unit || 'Nos',
-                                          unit_cost: Number(
-                                            prod?.cost_price ||
-                                              prod?.last_landed_cost ||
-                                              (prod as any)?.selling_price ||
-                                              (prod as any)?.unit_price ||
-                                              l.unit_cost ||
-                                              0
-                                          )
+                                          unit_cost: directCost > 0 ? directCost : subCostRollup
                                         }
                                       : l
                                   )

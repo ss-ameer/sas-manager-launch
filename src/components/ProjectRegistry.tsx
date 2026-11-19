@@ -1580,11 +1580,26 @@ export default function ProjectRegistry({
                   const estCatalogCost = (selectedProject.line_items || []).reduce((s, li) => {
                     const qty = Number(li.quantity) || 1;
                     const prod = li.product_id ? productMap.get(li.product_id) : null;
-                    const unitCost =
+                    const directCost =
                       li.cost_price !== undefined && Number(li.cost_price) > 0
                         ? Number(li.cost_price)
                         : Number(prod?.cost_price) || 0;
-                    return s + qty * unitCost;
+                    if (directCost > 0) {
+                      return s + qty * directCost;
+                    }
+                    if (Array.isArray(li.sub_components) && li.sub_components.length > 0) {
+                      const subCostSum = li.sub_components.reduce((subAcc, sub) => {
+                        const subQty = Number(sub.quantity) || 1;
+                        const subProd = sub.product_id ? productMap.get(sub.product_id) : null;
+                        const subUnitCost =
+                          sub.cost_price !== undefined && Number(sub.cost_price) > 0
+                            ? Number(sub.cost_price)
+                            : Number(subProd?.cost_price) || 0;
+                        return subAcc + subQty * subUnitCost;
+                      }, 0);
+                      return s + qty * subCostSum;
+                    }
+                    return s;
                   }, 0);
                   const rollup = ProcurementRepository.computeProcurementRollup({
                     enquiryId: selectedProject.enquiry_id,
@@ -1921,51 +1936,108 @@ export default function ProjectRegistry({
                         const showSecondaryDesc =
                           Boolean(secondaryDesc) &&
                           secondaryDesc.toLowerCase() !== primaryTitle.toLowerCase();
+                        const subComponents = Array.isArray(it.sub_components) ? it.sub_components : [];
+                        const linkedSubCount = subComponents.filter((sub) =>
+                          Boolean(sub.product_id && productMap?.get(sub.product_id)?.is_inventoried)
+                        ).length;
 
                         return (
-                          <tr key={it.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
-                            <td className="py-3 px-4">
-                              <div className="font-semibold text-slate-800 dark:text-slate-100">
-                                {primaryTitle}
-                              </div>
-                              {showSecondaryDesc && (
-                                <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">
-                                  {secondaryDesc}
+                          <React.Fragment key={it.id || idx}>
+                            <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                              <td className="py-3 px-4">
+                                <div className="font-semibold text-slate-800 dark:text-slate-100">
+                                  {primaryTitle}
                                 </div>
-                              )}
-                              <div className="text-[11px] text-slate-400 mt-0.5">
-                                Type: {it.product_type || 'General'}
-                              </div>
-                            </td>
-                            <td className="py-3 px-3 font-mono font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                              {it.quantity} {it.unit || 'Nos'}
-                            </td>
-                            <td className="py-3 px-3 text-right font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                              {Number(it.unit_price || 0).toFixed(2)}
-                            </td>
-                            <td className="py-3 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
-                              {lineTotal.toFixed(2)}
-                            </td>
-                            <td className="py-3 px-3 text-center whitespace-nowrap">
-                              {linkedProduct ? (
-                                <div className="inline-flex flex-col items-center">
-                                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                                    On-Hand: {linkedProduct.stock_on_hand ?? 0} | Res: {linkedProduct.stock_reserved ?? 0}
+                                {showSecondaryDesc && (
+                                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">
+                                    {secondaryDesc}
+                                  </div>
+                                )}
+                                <div className="text-[11px] text-slate-400 mt-0.5">
+                                  Type: {it.product_type || (subComponents.length > 0 ? 'Composite Package / Kit' : 'General')}
+                                </div>
+                              </td>
+                              <td className="py-3 px-3 font-mono font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                                {it.quantity} {it.unit || 'Nos'}
+                              </td>
+                              <td className="py-3 px-3 text-right font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                                {Number(it.unit_price || 0).toFixed(2)}
+                              </td>
+                              <td className="py-3 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                                {lineTotal.toFixed(2)}
+                              </td>
+                              <td className="py-3 px-3 text-center whitespace-nowrap">
+                                {subComponents.length > 0 ? (
+                                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                    BOM Kit ({subComponents.length} sub-items · {linkedSubCount} inventoried)
                                   </span>
-                                  {linkedProduct.storage_location && (
-                                    <span className="text-[9px] text-slate-400 font-mono mt-0.5 flex items-center space-x-0.5">
-                                      <MapPin className="w-2.5 h-2.5" />
-                                      <span>{linkedProduct.storage_location}</span>
+                                ) : linkedProduct ? (
+                                  <div className="inline-flex flex-col items-center">
+                                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                      On-Hand: {linkedProduct.stock_on_hand ?? 0} | Res: {linkedProduct.stock_reserved ?? 0}
                                     </span>
-                                  )}
-                                </div>
-                              ) : (
-                                <span className="text-[10px] text-slate-400 italic">
-                                  Non-inventoried / Custom item
-                                </span>
-                              )}
-                            </td>
-                          </tr>
+                                    {linkedProduct.storage_location && (
+                                      <span className="text-[9px] text-slate-400 font-mono mt-0.5 flex items-center space-x-0.5">
+                                        <MapPin className="w-2.5 h-2.5" />
+                                        <span>{linkedProduct.storage_location}</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400 italic">
+                                    Non-inventoried / Custom item
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                            {subComponents.map((sub, subIdx) => {
+                              const subProd = sub.product_id ? productMap?.get(sub.product_id) : null;
+                              const parentQty = Math.max(1, Number(it.quantity) || 1);
+                              const subPerSet = Math.max(1, Number(sub.quantity) || 1);
+                              const totalReqSubQty = parentQty * subPerSet;
+                              return (
+                                <tr
+                                  key={`${it.id || idx}_sub_${sub.id || subIdx}`}
+                                  className="bg-slate-50/60 dark:bg-slate-800/20 text-[11px]"
+                                >
+                                  <td className="py-2 pl-8 pr-4 text-slate-600 dark:text-slate-300">
+                                    <span className="font-mono text-[10px] text-slate-400 mr-1.5">
+                                      ↳ {idx + 1}.{subIdx + 1}
+                                    </span>
+                                    <span className="font-medium">{sub.item_name || subProd?.name || 'Sub-Component'}</span>
+                                    {(sub.sku || (sub as any).part_no) && (
+                                      <span className="ml-1.5 font-mono text-[10px] text-slate-400">
+                                        [{sub.sku || (sub as any).part_no}]
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="py-2 px-3 font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                                    {totalReqSubQty} {sub.unit || subProd?.unit || 'pcs'}
+                                    {parentQty > 1 && (
+                                      <span className="block text-[9px] text-slate-400">
+                                        ({subPerSet} × {parentQty} sets)
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="py-2 px-3 text-right font-mono text-slate-400 whitespace-nowrap">
+                                    {sub.is_included !== false ? 'Included' : Number(sub.unit_price || 0).toFixed(2)}
+                                  </td>
+                                  <td className="py-2 px-3 text-right font-mono text-slate-400 whitespace-nowrap">
+                                    —
+                                  </td>
+                                  <td className="py-2 px-3 text-center whitespace-nowrap">
+                                    {subProd ? (
+                                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                        On-Hand: {subProd.stock_on_hand ?? 0} | Res: {subProd.stock_reserved ?? 0}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] text-slate-400 italic">Non-inventoried</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </React.Fragment>
                         );
                       })}
                     </tbody>
@@ -2021,6 +2093,14 @@ export default function ProjectRegistry({
                   const projectItems = selectedProject.line_items || [];
                   const hasItems = projectItems.length > 0;
                   const hasInventoriedItems = projectItems.some((it) => {
+                    if (Array.isArray(it.sub_components) && it.sub_components.length > 0) {
+                      const hasInvSub = it.sub_components.some((sub) => {
+                        if (!sub.product_id) return false;
+                        const sp = productMap?.get(sub.product_id);
+                        return sp ? Boolean(sp.is_inventoried) : false;
+                      });
+                      if (hasInvSub) return true;
+                    }
                     if (!it.product_id) return false;
                     const p = productMap?.get(it.product_id);
                     return p ? Boolean(p.is_inventoried) : false;
@@ -2117,6 +2197,14 @@ export default function ProjectRegistry({
       {confirmDispatchOpen && selectedProject && (() => {
         const modalItems = selectedProject.line_items || [];
         const modalHasInventoried = modalItems.some((it) => {
+          if (Array.isArray(it.sub_components) && it.sub_components.length > 0) {
+            const hasInvSub = it.sub_components.some((sub) => {
+              if (!sub.product_id) return false;
+              const sp = productMap?.get(sub.product_id);
+              return sp ? Boolean(sp.is_inventoried) : false;
+            });
+            if (hasInvSub) return true;
+          }
           if (!it.product_id) return false;
           const p = productMap?.get(it.product_id);
           return p ? Boolean(p.is_inventoried) : false;

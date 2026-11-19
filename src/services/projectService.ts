@@ -97,6 +97,7 @@ export async function createProjectFromEnquiry(
     )
   );
   const confirmedLineItems = rawLineItems.filter((it) => {
+    if ((it as any).is_optional) return false;
     const itemOpt = it.option || it.item_option || (it as any).option_designation;
     return isOptionActiveForInventoryAndBaseline(itemOpt, winningOption);
   });

@@ -13209,30 +13209,34 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                               : Number(item.quantity ?? parentOrdSets)
                                           );
                                           const perSetSubQty = Math.max(0, Number(sub.quantity ?? 0));
-                                          const subOrd =
-                                            sub.qty_ordered !== undefined &&
-                                            !(
-                                              parentOrdSets > 1 &&
-                                              Number(sub.qty_ordered) === perSetSubQty
-                                            )
-                                              ? Number(sub.qty_ordered)
-                                              : Math.round(perSetSubQty * parentOrdSets * 100) / 100;
-                                          const subDel =
-                                            sub.qty_delivered !== undefined &&
-                                            !(
-                                              parentDelSets > 1 &&
-                                              Number(sub.qty_delivered) === perSetSubQty
-                                            )
-                                              ? Number(sub.qty_delivered)
-                                              : Math.round(perSetSubQty * parentDelSets * 100) / 100;
-                                          const subBal =
-                                            sub.qty_balance !== undefined &&
-                                            !(
-                                              (parentOrdSets > 1 || parentDelSets !== parentOrdSets) &&
-                                              Number(sub.qty_ordered ?? perSetSubQty) === perSetSubQty
-                                            )
-                                              ? Number(sub.qty_balance)
-                                              : Math.max(0, Math.round((subOrd - subDel) * 100) / 100);
+                                          const isAlreadyMultiplied = Boolean((sub as any)._do_qty_multiplied);
+                                          const subOrd = isAlreadyMultiplied && sub.qty_ordered !== undefined
+                                            ? Number(sub.qty_ordered)
+                                            : sub.qty_ordered !== undefined &&
+                                              !(
+                                                parentOrdSets > 1 &&
+                                                Number(sub.qty_ordered) === perSetSubQty
+                                              )
+                                            ? Number(sub.qty_ordered)
+                                            : Math.round(perSetSubQty * parentOrdSets * 100) / 100;
+                                          const subDel = isAlreadyMultiplied && sub.qty_delivered !== undefined
+                                            ? Number(sub.qty_delivered)
+                                            : sub.qty_delivered !== undefined &&
+                                              !(
+                                                parentDelSets > 1 &&
+                                                Number(sub.qty_delivered) === perSetSubQty
+                                              )
+                                            ? Number(sub.qty_delivered)
+                                            : Math.round(perSetSubQty * parentDelSets * 100) / 100;
+                                          const subBal = isAlreadyMultiplied && sub.qty_balance !== undefined
+                                            ? Number(sub.qty_balance)
+                                            : sub.qty_balance !== undefined &&
+                                              !(
+                                                (parentOrdSets > 1 || parentDelSets !== parentOrdSets) &&
+                                                Number(sub.qty_ordered ?? perSetSubQty) === perSetSubQty
+                                              )
+                                            ? Number(sub.qty_balance)
+                                            : Math.max(0, Math.round((subOrd - subDel) * 100) / 100);
                                           return (
                                             <>
                                               <td className={`py-1.5 px-1 text-center font-mono text-slate-600 align-top ${tableFontSize} whitespace-nowrap`}>

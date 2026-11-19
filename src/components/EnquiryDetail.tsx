@@ -1592,7 +1592,8 @@ export default function EnquiryDetail({
               ...sub,
               qty_ordered: totalSubOrd,
               qty_delivered: totalSubDel,
-              qty_balance: Math.max(0, Math.round((totalSubOrd - totalSubDel) * 100) / 100)
+              qty_balance: Math.max(0, Math.round((totalSubOrd - totalSubDel) * 100) / 100),
+              _do_qty_multiplied: true
             };
           })
         : undefined;
