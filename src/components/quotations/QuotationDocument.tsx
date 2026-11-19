@@ -301,6 +301,10 @@ export interface QuotationTableChunk {
 
 export interface QuotationSheetPartition {
   sheetNumber: number;
+  bodyPageNumber?: number;
+  displayPageNumber?: number | null;
+  excludedFromPageCount?: boolean;
+  excludeFromPageCount?: boolean;
   totalSheets: number;
   pageLabel: string;
   blocks: QuotationBlockConfig[];
@@ -309,6 +313,291 @@ export interface QuotationSheetPartition {
   tableChunk?: QuotationTableChunk;
   isTableContinuationSheet?: boolean;
   isLastDocumentSheet?: boolean;
+}
+
+export function normalizeQuotationBlockKind(block?: QuotationBlockConfig | null): string {
+  if (!block) return '';
+  const rawId = String(block.id || '').trim();
+  return (
+    block.type ||
+    (rawId === 'page_break' || rawId.startsWith('break_') || rawId.startsWith('page_break_')
+      ? 'page_break'
+      : rawId === 'spacer' || rawId.startsWith('spacer_')
+      ? 'spacer'
+      : rawId)
+  );
+}
+
+/**
+ * Determines whether a layout block produces actual visible content on a rendered sheet.
+ * Returns false for page_break, spacer, disabled/hidden blocks, blocks excluded by document_type
+ * or section visibility flags, and empty custom/signatory/acceptance blocks.
+ */
+export function isRenderableContentBlock(
+  block?: QuotationBlockConfig | null,
+  quotation?: Quotation
+): boolean {
+  if (!block || block.enabled === false || block.is_visible === false) return false;
+  const rawId = String(block.id || '').trim();
+  const bType = normalizeQuotationBlockKind(block);
+  if (!bType || bType === 'page_break' || bType === 'spacer') return false;
+
+  const docType = quotation?.document_type || 'quotation';
+  const isDeliveryNote = docType === 'delivery_note';
+  const isPurchaseOrder = docType === 'purchase_order';
+  const isReceiptVoucher = docType === 'receipt';
+  const isPaymentVoucher = docType === 'payment_voucher';
+  const isMaterialReturnNote =
+    docType === 'material_return_note' || (docType as string) === 'material_return';
+  const isDebitNote = docType === 'debit_note';
+
+  if (bType === 'rec_amount_banner' || rawId === 'rec_amount_banner') {
+    return isReceiptVoucher && quotation?.receipt_metadata?.show_amount_banner !== false;
+  }
+  if (bType === 'rec_payment_instrument' || rawId === 'rec_payment_instrument') {
+    return isReceiptVoucher && quotation?.receipt_metadata?.show_instrument_card !== false;
+  }
+  if (bType === 'rec_balance_statement' || rawId === 'rec_balance_statement') {
+    return isReceiptVoucher && quotation?.receipt_metadata?.show_balance_card !== false;
+  }
+  if (bType === 'pv_disbursed_banner' || rawId === 'pv_disbursed_banner') {
+    return isPaymentVoucher && quotation?.payment_voucher_metadata?.show_amount_banner !== false;
+  }
+  if (bType === 'pv_bill_allocation' || rawId === 'pv_bill_allocation') {
+    return isPaymentVoucher && quotation?.payment_voucher_metadata?.show_allocation_table !== false;
+  }
+  if (bType === 'pv_treasury_details' || rawId === 'pv_treasury_details') {
+    return isPaymentVoucher && quotation?.payment_voucher_metadata?.show_treasury_card !== false;
+  }
+  if (bType === 'pv_beneficiary_details' || rawId === 'pv_beneficiary_details') {
+    return isPaymentVoucher && quotation?.payment_voucher_metadata?.show_beneficiary_card !== false;
+  }
+  if (bType === 'pv_approval_matrix' || rawId === 'pv_approval_matrix') {
+    return isPaymentVoucher && quotation?.payment_voucher_metadata?.show_approval_matrix !== false;
+  }
+  if (bType === 'do_dispatch_party' || rawId === 'do_dispatch_party') {
+    return isDeliveryNote && (quotation?.delivery_metadata as any)?.show_dispatch_signoff_card !== false;
+  }
+  if (bType === 'do_receiving_party' || rawId === 'do_receiving_party') {
+    return isDeliveryNote && (quotation?.delivery_metadata as any)?.show_receiver_signoff_card !== false;
+  }
+  if (bType === 'vendor_return_claim' || rawId === 'vendor_return_claim') {
+    return (
+      (isMaterialReturnNote || isDebitNote) &&
+      (quotation?.vendor_return_metadata as any)?.show_issuer_signoff_card !== false
+    );
+  }
+  if (bType === 'vendor_return_ack' || rawId === 'vendor_return_ack') {
+    return (
+      (isMaterialReturnNote || isDebitNote) &&
+      (quotation?.vendor_return_metadata as any)?.show_vendor_ack_card !== false
+    );
+  }
+
+  if (isDeliveryNote || isMaterialReturnNote) {
+    if (
+      bType === 'terms' ||
+      rawId === 'terms' ||
+      bType === 'totals' ||
+      rawId === 'totals' ||
+      bType === 'remittance' ||
+      rawId === 'remittance' ||
+      bType === 'acceptance' ||
+      rawId === 'acceptance' ||
+      bType === 'signatory' ||
+      bType === 'signatories' ||
+      rawId === 'signatory' ||
+      rawId === 'signatories'
+    ) {
+      return false;
+    }
+  }
+  if (isDebitNote) {
+    if (
+      bType === 'terms' ||
+      rawId === 'terms' ||
+      bType === 'remittance' ||
+      rawId === 'remittance' ||
+      bType === 'acceptance' ||
+      rawId === 'acceptance' ||
+      bType === 'signatory' ||
+      bType === 'signatories' ||
+      rawId === 'signatory' ||
+      rawId === 'signatories'
+    ) {
+      return false;
+    }
+  }
+  if (isReceiptVoucher || isPaymentVoucher) {
+    if (
+      bType === 'terms' ||
+      rawId === 'terms' ||
+      bType === 'totals' ||
+      rawId === 'totals' ||
+      bType === 'acceptance' ||
+      rawId === 'acceptance' ||
+      bType === 'remittance' ||
+      rawId === 'remittance' ||
+      (isPaymentVoucher &&
+        (bType === 'signatory' ||
+          bType === 'signatories' ||
+          rawId === 'signatory' ||
+          rawId === 'signatories'))
+    ) {
+      return false;
+    }
+  }
+
+  const isCustomBlock = bType === 'custom' || (Array.isArray(block.pieces) && block.pieces.length > 0);
+  if (isCustomBlock) {
+    const hasVisibleHeader =
+      block.showContainerHeader === true &&
+      block.headerStyleOverride !== 'none' &&
+      Boolean((block.titleOverride || block.title || '').trim());
+    const enabledPieces = Array.isArray(block.pieces)
+      ? block.pieces.filter((p) => p && p.enabled !== false)
+      : [];
+    return enabledPieces.length > 0 || hasVisibleHeader;
+  }
+
+  if (bType === 'terms' || rawId === 'terms') {
+    if (quotation?.show_commercial_terms === false) return false;
+    return true;
+  }
+
+  if (bType === 'totals' || rawId === 'totals') {
+    return true;
+  }
+
+  if (bType === 'remittance' || rawId === 'remittance') {
+    if (isPurchaseOrder && !quotation?.footer_config?.showBankRemittanceOnPo) {
+      return false;
+    }
+    if (
+      quotation?.footer_config?.showBankRemittance === false ||
+      quotation?.showBankRemittance === false ||
+      quotation?.show_bank_details === false
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  if (bType === 'acceptance' || rawId === 'acceptance') {
+    if (
+      quotation?.footer_config?.showCustomerAcceptance === false ||
+      quotation?.showCustomerAcceptance === false ||
+      quotation?.customer_acceptance_enabled === false
+    ) {
+      return false;
+    }
+    const vis = block.visibleFields || {};
+    const defaultOnKeys = ['signature', 'name', 'date', 'stamp'];
+    const defaultOffKeys = ['title', 'po_number'];
+    const hasBuiltInSlot =
+      defaultOnKeys.some((k) => vis[k] !== false) ||
+      defaultOffKeys.some((k) => vis[k] === true);
+    const hasCustomSlot =
+      (Array.isArray(block.customAcceptanceSlots) &&
+        block.customAcceptanceSlots.some((cs) => cs && cs.enabled !== false && Boolean(cs.label?.trim()))) ||
+      (Array.isArray(block.customRows) &&
+        block.customRows.some((cr) => cr && cr.enabled !== false && Boolean((cr.label || cr.value || '').trim())));
+    const hasStatement = vis.statement !== false;
+    const hasNote = Boolean(block.customNote && block.customNote.trim());
+    const hasHeader = block.headerStyleOverride !== 'none' && block.showHeading !== false;
+    if (!hasBuiltInSlot && !hasCustomSlot && !hasStatement && !hasNote && !hasHeader) {
+      return false;
+    }
+    return true;
+  }
+
+  if (
+    bType === 'signatory' ||
+    bType === 'signatories' ||
+    rawId === 'signatory' ||
+    rawId === 'signatories'
+  ) {
+    const fc = quotation?.footer_config || {};
+    if (fc.showSignatories === false || quotation?.showSignatories === false) {
+      return false;
+    }
+    const sigMode = quotation?.signatory_type || (quotation as any)?.signatory_mode;
+    const showSeal = quotation?.show_company_seal !== false;
+    if (sigMode === 'none' && !showSeal) {
+      return false;
+    }
+    const visLines = fc.visibleSignatoryLines || {};
+    const bVis = block.visibleFields || {};
+    const isDual = sigMode === 'dual';
+    const sig0 = quotation?.signatories?.[0];
+    const sig1 = quotation?.signatories?.[1];
+    const col0StampOrSig =
+      bVis.signatory_stamp_space === false
+        ? false
+        : sig0?.show_stamp_or_signature !== undefined
+        ? sig0.show_stamp_or_signature
+        : fc.primaryShowStampOrSignature !== undefined
+        ? fc.primaryShowStampOrSignature !== false
+        : quotation?.show_company_seal !== false;
+    const col1StampOrSig =
+      isDual &&
+      (bVis.signatory_stamp_space === false
+        ? false
+        : sig1?.show_stamp_or_signature !== undefined
+        ? sig1.show_stamp_or_signature
+        : fc.secondaryShowStampOrSignature !== false);
+    const anyStampOrSig = Boolean(col0StampOrSig || col1StampOrSig);
+    const hasNameLine =
+      visLines.name !== false && bVis.signatory_primary_name !== false;
+    const hasTitleLine =
+      visLines.title !== false && bVis.signatory_primary_title !== false;
+    const hasPhoneLine =
+      visLines.phone !== false &&
+      Boolean(fc.showSignatoryPhone || sig0?.phone || (isDual && sig1?.phone));
+    const hasEmailLine =
+      visLines.email !== false &&
+      Boolean(fc.showSignatoryEmail || sig0?.email || (isDual && sig1?.email));
+    const hasDateLine = visLines.date !== false && Boolean(fc.showDateSignedLine);
+    const hasCustomLines =
+      visLines.custom !== false &&
+      Array.isArray(fc.signatoryCustomLines) &&
+      fc.signatoryCustomLines.some((l) => Boolean((l?.value || l?.label || '').trim()));
+    const hasOpeningOrClosing = Boolean(
+      (sig0?.opening_line ?? fc.primaryOpeningLine ?? '').trim() ||
+        (sig0?.closing_salutation ?? fc.primaryClosingSalutation ?? '').trim() ||
+        (isDual &&
+          ((sig1?.opening_line ?? fc.secondaryOpeningLine ?? '').trim() ||
+            (sig1?.closing_salutation ?? fc.secondaryClosingSalutation ?? '').trim()))
+    );
+    const footerLayoutMode = fc.footerLayoutMode || quotation?.footerLayoutMode || 'split';
+    const hasForAndOnBehalf =
+      bVis.signatory_company_header === false
+        ? false
+        : fc.showForAndOnBehalf !== undefined
+        ? Boolean(fc.showForAndOnBehalf)
+        : footerLayoutMode === 'seller_only';
+    const hasTitleHeader =
+      Boolean(block.titleOverride && block.titleOverride.trim()) &&
+      block.headerStyleOverride !== 'none';
+
+    if (
+      !anyStampOrSig &&
+      !hasNameLine &&
+      !hasTitleLine &&
+      !hasPhoneLine &&
+      !hasEmailLine &&
+      !hasDateLine &&
+      !hasCustomLines &&
+      !hasOpeningOrClosing &&
+      !hasForAndOnBehalf &&
+      !hasTitleHeader
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  return false;
 }
 
 export function estimateBlockHeightMm(
@@ -1134,9 +1423,12 @@ export function partitionBlocksIntoSheets(
     quotation?: Quotation;
   }
 ): QuotationSheetPartition[] {
-  const activeBlocks = (blocks || []).filter(
-    (b) => b.enabled !== false && b.is_visible !== false
-  );
+  const activeBlocks = (blocks || []).filter((b) => {
+    if (!b || b.enabled === false || b.is_visible === false) return false;
+    const kind = normalizeQuotationBlockKind(b);
+    if (kind === 'page_break' || kind === 'spacer') return true;
+    return isRenderableContentBlock(b, options?.quotation);
+  });
 
   const preTableOverheadMm = options?.preTableOverheadMm ?? 0;
   const autoPaginate = Boolean(options?.autoPaginate);
@@ -1176,7 +1468,7 @@ export function partitionBlocksIntoSheets(
     });
   }
 
-  // If the last line item (or its final sub-component) has page_break_after === true, split the closing blocks onto a new continuation sheet after the table
+  // If the last line item (or its final sub-component) has page_break_after === true, split the closing blocks onto a new continuation sheet after the table ONLY when there is at least one renderable post-table content block
   const lastTopItem =
     Array.isArray(lineItems) && lineItems.length > 0
       ? lineItems[lineItems.length - 1]
@@ -1188,8 +1480,11 @@ export function partitionBlocksIntoSheets(
   const hasBreakAfterLastLineItem = Boolean(
     lastTopItem && (lastTopItem.page_break_after === true || lastSubOfLastItem?.page_break_after === true)
   );
+  const hasRenderablePostTableBlocks = activeBlocks.some((b) =>
+    isRenderableContentBlock(b, options?.quotation)
+  );
 
-  if (hasBreakAfterLastLineItem && activeBlocks.length > 0) {
+  if (hasBreakAfterLastLineItem && hasRenderablePostTableBlocks) {
     rawSheets.push({
       sheetNumber: rawSheets.length + 1,
       blocks: [],
@@ -1210,19 +1505,13 @@ export function partitionBlocksIntoSheets(
   // stay together when auto-paginating onto a continuation sheet.
   type BlockVisualRow =
     | { kind: 'page_break'; block: QuotationBlockConfig }
-    | { kind: 'content_row'; blocks: QuotationBlockConfig[]; heightMm: number };
+    | { kind: 'content_row'; blocks: QuotationBlockConfig[]; heightMm: number; isSpacerOnly: boolean };
 
   const visualRows: BlockVisualRow[] = [];
   let idx = 0;
   while (idx < activeBlocks.length) {
     const b = activeBlocks[idx];
-    const bType =
-      b.type ||
-      (b.id?.startsWith('break_')
-        ? 'page_break'
-        : b.id?.startsWith('spacer_')
-        ? 'spacer'
-        : b.id);
+    const bType = normalizeQuotationBlockKind(b);
 
     if (bType === 'page_break') {
       visualRows.push({ kind: 'page_break', block: b });
@@ -1232,18 +1521,12 @@ export function partitionBlocksIntoSheets(
 
     const placement = b.placement || 'full';
     const nextB = idx + 1 < activeBlocks.length ? activeBlocks[idx + 1] : undefined;
-    const nextType = nextB
-      ? nextB.type ||
-        (nextB.id?.startsWith('break_')
-          ? 'page_break'
-          : nextB.id?.startsWith('spacer_')
-          ? 'spacer'
-          : nextB.id)
-      : undefined;
+    const nextType = nextB ? normalizeQuotationBlockKind(nextB) : undefined;
     const nextPlacement = nextB ? nextB.placement || 'full' : undefined;
 
     // Pair consecutive half-width blocks (left + right or right + left) as an atomic 2-column row
     if (
+      bType !== 'spacer' &&
       (placement === 'left' || placement === 'right') &&
       nextB &&
       nextType !== 'page_break' &&
@@ -1256,7 +1539,8 @@ export function partitionBlocksIntoSheets(
       visualRows.push({
         kind: 'content_row',
         blocks: [b, nextB],
-        heightMm: Math.max(h1, h2) + 4
+        heightMm: Math.max(h1, h2) + 4,
+        isSpacerOnly: false
       });
       idx += 2;
       continue;
@@ -1265,7 +1549,8 @@ export function partitionBlocksIntoSheets(
     visualRows.push({
       kind: 'content_row',
       blocks: [b],
-      heightMm: estimateBlockHeightMm(b, options?.quotation) + 3
+      heightMm: estimateBlockHeightMm(b, options?.quotation) + (bType === 'spacer' ? 0 : 3),
+      isSpacerOnly: bType === 'spacer'
     });
     idx++;
   }
@@ -1282,13 +1567,30 @@ export function partitionBlocksIntoSheets(
       ? (activeLastSheet.tableChunk?.estimatedHeightMm || 0) + 12
       : 0;
 
-  visualRows.forEach((row) => {
+  const hasSubsequentRenderableContent = (fromRowIdx: number): boolean => {
+    for (let j = fromRowIdx + 1; j < visualRows.length; j++) {
+      const candidate = visualRows[j];
+      if (
+        candidate.kind === 'content_row' &&
+        candidate.blocks.some((rb) => isRenderableContentBlock(rb, options?.quotation))
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  visualRows.forEach((row, rowIdx) => {
     if (row.kind === 'page_break') {
+      // Do NOT emit a new page if this page_break is followed only by hidden/disabled/empty sections or spacers
+      if (!hasSubsequentRenderableContent(rowIdx)) {
+        return;
+      }
       const b = row.block;
       const currentSheet = rawSheets[rawSheets.length - 1];
       const isCurrentSheetEmptyContinuation =
         rawSheets.length > 1 &&
-        currentSheet.blocks.length === 0 &&
+        !currentSheet.blocks.some((rb) => isRenderableContentBlock(rb, options?.quotation)) &&
         (!currentSheet.tableChunk || currentSheet.tableChunk.items.length === 0) &&
         !currentSheet.pageBreakBlock;
 
@@ -1311,13 +1613,15 @@ export function partitionBlocksIntoSheets(
 
     const currentSheet = rawSheets[rawSheets.length - 1];
     const hasContentOnCurrentSheet =
-      currentSheet.blocks.length > 0 ||
+      currentSheet.blocks.some((rb) => isRenderableContentBlock(rb, options?.quotation)) ||
       Boolean(currentSheet.tableChunk && currentSheet.tableChunk.items.length > 0);
     const activeSheetBudgetMm =
       rawSheets.length === 1 ? sheet1TotalBudgetMm : continuationTotalBudgetMm;
 
+    // Never allow a spacer row to overflow onto a new sheet
     if (
       autoPaginate &&
+      !row.isSpacerOnly &&
       hasContentOnCurrentSheet &&
       currentSheetUsedMm + row.heightMm > activeSheetBudgetMm
     ) {
@@ -1330,16 +1634,21 @@ export function partitionBlocksIntoSheets(
       currentSheetUsedMm = row.heightMm;
     } else {
       currentSheet.blocks.push(...row.blocks);
-      currentSheetUsedMm += row.heightMm;
+      if (!row.isSpacerOnly || hasSubsequentRenderableContent(rowIdx)) {
+        currentSheetUsedMm += row.heightMm;
+      }
     }
   });
 
-  // Guard against empty page_break sheets (e.g., trailing page_break at the end of layoutBlocks or consecutive page_breaks with zero blocks and zero table items)
+  // Final defensive filter: any body sheet (idx > 0) that has zero visible renderable content blocks
+  // and zero table items must be automatically pruned instead of rendering an empty header+footer ghost page.
   const sanitizedSheets = rawSheets.filter((sheet, idx) => {
     if (idx === 0) return true;
-    const hasBlocks = sheet.blocks.length > 0;
+    const hasRenderableBlocks = sheet.blocks.some((b) =>
+      isRenderableContentBlock(b, options?.quotation)
+    );
     const hasTableItems = Boolean(sheet.tableChunk && sheet.tableChunk.items.length > 0);
-    return hasBlocks || hasTableItems;
+    return hasRenderableBlocks || hasTableItems;
   });
 
   const totalSheets = sanitizedSheets.length;
@@ -1349,6 +1658,10 @@ export function partitionBlocksIntoSheets(
     return {
       ...s,
       sheetNumber,
+      bodyPageNumber: sheetNumber,
+      displayPageNumber: sheetNumber,
+      excludedFromPageCount: false,
+      excludeFromPageCount: false,
       totalSheets,
       pageLabel: `Page ${sheetNumber} of ${totalSheets}`,
       isLastDocumentSheet: isLast
@@ -1359,10 +1672,12 @@ export function partitionBlocksIntoSheets(
 export interface QuotationCoverSheetDescriptor {
   coverNumber: number;
   sheetNumber?: number;
+  displayPageNumber: number | null;
   totalDocumentPages: number;
   attachment: Attachment;
   fullBleed: boolean;
   excludedFromPageCount: boolean;
+  excludeFromPageCount: boolean;
   pageLabel: string;
   isLastDocumentSheet: boolean;
 }
@@ -1370,12 +1685,24 @@ export interface QuotationCoverSheetDescriptor {
 export interface QuotationAnnexSheetDescriptor {
   annexNumber: number;
   sheetNumber: number;
+  displayPageNumber: number | null;
+  excludedFromPageCount: boolean;
+  excludeFromPageCount: boolean;
   totalDocumentPages: number;
   headerTitle: string;
   pageLabel: string;
   attachment: Attachment;
   fullBleed?: boolean;
   isLastDocumentSheet: boolean;
+}
+
+export interface UnifiedSheetPageNumberEntry {
+  sheetKey: string;
+  kind: 'cover' | 'body' | 'annex';
+  kindIndex: number;
+  physicalSheetNumber: number;
+  excludedFromPageCount: boolean;
+  displayPageNumber: number | null;
 }
 
 export interface QuotationSubmittalIndexEntry {
@@ -1727,6 +2054,8 @@ export function resolveDocumentPaginationWithAnnexes(
     columnConfig?: QuotationPresetColumns;
     preTableOverheadMm?: number;
     quotation?: Quotation;
+    excludedPageIndices?: number[];
+    excludedBodyPageIndices?: number[];
   }
 ): {
   coverSheetAttachments: Attachment[];
@@ -1735,6 +2064,8 @@ export function resolveDocumentPaginationWithAnnexes(
   annexSheetAttachments: Attachment[];
   annexSheets: QuotationAnnexSheetDescriptor[];
   totalDocumentPages: number;
+  totalNumberedPages: number;
+  pageNumberingMap: UnifiedSheetPageNumberEntry[];
   showSubmittalsIndex: boolean;
   submittalsIndexEntries: QuotationSubmittalIndexEntry[];
 } {
@@ -1783,32 +2114,93 @@ export function resolveDocumentPaginationWithAnnexes(
     return att.render_as_annex_page !== false;
   });
 
-  const countedCoverCount = coverSheetAttachments.filter(
-    (att) => !Boolean(att.exclude_from_page_count)
-  ).length;
+  const isAttachmentExcludedFromNumbering = (att: Attachment): boolean =>
+    Boolean(att.exclude_from_page_count || att.exclude_from_page_numbering);
 
-  const totalDocumentPages =
-    countedCoverCount + partitionedMainSheets.length + annexSheetAttachments.length;
+  const rawExcludedBodyIndices =
+    options?.excludedBodyPageIndices ??
+    options?.excludedPageIndices ??
+    options?.quotation?.excluded_page_indices ??
+    options?.quotation?.footer_config?.excluded_page_indices ??
+    [];
+  const excludedBodyPageSet = new Set<number>(
+    Array.isArray(rawExcludedBodyIndices)
+      ? rawExcludedBodyIndices.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n >= 1)
+      : []
+  );
 
-  let runningCountedCover = 0;
+  // Single Source of Truth for Page Numbering across Covers -> Pruned Body Sheets -> Annexes
+  const pageNumberingMap: UnifiedSheetPageNumberEntry[] = [];
+  let runningDisplayPage = 0;
+  let runningPhysicalSheet = 0;
+
+  const coverDisplayPageNums: Array<number | null> = coverSheetAttachments.map((att, cIdx) => {
+    runningPhysicalSheet++;
+    const excluded = isAttachmentExcludedFromNumbering(att);
+    const displayPageNumber = excluded ? null : ++runningDisplayPage;
+    pageNumberingMap.push({
+      sheetKey: att.id || `cover_${cIdx + 1}`,
+      kind: 'cover',
+      kindIndex: cIdx + 1,
+      physicalSheetNumber: runningPhysicalSheet,
+      excludedFromPageCount: excluded,
+      displayPageNumber
+    });
+    return displayPageNumber;
+  });
+
+  const bodyDisplayPageNums: Array<number | null> = partitionedMainSheets.map((_sheet, bIdx) => {
+    runningPhysicalSheet++;
+    const bodyPageNumber = bIdx + 1;
+    const excluded = excludedBodyPageSet.has(bodyPageNumber);
+    const displayPageNumber = excluded ? null : ++runningDisplayPage;
+    pageNumberingMap.push({
+      sheetKey: `body_${bodyPageNumber}`,
+      kind: 'body',
+      kindIndex: bodyPageNumber,
+      physicalSheetNumber: runningPhysicalSheet,
+      excludedFromPageCount: excluded,
+      displayPageNumber
+    });
+    return displayPageNumber;
+  });
+
+  const annexDisplayPageNums: Array<number | null> = annexSheetAttachments.map((att, aIdx) => {
+    runningPhysicalSheet++;
+    const excluded = isAttachmentExcludedFromNumbering(att);
+    const displayPageNumber = excluded ? null : ++runningDisplayPage;
+    pageNumberingMap.push({
+      sheetKey: att.id || `annex_${aIdx + 1}`,
+      kind: 'annex',
+      kindIndex: aIdx + 1,
+      physicalSheetNumber: runningPhysicalSheet,
+      excludedFromPageCount: excluded,
+      displayPageNumber
+    });
+    return displayPageNumber;
+  });
+
+  const totalNumberedPages = runningDisplayPage;
+  const totalDocumentPages = totalNumberedPages;
+  const countedCoverCount = coverDisplayPageNums.filter((n) => n !== null).length;
+
   const coverSheets: QuotationCoverSheetDescriptor[] = coverSheetAttachments.map(
     (att, coverIdx) => {
-      const excluded = Boolean(att.exclude_from_page_count);
-      let sheetNumber: number | undefined = undefined;
-      if (!excluded) {
-        runningCountedCover++;
-        sheetNumber = runningCountedCover;
-      }
+      const displayPageNumber = coverDisplayPageNums[coverIdx];
+      const excluded = displayPageNumber === null;
       return {
         coverNumber: coverIdx + 1,
-        sheetNumber,
+        sheetNumber: displayPageNumber ?? undefined,
+        displayPageNumber,
         totalDocumentPages,
         attachment: att,
         fullBleed: Boolean(att.full_bleed),
         excludedFromPageCount: excluded,
-        pageLabel: excluded
-          ? 'Cover Page'
-          : `Page ${sheetNumber} of ${totalDocumentPages}`,
+        excludeFromPageCount: excluded,
+        pageLabel:
+          excluded || displayPageNumber === null
+            ? 'Cover Page'
+            : `Page ${displayPageNumber} of ${totalDocumentPages}`,
         isLastDocumentSheet: false
       };
     }
@@ -1816,27 +2208,48 @@ export function resolveDocumentPaginationWithAnnexes(
 
   const mainSheets: QuotationSheetPartition[] = partitionedMainSheets.map((sheet, idx) => {
     const isLastMain = idx === partitionedMainSheets.length - 1;
-    const effectiveSheetNumber = countedCoverCount + sheet.sheetNumber;
+    const bodyPageNumber = idx + 1;
+    const displayPageNumber = bodyDisplayPageNums[idx];
+    const excluded = displayPageNumber === null;
+    const effectiveSheetNumber = displayPageNumber ?? countedCoverCount + bodyPageNumber;
     return {
       ...sheet,
+      bodyPageNumber,
       sheetNumber: effectiveSheetNumber,
+      displayPageNumber,
+      excludedFromPageCount: excluded,
+      excludeFromPageCount: excluded,
       totalSheets: totalDocumentPages,
-      pageLabel: `Page ${effectiveSheetNumber} of ${totalDocumentPages}`,
+      pageLabel:
+        excluded || displayPageNumber === null
+          ? `Page ${bodyPageNumber} (Excluded)`
+          : `Page ${displayPageNumber} of ${totalDocumentPages}`,
       isLastDocumentSheet: isLastMain && annexSheetAttachments.length === 0
     };
   });
 
+  const countedBodyCount = bodyDisplayPageNums.filter((n) => n !== null).length;
+
   const annexSheets: QuotationAnnexSheetDescriptor[] = annexSheetAttachments.map(
     (att, annexIdx) => {
-      const sheetNumber = countedCoverCount + mainSheets.length + annexIdx + 1;
       const annexNumber = annexIdx + 1;
+      const displayPageNumber = annexDisplayPageNums[annexIdx];
+      const excluded = displayPageNumber === null;
+      const fallbackPhysicalNum = countedCoverCount + countedBodyCount + annexNumber;
+      const sheetNumber = displayPageNumber ?? fallbackPhysicalNum;
       const isLastAnnex = annexIdx === annexSheetAttachments.length - 1;
       return {
         annexNumber,
         sheetNumber,
+        displayPageNumber,
+        excludedFromPageCount: excluded,
+        excludeFromPageCount: excluded,
         totalDocumentPages,
         headerTitle: resolveAnnexHeaderTitle(att, annexNumber),
-        pageLabel: `Page ${sheetNumber} of ${totalDocumentPages}`,
+        pageLabel:
+          excluded || displayPageNumber === null
+            ? `Annex ${annexNumber}`
+            : `Page ${displayPageNumber} of ${totalDocumentPages}`,
         attachment: att,
         fullBleed: Boolean(att.full_bleed),
         isLastDocumentSheet: isLastAnnex
@@ -1858,14 +2271,21 @@ export function resolveDocumentPaginationWithAnnexes(
 
       if (isCover) {
         runningCoverIndexCounter++;
+        const coverDesc = coverSheets[runningCoverIndexCounter - 1];
         badgeLabel =
-          coverSheets[runningCoverIndexCounter - 1]?.excludedFromPageCount
+          coverDesc?.excludedFromPageCount || coverDesc?.displayPageNumber === null
             ? 'Cover Page'
-            : `Cover (Page ${coverSheets[runningCoverIndexCounter - 1]?.sheetNumber || 1})`;
+            : `Cover (Page ${coverDesc?.displayPageNumber || 1})`;
       } else if (isAnnex) {
         runningAnnexCounter++;
-        annexPageNumber = countedCoverCount + mainSheets.length + runningAnnexCounter;
-        badgeLabel = `Annex Page ${annexPageNumber}`;
+        const annexDesc = annexSheets[runningAnnexCounter - 1];
+        if (annexDesc && !annexDesc.excludedFromPageCount && annexDesc.displayPageNumber !== null) {
+          annexPageNumber = annexDesc.displayPageNumber;
+          badgeLabel = `Annex Page ${annexPageNumber}`;
+        } else {
+          annexPageNumber = undefined;
+          badgeLabel = `Annex ${runningAnnexCounter}`;
+        }
       }
 
       return {
@@ -1888,6 +2308,8 @@ export function resolveDocumentPaginationWithAnnexes(
     annexSheetAttachments,
     annexSheets,
     totalDocumentPages,
+    totalNumberedPages,
+    pageNumberingMap,
     showSubmittalsIndex: allAttachments.length > 0 && showSubmittalsIndex !== false,
     submittalsIndexEntries
   };
@@ -3143,6 +3565,7 @@ export interface QuotationDocumentProps {
   onSelectBlock?: (id: StudioSelectedSection) => void;
   onSelectSection?: (section: StudioSelectedSection, subTarget?: string) => void;
   onInlineFieldEdit?: (fieldKey: string, nextValue: string) => void;
+  onToggleBodyPageNumbering?: (bodyPageNumber: number) => void;
   showPageBreakGuides?: boolean;
 }
 
@@ -3269,6 +3692,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   onSelectBlock,
   onSelectSection,
   onInlineFieldEdit,
+  onToggleBodyPageNumbering,
   showPageBreakGuides = false
 }: QuotationDocumentProps) => {
   const quotation = (rawQuotation || {}) as Quotation;
@@ -3298,24 +3722,29 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   };
 
   const showBankRemittance =
-    resolvedFooterConfig.showBankRemittance ??
+    propFooterConfig?.showBankRemittance ??
+    quotation.footer_config?.showBankRemittance ??
     quotation.showBankRemittance ??
     quotation.show_bank_details ??
+    profile?.footer_config?.showBankRemittance ??
     profile?.showBankRemittance ??
     profile?.show_bank_details ??
     showBankDetails ??
     true;
 
   const showCustomerAcceptance =
-    resolvedFooterConfig.showCustomerAcceptance ??
+    propFooterConfig?.showCustomerAcceptance ??
+    quotation.footer_config?.showCustomerAcceptance ??
     quotation.showCustomerAcceptance ??
     quotation.customer_acceptance_enabled ??
+    profile?.footer_config?.showCustomerAcceptance ??
     profile?.showCustomerAcceptance ??
     profile?.customer_acceptance_enabled ??
     true;
 
   const showSignatories =
-    resolvedFooterConfig.showSignatories ??
+    propFooterConfig?.showSignatories ??
+    quotation.footer_config?.showSignatories ??
     quotation.showSignatories ??
     showStampAndSignatures ??
     true;
@@ -4326,7 +4755,11 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   ]);
 
   // Compact corporate running header rendered on Page 2+ (continuation sheets)
-  const renderCompactRunningHeader = (pageNumber = 2, total = 2, extraClass = '') => {
+  const renderCompactRunningHeader = (
+    pageNumber: number | null | undefined = 2,
+    total = 2,
+    extraClass = ''
+  ) => {
     if (!repeatHeaderOnSubsequentPages || headerBranding.continuationHeaderMode === 'none') {
       return null;
     }
@@ -4339,6 +4772,12 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     const dividerClass = headerBranding.showContinuationDivider
       ? 'border-b border-slate-200 pb-1.5'
       : 'pb-1';
+    const hasValidPageNumber =
+      headerBranding.showPageNumberOnContinuation &&
+      footerPresentation.showPageNumbers &&
+      typeof pageNumber === 'number' &&
+      pageNumber > 0 &&
+      total > 0;
 
     if (headerBranding.continuationHeaderMode === 'logo_only') {
       return (
@@ -4357,7 +4796,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               />
             )}
           </div>
-          {headerBranding.showPageNumberOnContinuation && (
+          {hasValidPageNumber && (
             <div className={`${typoScale.micro} text-slate-500 font-mono text-right shrink-0`}>
               Page {pageNumber} of {total}
             </div>
@@ -4370,7 +4809,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     if (headerBranding.showQuoteRefOnContinuation) {
       rightTokens.push(quoteRef);
     }
-    if (headerBranding.showPageNumberOnContinuation) {
+    if (hasValidPageNumber) {
       rightTokens.push(`Page ${pageNumber} of ${total}`);
     }
 
@@ -4416,7 +4855,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
   );
 
   // Reusable micro-footer watermark helper
-  const renderFooter = (pageNumber: number, totalPages: number) => {
+  const renderFooter = (pageNumber: number | null | undefined, totalPages: number) => {
     const hAlign = footerPresentation.footerHorizontalAlign;
     const vAlign = footerPresentation.footerVerticalAlign;
     const vAlignClass =
@@ -4468,7 +4907,12 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     if (footerPresentation.showIssueDateInFooter) {
       metaTokens.push(<span key="date">Date: {formatDate(quotation.created_at)}</span>);
     }
-    if (footerPresentation.showPageNumbers) {
+    if (
+      footerPresentation.showPageNumbers &&
+      typeof pageNumber === 'number' &&
+      pageNumber > 0 &&
+      totalPages > 0
+    ) {
       metaTokens.push(
         <span key="page" className={`font-mono ${typoScale.sub} text-slate-500`}>
           Page {pageNumber} of {totalPages}
@@ -4621,39 +5065,26 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
   // Partition active post-table layoutBlocks + lineItems + flyer_attachments into discrete A4 cover, main & annex sheets
   const paginationWithAnnexes = React.useMemo(() => {
+    const quotationForPagination: Quotation = {
+      ...quotation,
+      block_style: resolvedBlockStyle,
+      show_commercial_terms: resolvedShowCommercialTerms,
+      show_bank_details: resolvedShowBankDetails,
+      showBankRemittance: resolvedShowBankDetails,
+      customer_acceptance_enabled: customerAcceptanceEnabled,
+      showCustomerAcceptance: customerAcceptanceEnabled,
+      showSignatories: showStampAndSignatures,
+      footer_config: resolvedFooterConfig,
+      excluded_page_indices:
+        resolvedFooterConfig.excluded_page_indices ?? quotation.excluded_page_indices
+    };
+
     const activeBlocks = resolvedBlocks.filter((b) => {
       if (b.zone === 'pre_table') return false;
       if (b.enabled === false || b.is_visible === false) return false;
-      const bType = b.type || b.id;
-      if (bType === 'do_dispatch_party' || bType === 'do_receiving_party') {
-        if (!isDeliveryNote) return false;
-      }
-      if (bType === 'vendor_return_claim' || bType === 'vendor_return_ack') {
-        if (!isMaterialReturnNote && !isDebitNote) return false;
-      }
-      if (
-        bType === 'pv_disbursed_banner' ||
-        bType === 'pv_bill_allocation' ||
-        bType === 'pv_treasury_details' ||
-        bType === 'pv_beneficiary_details' ||
-        bType === 'pv_approval_matrix'
-      ) {
-        if (!isPaymentVoucher) return false;
-      }
-      if (
-        bType === 'rec_amount_banner' ||
-        bType === 'rec_payment_instrument' ||
-        bType === 'rec_balance_statement'
-      ) {
-        if (!isReceiptVoucher) return false;
-      }
-      if (!hasExplicitLayoutBlocks) {
-        if (b.id === 'terms' && !resolvedShowCommercialTerms) return false;
-        if (b.id === 'remittance' && !resolvedShowBankDetails) return false;
-        if ((b.id === 'signatory' || b.id === 'signatories') && !showStampAndSignatures) return false;
-        if (b.id === 'acceptance' && !customerAcceptanceEnabled) return false;
-      }
-      return true;
+      const bKind = normalizeQuotationBlockKind(b);
+      if (bKind === 'page_break' || bKind === 'spacer') return true;
+      return isRenderableContentBlock(b, quotationForPagination);
     });
 
     return resolveDocumentPaginationWithAnnexes(
@@ -4665,7 +5096,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         autoPaginate: Boolean(quotation.auto_paginate_items),
         columnConfig,
         preTableOverheadMm,
-        quotation
+        quotation: quotationForPagination,
+        excludedBodyPageIndices:
+          resolvedFooterConfig.excluded_page_indices ?? quotation.excluded_page_indices
       }
     );
   }, [
@@ -4685,11 +5118,15 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     customerAcceptanceEnabled,
     preTableBlocks,
     resolvedRecipientConfig,
+    resolvedFooterConfig,
+    resolvedBlockStyle,
     preTableOverheadMm,
     quotation.table_font_scale,
     quotation.font_size_scale,
     quotation.table_density,
-    quotation.header_config?.continuationHeaderMode
+    quotation.header_config?.continuationHeaderMode,
+    quotation.signatory_type,
+    quotation.excluded_page_indices
   ]);
 
   const coverSheets = paginationWithAnnexes.coverSheets;
@@ -8939,11 +9376,27 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
           return false;
         }
       }
-      if (!hasExplicitLayoutBlocks) {
-        if (b.id === 'terms' && !resolvedShowCommercialTerms) return false;
-        if (b.id === 'remittance' && !resolvedShowBankDetails) return false;
-        if ((b.id === 'signatory' || b.id === 'signatories') && !showStampAndSignatures) return false;
-        if (b.id === 'acceptance' && !customerAcceptanceEnabled) return false;
+      if (b.id === 'terms' && !resolvedShowCommercialTerms) return false;
+      if (b.id === 'remittance' && !resolvedShowBankDetails) return false;
+      if ((b.id === 'signatory' || b.id === 'signatories') && !showStampAndSignatures) return false;
+      if (b.id === 'acceptance' && !customerAcceptanceEnabled) return false;
+      const bKind = normalizeQuotationBlockKind(b);
+      if (bKind !== 'page_break' && bKind !== 'spacer') {
+        if (
+          !isRenderableContentBlock(b, {
+            ...quotation,
+            block_style: resolvedBlockStyle,
+            show_commercial_terms: resolvedShowCommercialTerms,
+            show_bank_details: resolvedShowBankDetails,
+            showBankRemittance: resolvedShowBankDetails,
+            customer_acceptance_enabled: customerAcceptanceEnabled,
+            showCustomerAcceptance: customerAcceptanceEnabled,
+            showSignatories: showStampAndSignatures,
+            footer_config: resolvedFooterConfig
+          })
+        ) {
+          return false;
+        }
       }
       return true;
     });
@@ -13916,8 +14369,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                     className="max-h-[245mm] max-w-full w-auto h-auto object-contain rounded border border-slate-200/80"
                   />
                 </div>
-                {!cover.excludeFromPageCount && cover.displayPageNumber !== null &&
-                  renderFooter(cover.displayPageNumber, totalDocumentPages)}
+                {renderFooter(
+                  cover.excludeFromPageCount ? null : cover.displayPageNumber,
+                  totalDocumentPages
+                )}
               </>
             )}
           </article>
@@ -13934,7 +14389,12 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         const isContinuation = !isFirst;
         const isBreakSelected = Boolean(sheet.pageBreakBlock && activeSelectedSection === sheet.pageBreakBlock.id);
         const sheetKey = sheet.pageBreakBlock ? sheet.pageBreakBlock.id : `sheet_${sheet.sheetNumber}`;
-        const displayPageNum = sheet.displayPageNumber || sheetIdx + 1;
+        const bodyPageNum = sheet.bodyPageNumber || sheetIdx + 1;
+        const displayPageNum = sheet.excludedFromPageCount ? null : sheet.displayPageNumber;
+        const pageBadgeLabel =
+          displayPageNum !== null
+            ? `Page ${displayPageNum} of ${totalDocumentPages}`
+            : `Body Sheet ${bodyPageNum} (Unnumbered)`;
 
         return (
           <React.Fragment key={sheetKey}>
@@ -13963,8 +14423,8 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 >
                   <span className="font-semibold flex items-center gap-1.5">
                     {sheet.isTableContinuationSheet
-                      ? `📄 Table Split Continuation (After Item #${sheet.tableChunk?.splitFromItemNumber || sheet.tableChunk?.startIndex || 1}) • Page ${displayPageNum} of ${totalDocumentPages}`
-                      : `✂ Page Break • Page ${displayPageNum} of ${totalDocumentPages}`}
+                      ? `📄 Table Split Continuation (After Item #${sheet.tableChunk?.splitFromItemNumber || sheet.tableChunk?.startIndex || 1}) • ${pageBadgeLabel}`
+                      : `✂ Page Break • ${pageBadgeLabel}`}
                   </span>
                   <span className="text-[9.5px] font-bold underline">
                     {sheet.isTableContinuationSheet ? 'Inspect Line Items Table' : 'Inspect Page Break'}
@@ -13985,6 +14445,31 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               } print:h-[296.5mm] print:min-h-[296.5mm] print:max-h-[296.5mm] print:overflow-hidden`}
               style={{ boxSizing: 'border-box' }}
             >
+              {/* Non-printing Interactive Per-Page Numbering Toggle Pill in Studio Preview */}
+              {isInteractive && onToggleBodyPageNumbering && (
+                <div className="quotation-canvas-guide absolute top-1.5 right-3 z-20 print:hidden flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleBodyPageNumbering(bodyPageNum);
+                    }}
+                    title={
+                      sheet.excludedFromPageCount
+                        ? `Click to include Body Sheet ${bodyPageNum} in Page X of Y numbering`
+                        : `Click to exclude Body Sheet ${bodyPageNum} from Page X of Y numbering`
+                    }
+                    className={`px-2 py-0.5 rounded-full text-[9px] font-mono font-semibold border transition shadow-2xs flex items-center gap-1 ${
+                      sheet.excludedFromPageCount
+                        ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                        : 'bg-slate-100/90 text-slate-600 border-slate-200/90 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300'
+                    }`}
+                  >
+                    <span>{sheet.excludedFromPageCount ? '⊘ Page # Excluded' : `# ${pageBadgeLabel}`}</span>
+                  </button>
+                </div>
+              )}
+
               {/* Top Accent Stripe */}
               {renderTopAccentBar()}
 
@@ -14090,11 +14575,19 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
          ======================================================== */}
       {annexSheets.map((annexDescriptor, annexIdx) => {
         const att = annexDescriptor.attachment;
-        const annexPageNumber = annexDescriptor.displayPageNumber;
+        const annexPageNumber = annexDescriptor.excludeFromPageCount
+          ? null
+          : annexDescriptor.displayPageNumber;
         const isLastAnnexSheet = annexIdx === annexSheets.length - 1;
         const quoteRef = quotation.formatted_quote_ref || quotation.quote_number || 'QT-DRAFT';
         const annexHeaderTitle = annexDescriptor.headerTitle;
         const isFullBleed = annexDescriptor.fullBleed;
+        const showAnnexHeaderPageNum =
+          headerBranding.showPageNumberOnContinuation !== false &&
+          footerPresentation.showPageNumbers &&
+          typeof annexPageNumber === 'number' &&
+          annexPageNumber > 0 &&
+          totalDocumentPages > 0;
 
         return (
           <article
@@ -14151,7 +14644,9 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                       {annexHeaderTitle}
                     </div>
                     <div className={`${typoScale.micro} text-slate-500 font-mono text-right shrink-0`}>
-                      {quoteRef} • Page {annexPageNumber} of {totalDocumentPages}
+                      {showAnnexHeaderPageNum
+                        ? `${quoteRef} • Page ${annexPageNumber} of ${totalDocumentPages}`
+                        : quoteRef}
                     </div>
                   </div>
                 </div>

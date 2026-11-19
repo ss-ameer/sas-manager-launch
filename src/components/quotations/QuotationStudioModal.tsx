@@ -97,7 +97,8 @@ import {
   resolveHeaderFields,
   resolveStampSignatureOverlayConfig,
   amountToWords,
-  ensureSpecializedDocumentBlocks
+  ensureSpecializedDocumentBlocks,
+  resolveDocumentPaginationWithAnnexes
 } from './QuotationDocument';
 import {
   AtMentionInput,
@@ -7895,6 +7896,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       header_config: interpolatedHeaderConfig,
       recipient_config: interpolatedRecipientConfig,
       footer_config: interpolatedFooterConfig,
+      excluded_page_indices: interpolatedFooterConfig.excluded_page_indices,
       visible_columns: visibleColumns,
       omitted_fields: omittedFields,
       auto_paginate_items: autoPaginateItems,
@@ -8145,6 +8147,23 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       triggerPrintAfterImagesDecode();
     }
   }, [liveQuotation, triggerPrintAfterImagesDecode]);
+
+  // Toggle whether a 1-based body sheet index is excluded from Page X of Y numbering
+  const handleToggleBodyPageNumbering = useCallback((bodyPageNumber: number) => {
+    setFooterConfig((prev) => {
+      const current = Array.isArray(prev.excluded_page_indices)
+        ? prev.excluded_page_indices
+        : [];
+      const exists = current.includes(bodyPageNumber);
+      const next = exists
+        ? current.filter((idx) => idx !== bodyPageNumber)
+        : [...current, bodyPageNumber].sort((a, b) => a - b);
+      return {
+        ...prev,
+        excluded_page_indices: next
+      };
+    });
+  }, []);
 
   // Direct On-Canvas Click-to-Edit Handler for Focused Section / Block Text
   const handleInlineFieldEdit = useCallback(
@@ -14386,7 +14405,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             const isRenderedSheet = activePlacement !== 'index_only';
                             const showTitleInHeader = att.show_title_on_annex !== false;
                             const isFullBleed = Boolean(att.full_bleed);
-                            const isExcludedFromCount = Boolean(att.exclude_from_page_count);
+                            const isExcludedFromCount = Boolean(
+                              att.exclude_from_page_count || att.exclude_from_page_numbering
+                            );
                             const isFirst = idx === 0;
                             const isLast = idx === flyerAttachments.length - 1;
 
@@ -14550,17 +14571,21 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                       </label>
                                     )}
 
-                                    {activePlacement === 'cover_before' && (
+                                    {(activePlacement === 'cover_before' ||
+                                      activePlacement === 'annex_after') && (
                                       <label className="flex items-center justify-between px-2 py-1 rounded-lg bg-white border border-slate-200/80 cursor-pointer select-none">
                                         <span className="text-[10.5px] font-medium text-slate-700">
-                                          Exclude Cover from Page Numbering
+                                          {activePlacement === 'cover_before'
+                                            ? 'Exclude Cover from Page Numbering'
+                                            : 'Exclude Annex from Page Numbering'}
                                         </span>
                                         <input
                                           type="checkbox"
                                           checked={isExcludedFromCount}
                                           onChange={(e) =>
                                             handleUpdateAttachment(attId, {
-                                              exclude_from_page_count: e.target.checked
+                                              exclude_from_page_count: e.target.checked,
+                                              exclude_from_page_numbering: e.target.checked
                                             })
                                           }
                                           className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
@@ -14890,6 +14915,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       onSelectSection={handleCanvasSelectSection}
                       onSelectBlock={(id) => handleCanvasSelectSection(id)}
                       onInlineFieldEdit={handleInlineFieldEdit}
+                      onToggleBodyPageNumbering={handleToggleBodyPageNumbering}
                       showPageBreakGuides={showPageBreakGuides}
                     />
                   </div>
@@ -18340,6 +18366,63 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600"></div>
                           </label>
                         </div>
+
+                        {footerConfig.showPageNumbers !== false && (() => {
+                          const previewPagination = resolveDocumentPaginationWithAnnexes(
+                            liveQuotation.layout_blocks || [],
+                            liveQuotation.line_items || [],
+                            liveQuotation.flyer_attachments,
+                            liveQuotation.show_submittals_index !== false,
+                            {
+                              autoPaginate: Boolean(liveQuotation.auto_paginate_items),
+                              columnConfig: visibleColumns,
+                              quotation: liveQuotation,
+                              excludedBodyPageIndices: footerConfig.excluded_page_indices
+                            }
+                          );
+                          const bodySheets = previewPagination.mainSheets;
+                          return (
+                            <div className="border border-slate-200 rounded-xl p-2.5 bg-slate-50/70 space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10.5px] font-semibold text-slate-700">
+                                  Include Body Pages in Numbering
+                                </span>
+                                <span className="text-[9.5px] font-mono text-slate-500">
+                                  Total: {previewPagination.totalDocumentPages} numbered
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {bodySheets.map((bSheet, bIdx) => {
+                                  const bodyIdx = bSheet.bodyPageNumber || bIdx + 1;
+                                  const isExcluded = Boolean(bSheet.excludedFromPageCount);
+                                  return (
+                                    <button
+                                      key={`body_page_toggle_${bodyIdx}`}
+                                      type="button"
+                                      onClick={() => handleToggleBodyPageNumbering(bodyIdx)}
+                                      className={`px-2 py-1 rounded-lg text-[10px] font-mono font-semibold border transition cursor-pointer flex items-center gap-1 ${
+                                        isExcluded
+                                          ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                                          : 'bg-white text-blue-700 border-blue-200 hover:bg-blue-50'
+                                      }`}
+                                      title={
+                                        isExcluded
+                                          ? `Body Page ${bodyIdx} is excluded from Page X of Y numbering. Click to include.`
+                                          : `Body Page ${bodyIdx} is numbered Page ${bSheet.displayPageNumber} of ${previewPagination.totalDocumentPages}. Click to exclude.`
+                                      }
+                                    >
+                                      <span>
+                                        {isExcluded
+                                          ? `⊘ Sheet ${bodyIdx}: Excluded`
+                                          : `✓ Sheet ${bodyIdx} (Pg ${bSheet.displayPageNumber})`}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
 
                         <div
                           className={`border rounded-xl p-2.5 transition-all flex items-center justify-between gap-2 ${

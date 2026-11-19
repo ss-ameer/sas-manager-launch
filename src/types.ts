@@ -702,6 +702,7 @@ export interface Attachment {
   page_placement?: 'cover_before' | 'annex_after' | 'index_only';
   full_bleed?: boolean;
   exclude_from_page_count?: boolean;
+  exclude_from_page_numbering?: boolean;
   originalSize?: number;
   compressedSize?: number;
   original_size_bytes?: number;
@@ -1924,6 +1925,7 @@ export interface QuotationHeaderConfig {
 
 export interface QuotationFooterConfig {
   showPageNumbers?: boolean; // default: true
+  excluded_page_indices?: number[]; // 1-based body page indices excluded from page numbering
   showDisclaimer?: boolean; // default: true
   showSystemGeneratedNotice?: boolean;
   customDisclaimer?: string;
@@ -2187,6 +2189,7 @@ export interface QuotationPreset extends SoftDeleteFields {
   show_combined_options_total?: boolean;
   omitted_fields?: Record<string, boolean>;
   auto_paginate_items?: boolean;
+  excluded_page_indices?: number[];
   custom_notes?: string;
   is_default?: boolean;
   is_deleted?: boolean;
@@ -2783,6 +2786,7 @@ export interface Quotation extends SoftDeleteFields {
   deleted_by_name?: string | null;
   omitted_fields?: Record<string, boolean>;
   auto_paginate_items?: boolean;
+  excluded_page_indices?: number[];
   [key: string]: any;
 }
 

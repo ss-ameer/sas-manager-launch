@@ -3118,6 +3118,186 @@ describe('Suite 22: Last-Item Page Breaks, Context-Aware Break Insertion & Logo-
 });
 
 // ==========================================
+// SUITE 23: GHOST BLANK PAGE ELIMINATION, ANNEX PAGE NUMBERING & UNIFIED PAGE EXCLUSION
+// ==========================================
+
+describe('Suite 23: Ghost Blank Page Elimination, Annex Page Numbering & Unified Page Exclusion', () => {
+  it('23a. Trailing page_break or page_break followed only by hidden/disabled/empty signatory blocks or spacers does NOT emit a ghost blank page', () => {
+    const blocksWithTrailingEmptySignatory: QuotationBlockConfig[] = [
+      { id: 'totals', type: 'totals', enabled: true },
+      { id: 'terms', type: 'terms', enabled: true },
+      { id: 'remittance', type: 'remittance', enabled: true },
+      { id: 'break_trailing', type: 'page_break', enabled: true, is_visible: true },
+      { id: 'spacer_trailing', type: 'spacer', enabled: true, is_visible: true, spacer_height_mm: 25 },
+      {
+        id: 'signatory',
+        type: 'signatory',
+        enabled: true,
+        is_visible: true,
+        visibleFields: {
+          signatory_company_header: false,
+          signatory_stamp_space: false,
+          signatory_primary_name: false,
+          signatory_primary_title: false
+        }
+      },
+      { id: 'acceptance', type: 'acceptance', enabled: false, is_visible: false }
+    ];
+
+    const quotationWithMinimalNoSeal: Quotation = {
+      id: 'q_no_ghost',
+      workspace_id: 'ws_1',
+      workspaceId: 'ws_1',
+      enquiry_id: 'enq_1',
+      quote_number: 'AVENTURA/UAE/AGN/2885-191126',
+      formatted_quote_ref: 'AVENTURA/UAE/AGN/2885-191126',
+      revision_number: 1,
+      status: 'Draft',
+      block_style: 'minimal',
+      show_company_seal: false,
+      customer_acceptance_enabled: false,
+      client_snapshot: { entity_name: 'Client' },
+      sender_snapshot: { entity_name: 'Aventura' },
+      line_items: [
+        {
+          id: 'li_1',
+          item_name: 'Test Item 1',
+          description: 'Short description',
+          quantity: 1,
+          unit: 'Nos',
+          unit_price: 1000,
+          total_price: 1000
+        }
+      ],
+      tax_mode: 'taxes_extra',
+      subtotal: 1000,
+      freight_amount: 0,
+      tax_rate_percent: 5,
+      tax_amount: 50,
+      grand_total: 1050,
+      created_at: '2026-11-19T00:00:00.000Z'
+    };
+
+    const sheets = partitionBlocksIntoSheets(
+      blocksWithTrailingEmptySignatory,
+      quotationWithMinimalNoSeal.line_items,
+      {
+        autoPaginate: true,
+        quotation: quotationWithMinimalNoSeal
+      }
+    );
+
+    // Must remain 1 sheet with zero ghost blank continuation sheet
+    expect(sheets.length).toBe(1);
+    expect(sheets[0].displayPageNumber).toBe(1);
+    expect(sheets[0].totalSheets).toBe(1);
+  });
+
+  it('23b. Non-excluded Annex sheets receive sequential displayPageNumber (fixing blank "Page  of 4")', () => {
+    const attachments: Attachment[] = [
+      {
+        id: 'att_annex_1',
+        name: 'Media Layout Drawing',
+        url: 'https://example.com/annex1.png',
+        type: 'image/png',
+        page_placement: 'annex_after',
+        render_as_annex_page: true
+      }
+    ];
+
+    const res = resolveDocumentPaginationWithAnnexes(
+      [
+        { id: 'totals', type: 'totals', enabled: true },
+        { id: 'break_1', type: 'page_break', enabled: true, is_visible: true },
+        { id: 'terms', type: 'terms', enabled: true }
+      ],
+      [],
+      attachments,
+      true
+    );
+
+    // 2 body sheets + 1 annex sheet = 3 numbered pages
+    expect(res.totalDocumentPages).toBe(3);
+    expect(res.mainSheets.length).toBe(2);
+    expect(res.mainSheets[0].displayPageNumber).toBe(1);
+    expect(res.mainSheets[1].displayPageNumber).toBe(2);
+    expect(res.annexSheets.length).toBe(1);
+    expect(res.annexSheets[0].displayPageNumber).toBe(3);
+    expect(res.annexSheets[0].excludeFromPageCount).toBe(false);
+  });
+
+  it('23c. Unified Exclude from Page Numbering works across Cover Pages, Individual Body Pages, and Annex Sheets', () => {
+    const attachments: Attachment[] = [
+      {
+        id: 'att_cover_excl',
+        name: 'Excluded Cover',
+        url: 'https://example.com/cover1.png',
+        type: 'image/png',
+        page_placement: 'cover_before',
+        exclude_from_page_count: true
+      },
+      {
+        id: 'att_cover_incl',
+        name: 'Included Cover',
+        url: 'https://example.com/cover2.png',
+        type: 'image/png',
+        page_placement: 'cover_before',
+        exclude_from_page_count: false
+      },
+      {
+        id: 'att_annex_excl',
+        name: 'Excluded Annex',
+        url: 'https://example.com/annex1.png',
+        type: 'image/png',
+        page_placement: 'annex_after',
+        exclude_from_page_count: true
+      },
+      {
+        id: 'att_annex_incl',
+        name: 'Included Annex',
+        url: 'https://example.com/annex2.png',
+        type: 'image/png',
+        page_placement: 'annex_after',
+        exclude_from_page_count: false
+      }
+    ];
+
+    const blocks: QuotationBlockConfig[] = [
+      { id: 'totals', type: 'totals', enabled: true },
+      { id: 'break_body', type: 'page_break', enabled: true, is_visible: true },
+      { id: 'terms', type: 'terms', enabled: true }
+    ];
+
+    // Exclude Body Sheet #2 from page numbering
+    const res = resolveDocumentPaginationWithAnnexes(blocks, [], attachments, true, {
+      excludedBodyPageIndices: [2]
+    });
+
+    // Included pages:
+    // - Cover #2 -> Page 1 of 3
+    // - Body Sheet #1 -> Page 2 of 3
+    // - Body Sheet #2 -> excluded (null)
+    // - Annex #1 -> excluded (null)
+    // - Annex #2 -> Page 3 of 3
+    expect(res.totalDocumentPages).toBe(3);
+    expect(res.coverSheets[0].displayPageNumber).toBe(null);
+    expect(res.coverSheets[0].excludeFromPageCount).toBe(true);
+    expect(res.coverSheets[1].displayPageNumber).toBe(1);
+    expect(res.coverSheets[1].excludeFromPageCount).toBe(false);
+
+    expect(res.mainSheets[0].displayPageNumber).toBe(2);
+    expect(res.mainSheets[0].excludedFromPageCount).toBe(false);
+    expect(res.mainSheets[1].displayPageNumber).toBe(null);
+    expect(res.mainSheets[1].excludedFromPageCount).toBe(true);
+
+    expect(res.annexSheets[0].displayPageNumber).toBe(null);
+    expect(res.annexSheets[0].excludeFromPageCount).toBe(true);
+    expect(res.annexSheets[1].displayPageNumber).toBe(3);
+    expect(res.annexSheets[1].excludeFromPageCount).toBe(false);
+  });
+});
+
+// ==========================================
 // TEST REPORT SUMMARY
 // ==========================================
 
