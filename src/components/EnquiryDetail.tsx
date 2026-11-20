@@ -3878,10 +3878,18 @@ export default function EnquiryDetail({
     onClose();
   };
 
-  // Filter and sanitize audit logs for this specific enquiry (suppressing no-op 'Record updated' entries)
+  const isBasicTier = user.role !== 'Admin' && user.dataVisibilityTier === 'BASIC';
+  const isOwnerOrAttributed = isRecordOwner(user, currentEnquiry);
+  const isMaskedForBasic = isBasicTier && !isOwnerOrAttributed;
+  const isCreatorOnly = isCreatorOnlyViewer(user, currentEnquiry, activeWorkspace, salespersons);
+  const canViewConfidentialMargins =
+    canManageWorkspace(user, activeWorkspace) || isAdmin(user, activeWorkspace?.id, activeWorkspace);
+
+  // Filter and sanitize audit logs for this specific enquiry (suppressing no-op 'Record updated' entries & internal system hashes)
   const HIDDEN_AUDIT_FIELDS_SET = new Set([
     'id',
     '_id',
+    '__v',
     'updated_at',
     'updatedat',
     'created_at',
@@ -3898,11 +3906,27 @@ export default function EnquiryDetail({
     'createdbyusername',
     'last_modified_by_uid',
     'last_modified_by_name',
+    'last_updated_by',
+    'updated_by',
+    'updatedby',
     'updatedbyuid',
     'updatedbyusername',
     'assigned_to_id',
     'sales_person_id',
     'salesperson_id',
+    'active_quotation_id',
+    'activequotationid',
+    'quotation_id',
+    'latest_quotation_id',
+    'primary_quotation_id',
+    'company_id',
+    'contact_id',
+    'client_id',
+    'project_id',
+    'linked_project_id',
+    'creator_access_released',
+    'creator_released',
+    'shared_with_ids',
     'statusupdatedat',
     'statusupdatedby',
     'statushistory'
@@ -3918,14 +3942,38 @@ export default function EnquiryDetail({
     latest_quote_ref: 'quote_ref_no',
     value_aed: 'value_aed',
     quoted_amount: 'value_aed',
+    package_value: 'value_aed',
     raw_source_text: 'raw_source_text',
     projected_order_date: 'projected_order_date',
+    next_followup_date: 'next_followup_date',
+    valid_until: 'valid_until',
     line_items: 'line_items',
     company_name: 'company_name',
     project_location: 'project_location',
     concerned_person: 'concerned_person',
     concerned_persons: 'concerned_person',
     contact_person_name: 'concerned_person'
+  };
+
+  const AUDIT_CURRENCY_FIELDS = new Set([
+    'value_aed',
+    'quoted_amount',
+    'package_value',
+    'subtotal',
+    'grand_total',
+    'tax_amount',
+    'total_cost',
+    'discount_amount'
+  ]);
+
+  const isInternalHashIdValue = (val: any): boolean => {
+    if (typeof val !== 'string') return false;
+    const s = val.trim();
+    if (!s) return false;
+    return (
+      /^(quote|enq|comp|cont|prod|proj|doc|inv|po|do|rec|pv|mrn|dn|user|ws)_[0-9a-zA-Z_-]{8,}$/i.test(s) ||
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+    );
   };
 
   const isEmptyAuditValue = (v: any, canonicalField?: string): boolean => {
@@ -3948,6 +3996,44 @@ export default function EnquiryDetail({
     if (fieldKey === 'attachments' && Array.isArray(val)) {
       return `${val.length} file${val.length === 1 ? '' : 's'}`;
     }
+    if (AUDIT_CURRENCY_FIELDS.has(fieldKey)) {
+      if (isMaskedForBasic) return 'AED ***';
+      const num = typeof val === 'number' ? val : Number(String(val).replace(/[^0-9.-]/g, ''));
+      if (Number.isFinite(num)) {
+        const isUSD = currentEnquiry.currency === 'USD';
+        const converted = isUSD ? num / 3.6725 : num;
+        const symbol = isUSD ? '$' : 'AED ';
+        return `${symbol}${converted.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      }
+    }
+    if (fieldKey === 'validity_days' && (typeof val === 'number' || /^\d+$/.test(String(val).trim()))) {
+      return `${Number(val)} Days`;
+    }
+    if (fieldKey === 'tax_mode' && typeof val === 'string') {
+      const normalized = normalizeEnquiryTaxMode(val);
+      if (normalized === 'taxes_extra') return '5% Standard VAT (Excl.)';
+      if (normalized === 'vat_excluded_extra') return 'VAT Excluded (5% Extra)';
+      if (normalized === 'tax_calculated') return '5% VAT Inclusive';
+      if (normalized === 'tax_exempt') return '0% / Tax Exempt';
+      if (normalized === 'vat_hidden') return 'VAT Hidden (Lump Sum)';
+    }
+    if (typeof val === 'boolean') {
+      return val ? 'Yes' : 'No';
+    }
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      // Format ISO timestamps (e.g. 2026-11-30T12:00:00.000Z) and YYYY-MM-DD date strings into '30 Nov 2026'
+      if (/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/.test(trimmed)) {
+        const parsed = new Date(trimmed.length === 10 ? `${trimmed}T12:00:00` : trimmed);
+        if (!Number.isNaN(parsed.getTime())) {
+          return parsed.toLocaleDateString('en-GB', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric'
+          });
+        }
+      }
+    }
     if (typeof val === 'object') {
       if (Array.isArray(val)) {
         return val.map((x) => (typeof x === 'object' ? (x?.name || x?.item_name || JSON.stringify(x)) : String(x))).join(', ');
@@ -3963,6 +4049,13 @@ export default function EnquiryDetail({
       const rawField = String(diff.field || '').trim();
       const lowerField = rawField.toLowerCase();
       if (!rawField || HIDDEN_AUDIT_FIELDS_SET.has(lowerField)) return false;
+      // Suppress internal *_id keys whose values are opaque system hashes (e.g. quote_1795164468356_jz7vf)
+      if (
+        (lowerField.endsWith('_id') || lowerField.endsWith('id')) &&
+        (isInternalHashIdValue(diff.old_value) || isInternalHashIdValue(diff.new_value))
+      ) {
+        return false;
+      }
       const canonical = CANONICAL_AUDIT_MAP[lowerField] || lowerField;
       if (isEmptyAuditValue(diff.old_value, canonical) && isEmptyAuditValue(diff.new_value, canonical)) return false;
       if (seenCanonical.has(canonical)) return false;
@@ -3985,13 +4078,6 @@ export default function EnquiryDetail({
       if (cleanDetails !== '' && cleanDetails.toLowerCase() !== 'record updated') return true;
       return false;
     });
-
-  const isBasicTier = user.role !== 'Admin' && user.dataVisibilityTier === 'BASIC';
-  const isOwnerOrAttributed = isRecordOwner(user, currentEnquiry);
-  const isMaskedForBasic = isBasicTier && !isOwnerOrAttributed;
-  const isCreatorOnly = isCreatorOnlyViewer(user, currentEnquiry, activeWorkspace, salespersons);
-  const canViewConfidentialMargins =
-    canManageWorkspace(user, activeWorkspace) || isAdmin(user, activeWorkspace?.id, activeWorkspace);
 
   const handleReleaseCreatorAccess = async () => {
     const enquiryId = currentEnquiry.id || (currentEnquiry as any)._id;
@@ -4338,14 +4424,18 @@ export default function EnquiryDetail({
     }
   };
 
-  const renderCommercialTermsSummaryStrip = () => {
+  const renderCommercialTermsSummaryStrip = (compactStrip = false) => {
     const canEdit = canEditEnquiry(user, activeWorkspace, currentEnquiry);
     return (
-      <div className="bg-slate-50/90 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 space-y-3 shadow-2xs">
+      <div
+        className={`bg-slate-50/90 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs ${
+          compactStrip ? 'px-4 py-3 space-y-2.5' : 'p-3.5 space-y-3'
+        }`}
+      >
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
-            <FileCheck className="w-4 h-4 text-indigo-600 shrink-0" />
-            <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+            <FileCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+            <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
               Commercial Terms &amp; Offer Conditions
             </span>
           </div>
@@ -4367,40 +4457,75 @@ export default function EnquiryDetail({
         </div>
 
         {!isEditingCommercialTerms ? (
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow-2xs">
-              <span className="text-[10px] font-mono uppercase text-slate-400">Validity:</span>
-              <span className="font-semibold font-mono">{effectiveCommercialTerms.validity} Days</span>
-            </span>
-
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow-2xs">
-              <span className="text-[10px] font-mono uppercase text-slate-400">Price Basis:</span>
-              <span className="font-semibold">
-                {effectiveCommercialTerms.priceBasis || <span className="text-slate-400 italic font-normal">Default / Not Set</span>}
+          compactStrip ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-2 pt-2 border-t border-slate-200/70 dark:border-slate-800/70 text-xs">
+              <div className="min-w-0">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">Validity</span>
+                <span className="font-semibold font-mono tabular-nums text-slate-800 dark:text-slate-200 block truncate">
+                  {effectiveCommercialTerms.validity} Days
+                </span>
+              </div>
+              <div className="min-w-0">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">Price Basis</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-200 block truncate" title={effectiveCommercialTerms.priceBasis || ''}>
+                  {effectiveCommercialTerms.priceBasis || <span className="text-slate-400 italic font-normal">Not Set</span>}
+                </span>
+              </div>
+              <div className="min-w-0">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">Delivery</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-200 block truncate" title={effectiveCommercialTerms.deliveryPeriod || ''}>
+                  {effectiveCommercialTerms.deliveryPeriod || <span className="text-slate-400 italic font-normal">Not Set</span>}
+                </span>
+              </div>
+              <div className="min-w-0">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">VAT</span>
+                <span className="font-semibold text-indigo-700 dark:text-indigo-300 block truncate" title={effectiveCommercialTerms.taxModeLabel}>
+                  {effectiveCommercialTerms.taxModeLabel}
+                </span>
+              </div>
+              <div className="min-w-0 col-span-2 sm:col-span-2 lg:col-span-1">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block">Payment</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-200 block truncate" title={effectiveCommercialTerms.paymentTerms || ''}>
+                  {effectiveCommercialTerms.paymentTerms || <span className="text-slate-400 italic font-normal">Not Set</span>}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow-2xs">
+                <span className="text-[10px] font-mono uppercase text-slate-400">Validity:</span>
+                <span className="font-semibold font-mono">{effectiveCommercialTerms.validity} Days</span>
               </span>
-            </span>
 
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow-2xs">
-              <span className="text-[10px] font-mono uppercase text-slate-400">Delivery:</span>
-              <span className="font-semibold">
-                {effectiveCommercialTerms.deliveryPeriod || <span className="text-slate-400 italic font-normal">Default / Not Set</span>}
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow-2xs">
+                <span className="text-[10px] font-mono uppercase text-slate-400">Price Basis:</span>
+                <span className="font-semibold">
+                  {effectiveCommercialTerms.priceBasis || <span className="text-slate-400 italic font-normal">Default / Not Set</span>}
+                </span>
               </span>
-            </span>
 
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow-2xs">
-              <span className="text-[10px] font-mono uppercase text-slate-400">VAT:</span>
-              <span className="font-semibold text-indigo-700 dark:text-indigo-300">
-                {effectiveCommercialTerms.taxModeLabel}
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow-2xs">
+                <span className="text-[10px] font-mono uppercase text-slate-400">Delivery:</span>
+                <span className="font-semibold">
+                  {effectiveCommercialTerms.deliveryPeriod || <span className="text-slate-400 italic font-normal">Default / Not Set</span>}
+                </span>
               </span>
-            </span>
 
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow-2xs max-w-full">
-              <span className="text-[10px] font-mono uppercase text-slate-400 shrink-0">Payment:</span>
-              <span className="font-semibold truncate" title={effectiveCommercialTerms.paymentTerms}>
-                {effectiveCommercialTerms.paymentTerms || <span className="text-slate-400 italic font-normal">Default / Not Set</span>}
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow-2xs">
+                <span className="text-[10px] font-mono uppercase text-slate-400">VAT:</span>
+                <span className="font-semibold text-indigo-700 dark:text-indigo-300">
+                  {effectiveCommercialTerms.taxModeLabel}
+                </span>
               </span>
-            </span>
-          </div>
+
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow-2xs max-w-full">
+                <span className="text-[10px] font-mono uppercase text-slate-400 shrink-0">Payment:</span>
+                <span className="font-semibold truncate" title={effectiveCommercialTerms.paymentTerms}>
+                  {effectiveCommercialTerms.paymentTerms || <span className="text-slate-400 italic font-normal">Default / Not Set</span>}
+                </span>
+              </span>
+            </div>
+          )
         ) : (
           <div className="bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-xl p-3.5 space-y-3 animate-in fade-in duration-150">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
@@ -5308,175 +5433,191 @@ export default function EnquiryDetail({
         
         {/* Two-Tier Sticky Header Block — z-40 so dropdowns always paint above the Tabs bar (z-20) and content (z-10) */}
         <div className="border-b border-slate-200/80 bg-white sticky top-0 z-40">
-          {/* Tier 1: Full Client Title, Identity Badges & Window Controls (z-30 so rep/temp dropdowns paint above Tier 2) */}
-          <div className="px-4 pt-3.5 pb-2.5 sm:px-6 flex items-start justify-between gap-3 min-w-0 relative z-30">
-            <div className="flex items-start space-x-3 min-w-0 flex-1">
-              <span className="text-xs font-mono tabular-nums bg-slate-100 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-lg font-bold shrink-0 mt-0.5">
-                #{currentEnquiry.sn || enquiry.sn}
-              </span>
-              <div className="flex flex-col min-w-0 flex-1">
-                <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                  {(() => {
-                    const resolvedCompanyName =
-                      matchedCompany?.display_name ||
-                      currentEnquiry.company_name ||
-                      enquiry.company_name ||
-                      (enquiry as any)?.company ||
-                      (enquiry as any)?.client_name ||
-                      'Unassigned Account';
-                    return (
-                      <h3
-                        className="text-base sm:text-lg lg:text-xl font-bold text-slate-900 font-sans min-w-0 max-w-full"
-                        title={resolvedCompanyName}
-                      >
-                        <HoverScrollText text={resolvedCompanyName} />
-                      </h3>
-                    );
-                  })()}
-                  {matchedCompany && (
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <GoogleSearchButton
-                        companyName={matchedCompany.display_name}
-                        location={matchedCompany.city}
-                        size="sm"
-                      />
-                      <TemperatureBadge
-                        companyId={matchedCompany.id}
-                        temperature={matchedCompany.temperature}
-                        isDnc={matchedCompany.is_dnc}
-                        variant="compact"
-                        companies={companies}
-                        setCompanies={setCompanies}
-                      />
-                      <IndustryBadge company={matchedCompany} size="sm" showEmpty />
-                    </div>
-                  )}
-                  {(currentEnquiry.customer_reference_code || enquiry.customer_reference_code) && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0" title="Customer Reference Code">
-                      Ref: {currentEnquiry.customer_reference_code || enquiry.customer_reference_code}
-                    </span>
-                  )}
-                  {shouldShowProposalOptionBadge(currentEnquiry.proposal_option || enquiry.proposal_option) && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-sans font-semibold bg-purple-50 text-purple-700 border border-purple-200 shrink-0" title="Proposal Option">
-                      {currentEnquiry.proposal_option || enquiry.proposal_option}
-                    </span>
-                  )}
-
-                  {/* Assigned Salesperson Badge with Quick Inline Reassignment */}
-                  <div className="relative inline-flex items-center shrink-0">
-                    <button
-                      type="button"
-                      disabled={!canEditEnquiry(user, activeWorkspace, currentEnquiry)}
-                      onClick={() => {
-                        if (canEditEnquiry(user, activeWorkspace, currentEnquiry)) {
-                          setIsReassignRepOpen((prev) => !prev);
-                        }
-                      }}
-                      title={
-                        canEditEnquiry(user, activeWorkspace, currentEnquiry)
-                          ? `Assigned Sales Representative: ${resolvedAssignedRepInfo.fullName} (Click to reassign)`
-                          : `Assigned Sales Representative: ${resolvedAssignedRepInfo.fullName}`
-                      }
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-sans font-bold border transition shadow-2xs ${
-                        resolvedAssignedRepInfo.isUnassigned
-                          ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
-                          : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100'
-                      } ${canEditEnquiry(user, activeWorkspace, currentEnquiry) ? 'cursor-pointer' : 'cursor-default'}`}
-                    >
-                      <User className="w-3 h-3 text-blue-600 shrink-0" />
-                      <span>
-                        Assigned: {resolvedAssignedRepInfo.fullName}
-                        {resolvedAssignedRepInfo.initials &&
-                        resolvedAssignedRepInfo.initials.toLowerCase() !==
-                          resolvedAssignedRepInfo.fullName.toLowerCase()
-                          ? ` (${resolvedAssignedRepInfo.initials})`
-                          : ''}
-                      </span>
-                      {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
-                        <ChevronDown className="w-3 h-3 opacity-60 shrink-0" />
-                      )}
-                    </button>
-
-                    {isReassignRepOpen && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-40"
-                          onClick={() => setIsReassignRepOpen(false)}
+          {/* Tier 1: Clean 2-Line Header (Line 1: #SN + Company Name + Search + Controls; Line 2: Compact Metadata Strip) */}
+          <div className="px-4 pt-3.5 pb-2.5 sm:px-6 space-y-2 min-w-0 relative z-30">
+            {/* Line 1: Primary Identity & Window Controls */}
+            <div className="flex items-start justify-between gap-3 min-w-0">
+              <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                <span className="text-xs font-mono tabular-nums bg-slate-100 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-lg font-bold shrink-0 mt-0.5">
+                  #{currentEnquiry.sn || enquiry.sn}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {(() => {
+                      const resolvedCompanyName =
+                        matchedCompany?.display_name ||
+                        currentEnquiry.company_name ||
+                        enquiry.company_name ||
+                        (enquiry as any)?.company ||
+                        (enquiry as any)?.client_name ||
+                        'Unassigned Account';
+                      return (
+                        <h3
+                          className="text-base sm:text-lg lg:text-xl font-bold text-slate-900 font-sans min-w-0 truncate"
+                          title={resolvedCompanyName}
+                        >
+                          <HoverScrollText text={resolvedCompanyName} />
+                        </h3>
+                      );
+                    })()}
+                    {matchedCompany && (
+                      <div className="shrink-0">
+                        <GoogleSearchButton
+                          companyName={matchedCompany.display_name}
+                          location={matchedCompany.city}
+                          size="sm"
                         />
-                        <div className="absolute left-0 top-full mt-1.5 w-64 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl py-1.5 z-50 max-h-64 overflow-y-auto">
-                          <div className="px-3 py-1.5 border-b border-slate-100 text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold">
-                            Assign Sales Representative
-                          </div>
-                          {(salespersons || []).length > 0 ? (
-                            (salespersons || []).map((sp) => {
-                              const spLabel = sp.full_name || sp.name || sp.initials || 'Rep';
-                              const isCurrent =
-                                resolvedAssignedRepInfo.matchedSp?.id === sp.id ||
-                                resolvedAssignedRepInfo.fullName.toLowerCase() === spLabel.toLowerCase();
-                              return (
-                                <button
-                                  key={sp.id || sp.initials || spLabel}
-                                  type="button"
-                                  disabled={isSavingRepAssignment}
-                                  onClick={() => handleQuickAssignSalesperson(sp)}
-                                  className={`w-full px-3 py-2 text-left text-xs flex items-center justify-between gap-2 transition cursor-pointer ${
-                                    isCurrent
-                                      ? 'bg-blue-50/80 text-blue-800 font-bold'
-                                      : 'text-slate-700 hover:bg-slate-50 font-medium'
-                                  }`}
-                                >
-                                  <span className="flex items-center gap-2 truncate">
-                                    <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 font-mono text-[10px] font-bold flex items-center justify-center shrink-0">
-                                      {sp.initials || spLabel.slice(0, 2).toUpperCase()}
-                                    </span>
-                                    <span className="truncate">{spLabel}</span>
-                                  </span>
-                                  {isCurrent && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
-                                </button>
-                              );
-                            })
-                          ) : (
-                            <div className="px-3 py-2 text-xs text-slate-400 italic">
-                              No sales representatives configured in workspace.
-                            </div>
-                          )}
-                        </div>
-                      </>
+                      </div>
                     )}
                   </div>
-
-                  {isCreatorOnly && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-sans font-semibold bg-amber-50 text-amber-700 border border-amber-200 shrink-0" title="Visible to you because you logged this enquiry on behalf of the assigned salesperson">
-                      Logged by You
-                    </span>
+                  {(currentEnquiry.subject || enquiry.subject) && (
+                    <div className="text-xs text-slate-500 font-medium mt-0.5 min-w-0">
+                      <HoverScrollText text={currentEnquiry.subject || enquiry.subject || ''} />
+                    </div>
                   )}
                 </div>
-                {(currentEnquiry.subject || enquiry.subject) && (
-                  <div className="text-xs text-slate-500 font-medium mt-0.5 min-w-0">
-                    <HoverScrollText text={currentEnquiry.subject || enquiry.subject || ''} />
-                  </div>
-                )}
+              </div>
+
+              {/* Pinned Window Controls: Expand/Compress & Close */}
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsExpandedWidth(!isExpandedWidth)}
+                  className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition shrink-0 cursor-pointer"
+                  title={isExpandedWidth ? 'Compress drawer width' : 'Expand full width'}
+                >
+                  {isExpandedWidth ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-800 rounded-lg transition shrink-0 cursor-pointer"
+                  title="Close"
+                >
+                  <X className="w-5 h-5 text-slate-600" />
+                </button>
               </div>
             </div>
 
-            {/* Pinned Window Controls: Expand/Compress & Close */}
-            <div className="flex items-center gap-1 shrink-0">
-              <button
-                type="button"
-                onClick={() => setIsExpandedWidth(!isExpandedWidth)}
-                className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition shrink-0 cursor-pointer"
-                title={isExpandedWidth ? 'Compress drawer width' : 'Expand full width'}
-              >
-                {isExpandedWidth ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
-                className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-800 rounded-lg transition shrink-0 cursor-pointer"
-                title="Close"
-              >
-                <X className="w-5 h-5 text-slate-600" />
-              </button>
+            {/* Line 2: Compact Metadata Strip (Lead Temp, Industry, Assigned Rep, Refs & Logged by You) */}
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
+              {matchedCompany && (
+                <>
+                  <TemperatureBadge
+                    companyId={matchedCompany.id}
+                    temperature={matchedCompany.temperature}
+                    isDnc={matchedCompany.is_dnc}
+                    variant="compact"
+                    companies={companies}
+                    setCompanies={setCompanies}
+                  />
+                  <IndustryBadge company={matchedCompany} size="sm" showEmpty />
+                </>
+              )}
+
+              {/* Assigned Salesperson Badge with Quick Inline Reassignment */}
+              <div className="relative inline-flex items-center shrink-0">
+                <button
+                  type="button"
+                  disabled={!canEditEnquiry(user, activeWorkspace, currentEnquiry)}
+                  onClick={() => {
+                    if (canEditEnquiry(user, activeWorkspace, currentEnquiry)) {
+                      setIsReassignRepOpen((prev) => !prev);
+                    }
+                  }}
+                  title={
+                    canEditEnquiry(user, activeWorkspace, currentEnquiry)
+                      ? `Assigned Sales Representative: ${resolvedAssignedRepInfo.fullName} (Click to reassign)`
+                      : `Assigned Sales Representative: ${resolvedAssignedRepInfo.fullName}`
+                  }
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-sans font-bold border transition shadow-2xs ${
+                    resolvedAssignedRepInfo.isUnassigned
+                      ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                      : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100'
+                  } ${canEditEnquiry(user, activeWorkspace, currentEnquiry) ? 'cursor-pointer' : 'cursor-default'}`}
+                >
+                  <User className="w-3 h-3 text-blue-600 shrink-0" />
+                  <span>
+                    Assigned: {resolvedAssignedRepInfo.fullName}
+                    {resolvedAssignedRepInfo.initials &&
+                    resolvedAssignedRepInfo.initials.toLowerCase() !==
+                      resolvedAssignedRepInfo.fullName.toLowerCase()
+                      ? ` (${resolvedAssignedRepInfo.initials})`
+                      : ''}
+                  </span>
+                  {canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
+                    <ChevronDown className="w-3 h-3 opacity-60 shrink-0" />
+                  )}
+                </button>
+
+                {isReassignRepOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setIsReassignRepOpen(false)}
+                    />
+                    <div className="absolute left-0 top-full mt-1.5 w-64 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl py-1.5 z-50 max-h-64 overflow-y-auto">
+                      <div className="px-3 py-1.5 border-b border-slate-100 text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold">
+                        Assign Sales Representative
+                      </div>
+                      {(salespersons || []).length > 0 ? (
+                        (salespersons || []).map((sp) => {
+                          const spLabel = sp.full_name || sp.name || sp.initials || 'Rep';
+                          const isCurrent =
+                            resolvedAssignedRepInfo.matchedSp?.id === sp.id ||
+                            resolvedAssignedRepInfo.fullName.toLowerCase() === spLabel.toLowerCase();
+                          return (
+                            <button
+                              key={sp.id || sp.initials || spLabel}
+                              type="button"
+                              disabled={isSavingRepAssignment}
+                              onClick={() => handleQuickAssignSalesperson(sp)}
+                              className={`w-full px-3 py-2 text-left text-xs flex items-center justify-between gap-2 transition cursor-pointer ${
+                                isCurrent
+                                  ? 'bg-blue-50/80 text-blue-800 font-bold'
+                                  : 'text-slate-700 hover:bg-slate-50 font-medium'
+                              }`}
+                            >
+                              <span className="flex items-center gap-2 truncate">
+                                <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 font-mono text-[10px] font-bold flex items-center justify-center shrink-0">
+                                  {sp.initials || spLabel.slice(0, 2).toUpperCase()}
+                                </span>
+                                <span className="truncate">{spLabel}</span>
+                              </span>
+                              {isCurrent && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div className="px-3 py-2 text-xs text-slate-400 italic">
+                          No sales representatives configured in workspace.
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {(currentEnquiry.customer_reference_code || enquiry.customer_reference_code) && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0" title="Customer Reference Code">
+                  Ref: {currentEnquiry.customer_reference_code || enquiry.customer_reference_code}
+                </span>
+              )}
+
+              {shouldShowProposalOptionBadge(currentEnquiry.proposal_option || enquiry.proposal_option) && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-sans font-semibold bg-purple-50 text-purple-700 border border-purple-200 shrink-0" title="Proposal Option">
+                  {currentEnquiry.proposal_option || enquiry.proposal_option}
+                </span>
+              )}
+
+              {isCreatorOnly && (
+                <span
+                  className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-sans font-medium bg-amber-50/90 text-amber-700 border border-amber-200/80 shrink-0"
+                  title="Visible to you because you logged this enquiry on behalf of the assigned salesperson"
+                >
+                  Logged by You
+                </span>
+              )}
             </div>
           </div>
 
@@ -5732,10 +5873,10 @@ export default function EnquiryDetail({
           )}
 
           {activeTab === 'details' && (
-            <div className="space-y-6">
-              {/* Status and Value Header Card */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className={`p-4 rounded-xl border flex flex-col justify-between ${getStatusStyle(currentEnquiry.status)}`}>
+            <div className="space-y-4">
+              {/* Tight 2-Column Hero Strip: Pipeline Status & Package Value (Deduplicated) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 items-stretch">
+                <div className={`px-4 py-3.5 rounded-xl border flex flex-col justify-between gap-2.5 ${getStatusStyle(currentEnquiry.status)}`}>
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0 flex-wrap">
                       <span className="w-2 h-2 rounded-full bg-current shrink-0" />
@@ -5767,12 +5908,21 @@ export default function EnquiryDetail({
                         </span>
                       )}
                     </div>
+                    <span className="px-2 py-0.5 rounded bg-white/80 border border-slate-200/80 text-[10px] font-semibold text-slate-700 font-sans shrink-0">
+                      {normalizeEnquirySource(currentEnquiry.enquiry_source || enquiry.enquiry_source)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-current/15">
+                    <span className="text-[10px] font-mono uppercase tracking-wider opacity-75 shrink-0">
+                      Stage
+                    </span>
                     {canEditEnquiry(user, activeWorkspace, currentEnquiry) ? (
                       <select
                         value={normalizeEnquiryStatus(currentEnquiry.status)}
                         disabled={isUpdatingStatus}
                         onChange={(e) => handleStatusTransition(e.target.value)}
-                        className="text-xs bg-white/95 dark:bg-slate-800/95 border border-slate-300 dark:border-slate-600 rounded-lg px-2.5 py-1 font-bold text-slate-900 dark:text-slate-100 cursor-pointer focus:outline-none shadow-2xs shrink-0"
+                        className="text-xs bg-white/95 dark:bg-slate-800/95 border border-slate-300 dark:border-slate-600 rounded-lg px-2.5 py-1 font-bold text-slate-900 dark:text-slate-100 cursor-pointer focus:outline-none shadow-2xs max-w-[230px] truncate"
                         title="Change Enquiry Status"
                       >
                         {PIPELINE_STATUS_GROUPS.map((group) => (
@@ -5792,7 +5942,6 @@ export default function EnquiryDetail({
                             ))}
                           </optgroup>
                         ))}
-                        {/* Fallback for any legacy or custom status not in canonical groups */}
                         {currentEnquiry.status && !PIPELINE_STATUS_GROUPS.some((g) => (g.options as readonly string[]).includes(normalizeEnquiryStatus(currentEnquiry.status))) && (
                           <optgroup label="Other / Legacy" className="bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold">
                             <option value={currentEnquiry.status} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 normal-case font-sans text-xs">
@@ -5807,40 +5956,9 @@ export default function EnquiryDetail({
                       </span>
                     )}
                   </div>
-
-                  <div className="mt-2 flex flex-col gap-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[10px] font-mono opacity-75">Source &amp; Lead Temp</span>
-                      <div className="flex items-center gap-1.5">
-                        <span className="px-2 py-0.5 rounded bg-white/80 border border-slate-200/80 text-[10.5px] font-semibold text-slate-700 font-sans">
-                          {normalizeEnquirySource(currentEnquiry.enquiry_source || enquiry.enquiry_source)}
-                        </span>
-                        {matchedCompany && (
-                          <TemperatureBadge
-                            companyId={matchedCompany.id}
-                            temperature={matchedCompany.temperature}
-                            isDnc={matchedCompany.is_dnc}
-                            variant="pill"
-                            companies={companies}
-                            setCompanies={setCompanies}
-                          />
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-baseline justify-between gap-2 pt-1 border-t border-current/15 text-[10.5px] font-mono">
-                      <span className="opacity-75">
-                        Received: <strong className="font-bold">{currentEnquiry.enquiry_date || enquiry.enquiry_date || '—'}</strong>
-                      </span>
-                      <span className="opacity-85">
-                        Follow-up:{' '}
-                        <strong className="font-bold">
-                          {currentEnquiry.next_followup_date || enquiry.next_followup_date || 'Not Set'}
-                        </strong>
-                      </span>
-                    </div>
-                  </div>
                 </div>
-                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 flex flex-col justify-between">
+
+                <div className="px-4 py-3.5 rounded-xl border border-slate-200 bg-slate-50 flex flex-col justify-between gap-2">
                   {(() => {
                     const stdQuotes = unifiedHubDocuments.filter(
                       (q) => (q.document_type || 'quotation') === 'quotation' && !q.is_deleted
@@ -5850,7 +5968,6 @@ export default function EnquiryDetail({
                       stdQuotes.find((q) => q.status === 'Sent') ||
                       stdQuotes[0];
                     const hasLineItems = (currentEnquiry.line_items || []).length > 0;
-                    const isUSD = currentEnquiry.currency === 'USD';
                     const effectiveTaxMode = normalizeEnquiryTaxMode(
                       (activeQ?.tax_mode as string) || (currentEnquiry.tax_mode as string) || 'taxes_extra'
                     );
@@ -5879,42 +5996,32 @@ export default function EnquiryDetail({
                       : Math.round((subtotalAed + vatAed) * 100) / 100;
                     const grandTotalSubLabel =
                       effectiveTaxMode === 'vat_excluded_extra'
-                        ? 'Grand Total (VAT Excluded — 5% Extra)'
+                        ? 'Grand Total (VAT Excl. — 5% Extra)'
                         : effectiveTaxMode === 'tax_exempt'
-                        ? 'Grand Total (0% / Tax Exempt)'
+                        ? 'Grand Total (0% Tax Exempt)'
                         : effectiveTaxMode === 'vat_hidden'
                         ? 'Grand Total (VAT Hidden)'
                         : effectiveTaxMode === 'tax_calculated'
-                        ? `Grand Total (5% VAT Inclusive: ${formatCurrency(vatAed)})`
+                        ? `Grand Total (Incl. 5% VAT: ${formatCurrency(vatAed)})`
                         : `Grand Total (Incl. 5% VAT: ${formatCurrency(vatAed)})`;
 
                     return (
                       <>
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">
+                          <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">
                             Package Value
                           </span>
-                          {shouldShowProposalOptionBadge(currentEnquiry.proposal_option || enquiry.proposal_option) && (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-800 border border-purple-200" title="Selected Option">
-                              {currentEnquiry.proposal_option || enquiry.proposal_option}
-                            </span>
-                          )}
+                          <span className="text-base sm:text-lg font-bold font-mono tabular-nums text-slate-900 leading-none">
+                            {formatCurrency(subtotalAed)}
+                          </span>
                         </div>
-                        <div className="mt-1.5 flex flex-col gap-1">
-                          <div className="flex items-baseline justify-between gap-2">
-                            <span className="text-[10px] font-mono text-slate-500">Subtotal (Excl. VAT)</span>
-                            <span className="text-base font-bold font-mono tabular-nums text-slate-900">
-                              {formatCurrency(subtotalAed)}
-                            </span>
-                          </div>
-                          <div className="flex items-baseline justify-between gap-2 pt-1 border-t border-slate-200/70">
-                            <span className="text-[10px] font-mono text-slate-500">
-                              {grandTotalSubLabel}
-                            </span>
-                            <span className="text-xs font-bold font-mono tabular-nums text-blue-600">
-                              {formatCurrency(grandTotalAed)}
-                            </span>
-                          </div>
+                        <div className="flex items-baseline justify-between gap-2 pt-1.5 border-t border-slate-200/70">
+                          <span className="text-[10.5px] font-mono text-slate-500 truncate">
+                            {grandTotalSubLabel}
+                          </span>
+                          <span className="text-xs font-bold font-mono tabular-nums text-blue-600 shrink-0">
+                            {formatCurrency(grandTotalAed)}
+                          </span>
                         </div>
                       </>
                     );
@@ -5923,7 +6030,7 @@ export default function EnquiryDetail({
               </div>
 
               {/* Compact Commercial Terms Summary & Quick-Edit Strip */}
-              {renderCommercialTermsSummaryStrip()}
+              {renderCommercialTermsSummaryStrip(true)}
 
               {/* Won Status - Project Conversion / Fulfillment Banner */}
               {isWonStatus(currentEnquiry.status) && (
@@ -6013,8 +6120,81 @@ export default function EnquiryDetail({
                 </div>
               )}
 
-              {/* Unified Commercial Documents Hub */}
-              {renderCommercialDocumentsHubSection(false)}
+              {/* Compact 1-Line Commercial Documents Summary Bar (Full hub lives in dedicated Commercial Documents tab) */}
+              {(() => {
+                const docCount = unifiedHubDocuments.length;
+                const latestDoc = unifiedHubDocuments[0];
+                const docType = latestDoc?.document_type || 'quotation';
+                const shortType =
+                  docType === 'delivery_note'
+                    ? 'DO'
+                    : docType === 'purchase_order'
+                    ? 'PO'
+                    : docType === 'receipt'
+                    ? 'REC'
+                    : docType === 'payment_voucher'
+                    ? 'PV'
+                    : docType === 'material_return_note'
+                    ? 'MRN'
+                    : docType === 'debit_note'
+                    ? 'DN'
+                    : 'QT';
+                const latestRev =
+                  docType === 'quotation' && latestDoc?.revision_number
+                    ? `R${latestDoc.revision_number}`
+                    : '';
+                const latestStatus = latestDoc?.status || 'Draft';
+                const latestAmount =
+                  latestDoc && docType !== 'delivery_note'
+                    ? Number(latestDoc.grand_total ?? latestDoc.subtotal ?? 0)
+                    : 0;
+                const latestCurrency = latestDoc?.currency || currentEnquiry.currency || 'AED';
+
+                return (
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap shadow-2xs">
+                    <div className="flex items-center gap-2 text-xs min-w-0 flex-wrap">
+                      <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                      <span className="font-semibold text-slate-800 dark:text-slate-100 whitespace-nowrap">
+                        {docCount} {docCount === 1 ? 'Document' : 'Documents'}
+                      </span>
+                      {latestDoc ? (
+                        <>
+                          <span className="text-slate-300 select-none">·</span>
+                          <span className="text-slate-500">Latest:</span>
+                          <span className="font-mono font-bold text-indigo-700 bg-indigo-50 border border-indigo-200/80 px-1.5 py-0.2 rounded text-[11px]">
+                            {shortType}
+                            {latestRev ? ` ${latestRev}` : ''}
+                          </span>
+                          <span className="text-slate-600 font-medium">({latestStatus})</span>
+                          {latestAmount > 0 && !isMaskedForBasic && (
+                            <>
+                              <span className="text-slate-300 select-none">—</span>
+                              <span className="font-mono tabular-nums font-bold text-slate-900 dark:text-slate-100">
+                                {latestCurrency}{' '}
+                                {latestAmount.toLocaleString(undefined, {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2
+                                })}
+                              </span>
+                            </>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-slate-400">· No commercial documents issued yet</span>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('revisions')}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition cursor-pointer shrink-0 whitespace-nowrap"
+                    >
+                      <span>Open Commercial Documents</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              })()}
 
               {/* Side-by-Side 2-Column Grid: Client Account & Contact Person */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
@@ -8845,148 +9025,120 @@ export default function EnquiryDetail({
           )}
 
           {activeTab === 'history' && (() => {
-            const HIDDEN_AUDIT_FIELDS = new Set([
-              'id',
-              '_id',
-              'updated_at',
-              'updatedat',
-              'created_at',
-              'createdat',
-              'version',
-              'sync_status',
-              'workspace_id',
-              'workspaceid',
-              'createdby',
-              'created_by',
-              'created_by_uid',
-              'createdbyuid',
-              'created_by_name',
-              'createdbyusername',
-              'last_modified_by_uid',
-              'last_modified_by_name',
-              'updatedbyuid',
-              'updatedbyusername',
-              'assigned_to_id',
-              'sales_person_id',
-              'salesperson_id',
-              'statusupdatedat',
-              'statusupdatedby',
-              'statushistory'
-            ]);
-
-            const CANONICAL_AUDIT_FIELD_MAP: Record<string, string> = {
-              salesperson: 'salesperson',
-              sales_person: 'salesperson',
-              assigned_salesperson: 'salesperson',
-              assignedsalesperson: 'salesperson',
-              assigned_to: 'salesperson',
-              quote_ref_no: 'quote_ref_no',
-              latest_quote_ref: 'quote_ref_no',
-              value_aed: 'value_aed',
-              quoted_amount: 'value_aed',
-              raw_source_text: 'raw_source_text',
-              projected_order_date: 'projected_order_date',
-              line_items: 'line_items',
-              company_name: 'company_name',
-              project_location: 'project_location',
-              concerned_person: 'concerned_person',
-              concerned_persons: 'concerned_person',
-              contact_person_name: 'concerned_person'
-            };
-
             const BUSINESS_FIELD_LABELS: Record<string, string> = {
               salesperson: 'Salesperson',
               quote_ref_no: 'Quote Ref No.',
-              value_aed: 'Package Value (AED)',
+              value_aed: 'Package Value',
               raw_source_text: 'Source Text',
               projected_order_date: 'Est. Order Date',
+              next_followup_date: 'Next Follow-up',
+              valid_until: 'Valid Until',
               line_items: 'Line Items',
               company_name: 'Company Name',
               project_location: 'Project Location',
               concerned_person: 'Contact Person',
               client_reference: 'Client Reference',
-              enquiry_date: 'Proposal Date',
-              status: 'Status',
+              customer_reference_code: 'Client Ref',
+              invoice_po_no: 'Invoice / PO #',
+              enquiry_date: 'Received Date',
+              enquiry_source: 'Enquiry Source',
+              status: 'Pipeline Status',
               remarks: 'Remarks & Notes',
               subject: 'Subject',
               currency: 'Currency',
+              tax_mode: 'VAT Mode',
+              price_basis: 'Price Basis',
+              delivery_period: 'Delivery Period',
               payment_terms: 'Payment Terms',
               delivery_terms: 'Delivery Terms',
-              validity_days: 'Validity (Days)',
+              validity_days: 'Offer Validity',
               proposal_option: 'Confirmed Option',
               quotation_acceptance: 'Quotation Accepted',
               quotation_declined: 'Quotation Declined',
               version_rollback: 'Version Rollback',
+              stock_reserved: 'Stock Reserved',
+              is_lump_sum: 'Lump Sum Mode',
               attachments: 'Attachments'
             };
 
-            const isEmptyAuditVal = (v: any): boolean => {
-              if (v === null || v === undefined || v === '') return true;
-              if (Array.isArray(v) && v.length === 0) return true;
-              return false;
-            };
-
-            const formatAuditVal = (fieldKey: string, val: any): string => {
-              if (isEmptyAuditVal(val)) return 'None';
-              if (fieldKey === 'line_items' && Array.isArray(val)) {
-                return `${val.length} item${val.length === 1 ? '' : 's'}`;
-              }
-              if (fieldKey === 'attachments' && Array.isArray(val)) {
-                return `${val.length} file${val.length === 1 ? '' : 's'}`;
-              }
-              if (typeof val === 'object') {
-                if (Array.isArray(val)) {
-                  return val.map((x) => (typeof x === 'object' ? (x?.name || x?.item_name || JSON.stringify(x)) : String(x))).join(', ');
-                }
-                return JSON.stringify(val);
-              }
-              return String(val);
+            const formatRevisionTimestamp = (ts: string | number | Date) => {
+              const d = new Date(ts);
+              if (Number.isNaN(d.getTime())) return String(ts);
+              const datePart = d.toLocaleDateString('en-GB', {
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric'
+              });
+              const timePart = d.toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: true
+              });
+              return `${datePart}, ${timePart}`;
             };
 
             return (
-              <div className="space-y-4">
-                <div className="flex items-center space-x-2 text-xs text-slate-400 font-mono border-b border-slate-100 pb-2 mb-2">
-                  <History className="w-4 h-4" />
-                  <span>Enquiry Revision Registry & Audit trail</span>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-2 text-xs text-slate-400 font-mono border-b border-slate-100 pb-2">
+                  <div className="flex items-center gap-2">
+                    <History className="w-4 h-4" />
+                    <span>Enquiry Revision Registry &amp; Audit Trail</span>
+                  </div>
+                  <span className="text-[10px] font-mono tabular-nums text-slate-400">
+                    {recordLogs.length} {recordLogs.length === 1 ? 'entry' : 'entries'}
+                  </span>
                 </div>
 
                 {recordLogs.length > 0 ? (
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {recordLogs.map((log) => {
                       const businessChanges = getMeaningfulBusinessChanges(log);
+                      const canRollback =
+                        log.action !== 'create' &&
+                        log.details !== 'Initial enquiry record created' &&
+                        Boolean(log.before) &&
+                        Object.keys(log.before || {}).length > 0 &&
+                        canEditEnquiry(user, activeWorkspace, currentEnquiry);
 
                       return (
-                        <div key={log.id} className="bg-slate-50 border border-slate-200 p-5 rounded-xl space-y-4">
-                          <div className="flex items-center justify-between border-b border-slate-150 pb-2.5">
-                            <div className="space-y-0.5">
-                              <span className="text-xs text-slate-800 font-semibold block font-sans">
+                        <div key={log.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                          {/* Compact Revision Card Header */}
+                          <div className="px-4 py-2.5 bg-slate-50/90 border-b border-slate-200/80 flex items-center justify-between gap-3 flex-wrap">
+                            <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                              <span className="text-xs text-slate-800 font-bold font-sans truncate">
                                 {log.changed_by_name}
                               </span>
-                              <span className="text-[10px] text-slate-400 font-mono block">
-                                {new Date(log.timestamp).toLocaleString()}
+                              <span className="text-slate-300 select-none">•</span>
+                              <span className="text-[11px] text-slate-500 font-mono tabular-nums">
+                                {formatRevisionTimestamp(log.timestamp)}
                               </span>
+                              {businessChanges.length > 0 && (
+                                <span className="text-[10px] font-mono font-semibold text-slate-500 bg-white border border-slate-200 px-1.5 py-0.2 rounded">
+                                  {businessChanges.length} {businessChanges.length === 1 ? 'change' : 'changes'}
+                                </span>
+                              )}
                             </div>
 
-                            {log.action !== 'create' &&
-                              log.details !== 'Initial enquiry record created' &&
-                              Boolean(log.before) &&
-                              Object.keys(log.before || {}).length > 0 &&
-                              canEditEnquiry(user, activeWorkspace, currentEnquiry) && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleRevert(log)}
-                                  disabled={reverting}
-                                  className="py-1.5 px-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 rounded-lg text-xs font-semibold font-sans transition flex items-center space-x-1.5 shadow-sm cursor-pointer"
-                                >
-                                  <RotateCcw className="w-3.5 h-3.5" />
-                                  <span>Rollback</span>
-                                </button>
-                              )}
+                            {canRollback && (
+                              <button
+                                type="button"
+                                onClick={() => handleRevert(log)}
+                                disabled={reverting}
+                                className="py-1 px-2.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 hover:text-slate-900 rounded-lg text-[11px] font-semibold font-sans transition flex items-center gap-1 shadow-2xs cursor-pointer shrink-0"
+                              >
+                                <RotateCcw className="w-3 h-3" />
+                                <span>Rollback</span>
+                              </button>
+                            )}
                           </div>
 
+                          {/* Tight Tabular Diff List */}
                           {businessChanges.length > 0 ? (
-                            <div className="space-y-2">
-                              <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">Modified properties:</span>
+                            <div className="divide-y divide-slate-100">
+                              <div className="grid grid-cols-[minmax(110px,155px)_1fr] gap-3 px-4 py-1.5 bg-slate-50/40 text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                                <span>Field</span>
+                                <span>Previous → New</span>
+                              </div>
                               {businessChanges.map((diff, idx) => {
                                 const lowerField = String(diff.field || '').toLowerCase();
                                 const canonical = CANONICAL_AUDIT_MAP[lowerField] || lowerField;
@@ -9006,14 +9158,20 @@ export default function EnquiryDetail({
                                   formattedNew = currentEnquiry.quote_ref_no || formattedNew;
                                 }
                                 return (
-                                  <div key={idx} className="bg-white border border-slate-200 rounded-lg p-3 text-xs space-y-1 font-sans">
-                                    <span className="text-blue-600 font-semibold block">{label}</span>
-                                    <div className="flex flex-col space-y-0.5 text-[11px] text-slate-500 pl-2 border-l border-slate-100 font-mono">
-                                      <span className="line-through text-slate-400 break-words">
-                                        Was: {formattedOld}
+                                  <div
+                                    key={idx}
+                                    className="grid grid-cols-1 sm:grid-cols-[minmax(110px,155px)_1fr] items-baseline gap-x-3 gap-y-0.5 px-4 py-2 text-xs hover:bg-slate-50/60 transition min-w-0"
+                                  >
+                                    <span className="font-semibold text-slate-700 truncate font-sans" title={label}>
+                                      {label}
+                                    </span>
+                                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 font-mono tabular-nums text-[11.5px] min-w-0">
+                                      <span className="text-slate-400 line-through break-words">
+                                        {formattedOld}
                                       </span>
-                                      <span className="text-emerald-600 font-semibold break-words">
-                                        Is: {formattedNew}
+                                      <span className="text-slate-300 select-none">→</span>
+                                      <span className="text-emerald-700 font-semibold break-words">
+                                        {formattedNew}
                                       </span>
                                     </div>
                                   </div>
@@ -9021,13 +9179,13 @@ export default function EnquiryDetail({
                               })}
                             </div>
                           ) : (
-                            <span className="text-xs font-mono text-slate-500 italic block">
+                            <div className="px-4 py-2.5 text-xs font-sans text-slate-500">
                               {log.details && log.details.trim().toLowerCase() !== 'record updated'
                                 ? log.details
                                 : log.action === 'create'
                                 ? 'Initial enquiry record created'
                                 : 'Record updated'}
-                            </span>
+                            </div>
                           )}
                         </div>
                       );
