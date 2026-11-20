@@ -13184,17 +13184,17 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                                         const single = row[0];
                                                         const spanFull = single.isFullWidth || balanceOrphan;
                                                         return spanFull ? (
-                                                          <div key={rIdx} className="w-full">
-                                                            <div className={`flex items-baseline justify-between gap-2 px-2 py-0.5 rounded border border-slate-200 bg-slate-50/90 ${tableSubSize} leading-snug w-full`}>
+                                                          <div key={rIdx} className="w-full min-w-0">
+                                                            <div className={`flex items-baseline gap-x-1.5 min-w-0 overflow-hidden px-2 py-0.5 rounded border border-slate-200 bg-slate-50/90 ${tableSubSize} leading-snug w-full`}>
                                                               <span className="font-semibold text-slate-500 whitespace-nowrap shrink-0">{single.key}:</span>
-                                                              <span className="font-bold text-slate-800 text-right break-words">{String(single.value)}</span>
+                                                              <span className="font-bold text-slate-800 min-w-0 break-words">{String(single.value)}</span>
                                                             </div>
                                                           </div>
                                                         ) : (
                                                           <div key={rIdx} className="grid grid-cols-2 gap-1.5 w-full">
-                                                            <div className={`flex items-baseline justify-between gap-2 px-2 py-0.5 rounded border border-slate-200 bg-slate-50/90 ${tableSubSize} leading-snug w-full`}>
+                                                            <div className={`flex items-baseline gap-x-1.5 min-w-0 overflow-hidden px-2 py-0.5 rounded border border-slate-200 bg-slate-50/90 ${tableSubSize} leading-snug w-full`}>
                                                               <span className="font-semibold text-slate-500 whitespace-nowrap shrink-0">{single.key}:</span>
-                                                              <span className="font-bold text-slate-800 text-right break-words">{String(single.value)}</span>
+                                                              <span className="font-bold text-slate-800 min-w-0 break-words">{String(single.value)}</span>
                                                             </div>
                                                           </div>
                                                         );
@@ -13204,10 +13204,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                                           {row.map((cell, cIdx) => (
                                                             <div
                                                               key={cIdx}
-                                                              className={`flex items-baseline justify-between gap-2 px-2 py-0.5 rounded border border-slate-200 bg-slate-50/90 ${tableSubSize} leading-snug w-full`}
+                                                              className={`flex items-baseline gap-x-1.5 min-w-0 overflow-hidden px-2 py-0.5 rounded border border-slate-200 bg-slate-50/90 ${tableSubSize} leading-snug w-full`}
                                                             >
                                                               <span className="font-semibold text-slate-500 whitespace-nowrap shrink-0">{cell.key}:</span>
-                                                              <span className="font-bold text-slate-800 text-right break-words">{String(cell.value)}</span>
+                                                              <span className="font-bold text-slate-800 min-w-0 break-words">{String(cell.value)}</span>
                                                             </div>
                                                           ))}
                                                         </div>
@@ -13289,10 +13289,10 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                                           {row.map((cell, cIdx) => (
                                                             <div
                                                               key={cIdx}
-                                                              className={`flex items-baseline justify-between gap-1.5 px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50/90 ${tableSubSize} leading-snug w-full`}
+                                                              className={`flex items-baseline gap-x-1.5 min-w-0 overflow-hidden px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50/90 ${tableSubSize} leading-snug w-full`}
                                                             >
                                                               <span className="font-semibold text-slate-500 whitespace-nowrap shrink-0">{cell.key}:</span>
-                                                              <span className="font-bold text-slate-800 text-right break-words">{String(cell.value)}</span>
+                                                              <span className="font-bold text-slate-800 min-w-0 break-words">{String(cell.value)}</span>
                                                             </div>
                                                           ))}
                                                         </div>

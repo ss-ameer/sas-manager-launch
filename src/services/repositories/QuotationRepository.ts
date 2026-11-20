@@ -1068,6 +1068,16 @@ export class QuotationRepository {
           logoUrl: source.header_config.logoUrl ?? source.company_logo_url,
           ...(Array.isArray(source.header_config.headerFields)
             ? { headerFields: source.header_config.headerFields.map((f) => ({ ...f })) }
+            : {}),
+          ...(source.header_config.pageHeaderOverrides
+            ? {
+                pageHeaderOverrides: Object.fromEntries(
+                  Object.entries(source.header_config.pageHeaderOverrides).map(([k, v]) => [
+                    k,
+                    v ? { ...v } : {}
+                  ])
+                )
+              }
             : {})
         }
       : source.company_logo_url
@@ -1075,7 +1085,19 @@ export class QuotationRepository {
       : undefined;
 
     const clonedRecipientConfig = source.recipient_config
-      ? { ...source.recipient_config }
+      ? {
+          ...source.recipient_config,
+          ...(Array.isArray(source.recipient_config.recipientFieldRows)
+            ? {
+                recipientFieldRows: source.recipient_config.recipientFieldRows.map((r) => ({ ...r }))
+              }
+            : {}),
+          ...(Array.isArray(source.recipient_config.offerFieldRows)
+            ? {
+                offerFieldRows: source.recipient_config.offerFieldRows.map((r) => ({ ...r }))
+              }
+            : {})
+        }
       : undefined;
 
     const clonedSignatories = Array.isArray(source.signatories)
@@ -3309,6 +3331,16 @@ export class QuotationRepository {
       ...(Array.isArray(rawHeaderCfg.headerFields)
         ? { headerFields: rawHeaderCfg.headerFields.map((f) => ({ ...f })) }
         : {}),
+      ...(rawHeaderCfg.pageHeaderOverrides
+        ? {
+            pageHeaderOverrides: Object.fromEntries(
+              Object.entries(rawHeaderCfg.pageHeaderOverrides).map(([k, v]) => [
+                k,
+                v ? { ...v } : {}
+              ])
+            )
+          }
+        : {}),
       ...(resolvedLogoUrl !== undefined ? { logoUrl: resolvedLogoUrl } : {})
     };
 
@@ -3341,7 +3373,21 @@ export class QuotationRepository {
       globalCardRadius: input.globalCardRadius || 'rounded',
       cardsOrder: input.cardsOrder || 'recipient_first',
       subjectPlacement: input.subjectPlacement || 'below_cards',
-      recipient_config: input.recipient_config ? { ...input.recipient_config } : undefined,
+      recipient_config: input.recipient_config
+        ? {
+            ...input.recipient_config,
+            ...(Array.isArray(input.recipient_config.recipientFieldRows)
+              ? {
+                  recipientFieldRows: input.recipient_config.recipientFieldRows.map((r) => ({ ...r }))
+                }
+              : {}),
+            ...(Array.isArray(input.recipient_config.offerFieldRows)
+              ? {
+                  offerFieldRows: input.recipient_config.offerFieldRows.map((r) => ({ ...r }))
+                }
+              : {})
+          }
+        : undefined,
       documentFontFamily: resolvedFontFamily,
       topAccentBarStyle: resolvedTopBarStyle,
       tableHeaderStyle: resolvedTableHeaderStyle,

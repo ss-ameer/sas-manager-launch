@@ -709,6 +709,8 @@ export interface Attachment {
   compressed_size_bytes?: number;
   compressionRatioPct?: number;
   compressionPreset?: 'standard' | 'extreme' | 'original';
+  custom_header_title?: string;
+  custom_header_right_meta?: string;
 }
 
 export type QuotationAnnexAttachment = Attachment;
@@ -1921,6 +1923,18 @@ export interface QuotationHeaderConfig {
   tableHeaderStyle?: QuotationSectionHeaderStyle;
   blockHeaderStyle?: QuotationSectionHeaderStyle;
   elementStyles?: Record<string, QuotationTextFormatStyle>;
+  pageHeaderOverrides?: Record<string | number, QuotationPageHeaderOverride>;
+}
+
+export interface QuotationPageHeaderOverride {
+  mode?: 'inherit' | 'full_repeat' | 'compact' | 'logo_only' | 'none';
+  customTitle?: string;
+  customRightText?: string;
+  showLogo?: boolean;
+  showCompanyName?: boolean;
+  showDate?: boolean;
+  showQuoteRef?: boolean;
+  showPageNumber?: boolean;
 }
 
 export interface QuotationFooterConfig {
@@ -2040,6 +2054,13 @@ export interface QuotationRecipientConfig {
   showOfferStatus?: boolean; // default true
   statusTextOverride?: string;
   elementStyles?: Record<string, QuotationTextFormatStyle>;
+  companyNameTemplate?: string;
+  attentionTemplate?: string;
+  addressTemplate?: string;
+  trnTemplate?: string;
+  phoneTemplate?: string;
+  emailTemplate?: string;
+  subjectTemplate?: string;
 }
 
 export interface QuotationBlockCustomRow {
