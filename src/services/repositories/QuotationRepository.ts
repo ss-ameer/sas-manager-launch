@@ -23,6 +23,10 @@ import {
   INLINE_DATA_URI_MAX_BYTES
 } from '../attachmentStorage';
 import { sanitizePresetDynamicTemplate } from '../../utils/quotationTokenResolver';
+import {
+  calculateOptionalItemsTotals,
+  OptionalTotalsResult
+} from '../../utils/optionalTotals';
 
 export const DEFAULT_QUOTATION_BLOCKS: QuotationBlockConfig[] = [
   { id: 'terms', type: 'terms', title: 'Commercial Terms & Conditions', is_visible: true, enabled: true, placement: 'left', width: '50', style: 'framed', fontScale: 'standard', padding: 'standard', order: 1 },
@@ -275,6 +279,23 @@ export class QuotationRepository {
       tax_amount: taxAmount,
       grand_total: grandTotal
     };
+  }
+
+  /**
+   * Computes VAT-aware optional item totals and combined alternate grand total.
+   */
+  public static calculateOptionalTotals(
+    lineItems: Parameters<typeof calculateOptionalItemsTotals>[0]['lineItems'],
+    baselineGrandTotal: number,
+    taxMode: QuotationTaxMode | 'taxes_included' | 'zero_rated' | string = 'taxes_extra',
+    taxRatePercent: number = 5
+  ): OptionalTotalsResult {
+    return calculateOptionalItemsTotals({
+      lineItems,
+      baselineGrandTotal,
+      taxMode,
+      taxRatePercent
+    });
   }
 
   /**
@@ -1015,6 +1036,12 @@ export class QuotationRepository {
             : {}),
           ...(typeof block.show_continuation_header === 'boolean'
             ? { show_continuation_header: block.show_continuation_header }
+            : {}),
+          ...(typeof block.showAlternateTotalWithOptionals === 'boolean'
+            ? { showAlternateTotalWithOptionals: block.showAlternateTotalWithOptionals }
+            : {}),
+          ...(typeof block.alternateTotalWithOptionalsLabel === 'string'
+            ? { alternateTotalWithOptionalsLabel: block.alternateTotalWithOptionalsLabel }
             : {})
         }))
       : undefined;
@@ -3358,6 +3385,12 @@ export class QuotationRepository {
                 type: 'page_break' as const,
                 show_continuation_header: block.show_continuation_header !== false
               }
+            : {}),
+          ...(typeof block.showAlternateTotalWithOptionals === 'boolean'
+            ? { showAlternateTotalWithOptionals: block.showAlternateTotalWithOptionals }
+            : {}),
+          ...(typeof block.alternateTotalWithOptionalsLabel === 'string'
+            ? { alternateTotalWithOptionalsLabel: block.alternateTotalWithOptionalsLabel }
             : {})
         }))
       : undefined;

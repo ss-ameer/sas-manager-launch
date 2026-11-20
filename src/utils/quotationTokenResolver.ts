@@ -9,6 +9,7 @@ import {
   Contact
 } from '../types';
 import { amountToWords } from './numberToWords';
+import { calculateOptionalItemsTotals } from './optionalTotals';
 
 /**
  * Detects whether a reference string is a raw internal database or synthetic standalone ID
@@ -437,6 +438,20 @@ export const QUOTATION_AT_TAGS: QuotationAtTagDefinition[] = [
     tag: '@grand_total',
     label: 'Grand Total (Formatted)',
     category: 'Commercial, Bank & Totals'
+  },
+  {
+    key: 'optional_total',
+    tag: '@optional_total',
+    label: 'Optional Items Subtotal',
+    category: 'Commercial, Bank & Totals',
+    description: 'Formatted subtotal of all optional / add-on line items'
+  },
+  {
+    key: 'grand_total_with_optionals',
+    tag: '@grand_total_with_optionals',
+    label: 'Alternate Grand Total (Incl. Optionals)',
+    category: 'Commercial, Bank & Totals',
+    description: 'Formatted grand total including optional items and applicable VAT'
   },
   {
     key: 'amount_in_words',
@@ -1433,6 +1448,16 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
   const freightAmount = `${currency} ${formatAmount(q.freight_amount)}`;
   const vatAmount = `${currency} ${formatAmount(rawTaxAmount)}`;
   const grandTotal = `${currency} ${formatAmount(rawGrandTotal)}`;
+  const optionalTotalsCalc = calculateOptionalItemsTotals({
+    lineItems,
+    baselineGrandTotal: Number(rawGrandTotal) || 0,
+    taxMode: effectiveTaxMode,
+    taxRatePercent: taxRateNum
+  });
+  const optionalTotal = `${currency} ${formatAmount(optionalTotalsCalc.optionalSubtotal)}`;
+  const grandTotalWithOptionals = `${currency} ${formatAmount(
+    optionalTotalsCalc.grandTotalWithOptionals
+  )}`;
   const taxRateStr = effectiveTaxMode === 'tax_exempt' ? '0%' : `${taxRateNum}%`;
 
   const docType = q.document_type || 'quotation';
@@ -1667,6 +1692,8 @@ export function buildQuotationTokenMap(ctx?: QuotationTokenContext | null): Reco
     vat_amount: String(vatAmount || '').trim(),
     tax_rate: String(taxRateStr || '').trim(),
     grand_total: String(grandTotal || '').trim(),
+    optional_total: String(optionalTotal || '').trim(),
+    grand_total_with_optionals: String(grandTotalWithOptionals || '').trim(),
     amount_in_words: String(amountInWords || '').trim(),
     bank_name: String(bankName || '').trim(),
     account_name: String(accountName || '').trim(),

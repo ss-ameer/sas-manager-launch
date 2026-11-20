@@ -47,7 +47,8 @@ import { QuotationRepository } from '../services/repositories/QuotationRepositor
 import {
   hasDynamicAtTag,
   sanitizePresetDynamicTemplate,
-  resolveQuotationTokens
+  resolveQuotationTokens,
+  QUOTATION_AT_TAGS
 } from '../utils/quotationTokenResolver';
 import {
   isGlobalAttributeVisible,
@@ -65,6 +66,13 @@ import {
   parseInlineNumericValue,
   parseInlineValidityDays
 } from '../utils/inlineQuickEdit';
+import {
+  resolveLineItemOptionBadges,
+  isOptionalQuotationLineItem,
+  calculateOptionalItemsTotals,
+  shouldShowAlternateTotalWithOptionals,
+  DEFAULT_ALTERNATE_TOTAL_WITH_OPTIONALS_LABEL
+} from '../utils/optionalTotals';
 
 // ==========================================
 // TEST UTILITY & ASSERTION HARNESS
@@ -4162,6 +4170,289 @@ describe('Inline Canvas Quick-Edit Helpers (@tag Seed Safety, Line-Item Keys & P
     expect(parseInlineValidityDays('999 Days', 30)).toBe(365);
     expect(parseInlineValidityDays('0 Days', 30)).toBe(30);
     expect(parseInlineValidityDays('No numeric value', 30)).toBe(30);
+  });
+});
+
+// ==========================================
+// SUITE 28: OPTIONAL BADGE DEDUP & ALTERNATE TOTAL (INCL. OPTIONALS)
+// ==========================================
+
+describe('Optional Badge Deduplication, Alternate Total (Incl. Optionals) & @tags', () => {
+  it('deduplicates Optional / Add-On + is_optional into a single amber badge while preserving Option A/B distinction', () => {
+    // Previously rendered BOTH blue "OPTIONAL / ADD-ON" and amber "OPTIONAL"
+    const bothOptional = resolveLineItemOptionBadges(
+      { option: 'Optional / Add-On', is_optional: true },
+      false
+    );
+    expect(bothOptional.optionGroupBadge).toBe(null);
+    expect(bothOptional.optionalBadge).toBe('Optional / Add-On');
+
+    // Legacy optional group without boolean flag still renders one amber badge
+    const groupOnlyOptional = resolveLineItemOptionBadges(
+      { option_group: 'Optional / Add-On', is_optional: false },
+      false
+    );
+    expect(groupOnlyOptional.optionGroupBadge).toBe(null);
+    expect(groupOnlyOptional.optionalBadge).toBe('Optional / Add-On');
+
+    // Baseline option group + is_optional flag renders one amber "Optional" badge
+    const flagOnlyOptional = resolveLineItemOptionBadges(
+      { option: 'Default / Included', is_optional: true },
+      false
+    );
+    expect(flagOnlyOptional.optionGroupBadge).toBe(null);
+    expect(flagOnlyOptional.optionalBadge).toBe('Optional');
+
+    // Non-optional Option A / Option B shows blue badge in single-table mode, hidden in split-table mode
+    const optionACombined = resolveLineItemOptionBadges(
+      { option: 'Option A', is_optional: false },
+      false
+    );
+    expect(optionACombined.optionGroupBadge).toBe('Option A');
+    expect(optionACombined.optionalBadge).toBe(null);
+
+    const optionASplit = resolveLineItemOptionBadges(
+      { option: 'Option A', is_optional: false },
+      true
+    );
+    expect(optionASplit.optionGroupBadge).toBe(null);
+    expect(optionASplit.optionalBadge).toBe(null);
+
+    // Optional / Add-On remains clearly labeled with a single badge even in split-table mode
+    const optionalInSplit = resolveLineItemOptionBadges(
+      { option: 'Optional / Add-On', is_optional: true },
+      true
+    );
+    expect(optionalInSplit.optionGroupBadge).toBe(null);
+    expect(optionalInSplit.optionalBadge).toBe('Optional / Add-On');
+
+    // Standard baseline row shows zero badges
+    const standardRow = resolveLineItemOptionBadges(
+      { option: 'Default / Included', is_optional: false },
+      false
+    );
+    expect(standardRow.optionGroupBadge).toBe(null);
+    expect(standardRow.optionalBadge).toBe(null);
+  });
+
+  it('calculates VAT-aware optional totals across taxes_extra, tax_calculated/taxes_included, vat_hidden, and zero_rated', () => {
+    const sampleItems = [
+      { id: '1', item_name: 'Multimedia Filter Vessel', quantity: 2, unit_price: 2850, total_price: 5700, is_optional: false },
+      { id: '2', item_name: 'Automatic Multiport Valve', quantity: 2, unit_price: 5000, total_price: 10000, is_optional: false },
+      { id: '3', item_name: 'Flow Meter Assembly', quantity: 1, unit_price: 1450, total_price: 1450, option: 'Optional / Add-On', is_optional: true },
+      // Continuation chunk must be ignored so optional sets are never double-counted
+      { id: '3_cont', item_name: 'Flow Meter Assembly', quantity: 1, unit_price: 1450, total_price: 1450, option: 'Optional / Add-On', is_optional: true, isCompositeContinuation: true }
+    ];
+
+    // 1. taxes_extra (5% VAT added on top): baseline 15,700 + 785 VAT = 16,485; optional 1,450 + 72.50 VAT = 1,522.50 -> 18,007.50
+    const extraCalc = QuotationRepository.calculateOptionalTotals(sampleItems, 16485, 'taxes_extra', 5);
+    expect(extraCalc.hasOptionals).toBe(true);
+    expect(extraCalc.optionalItemCount).toBe(1);
+    expect(extraCalc.optionalSubtotal).toBe(1450);
+    expect(extraCalc.optionalVat).toBe(72.5);
+    expect(extraCalc.optionalTotalWithVat).toBe(1522.5);
+    expect(extraCalc.grandTotalWithOptionals).toBe(18007.5);
+
+    // 2. tax_calculated & taxes_included (prices already VAT-inclusive): no extra VAT added on top
+    const inclCalc = calculateOptionalItemsTotals({
+      lineItems: sampleItems,
+      baselineGrandTotal: 15700,
+      taxMode: 'tax_calculated',
+      taxRatePercent: 5
+    });
+    expect(inclCalc.optionalSubtotal).toBe(1450);
+    expect(inclCalc.optionalVat).toBe(69.05);
+    expect(inclCalc.optionalTotalWithVat).toBe(1450);
+    expect(inclCalc.grandTotalWithOptionals).toBe(17150);
+
+    const inclAliasCalc = calculateOptionalItemsTotals({
+      lineItems: sampleItems,
+      baselineGrandTotal: 15700,
+      taxMode: 'taxes_included',
+      taxRatePercent: 5
+    });
+    expect(inclAliasCalc.grandTotalWithOptionals).toBe(17150);
+
+    // 3. vat_hidden & zero_rated / tax_exempt: 0 VAT added
+    const hiddenCalc = calculateOptionalItemsTotals({
+      lineItems: sampleItems,
+      baselineGrandTotal: 15700,
+      taxMode: 'vat_hidden',
+      taxRatePercent: 5
+    });
+    expect(hiddenCalc.optionalVat).toBe(0);
+    expect(hiddenCalc.grandTotalWithOptionals).toBe(17150);
+
+    const zeroRatedCalc = calculateOptionalItemsTotals({
+      lineItems: sampleItems,
+      baselineGrandTotal: 15700,
+      taxMode: 'zero_rated',
+      taxRatePercent: 5
+    });
+    expect(zeroRatedCalc.optionalVat).toBe(0);
+    expect(zeroRatedCalc.grandTotalWithOptionals).toBe(17150);
+
+    // 4. Composite itemized optional set computes from sub_components when parent total_price is 0
+    const compositeOptCalc = calculateOptionalItemsTotals({
+      lineItems: [
+        {
+          id: 'opt_pkg',
+          item_name: 'Optional Dosing Skid',
+          quantity: 2,
+          unit_price: 0,
+          total_price: 0,
+          is_optional: true,
+          package_pricing_mode: 'itemized',
+          sub_components: [
+            { id: 'sc1', item_name: 'Dosing Pump', quantity: 1, unit: 'Nos', unit_price: 600, total_price: 600 },
+            { id: 'sc2', item_name: 'Chemical Tank', quantity: 1, unit: 'Nos', unit_price: 400, total_price: 400 },
+            { id: 'sc3', item_name: 'Mounting Brackets', quantity: 1, unit: 'Set', unit_price: 50, total_price: 50, is_included_accessory: true }
+          ]
+        }
+      ],
+      baselineGrandTotal: 10000,
+      taxMode: 'taxes_extra',
+      taxRatePercent: 5
+    });
+    expect(compositeOptCalc.optionalSubtotal).toBe(2000);
+    expect(compositeOptCalc.optionalVat).toBe(100);
+    expect(compositeOptCalc.grandTotalWithOptionals).toBe(12100);
+  });
+
+  it('auto-hides Alternate Total row when there are zero optional items even if toggle is ON', () => {
+    const baselineOnly = [
+      { id: '1', item_name: 'Filter Vessel', quantity: 2, unit_price: 2850, total_price: 5700, is_optional: false }
+    ];
+    const noOptCalc = calculateOptionalItemsTotals({
+      lineItems: baselineOnly,
+      baselineGrandTotal: 5700,
+      taxMode: 'vat_hidden',
+      taxRatePercent: 5
+    });
+
+    expect(noOptCalc.hasOptionals).toBe(false);
+    expect(noOptCalc.optionalItemCount).toBe(0);
+    expect(noOptCalc.optionalSubtotal).toBe(0);
+    expect(noOptCalc.grandTotalWithOptionals).toBe(5700);
+    expect(
+      shouldShowAlternateTotalWithOptionals({ showAlternateTotalWithOptionals: true }, noOptCalc)
+    ).toBe(false);
+
+    const withOptCalc = calculateOptionalItemsTotals({
+      lineItems: [
+        ...baselineOnly,
+        { id: '2', item_name: 'Flow Meter', quantity: 1, unit_price: 1450, total_price: 1450, is_optional: true }
+      ],
+      baselineGrandTotal: 5700,
+      taxMode: 'vat_hidden',
+      taxRatePercent: 5
+    });
+    expect(
+      shouldShowAlternateTotalWithOptionals({ showAlternateTotalWithOptionals: false }, withOptCalc)
+    ).toBe(false);
+    expect(
+      shouldShowAlternateTotalWithOptionals({ showAlternateTotalWithOptionals: true }, withOptCalc)
+    ).toBe(true);
+    expect(isOptionalQuotationLineItem({ option: 'Optional / Add-On' })).toBe(true);
+    expect(DEFAULT_ALTERNATE_TOTAL_WITH_OPTIONALS_LABEL).toBe('Alternate Total (Incl. Optional Items)');
+  });
+
+  it('registers and resolves @optional_total and @grand_total_with_optionals tokens dynamically', () => {
+    const tagKeys = QUOTATION_AT_TAGS.map((t) => t.key);
+    expect(tagKeys.includes('optional_total')).toBe(true);
+    expect(tagKeys.includes('grand_total_with_optionals')).toBe(true);
+
+    const quoteWithOpt = {
+      id: 'q_opt_tok',
+      currency: 'AED',
+      tax_mode: 'taxes_extra',
+      tax_rate_percent: 5,
+      subtotal: 15700,
+      tax_amount: 785,
+      grand_total: 16485,
+      line_items: [
+        { id: '1', item_name: 'Vessel', quantity: 2, unit_price: 2850, total_price: 5700, is_optional: false },
+        { id: '2', item_name: 'Valve', quantity: 2, unit_price: 5000, total_price: 10000, is_optional: false },
+        { id: '3', item_name: 'Flow Meter', quantity: 1, unit_price: 1450, total_price: 1450, option: 'Optional / Add-On', is_optional: true }
+      ]
+    } as unknown as Quotation;
+
+    const resolved = resolveQuotationTokens(
+      'Optional add-ons: @optional_total | All-in total (incl. VAT): @grand_total_with_optionals',
+      { quotation: quoteWithOpt }
+    );
+    expect(resolved).toBe(
+      'Optional add-ons: AED 1,450.00 | All-in total (incl. VAT): AED 18,007.50'
+    );
+
+    const quoteVatHidden = {
+      ...quoteWithOpt,
+      tax_mode: 'vat_hidden',
+      tax_amount: 0,
+      grand_total: 15700
+    } as unknown as Quotation;
+
+    const resolvedHidden = resolveQuotationTokens(
+      'Optionals: @optional_total -> Combined: @grand_total_with_optionals',
+      { quotation: quoteVatHidden }
+    );
+    expect(resolvedHidden).toBe(
+      'Optionals: AED 1,450.00 -> Combined: AED 17,150.00'
+    );
+  });
+
+  it('persists showAlternateTotalWithOptionals and custom label across preset serialization, hydration, and revision clones', () => {
+    const customLabel = 'All-In Grand Total (With Recommended Spares)';
+    const presetInput = {
+      id: 'preset_alt_opt',
+      workspace_id: 'ws_1',
+      preset_name: 'Standard with Optional Summary',
+      is_default: false,
+      visible_columns: { brand: true, model: true, origin: true, availability: true },
+      layout_blocks: [
+        {
+          id: 'totals',
+          type: 'totals' as const,
+          title: 'Financial Summary',
+          is_visible: true,
+          enabled: true,
+          order: 1,
+          showAlternateTotalWithOptionals: true,
+          alternateTotalWithOptionalsLabel: customLabel
+        }
+      ]
+    };
+
+    const serialized = QuotationRepository.serializePresetSnapshot(presetInput as any);
+    const serializedTotals = serialized.layout_blocks?.find((b) => b.id === 'totals');
+    expect(serializedTotals?.showAlternateTotalWithOptionals).toBe(true);
+    expect(serializedTotals?.alternateTotalWithOptionalsLabel).toBe(customLabel);
+
+    const hydrated = QuotationRepository.hydrateFromPresetSnapshot(serialized as any);
+    const hydratedTotals = hydrated.layoutBlocks.find((b) => b.id === 'totals');
+    expect(hydratedTotals?.showAlternateTotalWithOptionals).toBe(true);
+    expect(hydratedTotals?.alternateTotalWithOptionalsLabel).toBe(customLabel);
+
+    // Revision clone also preserves both fields
+    const sourceQuote = {
+      id: 'q_src_alt',
+      workspace_id: 'ws_1',
+      enquiry_id: 'enq_alt',
+      quote_ref_no: 'AVENTURA/OMN/MAR/2887-201126',
+      revision_number: 1,
+      status: 'draft',
+      currency: 'AED',
+      subtotal: 15700,
+      tax_amount: 0,
+      grand_total: 15700,
+      line_items: [],
+      layout_blocks: serialized.layout_blocks
+    } as unknown as Quotation;
+
+    const clonedRev = QuotationRepository.cloneQuotationAsNextRevision(sourceQuote, [sourceQuote]);
+    const clonedTotals = clonedRev.layout_blocks?.find((b) => b.id === 'totals');
+    expect(clonedTotals?.showAlternateTotalWithOptionals).toBe(true);
+    expect(clonedTotals?.alternateTotalWithOptionalsLabel).toBe(customLabel);
   });
 });
 

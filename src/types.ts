@@ -2099,6 +2099,8 @@ export interface QuotationBlockConfig {
   subtitleOverride?: string;
   showHeading?: boolean;
   vatNoteOverride?: string;
+  showAlternateTotalWithOptionals?: boolean; // default false; auto-hides when quote has 0 optional items
+  alternateTotalWithOptionalsLabel?: string; // default 'Alternate Total (Incl. Optional Items)'
   showHeaderIcon?: boolean; // default true
   headerStyleOverride?: 'inherit' | 'solid' | 'tinted' | 'underline' | 'minimal' | 'none';
   fieldLayoutMode?: 'split' | 'inline' | 'grid_2col' | 'grid_2col_balanced' | 'table_2col' | 'pills'; // default 'split'

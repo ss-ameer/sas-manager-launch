@@ -49,6 +49,13 @@ import {
   resolveInlineEditSeedValue
 } from '../../utils/inlineQuickEdit';
 import {
+  resolveLineItemOptionBadges,
+  isOptionalQuotationLineItem,
+  calculateOptionalItemsTotals,
+  shouldShowAlternateTotalWithOptionals,
+  DEFAULT_ALTERNATE_TOTAL_WITH_OPTIONALS_LABEL
+} from '../../utils/optionalTotals';
+import {
   QuotationTokenContext,
   buildQuotationTokenMap,
   resolveQuotationTokens,
@@ -6774,6 +6781,16 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
               const displaySubtotal = hasMultiOptions ? combinedTotals.subtotal : rawQuoteSubtotal;
               const displayTaxAmount = hasMultiOptions ? combinedTotals.vat : rawQuoteTaxAmount;
               const displayGrandTotal = hasMultiOptions ? combinedTotals.grandTotal : singleOptionGrandTotal;
+              const optionalTotalsCalc = calculateOptionalItemsTotals({
+                lineItems: rawLineItems,
+                baselineGrandTotal: displayGrandTotal,
+                taxMode,
+                taxRatePercent: taxRate
+              });
+              const showAlternateTotalRow = shouldShowAlternateTotalWithOptionals(
+                blockConfig,
+                optionalTotalsCalc
+              );
 
               return (
                 <>
@@ -7089,6 +7106,49 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                             {renderResolvedQuotationText(blockConfig.vatNoteOverride, tokenContext)}
                           </div>
                         )}
+
+                      {/* Auto-Calculated Alternate Total (Including Optional Items) — auto-hides when 0 optional items */}
+                      {showAlternateTotalRow && (
+                        <div className="mt-2 px-2.5 py-1.5 rounded-md bg-amber-50/80 border border-amber-200/90 space-y-0.5">
+                          <div className="flex justify-between items-baseline gap-2">
+                            <span className="font-bold text-amber-950 text-[calc(var(--block-base)*1.02)] tracking-tight">
+                              {(() => {
+                                const rawAltLabel =
+                                  blockConfig?.alternateTotalWithOptionalsLabel?.trim() ||
+                                  DEFAULT_ALTERNATE_TOTAL_WITH_OPTIONALS_LABEL;
+                                const resolvedAltLabel = resolveQuotationTokens(
+                                  rawAltLabel,
+                                  tokenContext
+                                );
+                                return `${resolvedAltLabel}${
+                                  resolvedAltLabel.trim().endsWith(':') ? '' : ':'
+                                }`;
+                              })()}
+                            </span>
+                            <span className="font-mono tabular-nums font-extrabold text-amber-950 text-[calc(var(--block-base)*1.12)] whitespace-nowrap">
+                              {formatCurrency(optionalTotalsCalc.grandTotalWithOptionals)}
+                            </span>
+                          </div>
+                          <div className="text-[calc(var(--block-base)*0.82)] text-amber-800/90 font-medium">
+                            {(() => {
+                              const optCountLabel =
+                                optionalTotalsCalc.optionalItemCount === 1
+                                  ? 'optional item'
+                                  : `${optionalTotalsCalc.optionalItemCount} optional items`;
+                              if (taxMode === 'taxes_extra' && optionalTotalsCalc.optionalVat > 0) {
+                                return `Includes +${formatCurrency(optionalTotalsCalc.optionalSubtotal)} (${optCountLabel}) + ${formatCurrency(optionalTotalsCalc.optionalVat)} VAT (${taxRate}%)`;
+                              }
+                              if (taxMode === 'tax_calculated' && taxRate > 0) {
+                                return `Includes +${formatCurrency(optionalTotalsCalc.optionalSubtotal)} (${optCountLabel}, incl. ${taxRate}% VAT)`;
+                              }
+                              if (taxMode === 'vat_excluded_extra' && taxRate > 0) {
+                                return `Includes +${formatCurrency(optionalTotalsCalc.optionalSubtotal)} (${optCountLabel}, VAT ${taxRate}% extra as applicable)`;
+                              }
+                              return `Includes +${formatCurrency(optionalTotalsCalc.optionalSubtotal)} (${optCountLabel})`;
+                            })()}
+                          </div>
+                        </div>
+                      )}
 
                       {/* Custom Financial Rows Below Grand Total (e.g. Less Advance, Net Payable, Rebate) */}
                       {(blockConfig?.customRows || [])
@@ -13520,7 +13580,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                     ? 'bg-amber-50/80 hover:bg-amber-100/70'
                                     : hasCompositeSubRows
                                     ? 'bg-slate-50/90 font-semibold hover:bg-slate-100/80'
-                                    : item.is_optional
+                                    : isOptionalQuotationLineItem(item)
                                     ? 'bg-amber-50/50 hover:bg-amber-100/70'
                                     : 'hover:bg-blue-50/20'
                                 } ${item.row_bold ? 'font-bold' : ''}`}
@@ -13573,26 +13633,26 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                           </span>
                                         )}
                                         {(() => {
-                                          const rawOptLabel = String(item.option || item.option_group || '').trim();
-                                          const isDefaultBaselineOpt =
-                                            !rawOptLabel ||
-                                            /^(default\s*\/\s*included|baseline\s*\/\s*included|default|standard|included|baseline\s*\/\s*all|all)$/i.test(
-                                              rawOptLabel
+                                          const { optionGroupBadge, optionalBadge } =
+                                            resolveLineItemOptionBadges(
+                                              item,
+                                              shouldSplitByOptionTables
                                             );
-                                          if (!isDefaultBaselineOpt && !shouldSplitByOptionTables) {
-                                            return (
-                                              <span className={`px-1.5 py-0.5 ${typoScale.micro} uppercase font-bold tracking-wider bg-blue-100 text-blue-900 rounded shrink-0`}>
-                                                {rawOptLabel}
-                                              </span>
-                                            );
-                                          }
-                                          return null;
+                                          return (
+                                            <>
+                                              {optionGroupBadge && (
+                                                <span className={`px-1.5 py-0.5 ${typoScale.micro} uppercase font-bold tracking-wider bg-blue-100 text-blue-900 rounded shrink-0`}>
+                                                  {optionGroupBadge}
+                                                </span>
+                                              )}
+                                              {optionalBadge && (
+                                                <span className={`px-1.5 py-0.5 ${typoScale.micro} uppercase font-bold tracking-wider bg-amber-200 text-amber-900 rounded shrink-0`}>
+                                                  {optionalBadge}
+                                                </span>
+                                              )}
+                                            </>
+                                          );
                                         })()}
-                                        {item.is_optional && !shouldSplitByOptionTables && (
-                                          <span className={`px-1.5 py-0.5 ${typoScale.micro} uppercase font-bold tracking-wider bg-amber-200 text-amber-900 rounded shrink-0`}>
-                                            Optional
-                                          </span>
-                                        )}
                                       </div>
                                       {(() => {
                                         const { cleanDescription, extractedSpecsAttrs } =
@@ -14180,7 +14240,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                                           <span className={`${typoScale.micro} text-slate-500 font-mono`}>
                                             ({item.sub_components?.length} items)
                                           </span>
-                                        ) : item.is_optional && !shouldSplitByOptionTables ? (
+                                        ) : isOptionalQuotationLineItem(item) ? (
                                           <span className={`text-amber-700 ${tableFontSize} italic font-normal`}>
                                             {Number(item.total_price || 0).toLocaleString('en-US', {
                                               minimumFractionDigits: 2,

@@ -84,6 +84,10 @@ import SaveToCatalogModal, {
 import CompositePackageEditor from './CompositePackageEditor';
 import LineItemImageOptionsPopover from '../common/LineItemImageOptionsPopover';
 import { formatProductVariantSelectorLabel } from '../../utils/productVariantFormat';
+import {
+  calculateOptionalItemsTotals,
+  DEFAULT_ALTERNATE_TOTAL_WITH_OPTIONALS_LABEL
+} from '../../utils/optionalTotals';
 import { safeGetDocs, safeAddDoc, safeUpdateDoc } from '../../firebase';
 import { where } from 'firebase/firestore';
 import {
@@ -9791,6 +9795,26 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
       return true;
     }
 
+    // Compare Financial Totals alternate optional-total configuration against preset
+    const presetTotalsBlock = Array.isArray(selectedPreset.layout_blocks)
+      ? selectedPreset.layout_blocks.find((b) => b.id === 'totals' || b.type === 'totals')
+      : undefined;
+    const currentTotalsBlock = Array.isArray(layoutBlocks)
+      ? layoutBlocks.find((b) => b.id === 'totals' || b.type === 'totals')
+      : undefined;
+    if (
+      Boolean(presetTotalsBlock?.showAlternateTotalWithOptionals) !==
+      Boolean(currentTotalsBlock?.showAlternateTotalWithOptionals)
+    ) {
+      return true;
+    }
+    if (
+      (presetTotalsBlock?.alternateTotalWithOptionalsLabel || '').trim() !==
+      (currentTotalsBlock?.alternateTotalWithOptionalsLabel || '').trim()
+    ) {
+      return true;
+    }
+
     if (saveCommercialTermsToPreset) {
       if ((selectedPreset.default_tax_mode || (selectedPreset as any).tax_mode) && (selectedPreset.default_tax_mode || (selectedPreset as any).tax_mode) !== taxMode) return true;
       if ((selectedPreset.default_price_basis || (selectedPreset as any).price_basis || '') !== (priceBasis || '')) return true;
@@ -9839,6 +9863,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
     recipientConfig.offerFieldRows,
     footerConfig.customDisclaimer,
     footerConfig.customFooterPills,
+    layoutBlocks,
     saveCommercialTermsToPreset,
     taxMode,
     priceBasis,
@@ -25744,16 +25769,117 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         Formal legal spelling of Grand Total
                                       </span>
                                     </div>
-                                    <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-2">
-                                      <input
-                                        type="checkbox"
-                                        checked={amountInWordsEnabled}
-                                        onChange={(e) => setAmountInWordsEnabled(e.target.checked)}
-                                        className="sr-only peer"
-                                      />
-                                      <div className="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                                    </label>
-                                  </div>
+                                      <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-2">
+                                        <input
+                                          type="checkbox"
+                                          checked={amountInWordsEnabled}
+                                          onChange={(e) => setAmountInWordsEnabled(e.target.checked)}
+                                          className="sr-only peer"
+                                        />
+                                        <div className="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                                      </label>
+                                    </div>
+
+                                  {/* Alternate Total Including Optional Items Toggle */}
+                                  {(() => {
+                                    const inspectorOptCalc = calculateOptionalItemsTotals({
+                                      lineItems: liveQuotation.line_items || [],
+                                      baselineGrandTotal: Number(liveQuotation.grand_total) || 0,
+                                      taxMode,
+                                      taxRatePercent
+                                    });
+                                    const isAltEnabled = Boolean(
+                                      selectedBlock.showAlternateTotalWithOptionals
+                                    );
+                                    const curCurrency = liveQuotation.currency || 'AED';
+                                    return (
+                                      <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-2">
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div className="min-w-0">
+                                            <span className="font-semibold text-slate-800 text-[11px] block leading-tight">
+                                              Show Alternate Total (Incl. Optionals)
+                                            </span>
+                                            <span className="text-[10px] text-slate-500 block mt-0.5 leading-snug">
+                                              Prints VAT-aware combined total below Grand Total · Auto-hides if 0 optional items
+                                            </span>
+                                          </div>
+                                          <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+                                            <input
+                                              type="checkbox"
+                                              checked={isAltEnabled}
+                                              onChange={(e) =>
+                                                handleUpdateBlockConfig('totals', {
+                                                  showAlternateTotalWithOptionals: e.target.checked
+                                                })
+                                              }
+                                              className="sr-only peer"
+                                            />
+                                            <div className="w-9 h-5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                                          </label>
+                                        </div>
+
+                                        <div className="flex items-center justify-between text-[10px] px-2 py-1 rounded bg-slate-50 border border-slate-200/80">
+                                          {inspectorOptCalc.hasOptionals ? (
+                                            <>
+                                              <span className="text-amber-800 font-semibold">
+                                                {inspectorOptCalc.optionalItemCount}{' '}
+                                                {inspectorOptCalc.optionalItemCount === 1
+                                                  ? 'optional item'
+                                                  : 'optional items'}{' '}
+                                                (+{curCurrency}{' '}
+                                                {inspectorOptCalc.optionalSubtotal.toLocaleString(
+                                                  'en-US',
+                                                  {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2
+                                                  }
+                                                )}
+                                                )
+                                              </span>
+                                              <span className="font-mono font-bold text-slate-900 tabular-nums">
+                                                {curCurrency}{' '}
+                                                {inspectorOptCalc.grandTotalWithOptionals.toLocaleString(
+                                                  'en-US',
+                                                  {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2
+                                                  }
+                                                )}
+                                              </span>
+                                            </>
+                                          ) : (
+                                            <span className="text-slate-500">
+                                              Auto-hidden on this quote (0 optional items)
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        {isAltEnabled && (
+                                          <div className="space-y-1">
+                                            <label className="block text-[9.5px] font-semibold uppercase tracking-wide text-slate-500">
+                                              Row Label Override
+                                            </label>
+                                            <AtMentionInput
+                                              value={
+                                                selectedBlock.alternateTotalWithOptionalsLabel ?? ''
+                                              }
+                                              onChange={(val) =>
+                                                handleUpdateBlockConfig('totals', {
+                                                  alternateTotalWithOptionalsLabel: val
+                                                })
+                                              }
+                                              tokenContext={studioTokenContext}
+                                              compact
+                                              placeholder={
+                                                DEFAULT_ALTERNATE_TOTAL_WITH_OPTIONALS_LABEL
+                                              }
+                                              className="w-full px-2 py-1 rounded border border-slate-300 bg-slate-50/60 focus:bg-white text-[10.5px] text-slate-800"
+                                            />
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
 
                                   {/* VAT / Tax Footnote Override */}
                                   <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-1.5">
