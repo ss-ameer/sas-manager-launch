@@ -202,7 +202,9 @@ import {
   Bold,
   Italic,
   Underline,
-  Package
+  Package,
+  MoreHorizontal,
+  Zap
 } from 'lucide-react';
 
 export interface QuotationStudioModalProps {
@@ -4105,6 +4107,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
   const [tableInspectorTab, setTableInspectorTab] = useState<'specs' | 'columns' | 'media' | 'pagination'>('specs');
   const [expandedRowAttrItemKey, setExpandedRowAttrItemKey] = useState<string | null>(null);
+  const [isPresetMenuOpen, setIsPresetMenuOpen] = useState(false);
 
   // Dedicated Signatory Presets State & Built-in Definitions (Decoupled from Document Layout Presets)
   const [customSignatoryPresets, setCustomSignatoryPresets] = useState<SignatoryPreset[]>(() => {
@@ -10555,109 +10558,28 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
           {/* Left Column: Form Controls & Customization (380px width so both drawers can stay open together) */}
           {isLeftDrawerOpen && (
           <div className="w-full lg:w-[360px] xl:w-[380px] bg-white border-r border-slate-200 flex flex-col shrink-0 overflow-y-auto print:hidden animate-in slide-in-from-left-4 duration-150">
-            {/* Sticky Top Bar: Document Preset Selector + 2-Tab Mode Switcher */}
-            <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-xs border-b border-slate-200 px-5 pt-4 pb-3 space-y-3">
-              {/* Preset Selector */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <div>
-                    <label className="block text-[11px] font-mono font-bold text-slate-500 uppercase tracking-wider leading-tight">
-                      DOCUMENT LAYOUT PRESET
+            {/* Sticky Top Bar: Compact Preset Selector + 2-Tab Mode Switcher */}
+            <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-xs border-b border-slate-200 px-3.5 pt-2.5 pb-2 space-y-2">
+              {/* Compact Preset Bar */}
+              <div className="space-y-1.5">
+                {/* Row 1: Label + Compact Status/Save + Actions Menu + Collapse */}
+                <div className="flex items-center justify-between gap-1.5">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <label className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider leading-none shrink-0">
+                      Preset
                     </label>
-                    <span className="block text-[9.5px] text-slate-400">
-                      Saves layout, theme, table setup, signatory &amp; filename preset
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNewPresetName('');
-                        setIsSavePresetModalOpen(true);
-                      }}
-                      className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 transition cursor-pointer hover:underline"
-                    >
-                      <BookmarkPlus className="w-3.5 h-3.5" />
-                      <span>+ Save as New Preset</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsLeftDrawerOpen(false)}
-                      className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-                      title="Collapse Left Drawer"
-                    >
-                      <PanelLeftClose className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <select
-                    value={selectedPreset ? selectedPresetId : ''}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (!val) {
-                        setSelectedPresetId('');
-                        const docTypeDefault =
-                          activeProfile?.document_type_defaults?.[documentType || 'quotation'];
-                        if (docTypeDefault) {
-                          applyPreset({
-                            ...docTypeDefault,
-                            id: ''
-                          } as QuotationPreset);
-                        }
-                        return;
-                      }
-                      const found = filteredPresetsForDocType.find((p) => p.id === val);
-                      if (found) applyPreset(found);
-                    }}
-                    className="w-full text-xs font-medium rounded-lg border border-slate-300 p-2 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                  >
-                    <option value="">Workspace Default Profile (Built-in)</option>
-                    {[...filteredPresetsForDocType]
-                      .sort((a, b) => {
-                        if (a.is_default && !b.is_default) return -1;
-                        if (!a.is_default && b.is_default) return 1;
-                        return a.preset_name.localeCompare(b.preset_name);
-                      })
-                      .map((p) => {
-                        const pType = p.document_type || 'quotation';
-                        const docTag =
-                          pType === 'delivery_note'
-                            ? 'DO'
-                            : pType === 'purchase_order'
-                            ? 'PO'
-                            : pType === 'receipt'
-                            ? 'REC'
-                            : pType === 'payment_voucher'
-                            ? 'PV'
-                            : pType === 'material_return_note' || pType === 'material_return'
-                            ? 'MRN'
-                            : pType === 'debit_note'
-                            ? 'DN'
-                            : 'QT';
-                        return (
-                          <option key={p.id} value={p.id}>
-                            [{docTag}] {p.preset_name}{p.is_default ? ' (★ Default)' : ''}
-                          </option>
-                        );
-                      })}
-                  </select>
-                </div>
-
-                {selectedPreset &&
-                  selectedPreset.document_type &&
-                  selectedPreset.document_type !== (documentType || 'quotation') && (
-                    <div className="mt-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-medium flex items-center justify-between gap-2">
-                      <span>
-                        Preset belongs to <strong>{selectedPreset.document_type}</strong> (active mode:{' '}
-                        <strong>{documentType || 'quotation'}</strong>).
+                    {selectedPreset?.is_default && (
+                      <span
+                        title="Default preset for new documents of this type"
+                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 text-[9px] font-bold leading-none shrink-0"
+                      >
+                        <Star className="w-2.5 h-2.5 fill-amber-500 text-amber-500" />
+                        <span>Default</span>
                       </span>
-                    </div>
-                  )}
+                    )}
+                  </div>
 
-                {/* Quick-Action Lifecycle Controls for Active Profile & Preset */}
-                <div className="mt-2 flex items-center justify-between gap-1.5 pt-1.5 border-t border-slate-100 flex-wrap">
-                  <div className="flex items-center gap-1.5 flex-wrap">
+                  <div className="flex items-center gap-1 shrink-0 relative">
                     {selectedPreset ? (
                       selectedPreset.document_type &&
                       selectedPreset.document_type !== (documentType || 'quotation') ? (
@@ -10669,31 +10591,29 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             setIsSavePresetModalOpen(true);
                           }}
                           title="Save as a new preset for the active document type"
-                          className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs"
+                          className="px-2 py-1 text-[10.5px] font-semibold rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 whitespace-nowrap"
                         >
-                          <Save className="w-3 h-3" />
-                          <span>Save as New Preset for Mode</span>
+                          <Save className="w-3 h-3 shrink-0" />
+                          <span>Save for Mode</span>
                         </button>
                       ) : !isPresetModified ? (
-                        <button
-                          type="button"
-                          disabled
+                        <span
                           title="Preset settings match current studio configuration"
-                          className="px-2.5 py-1 text-[11px] font-medium rounded-md bg-slate-100 text-slate-500 border border-slate-200 flex items-center gap-1 cursor-default opacity-85 shadow-2xs"
+                          className="px-2 py-1 text-[10.5px] font-medium rounded-md bg-slate-100 text-slate-500 border border-slate-200/80 inline-flex items-center gap-1 whitespace-nowrap select-none"
                         >
-                          <Check className="w-3 h-3 text-emerald-600" />
-                          <span>✓ Preset Up to Date</span>
-                        </button>
+                          <Check className="w-3 h-3 text-emerald-600 shrink-0" />
+                          <span>Up to Date</span>
+                        </span>
                       ) : (
                         <button
                           type="button"
                           disabled={isSavingPreset}
                           onClick={handleUpdatePreset}
                           title="Save updated layout, styling, and brand overrides to this preset"
-                          className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs animate-pulse-once"
+                          className="px-2 py-1 text-[10.5px] font-semibold rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs whitespace-nowrap"
                         >
-                          <Save className="w-3 h-3" />
-                          <span>Update Preset</span>
+                          <Save className="w-3 h-3 shrink-0" />
+                          <span>Update</span>
                         </button>
                       )
                     ) : (
@@ -10702,75 +10622,194 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         disabled={isSavingPreset}
                         onClick={() => handleSaveToActiveProfileAndPreset(false)}
                         title="Save layout and brand overrides to default workspace profile"
-                        className="px-2.5 py-1 text-[11px] font-semibold rounded-md bg-indigo-600 text-white hover:bg-indigo-700 transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs"
+                        className="px-2 py-1 text-[10.5px] font-semibold rounded-md bg-indigo-600 text-white hover:bg-indigo-700 transition inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs whitespace-nowrap"
                       >
-                        <Save className="w-3 h-3" />
-                        <span>Save to Default Profile</span>
+                        <Save className="w-3 h-3 shrink-0" />
+                        <span>Save Default</span>
                       </button>
                     )}
 
-                    {selectedPreset && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewPresetName('');
+                        setIsSavePresetModalOpen(true);
+                        setIsPresetMenuOpen(false);
+                      }}
+                      title="Save current layout as a new preset"
+                      className="px-2 py-1 text-[10.5px] font-semibold rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200/80 transition inline-flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                    >
+                      <BookmarkPlus className="w-3 h-3 shrink-0" />
+                      <span>+ New</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsPresetMenuOpen((prev) => !prev)}
+                      title="Preset options (Set Default, Commercial Terms, Delete)"
+                      className={`p-1 rounded-md border transition cursor-pointer ${
+                        isPresetMenuOpen
+                          ? 'bg-slate-200 border-slate-300 text-slate-800'
+                          : 'bg-white border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+                      }`}
+                    >
+                      <MoreHorizontal className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsLeftDrawerOpen(false)}
+                      className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                      title="Collapse Left Drawer"
+                    >
+                      <PanelLeftClose className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* Preset Overflow Actions Menu */}
+                    {isPresetMenuOpen && (
                       <>
-                        {selectedPreset.is_default ? (
-                          <span
-                            title="This preset automatically hydrates new quotations"
-                            className="px-2 py-1 text-[10.5px] font-semibold rounded-md bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1"
-                          >
-                            <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
-                            <span>Default</span>
-                          </span>
-                        ) : (
+                        <div
+                          className="fixed inset-0 z-30"
+                          onClick={() => setIsPresetMenuOpen(false)}
+                        />
+                        <div className="absolute right-0 top-full mt-1.5 w-60 rounded-xl border border-slate-200 bg-white shadow-lg z-40 p-1.5 space-y-1 text-xs">
                           <button
                             type="button"
-                            disabled={isSavingPreset}
-                            onClick={handleSetDefaultPreset}
-                            title="Set as default preset for new quotations in this workspace"
-                            className="px-2 py-1 text-[10.5px] font-semibold rounded-md bg-slate-100 text-slate-700 border border-slate-200 hover:bg-amber-50 hover:text-amber-700 hover:border-amber-200 transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                            onClick={() => {
+                              setNewPresetName('');
+                              setIsSavePresetModalOpen(true);
+                              setIsPresetMenuOpen(false);
+                            }}
+                            className="w-full px-2.5 py-1.5 rounded-lg text-left text-[11px] font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2 transition cursor-pointer"
                           >
-                            <Star className="w-3 h-3" />
-                            <span>Set Default</span>
+                            <BookmarkPlus className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                            <span>Save as New Preset...</span>
                           </button>
-                        )}
+
+                          {selectedPreset && !selectedPreset.is_default && (
+                            <button
+                              type="button"
+                              disabled={isSavingPreset}
+                              onClick={() => {
+                                setIsPresetMenuOpen(false);
+                                handleSetDefaultPreset();
+                              }}
+                              className="w-full px-2.5 py-1.5 rounded-lg text-left text-[11px] font-semibold text-slate-700 hover:bg-amber-50 hover:text-amber-700 flex items-center gap-2 transition cursor-pointer disabled:opacity-50"
+                            >
+                              <Star className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                              <span>Set as Default Preset</span>
+                            </button>
+                          )}
+
+                          <label
+                            title="When unchecked (default), saving/updating a preset only saves layout, styling, and branding while keeping deal-specific commercial terms isolated to this deal."
+                            className="flex items-start gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer select-none border-t border-slate-100 mt-1 pt-2"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={saveCommercialTermsToPreset}
+                              onChange={(e) => setSaveCommercialTermsToPreset(e.target.checked)}
+                              className="w-3.5 h-3.5 mt-0.5 rounded-xs border-slate-300 text-blue-600 focus:ring-blue-500 shrink-0"
+                            />
+                            <span className="text-[10.5px] text-slate-600 leading-snug">
+                              Include commercial terms as preset defaults
+                            </span>
+                          </label>
+
+                          {selectedPreset && (
+                            <div className="border-t border-slate-100 pt-1">
+                              <button
+                                type="button"
+                                disabled={isSavingPreset}
+                                onClick={() => {
+                                  setIsPresetMenuOpen(false);
+                                  handleDeletePreset();
+                                }}
+                                className="w-full px-2.5 py-1.5 rounded-lg text-left text-[11px] font-semibold text-rose-700 hover:bg-rose-50 flex items-center gap-2 transition cursor-pointer disabled:opacity-50"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                                <span>Delete Selected Preset</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </>
                     )}
                   </div>
-
-                  <label
-                    title="When unchecked (default), saving/updating a preset only saves layout, styling, and branding while keeping deal-specific commercial terms (Price Basis, Delivery, Payment Terms, Validity, Notes) isolated to this deal."
-                    className="inline-flex items-center gap-1.5 text-[10px] text-slate-500 hover:text-slate-700 cursor-pointer select-none"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={saveCommercialTermsToPreset}
-                      onChange={(e) => setSaveCommercialTermsToPreset(e.target.checked)}
-                      className="w-3 h-3 rounded-xs border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span>Save current commercial terms as preset defaults</span>
-                  </label>
-
-                  {selectedPreset && (
-                    <button
-                      type="button"
-                      disabled={isSavingPreset}
-                      onClick={handleDeletePreset}
-                      title="Delete selected custom preset"
-                      className="px-2 py-1 text-[10.5px] font-semibold rounded-md bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      <span>Delete</span>
-                    </button>
-                  )}
                 </div>
+
+                {/* Row 2: Active Preset Dropdown */}
+                <select
+                  value={selectedPreset ? selectedPresetId : ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (!val) {
+                      setSelectedPresetId('');
+                      const docTypeDefault =
+                        activeProfile?.document_type_defaults?.[documentType || 'quotation'];
+                      if (docTypeDefault) {
+                        applyPreset({
+                          ...docTypeDefault,
+                          id: ''
+                        } as QuotationPreset);
+                      }
+                      return;
+                    }
+                    const found = filteredPresetsForDocType.find((p) => p.id === val);
+                    if (found) applyPreset(found);
+                  }}
+                  title="Select a saved Document Layout Preset (saves layout, theme, table setup, signatory & filename pattern)"
+                  className="w-full text-xs font-medium rounded-lg border border-slate-300 py-1.5 px-2.5 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                >
+                  <option value="">Workspace Default Profile (Built-in)</option>
+                  {[...filteredPresetsForDocType]
+                    .sort((a, b) => {
+                      if (a.is_default && !b.is_default) return -1;
+                      if (!a.is_default && b.is_default) return 1;
+                      return a.preset_name.localeCompare(b.preset_name);
+                    })
+                    .map((p) => {
+                      const pType = p.document_type || 'quotation';
+                      const docTag =
+                        pType === 'delivery_note'
+                          ? 'DO'
+                          : pType === 'purchase_order'
+                          ? 'PO'
+                          : pType === 'receipt'
+                          ? 'REC'
+                          : pType === 'payment_voucher'
+                          ? 'PV'
+                          : pType === 'material_return_note' || pType === 'material_return'
+                          ? 'MRN'
+                          : pType === 'debit_note'
+                          ? 'DN'
+                          : 'QT';
+                      return (
+                        <option key={p.id} value={p.id}>
+                          [{docTag}] {p.preset_name}{p.is_default ? ' (★ Default)' : ''}
+                        </option>
+                      );
+                    })}
+                </select>
+
+                {selectedPreset &&
+                  selectedPreset.document_type &&
+                  selectedPreset.document_type !== (documentType || 'quotation') && (
+                    <div className="px-2 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-medium">
+                      Preset belongs to <strong>{selectedPreset.document_type}</strong> (active mode:{' '}
+                      <strong>{documentType || 'quotation'}</strong>).
+                    </div>
+                  )}
               </div>
 
-              {/* 2-Tab Segmented Switcher */}
-              <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+              {/* Compact 2-Tab Segmented Switcher */}
+              <div className="grid grid-cols-2 gap-1 p-0.5 bg-slate-100 rounded-lg border border-slate-200/80">
                 <button
                   type="button"
                   onClick={() => setActiveLeftTab('structure')}
-                  className={`py-2 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  className={`py-1.5 px-2 rounded-md text-[11.5px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap ${
                     activeLeftTab === 'structure'
-                      ? 'bg-white text-blue-700 shadow-xs border border-slate-200/60'
+                      ? 'bg-white text-blue-700 shadow-2xs border border-slate-200/60'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
@@ -10779,9 +10818,9 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveLeftTab('content')}
-                  className={`py-2 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  className={`py-1.5 px-2 rounded-md text-[11.5px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap ${
                     activeLeftTab === 'content'
-                      ? 'bg-white text-blue-700 shadow-xs border border-slate-200/60'
+                      ? 'bg-white text-blue-700 shadow-2xs border border-slate-200/60'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
@@ -11323,22 +11362,25 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         <span className="text-slate-500 font-medium">Live Resolved Filename:</span>
                         <span className="font-mono text-emerald-600 font-semibold text-[10px]">Ready</span>
                       </div>
-                      <div className="font-mono text-[11px] font-bold text-slate-800 break-all select-all flex items-center gap-1.5">
+                      <div
+                        className="font-mono text-[11px] font-bold text-slate-800 select-all flex items-center gap-1.5 min-w-0"
+                        title={`${resolvedPdfFilename}.pdf`}
+                      >
                         <FileText className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                        <span>{resolvedPdfFilename}.pdf</span>
+                        <span className="truncate">{resolvedPdfFilename}.pdf</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Card 2: Document Sections & Page Order */}
                   <div className="border border-slate-200 rounded-xl p-4 bg-white space-y-4 text-xs shadow-2xs">
-                    <div className="flex items-center justify-between">
-                      <div>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
                         <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
-                          <Layers className="w-3.5 h-3.5 text-blue-600" />
-                          Document Sections &amp; Page Order
+                          <Layers className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                          <span className="truncate">Document Sections &amp; Page Order</span>
                         </span>
-                        <p className="text-[10px] text-slate-400 mt-0.5">
+                        <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
                           Click any section to inspect &amp; customize in the Right Panel
                         </p>
                       </div>
@@ -11376,10 +11418,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                             showSignatories: true
                           }));
                         }}
-                        className="px-2 py-1 rounded-md text-[10.5px] font-semibold text-slate-600 hover:text-blue-700 bg-slate-100 hover:bg-blue-50 border border-slate-200 transition flex items-center gap-1 cursor-pointer"
+                        className="shrink-0 whitespace-nowrap px-2 py-1 rounded-md text-[10.5px] font-semibold text-slate-600 hover:text-blue-700 bg-slate-100 hover:bg-blue-50 border border-slate-200 transition flex items-center gap-1 cursor-pointer"
                         title="Reset outline order and visibility to standard defaults"
                       >
-                        <RotateCcw className="w-3 h-3" />
+                        <RotateCcw className="w-3 h-3 shrink-0" />
                         <span>Reset Default</span>
                       </button>
                     </div>
@@ -14530,17 +14572,17 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         className="w-full rounded-lg border border-slate-300 p-2 text-slate-800 text-xs"
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="block text-slate-500 font-medium">Issue Date</label>
+                    <div className="grid grid-cols-2 gap-2.5 items-end">
+                      <div className="min-w-0">
+                        <div className="flex items-center justify-between gap-1 mb-1 min-w-0">
+                          <label className="text-slate-500 font-medium truncate">Issue Date</label>
                           <button
                             type="button"
                             onClick={() => setQuotationIssueDate(new Date().toISOString().slice(0, 10))}
-                            className="text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-1.5 py-0.5 rounded transition cursor-pointer"
+                            className="shrink-0 whitespace-nowrap text-[9.5px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-1.5 py-0.5 rounded transition cursor-pointer"
                             title="Set Issue Date to Today"
                           >
-                            Set to Today
+                            Today
                           </button>
                         </div>
                         <input
@@ -14552,10 +14594,13 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           className="w-full rounded-lg border border-slate-300 p-2 font-mono text-slate-800 text-xs bg-white"
                         />
                       </div>
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="block text-slate-500 font-medium">Validity (Days)</label>
-                          <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                      <div className="min-w-0">
+                        <div className="flex items-center justify-between gap-1 mb-1 min-w-0">
+                          <label className="text-slate-500 font-medium truncate">Validity (Days)</label>
+                          <span
+                            className="shrink-0 whitespace-nowrap text-[9.5px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded"
+                            title={`Valid until ${new Date(validUntilDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`}
+                          >
                             Until {new Date(validUntilDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                           </span>
                         </div>
@@ -19597,26 +19642,39 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
               {/* Retractable Right-Side Contextual Table Inspector Drawer */}
               {selectedSection === 'items_table' && (
                 <aside className="w-full lg:w-[360px] xl:w-[380px] bg-white border-l border-slate-300 shadow-xl flex flex-col shrink-0 z-20 print:hidden overflow-y-auto animate-in slide-in-from-right-4 duration-200">
-                  {/* Drawer Header */}
-                  <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-                        <Table className="w-4 h-4" />
+                  {/* Unified Sticky Drawer Header (2-Row Header + Optional Bulk Edit Drawer + Sub-Bar) */}
+                  <div className="sticky top-0 z-20 bg-white border-b border-slate-200 shadow-2xs">
+                    {/* Row 1: Uncrushed Title + Subtitle + Close Button */}
+                    <div className="px-3.5 py-2.5 bg-slate-50 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                          <Table className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="font-bold text-slate-900 text-xs truncate">
+                            {focusedItemIndex !== null && quotationLineItems[focusedItemIndex]
+                              ? `Line Item #${focusedItemIndex + 1}`
+                              : 'Line Items Table'}
+                          </h4>
+                          <p className="text-[10px] text-slate-400 font-mono truncate">
+                            {focusedItemIndex !== null && quotationLineItems[focusedItemIndex]
+                              ? (quotationLineItems[focusedItemIndex]?.item_name || 'Focused Item Inspector')
+                              : 'Structural Section • Fixed Canvas Layout'}
+                          </p>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <h4 className="font-bold text-slate-900 text-xs truncate">
-                          {focusedItemIndex !== null && quotationLineItems[focusedItemIndex]
-                            ? `Line Item #${focusedItemIndex + 1}`
-                            : 'Line Items Table'}
-                        </h4>
-                        <p className="text-[10px] text-slate-400 font-mono truncate">
-                          {focusedItemIndex !== null && quotationLineItems[focusedItemIndex]
-                            ? (quotationLineItems[focusedItemIndex]?.item_name || 'Focused Item Inspector')
-                            : 'Structural Section • Fixed Canvas Layout'}
-                        </p>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSection(null)}
+                        className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition cursor-pointer shrink-0"
+                        title="Close Inspector"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0 relative">
+
+                    {/* Row 2: Full-Width Contextual Action Toolbar */}
+                    <div className="px-3 py-1.5 bg-white border-t border-slate-200/80 flex flex-wrap items-center gap-1.5 relative">
                       <button
                         type="button"
                         onClick={() => {
@@ -19625,10 +19683,10 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           );
                           setStudioCatalogSearchQuery('');
                         }}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition cursor-pointer"
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition cursor-pointer whitespace-nowrap"
                         title="Insert a pre-configured product directly from the Workspace Catalog"
                       >
-                        <Package className="w-3 h-3 text-indigo-600" />
+                        <Package className="w-3 h-3 text-indigo-600 shrink-0" />
                         <span>+ Catalog</span>
                       </button>
                       <button
@@ -19650,13 +19708,50 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           setCustomStudioLineItems([...currentList, nextItem]);
                           setFocusedItemIndex(newIdx);
                         }}
-                        className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-[10.5px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition cursor-pointer"
+                        className="inline-flex items-center gap-0.5 px-2 py-1 rounded-md text-[10.5px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition cursor-pointer whitespace-nowrap"
                         title="Add a new blank line item row"
                       >
                         <span>+ Item</span>
                       </button>
+                      {enquiry?.line_items && enquiry.line_items.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleSyncFromEnquiryForm}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition cursor-pointer whitespace-nowrap"
+                          title="Pull updated line items, delivery times, and pricing directly from the Enquiry Form"
+                        >
+                          <RefreshCw className="w-3 h-3 text-emerald-600 shrink-0" />
+                          <span>Pull from Enquiry</span>
+                        </button>
+                      )}
+                      {quotationLineItems.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowStudioBulkApply((prev) => !prev)}
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-bold border transition cursor-pointer whitespace-nowrap ${
+                            showStudioBulkApply
+                              ? 'bg-amber-500 text-white border-amber-500'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-200'
+                          }`}
+                          title="Bulk apply Delivery / Lead Time or Country of Origin across all line items"
+                        >
+                          <Zap className="w-3 h-3 shrink-0" />
+                          <span>Bulk Edit</span>
+                        </button>
+                      )}
+                      {focusedItemIndex !== null && (
+                        <button
+                          type="button"
+                          onClick={() => setFocusedItemIndex(null)}
+                          className="ml-auto px-2 py-1 rounded-md text-[10.5px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition cursor-pointer whitespace-nowrap"
+                          title="Show All Items & Table Options"
+                        >
+                          Show All
+                        </button>
+                      )}
+
                       {studioCatalogPickerLocation === 'inspector' && (
-                        <div className="absolute right-0 top-full mt-1.5 w-96 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2.5 space-y-2">
+                        <div className="absolute left-3 right-3 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2.5 space-y-2">
                           <div className="flex items-center justify-between gap-2 pb-1 border-b border-slate-100">
                             <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
                               <Package className="w-3.5 h-3.5 text-indigo-600" />
@@ -19683,114 +19778,213 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                           </div>
                         </div>
                       )}
-                      {enquiry?.line_items && enquiry.line_items.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={handleSyncFromEnquiryForm}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition cursor-pointer"
-                          title="Pull updated line items, delivery times, and pricing directly from the Enquiry Form"
-                        >
-                          <RefreshCw className="w-3 h-3 text-emerald-600" />
-                          <span>Pull from Enquiry</span>
-                        </button>
-                      )}
-                      {focusedItemIndex !== null && (
-                        <button
-                          type="button"
-                          onClick={() => setFocusedItemIndex(null)}
-                          className="px-2 py-0.5 rounded text-[10.5px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition cursor-pointer"
-                          title="Show All Items & Table Options"
-                        >
-                          Show All
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setSelectedSection(null)}
-                        className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/80 transition cursor-pointer"
-                        title="Close Inspector"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
                     </div>
-                  </div>
 
-                  {/* Focused Item Selector Bar (Active when inspecting a single item) */}
-                  {focusedItemIndex !== null && quotationLineItems[focusedItemIndex] ? (
-                    <div className="px-3 py-2 bg-blue-50/90 border-b border-blue-200 sticky top-[53px] z-10 backdrop-blur-xs space-y-1.5">
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="text-[10px] font-bold text-blue-900 uppercase tracking-wider">
-                          Inspecting Item #{focusedItemIndex + 1} of {quotationLineItems.length}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setFocusedItemIndex(null)}
-                          className="text-[10px] font-bold text-blue-700 hover:text-blue-900 underline cursor-pointer"
-                        >
-                          Table Specs &amp; Columns &rarr;
-                        </button>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <select
-                          value={focusedItemIndex}
-                          onChange={(e) => setFocusedItemIndex(Number(e.target.value))}
-                          className="flex-1 min-w-0 text-xs rounded-lg border border-blue-300 bg-white py-1 px-2 text-slate-800 font-semibold truncate focus:ring-2 focus:ring-blue-500"
-                        >
-                          {quotationLineItems.map((item, idx) => (
-                            <option key={item.id || idx} value={idx}>
-                              #{idx + 1}: {item.item_name || 'Untitled Line Item'}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          disabled={focusedItemIndex <= 0}
-                          onClick={() => setFocusedItemIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : prev))}
-                          className="p-1 rounded-lg border border-blue-300 bg-white text-blue-800 hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                          title="Previous Item"
-                        >
-                          <ChevronLeft className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          disabled={focusedItemIndex >= quotationLineItems.length - 1}
-                          onClick={() => setFocusedItemIndex((prev) => (prev !== null && prev < quotationLineItems.length - 1 ? prev + 1 : prev))}
-                          className="p-1 rounded-lg border border-blue-300 bg-white text-blue-800 hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                          title="Next Item"
-                        >
-                          <ChevronRight className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    /* Sticky 4-Tab Segmented Navigation Bar */
-                    <div className="px-3 py-2 bg-slate-100/90 border-b border-slate-200 sticky top-[53px] z-10 backdrop-blur-xs">
-                      <div className="grid grid-cols-4 gap-1 p-1 bg-slate-200/75 rounded-xl">
-                        {[
-                          { id: 'specs' as const, label: 'Specs & Grid' },
-                          { id: 'columns' as const, label: 'Columns' },
-                          { id: 'media' as const, label: 'Photos/BOM' },
-                          { id: 'pagination' as const, label: 'Pagination' }
-                        ].map((tab) => {
-                          const isActive = tableInspectorTab === tab.id;
-                          return (
+                    {/* Collapsible Bulk Apply Panel (Triggered via ⚡ Bulk Edit in Row 2) */}
+                    {showStudioBulkApply && (
+                      <div className="px-3 py-2.5 bg-amber-50/60 border-t border-amber-200/80 space-y-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
+                            <Zap className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            <span>Bulk Apply to All {quotationLineItems.length} Items</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setShowStudioBulkApply(false)}
+                            className="text-[10px] font-semibold text-slate-500 hover:text-slate-800 cursor-pointer"
+                          >
+                            Done ✕
+                          </button>
+                        </div>
+
+                        <div className="space-y-1">
+                          <span className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider block">
+                            Set Delivery / Lead Time for All Items
+                          </span>
+                          <div className="flex flex-wrap gap-1">
+                            {[
+                              'LIMITED STOCK AVAILABLE. Subject to prior sales.',
+                              'Ex-Stock',
+                              '2–3 Weeks',
+                              '4–6 Weeks',
+                              '6–8 Weeks'
+                            ].map((chip) => (
+                              <button
+                                key={chip}
+                                type="button"
+                                onClick={() => {
+                                  const nextList = quotationLineItems.map((it) => ({
+                                    ...it,
+                                    availability: chip,
+                                    lead_time_note: chip
+                                  }));
+                                  setCustomStudioLineItems(nextList);
+                                  triggerToast?.(`Applied Delivery "${chip}" to all ${nextList.length} items`, 'success');
+                                }}
+                                className="px-2 py-0.5 rounded bg-white hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 border border-slate-200 text-[10px] font-medium transition cursor-pointer text-left"
+                              >
+                                {chip}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="flex gap-1 pt-0.5">
+                            <input
+                              type="text"
+                              value={studioBulkDeliveryInput}
+                              onChange={(e) => setStudioBulkDeliveryInput(e.target.value)}
+                              placeholder="Custom delivery for all..."
+                              className="flex-1 min-w-0 px-2 py-1 text-[11px] bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-500"
+                            />
                             <button
-                              key={tab.id}
                               type="button"
-                              onClick={() => setTableInspectorTab(tab.id)}
-                              className={`py-1.5 px-1 rounded-lg text-[10px] font-bold transition cursor-pointer truncate ${
-                                isActive
-                                  ? 'bg-white text-blue-700 shadow-2xs ring-1 ring-slate-200'
-                                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-                              }`}
+                              onClick={() => {
+                                const val = studioBulkDeliveryInput.trim();
+                                if (!val) return;
+                                const nextList = quotationLineItems.map((it) => ({
+                                  ...it,
+                                  availability: val,
+                                  lead_time_note: val
+                                }));
+                                setCustomStudioLineItems(nextList);
+                                setStudioBulkDeliveryInput('');
+                                triggerToast?.(`Applied Delivery "${val}" to all ${nextList.length} items`, 'success');
+                              }}
+                              className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold cursor-pointer shrink-0"
                             >
-                              {tab.label}
+                              Apply
                             </button>
-                          );
-                        })}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1 pt-1.5 border-t border-amber-200/70">
+                          <span className="text-[9.5px] font-bold text-slate-500 uppercase tracking-wider block">
+                            Set Country of Origin for All Items
+                          </span>
+                          <div className="flex flex-wrap gap-1">
+                            {['USA', 'Germany / EU', 'Italy', 'UAE', 'UK', 'China'].map((originChip) => (
+                              <button
+                                key={originChip}
+                                type="button"
+                                onClick={() => {
+                                  const nextList = quotationLineItems.map((it) => ({
+                                    ...it,
+                                    country_of_origin: originChip
+                                  }));
+                                  setCustomStudioLineItems(nextList);
+                                  triggerToast?.(`Applied Origin "${originChip}" to all ${nextList.length} items`, 'success');
+                                }}
+                                className="px-2 py-0.5 rounded bg-white hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 border border-slate-200 text-[10px] font-medium transition cursor-pointer"
+                              >
+                                {originChip}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="flex gap-1 pt-0.5">
+                            <input
+                              type="text"
+                              value={studioBulkOriginInput}
+                              onChange={(e) => setStudioBulkOriginInput(e.target.value)}
+                              placeholder="Custom origin for all..."
+                              className="flex-1 min-w-0 px-2 py-1 text-[11px] bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const val = studioBulkOriginInput.trim();
+                                if (!val) return;
+                                const nextList = quotationLineItems.map((it) => ({
+                                  ...it,
+                                  country_of_origin: val
+                                }));
+                                setCustomStudioLineItems(nextList);
+                                setStudioBulkOriginInput('');
+                                triggerToast?.(`Applied Origin "${val}" to all ${nextList.length} items`, 'success');
+                              }}
+                              className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold cursor-pointer shrink-0"
+                            >
+                              Apply
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
+
+                    {/* Row 3: Focused Item Selector Bar OR 4-Tab Segmented Navigation Bar */}
+                    {focusedItemIndex !== null && quotationLineItems[focusedItemIndex] ? (
+                      <div className="px-3 py-2 bg-blue-50/90 border-t border-blue-200 space-y-1.5">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-[10px] font-bold text-blue-900 uppercase tracking-wider">
+                            Inspecting Item #{focusedItemIndex + 1} of {quotationLineItems.length}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setFocusedItemIndex(null)}
+                            className="text-[10px] font-bold text-blue-700 hover:text-blue-900 underline cursor-pointer"
+                          >
+                            Table Specs &amp; Columns &rarr;
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            value={focusedItemIndex}
+                            onChange={(e) => setFocusedItemIndex(Number(e.target.value))}
+                            className="flex-1 min-w-0 text-xs rounded-lg border border-blue-300 bg-white py-1 px-2 text-slate-800 font-semibold truncate focus:ring-2 focus:ring-blue-500"
+                          >
+                            {quotationLineItems.map((item, idx) => (
+                              <option key={item.id || idx} value={idx}>
+                                #{idx + 1}: {item.item_name || 'Untitled Line Item'}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            disabled={focusedItemIndex <= 0}
+                            onClick={() => setFocusedItemIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : prev))}
+                            className="p-1 rounded-lg border border-blue-300 bg-white text-blue-800 hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                            title="Previous Item"
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={focusedItemIndex >= quotationLineItems.length - 1}
+                            onClick={() => setFocusedItemIndex((prev) => (prev !== null && prev < quotationLineItems.length - 1 ? prev + 1 : prev))}
+                            className="p-1 rounded-lg border border-blue-300 bg-white text-blue-800 hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                            title="Next Item"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="px-3 py-1.5 bg-slate-100/90 border-t border-slate-200">
+                        <div className="grid grid-cols-4 gap-1 p-0.5 bg-slate-200/75 rounded-lg">
+                          {[
+                            { id: 'specs' as const, label: 'Specs & Grid' },
+                            { id: 'columns' as const, label: 'Columns' },
+                            { id: 'media' as const, label: 'Photos/BOM' },
+                            { id: 'pagination' as const, label: 'Pagination' }
+                          ].map((tab) => {
+                            const isActive = tableInspectorTab === tab.id;
+                            return (
+                              <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => setTableInspectorTab(tab.id)}
+                                className={`py-1.5 px-1 rounded-md text-[10px] font-bold transition cursor-pointer truncate ${
+                                  isActive
+                                    ? 'bg-white text-blue-700 shadow-2xs ring-1 ring-slate-200'
+                                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                                }`}
+                              >
+                                {tab.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Drawer Content (Single Outer Scroll Container — Zero Nested Scrollbars) */}
                   <div className="p-4 space-y-4 text-xs w-full min-w-0 overflow-x-hidden">
@@ -20859,161 +21053,6 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                       })()
                     ) : (
                       <>
-                        {/* 0. Unified Commercial Summary & Totals Hub Shortcut */}
-                        <div className="p-3 rounded-xl border border-indigo-200 bg-indigo-50/60 space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-bold text-indigo-950 text-xs flex items-center gap-1.5">
-                          <Layers className="w-3.5 h-3.5 text-indigo-600" />
-                          Option Display, BOM Pricing &amp; Totals
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-mono font-bold bg-white border border-indigo-200 text-indigo-700">
-                          {isUnpricedSubmittalMode
-                            ? 'Unpriced / DO'
-                            : optionDisplayMode === 'combined_table'
-                            ? 'Standard Table'
-                            : 'Multi-Option'}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleCanvasSelectSection('totals')}
-                        className="w-full py-1.5 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-[11px] flex items-center justify-between transition shadow-2xs cursor-pointer"
-                      >
-                        <span>Configure Totals, Options &amp; Price Display</span>
-                        <span className="font-mono text-sm leading-none">&rarr;</span>
-                      </button>
-                    </div>
-
-                    {/* Bulk Line-Item Quick-Action Bar (Set Delivery / Origin for All Items) */}
-                    <div className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/80 space-y-2">
-                      <button
-                        type="button"
-                        onClick={() => setShowStudioBulkApply((prev) => !prev)}
-                        className="w-full flex items-center justify-between text-xs font-bold text-slate-800 cursor-pointer"
-                      >
-                        <span className="flex items-center gap-1.5">
-                          <span className="text-indigo-600">⚡</span>
-                          <span>Bulk Apply to All {quotationLineItems.length} Items</span>
-                        </span>
-                        <span className="text-[10px] font-mono text-indigo-600">
-                          {showStudioBulkApply ? 'Hide ▴' : 'Expand ▾'}
-                        </span>
-                      </button>
-                      {showStudioBulkApply && (
-                        <div className="space-y-2.5 pt-1.5 border-t border-slate-200/80">
-                          <div className="space-y-1">
-                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                              Set Delivery / Lead Time for All Items
-                            </span>
-                            <div className="flex flex-wrap gap-1">
-                              {[
-                                'LIMITED STOCK AVAILABLE. Subject to prior sales.',
-                                'Ex-Stock',
-                                '2–3 Weeks',
-                                '4–6 Weeks',
-                                '6–8 Weeks'
-                              ].map((chip) => (
-                                <button
-                                  key={chip}
-                                  type="button"
-                                  onClick={() => {
-                                    const nextList = quotationLineItems.map((it) => ({
-                                      ...it,
-                                      availability: chip,
-                                      lead_time_note: chip
-                                    }));
-                                    setCustomStudioLineItems(nextList);
-                                    triggerToast?.(`Applied Delivery "${chip}" to all ${nextList.length} items`, 'success');
-                                  }}
-                                  className="px-2 py-0.5 rounded bg-white hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 border border-slate-200 text-[10px] font-medium transition cursor-pointer text-left"
-                                >
-                                  {chip}
-                                </button>
-                              ))}
-                            </div>
-                            <div className="flex gap-1 pt-0.5">
-                              <input
-                                type="text"
-                                value={studioBulkDeliveryInput}
-                                onChange={(e) => setStudioBulkDeliveryInput(e.target.value)}
-                                placeholder="Custom delivery for all..."
-                                className="flex-1 px-2 py-1 text-[11px] bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-500"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const val = studioBulkDeliveryInput.trim();
-                                  if (!val) return;
-                                  const nextList = quotationLineItems.map((it) => ({
-                                    ...it,
-                                    availability: val,
-                                    lead_time_note: val
-                                  }));
-                                  setCustomStudioLineItems(nextList);
-                                  setStudioBulkDeliveryInput('');
-                                  triggerToast?.(`Applied Delivery "${val}" to all ${nextList.length} items`, 'success');
-                                }}
-                                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold cursor-pointer"
-                              >
-                                Apply
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="space-y-1 pt-1.5 border-t border-slate-200/60">
-                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                              Set Country of Origin for All Items
-                            </span>
-                            <div className="flex flex-wrap gap-1">
-                              {['USA', 'Germany / EU', 'Italy', 'UAE', 'UK', 'China'].map((originChip) => (
-                                <button
-                                  key={originChip}
-                                  type="button"
-                                  onClick={() => {
-                                    const nextList = quotationLineItems.map((it) => ({
-                                      ...it,
-                                      country_of_origin: originChip
-                                    }));
-                                    setCustomStudioLineItems(nextList);
-                                    triggerToast?.(`Applied Origin "${originChip}" to all ${nextList.length} items`, 'success');
-                                  }}
-                                  className="px-2 py-0.5 rounded bg-white hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 border border-slate-200 text-[10px] font-medium transition cursor-pointer"
-                                >
-                                  {originChip}
-                                </button>
-                              ))}
-                            </div>
-                            <div className="flex gap-1 pt-0.5">
-                              <input
-                                type="text"
-                                value={studioBulkOriginInput}
-                                onChange={(e) => setStudioBulkOriginInput(e.target.value)}
-                                placeholder="Custom origin for all..."
-                                className="flex-1 px-2 py-1 text-[11px] bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-500"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const val = studioBulkOriginInput.trim();
-                                  if (!val) return;
-                                  const nextList = quotationLineItems.map((it) => ({
-                                    ...it,
-                                    country_of_origin: val
-                                  }));
-                                  setCustomStudioLineItems(nextList);
-                                  setStudioBulkOriginInput('');
-                                  triggerToast?.(`Applied Origin "${val}" to all ${nextList.length} items`, 'success');
-                                }}
-                                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold cursor-pointer"
-                              >
-                                Apply
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
                     {/* TAB: COLUMNS & TABLE TYPOGRAPHY */}
                     {tableInspectorTab === 'columns' && (
                       <>
@@ -22125,7 +22164,32 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
 
                     {/* TAB: LINE-ITEM PAGINATION, SPACING & ROW OPTIONS */}
                     {tableInspectorTab === 'pagination' && (
-                      <div className="space-y-2.5">
+                      <div className="space-y-3">
+                        {/* Unified Commercial Summary & Totals Hub Shortcut */}
+                        <div className="p-3 rounded-xl border border-indigo-200 bg-indigo-50/60 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-bold text-indigo-950 text-xs flex items-center gap-1.5 min-w-0">
+                              <Layers className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                              <span className="truncate">Option Display, BOM Pricing &amp; Totals</span>
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full text-[9.5px] font-mono font-bold bg-white border border-indigo-200 text-indigo-700 shrink-0 whitespace-nowrap">
+                              {isUnpricedSubmittalMode
+                                ? 'Unpriced / DO'
+                                : optionDisplayMode === 'combined_table'
+                                ? 'Standard Table'
+                                : 'Multi-Option'}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleCanvasSelectSection('totals')}
+                            className="w-full py-1.5 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-[11px] flex items-center justify-between transition shadow-2xs cursor-pointer"
+                          >
+                            <span>Configure Totals, Options &amp; Price Display</span>
+                            <span className="font-mono text-sm leading-none">&rarr;</span>
+                          </button>
+                        </div>
+
                         <div className="flex items-center justify-between">
                           <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
                             <Scissors className="w-3.5 h-3.5 text-amber-600" />
@@ -23203,8 +23267,8 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                         </button>
                       </div>
 
-                      {/* Sticky Quick Jump Strip */}
-                      <div className="flex items-center gap-1 overflow-x-auto pb-0.5 no-scrollbar">
+                      {/* Sticky Quick Jump Strip (Clean Wrapping Pills — Zero Horizontal Scrollbar) */}
+                      <div className="flex flex-wrap items-center gap-1">
                         {layoutBlocks
                           .filter((b) => {
                             const bType = b.type || b.id;
@@ -27689,7 +27753,7 @@ const QuotationStudioModalInner: React.FC<QuotationStudioModalProps> = ({
                                         dispatched_by_title: e.target.value
                                       }))
                                     }
-                                    placeholder="Logistics / Warehouse Officer"
+                                    placeholder="Logistics / Dispatch"
                                     className="w-full px-2 py-1 rounded border border-slate-300 text-[11px] bg-white"
                                   />
                                 </div>
