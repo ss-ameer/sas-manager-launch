@@ -2132,6 +2132,7 @@ export interface VariantFamilyBarProps {
   onSwitchVariant: (patchedItem: any, selectedLabel: string) => void;
   triggerToast?: (msg: string, type?: 'success' | 'error' | 'info') => void;
   compact?: boolean;
+  fullWidth?: boolean;
 }
 
 /**
@@ -2148,7 +2149,8 @@ export const VariantFamilyBar: React.FC<VariantFamilyBarProps> = ({
   isVendorCostDoc = false,
   onSwitchVariant,
   triggerToast,
-  compact = false
+  compact = false,
+  fullWidth = false
 }) => {
   const familyContext = useMemo(() => {
     if (!matchedProduct || !Array.isArray(products) || products.length === 0) return null;
@@ -2308,6 +2310,66 @@ export const VariantFamilyBar: React.FC<VariantFamilyBarProps> = ({
 
   if (!familyContext) return null;
 
+  const handleVariantChange = (nextKey: string) => {
+    const chosen = familyContext.options.find((o) => o.key === nextKey);
+    if (!chosen) return;
+    const nextItem = pullCatalogDefaultsToLineItem(
+      item,
+      chosen.targetProduct || familyContext.rootParent,
+      currency,
+      chosen.targetInlineVariant || chosen.targetProduct || null,
+      isVendorCostDoc,
+      products
+    );
+    onSwitchVariant(nextItem, chosen.label);
+    if (triggerToast) {
+      triggerToast(
+        `Switched variant to "${chosen.label}" (${chosen.sku || familyContext.familyName} • ${chosen.priceLabel}).`,
+        'success'
+      );
+    }
+  };
+
+  if (fullWidth) {
+    return (
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full flex items-center justify-between gap-2.5 flex-wrap sm:flex-nowrap rounded-lg bg-violet-50/85 dark:bg-violet-950/35 border border-violet-200/80 dark:border-violet-800/80 px-2.5 py-1.5 text-[11px]"
+      >
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          <GitBranch className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400 shrink-0" />
+          <span className="text-violet-600 dark:text-violet-400 font-mono uppercase text-[9.5px] font-bold tracking-wider shrink-0">
+            Family:
+          </span>
+          <span
+            className="font-bold text-violet-950 dark:text-violet-100 truncate"
+            title={familyContext.familyName}
+          >
+            {familyContext.familyName}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0 max-w-full sm:max-w-[58%]">
+          <span className="text-violet-600 dark:text-violet-400 font-mono uppercase text-[9.5px] font-bold tracking-wider shrink-0">
+            Variant:
+          </span>
+          <select
+            value={familyContext.activeKey}
+            onChange={(e) => handleVariantChange(e.target.value)}
+            className="bg-white dark:bg-slate-900 border border-violet-300 dark:border-violet-700 hover:border-violet-500 text-violet-950 dark:text-violet-100 font-semibold rounded-md px-2 py-0.5 text-[11px] cursor-pointer focus:outline-none focus:ring-1 focus:ring-violet-500 min-w-[150px] max-w-[300px] truncate"
+            title="1-Click Switch to another Size / Spec Variant in this Parent Family (updates SKU, differentiating specs, and price)"
+          >
+            {familyContext.options.map((opt) => (
+              <option key={opt.key} value={opt.key}>
+                {opt.label} {opt.sku ? `[${opt.sku}]` : ''} — {opt.priceLabel}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       onClick={(e) => e.stopPropagation()}
@@ -2333,26 +2395,7 @@ export const VariantFamilyBar: React.FC<VariantFamilyBarProps> = ({
         </span>
         <select
           value={familyContext.activeKey}
-          onChange={(e) => {
-            const nextKey = e.target.value;
-            const chosen = familyContext.options.find((o) => o.key === nextKey);
-            if (!chosen) return;
-            const nextItem = pullCatalogDefaultsToLineItem(
-              item,
-              chosen.targetProduct || familyContext.rootParent,
-              currency,
-              chosen.targetInlineVariant || chosen.targetProduct || null,
-              isVendorCostDoc,
-              products
-            );
-            onSwitchVariant(nextItem, chosen.label);
-            if (triggerToast) {
-              triggerToast(
-                `Switched variant to "${chosen.label}" (${chosen.sku || familyContext.familyName} • ${chosen.priceLabel}).`,
-                'success'
-              );
-            }
-          }}
+          onChange={(e) => handleVariantChange(e.target.value)}
           className="bg-white dark:bg-slate-900 border border-violet-300 dark:border-violet-700 hover:border-violet-500 text-violet-950 dark:text-violet-100 font-bold rounded-md px-1.5 py-0.5 text-[10.5px] cursor-pointer focus:outline-none focus:ring-1 focus:ring-violet-500 max-w-[230px] truncate"
           title="1-Click Switch to another Size / Spec Variant in this Parent Family (updates SKU, differentiating specs, and price)"
         >

@@ -228,76 +228,62 @@ const LineItemTier3BMediaGrid: React.FC<LineItemTier3BMediaGridProps> = ({
   };
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-12 gap-3 pt-1" onPaste={handlePasteOnMedia}>
-      <div className="col-span-1 sm:col-span-3 min-w-0">
-        <div className="flex items-center justify-between h-5 mb-1">
-          <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
-            Brand / Make
-          </label>
-        </div>
-        <input
-          type="text"
-          placeholder="e.g. Siemens, ABB, Schneider"
-          value={item.brand_make ?? matchedProd?.brand_make ?? ''}
-          onChange={(e) => handleLineItemChange(index, 'brand_make', e.target.value)}
-          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-        />
-      </div>
-
-      <div className="col-span-1 sm:col-span-3 min-w-0">
-        <div className="flex items-center justify-between h-5 mb-1">
-          <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
-            Model / Part No.
-          </label>
-        </div>
-        <input
-          type="text"
-          placeholder="e.g. MOD-200X"
-          value={item.model_part_no ?? matchedProd?.model_part_no ?? ''}
-          onChange={(e) => handleLineItemChange(index, 'model_part_no', e.target.value)}
-          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs font-mono text-slate-900 dark:text-white focus:outline-none"
-        />
-      </div>
-
-      <div className="col-span-1 sm:col-span-2 min-w-0">
-        <div className="flex items-center justify-between h-5 mb-1">
-          <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
-            Origin
-          </label>
-        </div>
-        <input
-          type="text"
-          placeholder="e.g. USA, UAE"
-          value={item.country_of_origin ?? matchedProd?.country_of_origin ?? ''}
-          onChange={(e) => handleLineItemChange(index, 'country_of_origin', e.target.value)}
-          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
-        />
-      </div>
-
-      <div className="col-span-2 sm:col-span-4 min-w-0">
-        <div className="flex items-center justify-between h-5 mb-1 gap-2">
-          <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
-            Media &amp; Datasheet
-          </label>
-          {effectiveDatasheet && (
-            <label className="flex items-center gap-1 text-[10px] text-indigo-700 dark:text-indigo-300 font-semibold cursor-pointer truncate shrink-0">
-              <input
-                type="checkbox"
-                checked={item.include_datasheet_in_quote !== false}
-                onChange={(e) =>
-                  handleLineItemChange(index, 'include_datasheet_in_quote', e.target.checked)
-                }
-                className="w-3 h-3 rounded text-indigo-600"
-              />
-              <span className="truncate" title={effectiveDatasheet.name}>
-                Annex PDF
-              </span>
+    <div className="space-y-3 pt-1" onPaste={handlePasteOnMedia}>
+      {/* Row 1: Balanced 3-column Brand / Model / Origin row */}
+      <div className="grid grid-cols-1 @[520px]:grid-cols-3 gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center justify-between h-5 mb-1">
+            <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
+              Brand / Make
             </label>
-          )}
+          </div>
+          <input
+            type="text"
+            placeholder="e.g. Siemens, ABB, Schneider"
+            value={item.brand_make ?? matchedProd?.brand_make ?? ''}
+            onChange={(e) => handleLineItemChange(index, 'brand_make', e.target.value)}
+            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+          />
         </div>
 
-        {/* Trigger Row inside 4th column */}
-        <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="min-w-0">
+          <div className="flex items-center justify-between h-5 mb-1">
+            <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
+              Model / Part No.
+            </label>
+          </div>
+          <input
+            type="text"
+            placeholder="e.g. MOD-200X"
+            value={item.model_part_no ?? matchedProd?.model_part_no ?? ''}
+            onChange={(e) => handleLineItemChange(index, 'model_part_no', e.target.value)}
+            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs font-mono text-slate-900 dark:text-white focus:outline-none"
+          />
+        </div>
+
+        <div className="min-w-0">
+          <div className="flex items-center justify-between h-5 mb-1">
+            <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
+              Origin
+            </label>
+          </div>
+          <input
+            type="text"
+            placeholder="e.g. USA, UAE"
+            value={item.country_of_origin ?? matchedProd?.country_of_origin ?? ''}
+            onChange={(e) => handleLineItemChange(index, 'country_of_origin', e.target.value)}
+            className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 focus:border-blue-500 rounded-lg py-1.5 px-2.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+          />
+        </div>
+      </div>
+
+      {/* Row 2: Dedicated full-width Media & Datasheet horizontal strip */}
+      <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2.5 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap min-w-0">
+          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap shrink-0 mr-0.5">
+            Media &amp; Datasheet
+          </span>
+
           <div
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
@@ -321,6 +307,7 @@ const LineItemTier3BMediaGrid: React.FC<LineItemTier3BMediaGridProps> = ({
                   alt={item.item_name || item.description || `Item #${index + 1}`}
                   onClick={() => setIsLightboxOpen(true)}
                   className="w-full h-full object-contain p-0.5 cursor-zoom-in"
+                  referrerPolicy="no-referrer"
                   style={{
                     transform: `rotate(${imageAdjustments?.rotation || 0}deg) scale(${imageAdjustments?.scale || 1})`
                   }}
@@ -355,6 +342,7 @@ const LineItemTier3BMediaGrid: React.FC<LineItemTier3BMediaGridProps> = ({
               <img
                 src={secondaryImageUrl}
                 alt="2nd Diagram"
+                referrerPolicy="no-referrer"
                 className="w-full h-full object-contain p-0.5"
               />
               <span className="absolute bottom-0 right-0 px-1 bg-blue-600 text-white text-[7px] font-bold leading-tight rounded-tl">
@@ -390,10 +378,10 @@ const LineItemTier3BMediaGrid: React.FC<LineItemTier3BMediaGridProps> = ({
             type="button"
             onClick={() => primaryInputRef.current?.click()}
             disabled={isUploadingPrimary}
-            className="px-2 py-1 rounded-md text-[11px] font-semibold bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+            className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center gap-1 transition cursor-pointer whitespace-nowrap shrink-0"
             title="Upload or Replace Primary Image (or press Ctrl+V)"
           >
-            <Upload className="w-3 h-3 text-slate-500" />
+            <Upload className="w-3 h-3 text-slate-500 shrink-0" />
             <span>{isUploadingPrimary ? 'Uploading...' : effectiveImageUrl ? 'Replace' : 'Upload Photo'}</span>
           </button>
 
@@ -401,10 +389,10 @@ const LineItemTier3BMediaGrid: React.FC<LineItemTier3BMediaGridProps> = ({
             <button
               type="button"
               onClick={() => setIsLightboxOpen(true)}
-              className="px-2 py-1 rounded-md text-[11px] font-semibold bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+              className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center gap-1 transition cursor-pointer whitespace-nowrap shrink-0"
               title="Open Lightbox Zoom & Rotate"
             >
-              <Maximize2 className="w-3 h-3 text-blue-600" />
+              <Maximize2 className="w-3 h-3 text-blue-600 shrink-0" />
               <span>Zoom</span>
             </button>
           )}
@@ -412,37 +400,53 @@ const LineItemTier3BMediaGrid: React.FC<LineItemTier3BMediaGridProps> = ({
           <button
             type="button"
             onClick={() => setIsOpen((prev) => !prev)}
-            className={`px-2 py-1 rounded-md text-[11px] font-semibold border flex items-center gap-1 transition cursor-pointer whitespace-nowrap ${
+            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border flex items-center gap-1 transition cursor-pointer whitespace-nowrap shrink-0 ${
               isOpen || hasCustomOverrides
                 ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
                 : 'bg-slate-100/80 dark:bg-slate-800 hover:bg-slate-200/70 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
             }`}
             title="Configure Per-Item Image Placement, Size, 2nd Diagram & Caption"
           >
-            <Sliders className="w-3 h-3" />
+            <Sliders className="w-3 h-3 shrink-0" />
             <span>Image Options</span>
             {hasCustomOverrides && (
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-600 dark:bg-blue-400" />
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-600 dark:bg-blue-400 shrink-0" />
             )}
-            {isOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            {isOpen ? <ChevronUp className="w-3 h-3 shrink-0" /> : <ChevronDown className="w-3 h-3 shrink-0" />}
           </button>
 
           {effectiveImageUrl && (
             <button
               type="button"
               onClick={() => onPatchMedia({ image_url: '' })}
-              className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+              className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer shrink-0"
               title="Remove Primary Image"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
+
+        {effectiveDatasheet && (
+          <label className="flex items-center gap-1.5 text-[11px] text-indigo-700 dark:text-indigo-300 font-semibold cursor-pointer whitespace-nowrap shrink-0 ml-auto">
+            <input
+              type="checkbox"
+              checked={item.include_datasheet_in_quote !== false}
+              onChange={(e) =>
+                handleLineItemChange(index, 'include_datasheet_in_quote', e.target.checked)
+              }
+              className="w-3.5 h-3.5 rounded text-indigo-600"
+            />
+            <span className="truncate max-w-[160px]" title={effectiveDatasheet.name}>
+              Annex PDF
+            </span>
+          </label>
+        )}
       </div>
 
       {/* Full-Width Expanded Per-Item Visual Overrides & Secondary Diagram Panel */}
       {isOpen && (
-        <div className="col-span-full mt-1 p-3.5 rounded-xl bg-slate-50/95 dark:bg-slate-800/70 border border-slate-200/90 dark:border-slate-700 space-y-3 text-xs animate-in fade-in duration-150">
+        <div className="mt-1 p-3.5 rounded-xl bg-slate-50/95 dark:bg-slate-800/70 border border-slate-200/90 dark:border-slate-700 space-y-3 text-xs animate-in fade-in duration-150">
           <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200/80 dark:border-slate-700">
             <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
               <Sliders className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
@@ -1402,6 +1406,19 @@ export default function EnquiryForm({
   const [pastedSourceText, setPastedSourceText] = useState<string | null>(null);
   const [pastedExtractedData, setPastedExtractedData] = useState<any | null>(null);
   const [previewMinimized, setPreviewMinimized] = useState<boolean>(false);
+  const [previewWidthPreset, setPreviewWidthPreset] = useState<'narrow' | 'balanced' | 'half'>(() => {
+    try {
+      const saved = localStorage.getItem('enquiry_preview_width_preset');
+      if (saved === 'narrow' || saved === 'balanced' || saved === 'half') return saved;
+    } catch {}
+    return 'narrow';
+  });
+  const handleSelectPreviewWidthPreset = (preset: 'narrow' | 'balanced' | 'half') => {
+    setPreviewWidthPreset(preset);
+    try {
+      localStorage.setItem('enquiry_preview_width_preset', preset);
+    } catch {}
+  };
   const [highlightedField, setHighlightedField] = useState<string | null>(null);
   const [glowingField, setGlowingField] = useState<string | null>(null);
 
@@ -5779,6 +5796,45 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
   );
 
   const isPreviewActive = (!!activePreviewUrl || !!pastedSourceText) && !previewMinimized;
+  const previewPaneWidthClass =
+    previewWidthPreset === 'half'
+      ? 'md:w-[50%] xl:w-[50%]'
+      : previewWidthPreset === 'balanced'
+      ? 'md:w-[40%] xl:w-[40%]'
+      : 'md:w-[32%] xl:w-[32%]';
+
+  const renderPreviewWidthPresets = () => (
+    <div
+      className="hidden md:inline-flex items-center p-0.5 rounded-lg bg-slate-100 border border-slate-200 shrink-0"
+      role="group"
+      aria-label="Split-screen width ratio"
+    >
+      {(
+        [
+          { id: 'narrow', label: '32/68', title: 'Narrow preview (32% preview / 68% form)' },
+          { id: 'balanced', label: '40/60', title: 'Balanced split (40% preview / 60% form)' },
+          { id: 'half', label: '50/50', title: 'Half split (50% preview / 50% form)' }
+        ] as const
+      ).map((preset) => {
+        const active = previewWidthPreset === preset.id;
+        return (
+          <button
+            key={preset.id}
+            type="button"
+            onClick={() => handleSelectPreviewWidthPreset(preset.id)}
+            title={preset.title}
+            className={`px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              active
+                ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/80'
+                : 'text-slate-500 hover:text-slate-800 border border-transparent'
+            }`}
+          >
+            {preset.label}
+          </button>
+        );
+      })}
+    </div>
+  );
 
   return (
     <div 
@@ -5804,47 +5860,48 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
     >
       <div 
         className={`fixed inset-y-0 right-0 w-full ${
-          isPreviewActive ? 'max-w-[96vw] xl:max-w-[1440px]' : 'max-w-5xl'
+          isPreviewActive ? 'max-w-[98vw] 2xl:max-w-[1600px]' : 'max-w-5xl'
         } z-50 bg-white shadow-2xl flex flex-col md:flex-row transform-gpu transition-transform duration-200 ease-out border-l border-slate-200 overflow-hidden`}
       >
         
         {/* Left Panel: File Preview or Smart Paste Text Preview (visible when isPreviewActive is true) */}
         {isPreviewActive && (
-          <div className="w-full md:w-[42%] xl:w-[44%] border-b md:border-b-0 md:border-r border-slate-200 h-[45vh] md:h-full flex flex-col bg-slate-50 shrink-0 font-sans overflow-hidden">
+          <div className={`w-full ${previewPaneWidthClass} border-b md:border-b-0 md:border-r border-slate-200 h-[45vh] md:h-full flex flex-col bg-slate-50 shrink-0 font-sans overflow-hidden`}>
             {/* Case 1: Document File Preview (PDF or Image) */}
             {activePreviewUrl && (
               <>
-                <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-white shrink-0">
-                  <div className="flex items-center space-x-2 truncate">
-                    <Eye className="w-5 h-5 text-blue-600 shrink-0" />
-                    <span className="font-bold text-slate-800 text-xs sm:text-sm truncate max-w-[180px] md:max-w-[280px]" title={previewFileName}>
+                <div className="px-3.5 py-3 border-b border-slate-200 flex items-center justify-between gap-2 bg-white shrink-0">
+                  <div className="flex items-center space-x-2 min-w-0 flex-1">
+                    <Eye className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span className="font-bold text-slate-800 text-xs sm:text-sm truncate" title={previewFileName}>
                       {previewFileName}
                     </span>
                   </div>
-                  <div className="flex items-center space-x-1.5 shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {renderPreviewWidthPresets()}
                     <a 
                       href={getSafeBlobUrl(activePreviewUrl)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center space-x-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[11px] font-sans rounded-lg transition border border-slate-200"
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[11px] font-sans rounded-lg transition border border-slate-200 whitespace-nowrap shrink-0"
                       title="Open file in a new tab (bypasses browser iframe/adblock restrictions)"
                     >
-                      <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
-                      <span className="hidden sm:inline">Open in New Tab</span>
+                      <ExternalLink className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                      <span className="hidden xl:inline">Open in New Tab</span>
                     </a>
                     <button 
                       type="button"
                       onClick={() => setPreviewMinimized(true)}
-                      className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition font-sans text-xs flex items-center gap-1 border border-slate-200"
+                      className="px-2 py-1 hover:bg-slate-100 text-slate-600 hover:text-slate-800 rounded-lg transition font-sans text-[11px] flex items-center gap-1 border border-slate-200 whitespace-nowrap shrink-0 cursor-pointer"
                       title="Minimize preview & expand Register New Enquiry form to maximum width"
                     >
-                      <Minimize2 className="w-3.5 h-3.5 text-slate-600" />
-                      <span className="hidden sm:inline font-semibold">Minimize</span>
+                      <Minimize2 className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                      <span className="hidden lg:inline font-semibold">Minimize</span>
                     </button>
                     <button 
                       type="button"
                       onClick={() => setActivePreviewUrl(null)}
-                      className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition"
+                      className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition shrink-0 cursor-pointer"
                       title="Hide Preview Panel"
                     >
                       <X className="w-4 h-4" />
@@ -5915,30 +5972,31 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
             {/* Case 2: Smart Paste Raw Text Source & Field Mapping Preview */}
             {!activePreviewUrl && pastedSourceText && (
               <>
-                <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-white shrink-0 shadow-2xs">
-                  <div className="flex items-center space-x-2 truncate">
-                    <FileSpreadsheet className="w-5 h-5 text-emerald-600 shrink-0" />
-                    <div>
-                      <h4 className="font-bold text-slate-800 text-xs sm:text-sm font-sans flex items-center gap-1.5">
-                        <span>Smart Paste Source & Mapping</span>
-                        <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-mono rounded-full font-bold">
+                <div className="px-3.5 py-3 border-b border-slate-200 flex items-center justify-between gap-2 bg-white shrink-0 shadow-2xs">
+                  <div className="flex items-center space-x-2 min-w-0 flex-1">
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <div className="min-w-0">
+                      <h4 className="font-bold text-slate-800 text-xs sm:text-sm font-sans flex items-center gap-1.5 truncate">
+                        <span className="truncate">Smart Paste Source</span>
+                        <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-mono rounded-full font-bold shrink-0">
                           AI Mapped
                         </span>
                       </h4>
-                      <p className="text-[10px] text-slate-500 font-sans">
-                        Interactive autofill preview — click chips below to highlight form fields
+                      <p className="text-[10px] text-slate-500 font-sans truncate">
+                        Click chips below to highlight mapped form fields
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center space-x-1.5 shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {renderPreviewWidthPresets()}
                     <button
                       type="button"
                       onClick={() => setPreviewMinimized(true)}
-                      className="p-1.5 hover:bg-slate-100 text-slate-600 hover:text-slate-900 rounded-lg transition font-sans text-xs flex items-center gap-1 border border-slate-200"
+                      className="px-2 py-1 hover:bg-slate-100 text-slate-600 hover:text-slate-900 rounded-lg transition font-sans text-[11px] flex items-center gap-1 border border-slate-200 whitespace-nowrap shrink-0 cursor-pointer"
                       title="Minimize preview & expand Register New Enquiry form to full width"
                     >
-                      <Minimize2 className="w-3.5 h-3.5 text-slate-600" />
-                      <span className="hidden sm:inline font-semibold">Minimize</span>
+                      <Minimize2 className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                      <span className="hidden lg:inline font-semibold">Minimize</span>
                     </button>
                     <button
                       type="button"
@@ -5946,7 +6004,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                         setPastedSourceText(null);
                         setPastedExtractedData(null);
                       }}
-                      className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition"
+                      className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition shrink-0 cursor-pointer"
                       title="Close Smart Paste preview"
                     >
                       <X className="w-4 h-4" />
@@ -8084,188 +8142,193 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                     item.is_composite_set || (item.sub_components && item.sub_components.length > 0)
                   );
 
+                  const matchedHeaderProduct =
+                    !isServiceOrFee && item.product_id
+                      ? (products || []).find((p) => p.id === item.product_id) || null
+                      : null;
+
                   return (
                     <div
                       key={index}
-                      className="bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/90 dark:border-slate-700/80 p-4 rounded-xl space-y-3.5"
+                      className="@container bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/90 dark:border-slate-700/80 p-4 rounded-xl space-y-3"
                     >
-                      {/* Card Header Bar — Single Clean Row */}
-                      <div className="flex items-center justify-between pb-2.5 border-b border-slate-200/80 dark:border-slate-700/80 gap-2 flex-wrap">
-                        <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                          <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-mono text-[11px] font-bold shrink-0">
-                            #{index + 1}
-                          </span>
-                          {(() => {
-                            if (isServiceOrFee) {
-                              return (
-                                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800">
-                                  <span>Service / Fee</span>
-                                </span>
-                              );
-                            }
-
-                            const matchedProduct = item.product_id
-                              ? (products || []).find((p) => p.id === item.product_id)
-                              : null;
-                            if (matchedProduct) {
-                              const availStock =
-                                (matchedProduct.stock_on_hand || 0) - (matchedProduct.stock_reserved || 0);
-                              const isLow =
-                                Boolean(matchedProduct.is_inventoried) &&
-                                availStock <= (matchedProduct.reorder_level || 0);
-                              const drifted = hasCatalogDrift(item, matchedProduct, formCurrency);
-                              return (
-                                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                                  <span
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 max-w-[220px] truncate"
-                                    title={`${matchedProduct.name} ${matchedProduct.sku ? `[${matchedProduct.sku}]` : ''}`}
-                                  >
-                                    <Package className="w-3 h-3 text-emerald-600 shrink-0" />
-                                    <span className="truncate">{matchedProduct.sku || matchedProduct.name}</span>
+                      {/* Card Header Block — Max 2 Clean Rows (Row 1: Identity & Actions, Row 2: Optional Variant Family Bar) */}
+                      <div className="space-y-2 pb-2.5 border-b border-slate-200/80 dark:border-slate-700/80">
+                        {/* Row 1: Identity & Linked SKU on left, Clone & Remove anchored right */}
+                        <div className="flex items-start sm:items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1 flex-wrap">
+                            <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-mono tabular-nums text-[11px] font-bold shrink-0">
+                              #{index + 1}
+                            </span>
+                            {(() => {
+                              if (isServiceOrFee) {
+                                return (
+                                  <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800 whitespace-nowrap">
+                                    <span>Service / Fee</span>
                                   </span>
-                                  {matchedProduct.is_inventoried ? (
+                                );
+                              }
+
+                              if (matchedHeaderProduct) {
+                                const availStock =
+                                  (matchedHeaderProduct.stock_on_hand || 0) -
+                                  (matchedHeaderProduct.stock_reserved || 0);
+                                const isLow =
+                                  Boolean(matchedHeaderProduct.is_inventoried) &&
+                                  availStock <= (matchedHeaderProduct.reorder_level || 0);
+                                return (
+                                  <>
                                     <span
-                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold border whitespace-nowrap ${
-                                        isLow
-                                          ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                          : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                      }`}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 max-w-[200px] truncate"
+                                      title={`${matchedHeaderProduct.name} ${matchedHeaderProduct.sku ? `[${matchedHeaderProduct.sku}]` : ''}`}
                                     >
-                                      <span>
-                                        Avail: {availStock} {matchedProduct.unit}
+                                      <Package className="w-3 h-3 text-emerald-600 shrink-0" />
+                                      <span className="truncate">
+                                        {matchedHeaderProduct.sku || matchedHeaderProduct.name}
                                       </span>
-                                      {(matchedProduct.stock_reserved || 0) > 0 && (
-                                        <span>(Res: {matchedProduct.stock_reserved})</span>
-                                      )}
                                     </span>
-                                  ) : (
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-mono bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 whitespace-nowrap">
-                                      {matchedProduct.default_availability || 'Order / Non-Stock'}
-                                    </span>
-                                  )}
-                                  <CatalogSyncMenu
-                                    item={item}
-                                    matchedProduct={matchedProduct}
-                                    products={products}
-                                    setProducts={setProducts}
-                                    currency={formCurrency}
-                                    activeWorkspaceId={activeWorkspace?.id}
-                                    triggerToast={triggerToast}
-                                    compact
-                                    onUpdateLineItem={(patch) => {
-                                      setLineItems((prev) =>
-                                        prev.map((li, i) => (i === index ? { ...li, ...patch } : li))
-                                      );
-                                    }}
-                                  />
+                                    {matchedHeaderProduct.is_inventoried && (
+                                      <span
+                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-bold border whitespace-nowrap shrink-0 ${
+                                          isLow
+                                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                            : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                        }`}
+                                      >
+                                        <span>
+                                          Avail: {availStock} {matchedHeaderProduct.unit}
+                                        </span>
+                                        {(matchedHeaderProduct.stock_reserved || 0) > 0 && (
+                                          <span>(Res: {matchedHeaderProduct.stock_reserved})</span>
+                                        )}
+                                      </span>
+                                    )}
+                                    <CatalogSyncMenu
+                                      item={item}
+                                      matchedProduct={matchedHeaderProduct}
+                                      products={products}
+                                      setProducts={setProducts}
+                                      currency={formCurrency}
+                                      activeWorkspaceId={activeWorkspace?.id}
+                                      triggerToast={triggerToast}
+                                      compact
+                                      onUpdateLineItem={(patch) => {
+                                        setLineItems((prev) =>
+                                          prev.map((li, i) => (i === index ? { ...li, ...patch } : li))
+                                        );
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUnlinkCatalogItem(index)}
+                                      className="text-[10px] text-slate-400 hover:text-rose-600 underline cursor-pointer whitespace-nowrap shrink-0"
+                                      title="Unlink from catalog SKU (converts to custom/non-stock)"
+                                    >
+                                      Unlink
+                                    </button>
+                                  </>
+                                );
+                              }
+                              return (
+                                <>
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 whitespace-nowrap shrink-0">
+                                    <Wrench className="w-2.5 h-2.5 text-slate-400 shrink-0" />
+                                    <span>Custom Item</span>
+                                  </span>
                                   <button
                                     type="button"
-                                    onClick={() => handleUnlinkCatalogItem(index)}
-                                    className="text-[10px] text-slate-400 hover:text-rose-600 underline cursor-pointer whitespace-nowrap"
-                                    title="Unlink from catalog SKU (converts to custom/non-stock)"
-                                  >
-                                    Unlink
-                                  </button>
-                                  <VariantFamilyBar
-                                    item={item}
-                                    matchedProduct={matchedProduct}
-                                    products={products}
-                                    currency={formCurrency}
-                                    compact
-                                    triggerToast={triggerToast}
-                                    onSwitchVariant={(nextItem) => {
-                                      setLineItems((prev) =>
-                                        prev.map((li, i) => (i === index ? { ...li, ...nextItem } : li))
-                                      );
+                                    onClick={() => {
+                                      setLinkingLineIndex(index);
+                                      setShowCatalogModal(true);
                                     }}
-                                  />
-                                </div>
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 border border-blue-200/70 dark:border-blue-800/70 transition cursor-pointer whitespace-nowrap shrink-0"
+                                  >
+                                    <Link2 className="w-2.5 h-2.5 shrink-0" />
+                                    <span>Link SKU</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSaveToCatalogState({
+                                        isOpen: true,
+                                        item,
+                                        itemIndex: index
+                                      });
+                                    }}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/70 transition cursor-pointer whitespace-nowrap shrink-0"
+                                    title="Register this custom line item into the master Products Catalog and link it"
+                                  >
+                                    <BookmarkPlus className="w-2.5 h-2.5 shrink-0" />
+                                    <span>Save to Catalog</span>
+                                  </button>
+                                </>
                               );
-                            }
-                            return (
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 whitespace-nowrap">
-                                  <Wrench className="w-2.5 h-2.5 text-slate-400" />
-                                  <span>Custom Item</span>
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setLinkingLineIndex(index);
-                                    setShowCatalogModal(true);
-                                  }}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 border border-blue-200/70 dark:border-blue-800/70 transition cursor-pointer whitespace-nowrap"
-                                >
-                                  <Link2 className="w-2.5 h-2.5" />
-                                  <span>Link SKU</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setSaveToCatalogState({
-                                      isOpen: true,
-                                      item,
-                                      itemIndex: index
-                                    });
-                                  }}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/70 transition cursor-pointer whitespace-nowrap"
-                                  title="Register this custom line item into the master Products Catalog and link it"
-                                >
-                                  <BookmarkPlus className="w-2.5 h-2.5" />
-                                  <span>Save to Catalog</span>
-                                </button>
-                              </div>
-                            );
-                          })()}
-                        </div>
+                            })()}
+                          </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
-                          {!isServiceOrFee && (
+                          <div className="flex items-center gap-1.5 ml-auto shrink-0">
+                            {!isServiceOrFee && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const { clonedItem, targetOption, updatedSourceOption } =
+                                    cloneLineItemToNextOption(item, lineItems);
+                                  setLineItems((prev) => {
+                                    const next = [...prev];
+                                    if (updatedSourceOption) {
+                                      next[index] = {
+                                        ...next[index],
+                                        option: updatedSourceOption,
+                                        item_option: updatedSourceOption,
+                                        option_designation: updatedSourceOption
+                                      };
+                                    }
+                                    next.splice(index + 1, 0, clonedItem);
+                                    return next;
+                                  });
+                                  if (triggerToast) {
+                                    triggerToast(
+                                      `Cloned "${item.item_name || item.product_type || 'Line Item'}" as ${targetOption}!`,
+                                      'success'
+                                    );
+                                  }
+                                }}
+                                className="px-2 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg transition-colors flex items-center gap-1 text-[11px] font-sans font-semibold cursor-pointer shrink-0 whitespace-nowrap"
+                                title="Clone this item (and all sub-components) into the next Option group (e.g. Option B)"
+                              >
+                                <GitBranch className="w-3 h-3 text-indigo-500 shrink-0" />
+                                <span>Clone</span>
+                              </button>
+                            )}
+
                             <button
                               type="button"
-                              onClick={() => {
-                                const { clonedItem, targetOption, updatedSourceOption } = cloneLineItemToNextOption(
-                                  item,
-                                  lineItems
-                                );
-                                setLineItems((prev) => {
-                                  const next = [...prev];
-                                  if (updatedSourceOption) {
-                                    next[index] = {
-                                      ...next[index],
-                                      option: updatedSourceOption,
-                                      item_option: updatedSourceOption,
-                                      option_designation: updatedSourceOption
-                                    };
-                                  }
-                                  next.splice(index + 1, 0, clonedItem);
-                                  return next;
-                                });
-                                if (triggerToast) {
-                                  triggerToast(
-                                    `Cloned "${item.item_name || item.product_type || 'Line Item'}" as ${targetOption}!`,
-                                    'success'
-                                  );
-                                }
-                              }}
-                              className="px-2 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg transition-colors flex items-center gap-1 text-[11px] font-sans font-semibold cursor-pointer shrink-0 whitespace-nowrap"
-                              title="Clone this item (and all sub-components) into the next Option group (e.g. Option B)"
+                              onClick={() => handleRemoveLineItem(index)}
+                              className="px-2 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:border-rose-200 dark:border-rose-800 hover:text-rose-600 dark:hover:text-rose-400 text-slate-500 rounded-lg transition-colors flex items-center gap-1 text-[11px] font-sans font-medium cursor-pointer shrink-0 whitespace-nowrap"
+                              title="Remove Line Item"
                             >
-                              <GitBranch className="w-3 h-3 text-indigo-500 shrink-0" />
-                              <span>Clone Option</span>
+                              <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                              <span>Remove</span>
                             </button>
-                          )}
-
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveLineItem(index)}
-                            className="px-2 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:border-rose-200 dark:border-rose-800 hover:text-rose-600 dark:hover:text-rose-400 text-slate-500 rounded-lg transition-colors flex items-center gap-1 text-[11px] font-sans font-medium cursor-pointer shrink-0 whitespace-nowrap"
-                            title="Remove Line Item"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>Remove</span>
-                          </button>
+                          </div>
                         </div>
+
+                        {/* Row 2 (Only if linked product belongs to a Variant Family) */}
+                        {matchedHeaderProduct && (
+                          <VariantFamilyBar
+                            item={item}
+                            matchedProduct={matchedHeaderProduct}
+                            products={products}
+                            currency={formCurrency}
+                            fullWidth
+                            triggerToast={triggerToast}
+                            onSwitchVariant={(nextItem) => {
+                              setLineItems((prev) =>
+                                prev.map((li, i) => (i === index ? { ...li, ...nextItem } : li))
+                              );
+                            }}
+                          />
+                        )}
                       </div>
 
                       {/* Primary 80/20 Commercial Row: Item Name, Qty, Unit, Selling Price & Live Line Total */}
@@ -8595,10 +8658,10 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
 
                             {/* Expandable Panel 1: Category, Classification, Option Scope & Lead Time */}
                             {isScopeOpen && (
-                              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 grid grid-cols-12 gap-3 animate-in fade-in duration-150">
-                                <div className="col-span-12 sm:col-span-3 min-w-0">
+                              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 grid grid-cols-1 @[460px]:grid-cols-2 @[760px]:grid-cols-4 gap-3 animate-in fade-in duration-150">
+                                <div className="min-w-0">
                                   <div className="flex items-center justify-between h-5 mb-1">
-                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
                                       Classification
                                     </label>
                                   </div>
@@ -8619,11 +8682,11 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                   </select>
                                 </div>
 
-                                <div className="col-span-12 sm:col-span-3 min-w-0">
+                                <div className="min-w-0">
                                   {item.item_type === 'charge' || item.item_type === 'discount' ? (
                                     <>
                                       <div className="flex items-center justify-between h-5 mb-1">
-                                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
                                           Charge Type
                                         </label>
                                       </div>
@@ -8642,9 +8705,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     </>
                                   ) : (
                                     <>
-                                      <div className="flex items-center justify-between h-5 mb-1">
-                                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
-                                          Product Category
+                                      <div className="flex items-center justify-between gap-1.5 h-5 mb-1">
+                                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                          Category
                                         </label>
                                         {renderSortButton(categoriesSort, setCategoriesSort, 'Product Categories')}
                                       </div>
@@ -8703,9 +8766,9 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                   )}
                                 </div>
 
-                                <div className="col-span-12 sm:col-span-3 min-w-0">
+                                <div className="min-w-0">
                                   <div className="flex items-center justify-between h-5 mb-1">
-                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
                                       Option Scope
                                     </label>
                                   </div>
@@ -8750,13 +8813,13 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     (item.item_type as string) === 'service';
 
                                   if (isDiscount) {
-                                    return <div className="col-span-12 sm:col-span-3 opacity-0 pointer-events-none" />;
+                                    return <div className="opacity-0 pointer-events-none" />;
                                   }
 
                                   return (
-                                    <div className="col-span-12 sm:col-span-3 min-w-0">
+                                    <div className="min-w-0">
                                       <div className="flex items-center justify-between h-5 mb-1">
-                                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider truncate">
+                                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
                                           {isService ? 'Duration' : 'Lead Time'}
                                         </label>
                                       </div>
@@ -8891,7 +8954,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                     </div>
 
                                     {item.attributes && item.attributes.length > 0 && (
-                                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                                      <div className="grid grid-cols-1 @[860px]:grid-cols-2 gap-2">
                                         {item.attributes.map((attr, attrIdx) => {
                                           const suggestedKeys = CATEGORY_SUGGESTED_ATTRIBUTES[item.product_type] || [];
                                           const isCustom = attr.key && !suggestedKeys.includes(attr.key);
@@ -8901,13 +8964,14 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                           return (
                                             <div
                                               key={attrIdx}
-                                              className="flex items-center gap-2 bg-slate-50/70 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 p-1.5 rounded-lg shadow-2xs"
+                                              className="flex items-center gap-2 bg-slate-50/70 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 p-1.5 rounded-lg shadow-2xs min-w-0"
                                             >
                                               {showCustomInput ? (
-                                                <div className="w-28 sm:w-36 flex-shrink-0 flex items-center gap-1 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 font-medium text-xs px-2 py-1.5 rounded-md border border-slate-200/80 dark:border-slate-700 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition-colors">
+                                                <div className="w-[42%] min-w-[135px] max-w-[240px] @[860px]:w-40 @[860px]:max-w-[175px] flex-shrink-0 flex items-center gap-1 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 font-medium text-xs px-2 py-1.5 rounded-md border border-slate-200/80 dark:border-slate-700 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition-colors">
                                                   <input
                                                     type="text"
                                                     value={attr.key === '__custom_editing__' ? '' : attr.key ?? ''}
+                                                    title={attr.key === '__custom_editing__' ? '' : attr.key ?? ''}
                                                     placeholder="Key"
                                                     onChange={(e) => {
                                                       const updated = [...lineItems];
@@ -8957,7 +9021,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                                     updated[index] = { ...updated[index], attributes: attrList };
                                                     setLineItems(updated);
                                                   }}
-                                                  className="w-28 sm:w-36 flex-shrink-0 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 font-medium text-xs px-2 py-1.5 rounded-md border border-slate-200/80 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors cursor-pointer truncate"
+                                                  className="w-[42%] min-w-[135px] max-w-[240px] @[860px]:w-40 @[860px]:max-w-[175px] flex-shrink-0 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 font-medium text-xs px-2 py-1.5 rounded-md border border-slate-200/80 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors cursor-pointer truncate"
                                                 >
                                                   <option value="">Select Key...</option>
                                                   {suggestedKeys.map((k) => (
@@ -8971,6 +9035,7 @@ Sl. No. Description Qty Unit Price (AED) Total Amount (AED)
                                               <input
                                                 type="text"
                                                 value={attr.value ?? ''}
+                                                title={attr.value ?? ''}
                                                 placeholder="Value (e.g. 10m3 / SS316)"
                                                 onChange={(e) => {
                                                   const val = e.target.value;
