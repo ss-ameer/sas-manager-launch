@@ -30,14 +30,15 @@ import {
   Sparkles,
   Bold,
   EyeOff,
-  MessageSquarePlus,
   Image as ImageIcon,
   ZoomIn,
   DollarSign,
   ArrowDownToLine,
   ArrowUpFromLine,
   ChevronDown,
+  ChevronUp,
   BookmarkPlus,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { AtMentionInput, AtMentionTextarea } from './AtMentionField';
 import { QuotationTokenContext } from '../../utils/quotationTokenResolver';
@@ -126,7 +127,6 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
   const [bulkPasteAsAccessory, setBulkPasteAsAccessory] = useState<boolean>(true);
   const [showCatalogPickerForRow, setShowCatalogPickerForRow] = useState<string | 'NEW' | null>(null);
   const [catalogSearchQuery, setCatalogSearchQuery] = useState<string>('');
-  const [expandedRowNotes, setExpandedRowNotes] = useState<Record<string, boolean>>({});
   const [expandedFormatRows, setExpandedFormatRows] = useState<Record<string, boolean>>({});
   const [expandedSpecRows, setExpandedSpecRows] = useState<Record<string, boolean>>({});
   const [showScopeNotes, setShowScopeNotes] = useState<boolean>(Boolean(optionScopeNotes && optionScopeNotes.trim()));
@@ -157,14 +157,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
     }));
   };
 
-  const toggleNoteRow = (compId: string) => {
-    setExpandedRowNotes((prev) => ({
-      ...prev,
-      [compId]: !prev[compId],
-    }));
-  };
-
-  const toggleSpecRow = (compId: string) => {
+  const toggleDetailsRow = (compId: string) => {
     setExpandedSpecRows((prev) => ({
       ...prev,
       [compId]: !prev[compId],
@@ -949,7 +942,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
   }
 
   return (
-    <div className="rounded-xl border border-slate-200/90 dark:border-slate-700/80 bg-white dark:bg-slate-900 overflow-hidden shadow-2xs">
+    <div className="@container rounded-xl border border-slate-200/90 dark:border-slate-700/80 bg-white dark:bg-slate-900 overflow-hidden shadow-2xs">
       {/* Compact Header Bar */}
       <div className="px-3 py-2 bg-slate-50/90 dark:bg-slate-800/60 border-b border-slate-200/80 dark:border-slate-700/80 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 flex-wrap">
@@ -1314,10 +1307,9 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
           const isIncludedZeroPrice = Boolean(comp.is_included_accessory) || unitPriceVal <= 0;
           const hasDesc = Boolean(comp.description && comp.description.trim());
           const hasNote = isMeaningfulRemark(comp.remark) || Boolean(comp.row_note && comp.row_note.trim());
-          const isNoteOpen = Boolean(expandedRowNotes[comp.id] || hasNote);
           const activeFmtCount = getActiveFormatCount(comp);
           const isFmtOpen = Boolean(expandedFormatRows[comp.id]);
-          const isSpecOpen = Boolean(expandedSpecRows[comp.id]);
+          const isDetailsOpen = Boolean(expandedSpecRows[comp.id]);
           const rawLinkedProduct =
             comp.product_id
               ? activeCatalogProducts.find((p) => p.id === comp.product_id)
@@ -1334,6 +1326,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
           const effectiveThumbUrl = comp.image_url || linkedProduct?.image_url;
           const effectiveBrand = comp.brand_make || linkedProduct?.brand_make || '';
           const effectiveModel = comp.model_part_no || linkedProduct?.model_part_no || '';
+          const effectiveOrigin = comp.country_of_origin || linkedProduct?.country_of_origin || '';
           const effectiveAttrs =
             Array.isArray(comp.attributes) && comp.attributes.length > 0
               ? comp.attributes
@@ -1341,6 +1334,9 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
               ? linkedProduct!.attributes
               : [];
           const specCount = effectiveAttrs.filter((a) => a && (a.key?.trim() || a.value?.trim())).length;
+          const hasMetaDetails = Boolean(
+            hasDesc || hasNote || effectiveBrand || effectiveModel || effectiveOrigin
+          );
           const isEmbeddedImageBlob =
             typeof comp.image_url === 'string' &&
             (comp.image_url.startsWith('data:') ||
@@ -1352,12 +1348,12 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
           return (
             <div
               key={comp.id}
-              className="px-3 py-2 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors space-y-1.5"
+              className="px-3 py-2.5 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors space-y-2"
             >
-              {/* TOP TIER: Index, Thumbnail, Qty, Unit, Item Name, Cost (optional), Price/Included */}
-              <div className="flex flex-wrap items-center gap-1.5">
+              {/* LINE 1: Index, Thumbnail, Qty, Unit, Sub-Item Name, Cost (optional), Price / Included */}
+              <div className="flex flex-wrap @[520px]:flex-nowrap items-center gap-1.5">
                 {/* # Index */}
-                <span className="w-5 text-[10px] font-mono font-bold text-slate-400 text-center shrink-0">
+                <span className="w-5 text-[10.5px] font-mono tabular-nums font-bold text-slate-400 text-center shrink-0">
                   {idx + 1}.
                 </span>
 
@@ -1416,7 +1412,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                   onChange={(e) => handleUpdateSub(comp.id, 'quantity', e.target.value)}
                   placeholder="Qty"
                   title="Quantity"
-                  className="w-13 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-1.5 py-1 text-xs font-mono text-center font-bold text-slate-900 dark:text-white focus:border-blue-500 focus:bg-white focus:outline-none shrink-0"
+                  className="w-13 h-7 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-1.5 text-xs font-mono tabular-nums text-center font-bold text-slate-900 dark:text-white focus:border-blue-500 focus:bg-white focus:outline-none shrink-0"
                 />
 
                 {/* Unit */}
@@ -1426,16 +1422,16 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                   onChange={(e) => handleUpdateSub(comp.id, 'unit', e.target.value)}
                   placeholder="Nos"
                   title="Unit (e.g. Nos, Set, Lot)"
-                  className="w-13 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-1.5 py-1 text-xs font-mono text-center text-slate-700 dark:text-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none shrink-0"
+                  className="w-13 h-7 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-1.5 text-xs font-mono text-center text-slate-700 dark:text-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none shrink-0"
                 />
 
-                {/* Item Name */}
+                {/* Sub-Item Name */}
                 <input
                   type="text"
                   value={comp.item_name ?? ''}
                   onChange={(e) => handleUpdateSub(comp.id, 'item_name', e.target.value)}
                   placeholder="Included item or component name (e.g. Top and Bottom Distribution System, Vacuum Breaker)"
-                  className="flex-1 min-w-[160px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1 text-xs font-medium text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                  className="flex-1 min-w-[140px] h-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 text-xs font-medium text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
                 />
 
                 {/* Optional Cost Input (Only when Sub-Item Costs toggle is active) */}
@@ -1447,7 +1443,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                       value={comp.cost_price || ''}
                       onChange={(e) => handleUpdateSub(comp.id, 'cost_price', e.target.value)}
                       placeholder="Cost 0.00"
-                      className="w-full bg-amber-50/40 dark:bg-slate-800 border border-amber-200 dark:border-slate-700 rounded-md px-2 py-1 text-xs font-mono text-right text-slate-700 dark:text-slate-300 tabular-nums focus:border-amber-500 focus:outline-none"
+                      className="w-full h-7 bg-amber-50/40 dark:bg-slate-800 border border-amber-200 dark:border-slate-700 rounded-md px-2 text-xs font-mono text-right text-slate-700 dark:text-slate-300 tabular-nums focus:border-amber-500 focus:outline-none"
                     />
                   </div>
                 )}
@@ -1460,7 +1456,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                     value={unitPriceVal > 0 ? unitPriceVal : ''}
                     onChange={(e) => handleUpdateSub(comp.id, 'unit_price', e.target.value)}
                     placeholder="Included"
-                    className={`w-full rounded-md px-2 py-1 text-xs font-mono text-right tabular-nums focus:outline-none border ${
+                    className={`w-full h-7 rounded-md px-2 text-xs font-mono text-right tabular-nums focus:outline-none border ${
                       isIncludedZeroPrice
                         ? 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 placeholder:text-emerald-600/80 dark:placeholder:text-emerald-400/80 font-semibold'
                         : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold focus:border-blue-500'
@@ -1469,76 +1465,85 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                 </div>
               </div>
 
-              {/* SECOND TIER: Brand/Model Pill, Print Subtitle Preview Indicator, Specs Toggle, Note/Desc Toggle, Catalog Sync, Move & Delete */}
-              <div className="pl-6 flex flex-wrap items-center justify-between gap-1.5">
-                <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+              {/* LINE 2: Calm Metadata Summary (left) + Unified Action Strip (right) */}
+              <div className="pl-6 flex flex-wrap items-center justify-between gap-2">
+                {/* Quiet Inline Metadata Preview (clickable to open unified Details & Specs drawer) */}
+                <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
                   {(effectiveBrand || effectiveModel) && (
                     <button
                       type="button"
-                      onClick={() => toggleSpecRow(comp.id)}
-                      className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[10px] font-mono truncate max-w-[180px] cursor-pointer hover:border-blue-300"
-                      title={`${[effectiveBrand, effectiveModel].filter(Boolean).join(' · ')} — click to edit specs`}
+                      onClick={() => toggleDetailsRow(comp.id)}
+                      className="text-[11px] font-mono text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 truncate max-w-[180px] cursor-pointer transition-colors"
+                      title={`${[effectiveBrand, effectiveModel].filter(Boolean).join(' · ')} — click to edit details`}
                     >
                       {[effectiveBrand, effectiveModel].filter(Boolean).join(' · ')}
                     </button>
                   )}
 
-                  {hasDesc && (
+                  {(effectiveBrand || effectiveModel) && !isDetailsOpen && hasDesc && (
+                    <span className="text-slate-300 dark:text-slate-600 text-[10px] select-none shrink-0" aria-hidden="true">
+                      ·
+                    </span>
+                  )}
+
+                  {!isDetailsOpen && hasDesc && (
                     <button
                       type="button"
-                      onClick={() => toggleSpecRow(comp.id)}
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50/90 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[10px] truncate max-w-[220px] cursor-pointer hover:border-amber-400"
-                      title={`Sub-item print subtitle: "${comp.description}" — click to edit or clear`}
+                      onClick={() => toggleDetailsRow(comp.id)}
+                      className="text-[11px] text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 truncate max-w-[240px] cursor-pointer transition-colors italic"
+                      title={`Sub-item subtitle: "${comp.description}" — click to edit`}
                     >
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-                      <span className="truncate">{comp.description}</span>
+                      {comp.description}
                     </button>
                   )}
 
                   {rowSyncBadge && (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-mono font-bold">
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-mono font-bold whitespace-nowrap shrink-0">
                       {rowSyncBadge}
                     </span>
                   )}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-1 ml-auto">
-                  {/* [Specs (N)] Toggle Button */}
+                {/* Streamlined Secondary Actions Strip */}
+                <div className="flex items-center gap-1 shrink-0 ml-auto flex-wrap">
+                  {/* Single Unified [Details & Specs] Toggle */}
                   <button
                     type="button"
-                    onClick={() => toggleSpecRow(comp.id)}
-                    className={`px-2 py-0.5 rounded-md border text-[10px] font-mono font-semibold flex items-center gap-1 shrink-0 transition cursor-pointer ${
-                      isSpecOpen || specCount > 0 || hasDesc
-                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800'
-                        : 'bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-800 border-slate-200 dark:border-slate-700'
+                    onClick={() => toggleDetailsRow(comp.id)}
+                    className={`px-2 py-0.5 rounded-md border text-[10.5px] font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition cursor-pointer ${
+                      isDetailsOpen
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                        : specCount > 0 || hasMetaDetails
+                        ? 'bg-indigo-50/90 text-indigo-700 border-indigo-200 hover:bg-indigo-100/80 dark:bg-indigo-950/50 dark:text-indigo-300 dark:border-indigo-800'
+                        : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 hover:bg-slate-50 border-slate-200 dark:border-slate-700'
                     }`}
-                    title="View or edit sub-item description, technical attributes, Brand/Model, and quote visibility"
+                    title="Expand sub-item description, scope note, brand/model/origin, photo, and technical specifications"
                   >
-                    <span>Specs ({specCount})</span>
-                    {hasDesc && (
+                    <SlidersHorizontal className="w-3 h-3 shrink-0" />
+                    <span>Details &amp; Specs</span>
+                    {specCount > 0 && (
                       <span
-                        className="w-1.5 h-1.5 rounded-full bg-amber-500"
-                        title="Has sub-item print description"
+                        className={`font-mono tabular-nums text-[10px] ${
+                          isDetailsOpen ? 'text-indigo-100' : 'text-indigo-600 dark:text-indigo-300'
+                        }`}
+                      >
+                        ({specCount})
+                      </span>
+                    )}
+                    {specCount === 0 && hasMetaDetails && !isDetailsOpen && (
+                      <span
+                        className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"
+                        title="Contains description, note, or brand/model details"
                       />
+                    )}
+                    {isDetailsOpen ? (
+                      <ChevronUp className="w-3 h-3 shrink-0 opacity-80" />
+                    ) : (
+                      <ChevronDown className="w-3 h-3 shrink-0 opacity-70" />
                     )}
                   </button>
 
-                  {/* Description / Note Toggle */}
-                  <button
-                    type="button"
-                    onClick={() => toggleNoteRow(comp.id)}
-                    className={`px-1.5 py-0.5 rounded-md border text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer ${
-                      isNoteOpen || hasDesc
-                        ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800'
-                        : 'bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-700 border-slate-200 dark:border-slate-700'
-                    }`}
-                    title="Edit sub-item print subtitle / description or scope note"
-                  >
-                    <MessageSquarePlus className="w-3 h-3" />
-                    <span>Desc / Note</span>
-                  </button>
-
-                  {/* Catalog Sync / Link Controls */}
+                  {/* Single Consistent Catalog Link / Sync Control (never duplicated inside drawer) */}
                   {rawLinkedProduct && linkedProduct ? (
                     <div className="relative inline-flex items-center">
                       <button
@@ -1547,12 +1552,12 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                         onClick={() =>
                           setOpenSyncMenuRowId((prev) => (prev === comp.id ? null : comp.id))
                         }
-                        className="px-1.5 py-0.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-mono font-semibold flex items-center gap-1 cursor-pointer transition"
-                        title={`Linked to Catalog: ${linkedProduct.name || linkedProduct.sku} — click to Pull or Push specs`}
+                        className="px-2 py-0.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10.5px] font-mono font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer transition"
+                        title={`Linked to Catalog: ${linkedProduct.name || linkedProduct.sku} — click to Pull, Push, Relink, or Unlink`}
                       >
-                        <RefreshCw className={`w-2.5 h-2.5 ${isRowSyncBusy ? 'animate-spin' : ''}`} />
-                        <span className="truncate max-w-[78px]">{linkedProduct.sku || 'Sync'}</span>
-                        <ChevronDown className="w-2.5 h-2.5" />
+                        <RefreshCw className={`w-2.5 h-2.5 shrink-0 ${isRowSyncBusy ? 'animate-spin' : ''}`} />
+                        <span className="truncate max-w-[82px]">{linkedProduct.sku || 'Catalog'}</span>
+                        <ChevronDown className="w-2.5 h-2.5 shrink-0" />
                       </button>
 
                       {openSyncMenuRowId === comp.id && (
@@ -1615,17 +1620,17 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                       )}
                     </div>
                   ) : (
-                    <div className="inline-flex items-center gap-1">
+                    <div className="inline-flex items-center gap-1 shrink-0">
                       {activeCatalogProducts.length > 0 && (
                         <button
                           type="button"
                           onClick={() =>
                             setShowCatalogPickerForRow((prev) => (prev === comp.id ? null : comp.id))
                           }
-                          className="px-1.5 py-0.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-blue-600 hover:border-blue-300 text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer"
+                          className="px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-blue-600 hover:border-blue-300 text-[10.5px] font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition cursor-pointer"
                           title="Link to existing Catalog SKU"
                         >
-                          <Link2 className="w-3 h-3" />
+                          <Link2 className="w-3 h-3 shrink-0" />
                           <span>Link</span>
                         </button>
                       )}
@@ -1634,32 +1639,34 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                           type="button"
                           disabled={isRowSyncBusy}
                           onClick={() => handleCreateNewCatalogProductFromSub(comp)}
-                          className="px-1.5 py-0.5 rounded-md border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100 text-emerald-800 text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer"
+                          className="px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/70 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-800 dark:text-emerald-300 text-[10.5px] font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition cursor-pointer"
                           title="Save this sub-item as a new Product in Catalog and link it"
                         >
-                          <BookmarkPlus className="w-3 h-3 text-emerald-600" />
+                          <BookmarkPlus className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
                           <span>+ Catalog</span>
                         </button>
                       )}
                     </div>
                   )}
 
-                  {/* Photo & Print Formatting Toggle */}
+                  {/* Row Formatting / Print Styling Toggle */}
                   <button
                     type="button"
                     onClick={() => toggleFormatRow(comp.id)}
-                    className={`p-1 rounded-md border text-[10px] transition cursor-pointer ${
+                    className={`p-1 rounded-md border text-[10px] transition shrink-0 cursor-pointer relative ${
                       isFmtOpen || activeFmtCount > 0
-                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/50 dark:text-indigo-300 dark:border-indigo-800'
                         : 'bg-white dark:bg-slate-800 text-slate-400 hover:text-slate-700 border-slate-200 dark:border-slate-700'
                     }`}
-                    title="Photo & Print Formatting"
+                    title="Row print formatting (Page break, Highlight, Bold, Hide price)"
                   >
                     <Sparkles className="w-3 h-3" />
                   </button>
 
+                  <span className="h-3.5 w-px bg-slate-200 dark:bg-slate-700 mx-0.5 shrink-0" aria-hidden="true" />
+
                   {subComponents.length > 1 && (
-                    <>
+                    <div className="inline-flex items-center gap-0.5 shrink-0">
                       <button
                         type="button"
                         onClick={() => handleMoveSub(idx, 'up')}
@@ -1678,13 +1685,13 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                       >
                         <ArrowDown className="w-3 h-3" />
                       </button>
-                    </>
+                    </div>
                   )}
 
                   <button
                     type="button"
                     onClick={() => handleRemoveSub(comp.id)}
-                    className="p-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-400 hover:text-rose-600 hover:border-rose-200 cursor-pointer"
+                    className="p-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-400 hover:text-rose-600 hover:border-rose-200 shrink-0 cursor-pointer"
                     title="Remove Item"
                   >
                     <Trash2 className="w-3 h-3" />
@@ -1692,51 +1699,32 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                 </div>
               </div>
 
-              {/* Expandable Sub-Item Technical Specifications & Brand/Model/Photo Controls */}
-              {isSpecOpen && (
-                <div className="pl-6 pt-1.5 pb-1 space-y-2 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/60 dark:bg-slate-800/30 rounded-lg p-2.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-[10px] font-mono uppercase tracking-wider font-bold text-indigo-700 dark:text-indigo-300">
-                      Sub-Item #{idx + 1} Technical Specs &amp; Metadata
+              {/* UNIFIED EXPANDABLE SUB-ITEM DETAILS & SPECS DRAWER */}
+              {isDetailsOpen && (
+                <div
+                  className="ml-6 rounded-lg border border-slate-200/90 dark:border-slate-700/80 bg-slate-50/75 dark:bg-slate-800/40 p-3 space-y-3 animate-in fade-in duration-150"
+                  onPaste={(e) => {
+                    const clipItems = e.clipboardData?.items;
+                    if (!clipItems) return;
+                    for (let i = 0; i < clipItems.length; i++) {
+                      if (clipItems[i].type.startsWith('image/')) {
+                        const file = clipItems[i].getAsFile();
+                        if (file) {
+                          e.preventDefault();
+                          handleUploadSubImage(comp.id, file);
+                          return;
+                        }
+                      }
+                    }
+                  }}
+                >
+                  {/* Unified Drawer Header: Title + Quote Visibility Toggles */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200/70 dark:border-slate-700/70">
+                    <span className="text-[10.5px] font-mono uppercase tracking-wider font-bold text-slate-600 dark:text-slate-300">
+                      Sub-Item #{idx + 1} Details &amp; Specs
                     </span>
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      {/* Direct Catalog Sync Buttons inside Expanded Specs Panel */}
-                      {rawLinkedProduct ? (
-                        <div className="inline-flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handlePullSubFromCatalog(comp, rawLinkedProduct)}
-                            className="px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition"
-                            title="Overwrite sub-item specs, brand/model & description with latest from Catalog"
-                          >
-                            <ArrowDownToLine className="w-3 h-3" />
-                            <span>Pull from Catalog</span>
-                          </button>
-                          <button
-                            type="button"
-                            disabled={isRowSyncBusy}
-                            onClick={() => handlePushSubToCatalog(comp, rawLinkedProduct)}
-                            className="px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition"
-                            title="Save this sub-item's current description, specs, brand/model & photo back to the linked Catalog Product"
-                          >
-                            <ArrowUpFromLine className="w-3 h-3" />
-                            <span>Push to Catalog</span>
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={isRowSyncBusy || !comp.item_name?.trim()}
-                          onClick={() => handleCreateNewCatalogProductFromSub(comp)}
-                          className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer transition"
-                          title="Create a new Product in Catalog from this sub-item and link it automatically"
-                        >
-                          <BookmarkPlus className="w-3 h-3" />
-                          <span>+ Save Sub-Item to Catalog</span>
-                        </button>
-                      )}
-
-                      <label className="inline-flex items-center gap-1.5 text-[10.5px] font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <label className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 cursor-pointer whitespace-nowrap">
                         <input
                           type="checkbox"
                           checked={comp.show_attributes !== false}
@@ -1745,7 +1733,7 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                         />
                         <span>Show Specs on Quote</span>
                       </label>
-                      <label className="inline-flex items-center gap-1.5 text-[10.5px] font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
+                      <label className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 cursor-pointer whitespace-nowrap">
                         <input
                           type="checkbox"
                           checked={comp.show_image !== false}
@@ -1754,91 +1742,137 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                         />
                         <span>Show Photo on Quote</span>
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const baseAttrs = Array.isArray(comp.attributes)
-                            ? [...comp.attributes]
-                            : [...effectiveAttrs];
-                          baseAttrs.push({ key: '', value: '' });
-                          handleUpdateSub(comp.id, 'attributes', baseAttrs);
-                        }}
-                        className="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold cursor-pointer transition"
-                      >
-                        + Add Spec
-                      </button>
                     </div>
                   </div>
 
-                  {/* Sub-Item Description / Print Subtitle Editor */}
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <label className="text-[10px] font-mono font-bold text-slate-600 dark:text-slate-300">
-                        Sub-Item Description / Print Subtitle (Prints under sub-item name on PDF)
-                      </label>
-                      {hasDesc && (
+                  {/* Single Description / Print Subtitle + Optional Scope Note */}
+                  <div className="space-y-2">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="text-[10.5px] font-semibold text-slate-600 dark:text-slate-300">
+                          Sub-Item Description / Print Subtitle
+                          <span className="ml-1 font-normal text-slate-400">
+                            (prints below sub-item name on PDF)
+                          </span>
+                        </label>
+                        {hasDesc && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateSub(comp.id, 'description', '')}
+                            className="px-1.5 py-0.5 rounded bg-white hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 hover:border-rose-200 text-[10px] font-semibold cursor-pointer transition shrink-0"
+                            title="Clear sub-item print subtitle"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      <textarea
+                        rows={2}
+                        value={comp.description ?? ''}
+                        onChange={(e) => handleUpdateSub(comp.id, 'description', e.target.value)}
+                        placeholder="Optional sub-item description or subtitle printed below the sub-item name..."
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:outline-none leading-relaxed"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        value={isMeaningfulRemark(comp.remark) ? comp.remark : comp.row_note || ''}
+                        onChange={(e) => handleUpdateSub(comp.id, 'remark', e.target.value)}
+                        placeholder="Optional scope / application note (e.g. Factory pre-fitted, SS316, ASME standard)..."
+                        className="flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1 text-[11px] text-slate-700 dark:text-slate-300 focus:border-blue-500 focus:outline-none"
+                      />
+                      {hasNote && (
                         <button
                           type="button"
-                          onClick={() => handleUpdateSub(comp.id, 'description', '')}
-                          className="px-1.5 py-0.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[9.5px] font-semibold cursor-pointer transition"
-                          title="Clear sub-item print subtitle"
+                          onClick={() => handleUpdateSubPatch(comp.id, { remark: '', row_note: '' })}
+                          className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer shrink-0"
+                          title="Clear scope note"
                         >
-                          Clear
+                          <X className="w-3.5 h-3.5" />
                         </button>
                       )}
                     </div>
-                    <textarea
-                      rows={2}
-                      value={comp.description ?? ''}
-                      onChange={(e) => handleUpdateSub(comp.id, 'description', e.target.value)}
-                      placeholder="Optional sub-item description or subtitle printed below the sub-item name (leave blank if not needed)..."
-                      className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2.5 py-1.5 text-[11px] text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:outline-none"
-                    />
                   </div>
 
-                  {/* Brand / Model / Origin / Clean Photo Control */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1.5">
-                    <input
-                      type="text"
-                      value={comp.brand_make ?? linkedProduct?.brand_make ?? ''}
-                      onChange={(e) => handleUpdateSub(comp.id, 'brand_make', e.target.value)}
-                      placeholder="Brand / Make"
-                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-[11px] text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:outline-none"
-                    />
-                    <input
-                      type="text"
-                      value={comp.model_part_no ?? linkedProduct?.model_part_no ?? ''}
-                      onChange={(e) => handleUpdateSub(comp.id, 'model_part_no', e.target.value)}
-                      placeholder="Model / Part No."
-                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-[11px] font-mono text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:outline-none"
-                    />
-                    <input
-                      type="text"
-                      value={comp.country_of_origin ?? linkedProduct?.country_of_origin ?? ''}
-                      onChange={(e) => handleUpdateSub(comp.id, 'country_of_origin', e.target.value)}
-                      placeholder="Origin (e.g. Italy, UAE)"
-                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-[11px] text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:outline-none"
-                    />
+                  {/* Balanced 3-Column Metadata Row: Brand / Model / Origin */}
+                  <div className="grid grid-cols-1 @[460px]:grid-cols-3 gap-2">
+                    <div className="min-w-0">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                        Brand / Make
+                      </label>
+                      <input
+                        type="text"
+                        value={comp.brand_make ?? linkedProduct?.brand_make ?? ''}
+                        onChange={(e) => handleUpdateSub(comp.id, 'brand_make', e.target.value)}
+                        placeholder="e.g. Pentair, Grundfos"
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                        Model / Part No.
+                      </label>
+                      <input
+                        type="text"
+                        value={comp.model_part_no ?? linkedProduct?.model_part_no ?? ''}
+                        onChange={(e) => handleUpdateSub(comp.id, 'model_part_no', e.target.value)}
+                        placeholder="e.g. CR-10-4"
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1.5 text-xs font-mono text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                        Origin
+                      </label>
+                      <input
+                        type="text"
+                        value={comp.country_of_origin ?? linkedProduct?.country_of_origin ?? ''}
+                        onChange={(e) => handleUpdateSub(comp.id, 'country_of_origin', e.target.value)}
+                        placeholder="e.g. Italy, UAE"
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
 
-                    {/* Clean Photo Control (Never exposes raw data:image/... base64 string) */}
+                  {/* Clean Dedicated Full-Width Media Upload / Paste Strip */}
+                  <div className="pt-2 border-t border-slate-200/70 dark:border-slate-700/70 flex flex-wrap sm:flex-nowrap items-center gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">
+                      Sub-Item Photo
+                    </span>
+
                     {isEmbeddedImageBlob ? (
-                      <div className="flex items-center justify-between gap-1.5 bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-700 rounded px-2 py-1">
-                        <div className="flex items-center gap-1.5 min-w-0">
+                      <div className="flex-1 min-w-0 flex items-center justify-between gap-2 bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-700 rounded-md px-2.5 py-1">
+                        <div className="flex items-center gap-2 min-w-0">
                           <img
                             src={comp.image_url}
                             alt={comp.item_name || 'Sub-item'}
-                            className="w-5 h-5 rounded object-contain border border-slate-200 shrink-0"
+                            referrerPolicy="no-referrer"
+                            className="w-6 h-6 rounded object-contain border border-slate-200 dark:border-slate-700 shrink-0"
                           />
-                          <span className="text-[10.5px] font-semibold text-emerald-700 dark:text-emerald-400 truncate">
+                          <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 truncate">
                             Custom Photo Attached
                           </span>
                         </div>
-                        <div className="flex items-center gap-1 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setLightboxSubComp({
+                                ...comp,
+                                image_url: effectiveThumbUrl,
+                              })
+                            }
+                            className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10.5px] font-semibold whitespace-nowrap cursor-pointer transition"
+                          >
+                            Zoom
+                          </button>
                           <label
-                            className="px-1.5 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[9.5px] font-semibold cursor-pointer transition"
+                            className="px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10.5px] font-semibold whitespace-nowrap cursor-pointer transition"
                             title="Upload / Replace sub-item photo"
                           >
-                            Change
+                            Replace
                             <input
                               type="file"
                               accept="image/*"
@@ -1853,15 +1887,15 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                           <button
                             type="button"
                             onClick={() => handleUpdateSub(comp.id, 'image_url', '')}
-                            className="p-0.5 text-slate-400 hover:text-rose-600 cursor-pointer"
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
                             title="Remove custom photo"
                           >
-                            <X className="w-3 h-3" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5">
+                      <div className="flex-1 min-w-0 flex items-center gap-1.5">
                         <input
                           type="text"
                           value={comp.image_url ?? ''}
@@ -1873,16 +1907,17 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                           }
                           placeholder={
                             linkedProduct?.image_url
-                              ? 'Catalog Photo (or paste URL)'
-                              : 'Paste https:// Photo URL...'
+                              ? 'Using Catalog Photo — paste URL or upload to override'
+                              : 'Paste image URL (https://...) or press Ctrl+V to paste photo'
                           }
-                          className="flex-1 min-w-0 bg-transparent text-[11px] font-mono text-slate-700 dark:text-slate-300 focus:outline-none"
+                          className="flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1 text-[11px] font-mono text-slate-700 dark:text-slate-300 focus:border-blue-500 focus:outline-none"
                         />
                         <label
-                          className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 text-slate-600 dark:text-slate-300 hover:text-blue-700 text-[9.5px] font-semibold cursor-pointer shrink-0 transition"
-                          title="Upload photo file"
+                          className="px-2.5 py-1 rounded-md bg-white dark:bg-slate-900 hover:bg-blue-50 text-slate-700 dark:text-slate-200 hover:text-blue-700 border border-slate-200 dark:border-slate-700 hover:border-blue-300 text-[11px] font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer transition"
+                          title="Upload photo file (or Ctrl+V anywhere in this panel)"
                         >
-                          Upload
+                          <ImageIcon className="w-3 h-3 text-blue-600 shrink-0" />
+                          <span>Upload</span>
                           <input
                             type="file"
                             accept="image/*"
@@ -1898,108 +1933,85 @@ export const CompositePackageEditor: React.FC<CompositePackageEditorProps> = ({
                           <button
                             type="button"
                             onClick={() => handleUpdateSub(comp.id, 'image_url', '')}
-                            className="p-0.5 text-slate-400 hover:text-rose-600 cursor-pointer shrink-0"
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer shrink-0"
                             title="Remove photo URL"
                           >
-                            <X className="w-3 h-3" />
+                            <X className="w-3.5 h-3.5" />
                           </button>
                         )}
                       </div>
                     )}
                   </div>
 
-                  {/* Key:Value Attribute Pairs */}
-                  {effectiveAttrs.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                      {effectiveAttrs.map((attr, aIdx) => (
-                        <div key={aIdx} className="flex items-center gap-1">
-                          <input
-                            type="text"
-                            value={attr.key ?? ''}
-                            placeholder="Spec Key (e.g. MOC, Size)"
-                            onChange={(e) => {
-                              const nextAttrs = [...effectiveAttrs];
-                              nextAttrs[aIdx] = { ...nextAttrs[aIdx], key: e.target.value };
-                              handleUpdateSub(comp.id, 'attributes', nextAttrs);
-                            }}
-                            className="w-2/5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-[11px] font-mono font-semibold text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:outline-none"
-                          />
-                          <input
-                            type="text"
-                            value={attr.value ?? ''}
-                            placeholder="Value (e.g. FRP, 48x72)"
-                            onChange={(e) => {
-                              const nextAttrs = [...effectiveAttrs];
-                              nextAttrs[aIdx] = { ...nextAttrs[aIdx], value: e.target.value };
-                              handleUpdateSub(comp.id, 'attributes', nextAttrs);
-                            }}
-                            className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-[11px] text-slate-700 dark:text-slate-300 focus:border-blue-500 focus:outline-none"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const nextAttrs = effectiveAttrs.filter((_, i) => i !== aIdx);
-                              handleUpdateSub(comp.id, 'attributes', nextAttrs);
-                            }}
-                            className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
-                            title="Remove spec attribute"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                      ))}
+                  {/* Key:Value Technical Specifications List */}
+                  <div className="pt-2 border-t border-slate-200/70 dark:border-slate-700/70 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Technical Specifications ({specCount})
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const baseAttrs = Array.isArray(comp.attributes)
+                            ? [...comp.attributes]
+                            : [...effectiveAttrs];
+                          baseAttrs.push({ key: '', value: '' });
+                          handleUpdateSub(comp.id, 'attributes', baseAttrs);
+                        }}
+                        className="px-2 py-0.5 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-[10.5px] font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer transition"
+                      >
+                        <Plus className="w-3 h-3 shrink-0" />
+                        <span>Add Spec</span>
+                      </button>
                     </div>
-                  ) : (
-                    <div className="text-[11px] text-slate-400 italic">
-                      No technical attributes yet. Click &quot;+ Add Spec&quot; above to add key:value specifications (e.g. MOC: FRP, Size: 48&quot; x 72&quot;).
-                    </div>
-                  )}
-                </div>
-              )}
 
-              {/* Optional Collapsible Description & Scope Note Row */}
-              {isNoteOpen && (
-                <div className="pl-6 space-y-1.5 pt-1">
-                  {!isSpecOpen && (
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="text"
-                        value={comp.description ?? ''}
-                        onChange={(e) => handleUpdateSub(comp.id, 'description', e.target.value)}
-                        placeholder="Sub-Item Description / Print Subtitle (prints under sub-item name on PDF)..."
-                        className="flex-1 bg-amber-50/40 dark:bg-slate-800/60 border border-amber-200 dark:border-slate-700 rounded-md px-2.5 py-1 text-[11px] text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:bg-white focus:outline-none"
-                      />
-                      {hasDesc && (
-                        <button
-                          type="button"
-                          onClick={() => handleUpdateSub(comp.id, 'description', '')}
-                          className="px-1.5 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-semibold cursor-pointer"
-                          title="Clear sub-item description"
-                        >
-                          Clear
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="text"
-                      value={isMeaningfulRemark(comp.remark) ? comp.remark : comp.row_note || ''}
-                      onChange={(e) => handleUpdateSub(comp.id, 'remark', e.target.value)}
-                      placeholder="Optional scope / application note (e.g. Factory pre-fitted, SS316, ASME standard)..."
-                      className="flex-1 bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-md px-2.5 py-1 text-[11px] text-slate-700 dark:text-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleUpdateSub(comp.id, 'remark', '');
-                        setExpandedRowNotes((prev) => ({ ...prev, [comp.id]: false }));
-                      }}
-                      className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
-                      title="Clear note"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
+                    {effectiveAttrs.length > 0 ? (
+                      <div className="grid grid-cols-1 @[640px]:grid-cols-2 gap-1.5">
+                        {effectiveAttrs.map((attr, aIdx) => (
+                          <div key={aIdx} className="flex items-center gap-1.5 min-w-0">
+                            <input
+                              type="text"
+                              value={attr.key ?? ''}
+                              title={attr.key ?? ''}
+                              placeholder="Spec Key (e.g. MOC, Size)"
+                              onChange={(e) => {
+                                const nextAttrs = [...effectiveAttrs];
+                                nextAttrs[aIdx] = { ...nextAttrs[aIdx], key: e.target.value };
+                                handleUpdateSub(comp.id, 'attributes', nextAttrs);
+                              }}
+                              className="w-[42%] min-w-[110px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-[11px] font-mono font-semibold text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:outline-none truncate"
+                            />
+                            <input
+                              type="text"
+                              value={attr.value ?? ''}
+                              title={attr.value ?? ''}
+                              placeholder="Value (e.g. FRP, 48x72)"
+                              onChange={(e) => {
+                                const nextAttrs = [...effectiveAttrs];
+                                nextAttrs[aIdx] = { ...nextAttrs[aIdx], value: e.target.value };
+                                handleUpdateSub(comp.id, 'attributes', nextAttrs);
+                              }}
+                              className="flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-700 dark:text-slate-300 focus:border-blue-500 focus:outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextAttrs = effectiveAttrs.filter((_, i) => i !== aIdx);
+                                handleUpdateSub(comp.id, 'attributes', nextAttrs);
+                              }}
+                              className="p-1 text-slate-400 hover:text-rose-600 rounded shrink-0 cursor-pointer"
+                              title="Remove spec attribute"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-slate-400 italic">
+                        No technical attributes yet. Click &quot;+ Add Spec&quot; to add key:value specifications (e.g. MOC: FRP, Size: 48&quot; x 72&quot;).
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
