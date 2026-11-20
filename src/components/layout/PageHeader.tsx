@@ -13,6 +13,7 @@ export interface PageHeaderAction {
   icon?: LucideIcon;
   onClick: () => void;
   variant?: 'outline' | 'ghost';
+  active?: boolean;
 }
 
 export interface PageHeaderProps {
@@ -26,6 +27,7 @@ export interface PageHeaderProps {
     onClick: () => void;
   };
   secondaryActions?: Array<PageHeaderAction>;
+  beforePrimaryActions?: React.ReactNode;
   maxWidth?: string;
   className?: string;
   children?: React.ReactNode;
@@ -41,6 +43,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   badge,
   primaryAction,
   secondaryActions,
+  beforePrimaryActions,
   maxWidth = 'max-w-[1600px]',
   className = '',
   children,
@@ -94,7 +97,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   };
 
   return (
-    <div className={`relative shrink-0 w-full px-4 py-3 sm:px-6 sm:py-4 lg:px-8 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs ${className}`}>
+    <div className={`relative shrink-0 w-full px-4 py-3 sm:px-6 sm:py-3.5 lg:px-8 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs ${className}`}>
       <div className={`${maxWidth} mx-auto w-full flex flex-wrap items-start xl:items-center justify-between gap-3 sm:gap-4`}>
         {/* Left Info Column with Secret 5-click trigger — guaranteed min-width so title never truncates to "Call..." */}
         <div className="flex items-start sm:items-center space-x-3 sm:space-x-3.5 flex-1 min-w-[260px] sm:min-w-[320px]">
@@ -145,18 +148,21 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
         </div>
 
         {/* Right Action Bar Column */}
-        {(primaryAction || (secondaryActions && secondaryActions.length > 0) || children) && (
+        {(primaryAction || (secondaryActions && secondaryActions.length > 0) || beforePrimaryActions || children) && (
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end shrink-0">
             {secondaryActions?.map((act, index) => {
               const SecIcon = act.icon;
               const isGhost = act.variant === 'ghost';
+              const isActive = Boolean(act.active);
               return (
                 <button
                   key={index}
                   type="button"
                   onClick={act.onClick}
                   className={
-                    isGhost
+                    isActive
+                      ? 'px-3 py-1.5 sm:px-3.5 sm:py-2 text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 border border-blue-300 dark:border-blue-700 hover:bg-blue-100/70 dark:hover:bg-blue-900/50 shadow-2xs rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0'
+                      : isGhost
                       ? 'px-3 py-1.5 sm:px-3.5 sm:py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0'
                       : 'px-3 py-1.5 sm:px-3.5 sm:py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/60 shadow-2xs rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0'
                   }
@@ -164,12 +170,16 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
                   {SecIcon && (
                     React.isValidElement(SecIcon)
                       ? SecIcon
-                      : React.createElement(SecIcon as React.ComponentType<{ className?: string }>, { className: 'w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0' })
+                      : React.createElement(SecIcon as React.ComponentType<{ className?: string }>, {
+                          className: `w-4 h-4 shrink-0 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400'}`
+                        })
                   )}
                   <span>{act.label}</span>
                 </button>
               );
             })}
+
+            {beforePrimaryActions}
 
             {primaryAction && (
               <button

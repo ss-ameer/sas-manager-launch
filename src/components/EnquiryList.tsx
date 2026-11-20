@@ -29,7 +29,8 @@ import {
   CheckCircle2,
   Activity,
   Phone,
-  MessageCircle
+  MessageCircle,
+  SlidersHorizontal
 } from 'lucide-react';
 import { db, safeSetDoc, safeDeleteDoc, safeUpdateDoc } from '../firebase';
 import { EnquiryRepository } from '../services/repositories/EnquiryRepository';
@@ -510,7 +511,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
       }`}
     >
       {isMarkingMode && (
-        <td className="py-3 px-2.5 text-center overflow-hidden align-middle" onClick={(evt) => evt.stopPropagation()}>
+        <td className="py-2.5 px-2 text-center overflow-hidden align-middle" onClick={(evt) => evt.stopPropagation()}>
           <input
             type="checkbox"
             checked={isChecked}
@@ -522,12 +523,12 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
       )}
 
       {/* 1. S/N */}
-      <td className="py-3 px-2 font-mono text-xs text-slate-500 dark:text-slate-400 font-semibold whitespace-nowrap text-center overflow-hidden align-middle tabular-nums">
+      <td className="py-2.5 px-1.5 font-mono text-xs text-slate-500 dark:text-slate-400 font-semibold whitespace-nowrap text-center overflow-hidden align-middle tabular-nums">
         #{e.sn}
       </td>
 
-      {/* 2. COMPANY ACCOUNT (Strict 2-Line Hierarchy) */}
-      <td className="py-3 px-3 overflow-hidden align-middle" title={companyName}>
+      {/* 2. COMPANY ACCOUNT (Generous Fluid Width + Clean 2-Line Wrap) */}
+      <td className="py-2.5 px-3 overflow-hidden align-middle" title={companyName}>
         {isGapReserved ? (
           <div className="flex flex-col gap-0.5 min-w-0 overflow-hidden">
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-400 font-mono truncate">
@@ -543,7 +544,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
           </div>
         ) : (
           <div className="flex flex-col gap-0.5 min-w-0 overflow-hidden">
-            <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
+            <div className="flex items-start gap-1.5 min-w-0">
               <span
                 onClick={(evt) => {
                   if (isClickable) {
@@ -552,7 +553,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                   }
                 }}
                 title={companyName}
-                className={`text-sm font-semibold truncate ${
+                className={`text-[13.5px] font-semibold leading-snug line-clamp-2 break-words ${
                   isClickable
                     ? 'text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer'
                     : 'text-slate-800 dark:text-slate-200'
@@ -562,7 +563,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
               </span>
               {companyName && companyName !== 'Unknown Client' && (
                 <div
-                  className="shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+                  className="shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
                   onClick={(evt) => evt.stopPropagation()}
                 >
                   <GoogleSearchButton
@@ -602,10 +603,10 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
               const compactContextParts = [cleanContact, cleanLocation].filter(Boolean);
 
               return (
-                <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 truncate min-w-0">
+                <div className="flex items-center gap-1.5 text-[11.5px] text-slate-500 dark:text-slate-400 truncate min-w-0">
                   {resolvedCompany && (
                     <span className={`inline-flex items-center gap-1 font-medium shrink-0 ${tempColorClass}`}>
-                      <span className="text-[9px] leading-none">●</span>
+                      <span className="text-[8px] leading-none">●</span>
                       <span>{tempLabel}</span>
                     </span>
                   )}
@@ -636,7 +637,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
       </td>
 
       {/* 2B. CONTACT & LOCATION (Dedicated column on 2xl+ screens; stacked under Company Account on < 2xl) */}
-      <td className="hidden 2xl:table-cell py-3 px-2.5 whitespace-nowrap overflow-hidden align-middle">
+      <td className="hidden 2xl:table-cell py-2.5 px-2.5 whitespace-nowrap overflow-hidden align-middle">
         {(() => {
           const cleanContact = (e.contact_person_name || (e as any).contact_person || '').trim();
           const cleanLocation = (
@@ -669,8 +670,8 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
         })()}
       </td>
 
-      {/* 3. QUOTE REF NO (Single Clean Monospace Badge — Full Reference Without Premature Truncation) */}
-      <td className="py-3 px-2 whitespace-nowrap align-middle">
+      {/* 3. QUOTE REF NO (Tightly Fitted Monospace Badge) */}
+      <td className="py-2.5 px-2 whitespace-nowrap overflow-hidden align-middle">
         {(() => {
           const quoteDoc = e.attachments?.find((att) =>
             att.name?.startsWith('QT-') && att.name?.endsWith('.pdf')
@@ -710,29 +711,29 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
 
             return (
               <span
-                className={`inline-flex items-center gap-1.5 font-mono text-[11.5px] tracking-tight font-medium px-2 py-0.5 rounded-md border whitespace-nowrap ${badgeColorClass}`}
+                className={`inline-flex items-center max-w-full font-mono text-[11px] tracking-tight font-medium px-2 py-0.5 rounded-md border whitespace-nowrap ${badgeColorClass}`}
                 title={`Formal Quotation (${quoteStatus}): ${formalRef}${canonicalEnquiryRef && canonicalEnquiryRef !== formalRef ? ` • Enquiry Ref: ${canonicalEnquiryRef}` : ''}`}
               >
-                <span>{formalRef}</span>
+                <span className="truncate">{formalRef}</span>
               </span>
             );
           }
 
           return (
             <span
-              className="font-mono text-[11.5px] tracking-tight font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700/60 inline-block whitespace-nowrap"
+              className="inline-flex items-center max-w-full font-mono text-[11px] tracking-tight font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700/60 whitespace-nowrap"
               title={displayRef}
             >
-              {displayRef}
+              <span className="truncate">{displayRef}</span>
             </span>
           );
         })()}
       </td>
 
       {/* 4. REP (Centered 2-3 Char Initials Badge Only) */}
-      <td className="py-3 px-1.5 whitespace-nowrap text-center overflow-hidden align-middle">
+      <td className="py-2.5 px-1 whitespace-nowrap text-center overflow-hidden align-middle">
         <span
-          className="inline-flex items-center justify-center min-w-[28px] h-6 px-1.5 rounded-md font-mono text-[11px] font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700"
+          className="inline-flex items-center justify-center min-w-[26px] h-6 px-1.5 rounded-md font-mono text-[11px] font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700"
           title={repTooltip}
         >
           {cleanInitials}
@@ -740,9 +741,9 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
       </td>
 
       {/* 5. DATE (Line 1: Formatted Date, Line 2: Relative Age) */}
-      <td className="py-3 px-2 whitespace-nowrap overflow-hidden align-middle">
+      <td className="py-2.5 px-2 whitespace-nowrap overflow-hidden align-middle">
         <div className="flex flex-col gap-0.5 min-w-0">
-          <span className="text-xs font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap truncate">
+          <span className="text-xs font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap truncate tabular-nums">
             {formatEnquiryDate(e.enquiry_date)}
           </span>
           {dateRelativeAge && (
@@ -753,8 +754,8 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
         </div>
       </td>
 
-      {/* 6. STATUS (Line 1: Status Pill, Line 2: Clean Timestamp · Author) */}
-      <td className="py-3 px-2 whitespace-nowrap overflow-hidden align-middle" onClick={(evt) => evt.stopPropagation()}>
+      {/* 6. STATUS (Generous Width so Multi-Word Statuses Never Truncate) */}
+      <td className="py-2.5 px-2 whitespace-nowrap overflow-hidden align-middle" onClick={(evt) => evt.stopPropagation()}>
         <div className="flex flex-col items-start gap-0.5 max-w-full overflow-hidden">
           <div className="relative inline-flex items-center max-w-full">
             <select
@@ -765,7 +766,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                 onStatusChange(e, evt.target.value);
               }}
               title={tooltipTitle}
-              className={`appearance-none cursor-pointer pr-5 pl-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-tight transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/40 hover:brightness-95 max-w-full truncate ${getStatusBadgeClass(e.status)}`}
+              className={`appearance-none cursor-pointer pr-5 pl-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-tight transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/40 hover:brightness-95 max-w-full ${getStatusBadgeClass(e.status)}`}
             >
               {PIPELINE_STATUS_GROUPS.map((group) => (
                 <optgroup
@@ -806,12 +807,12 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
         </div>
       </td>
 
-      {/* 7. VALUE (Generous pr-5 Right Gutter, Line 1: Currency + Amount, Line 2: Item/File Summary) */}
-      <td className="py-3 pl-2 pr-5 text-right whitespace-nowrap overflow-hidden align-middle">
-        <div className="flex flex-col items-end gap-0.5 min-w-0 max-w-full overflow-hidden">
-          <div className="inline-flex items-baseline justify-end max-w-full truncate font-mono tabular-nums">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 mr-1">{prefix}</span>
-            <span className="text-sm font-bold text-slate-900 dark:text-slate-100 tabular-nums truncate">{formattedAmount}</span>
+      {/* 7. VALUE (Non-Wrapping Amount + Clean Non-Clipping Item/File/Margin Summary) */}
+      <td className="py-2.5 pl-2 pr-2.5 text-right align-middle">
+        <div className="flex flex-col items-end gap-0.5 min-w-0">
+          <div className="inline-flex items-baseline justify-end whitespace-nowrap font-mono tabular-nums">
+            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mr-1">{prefix}</span>
+            <span className="text-[13.5px] font-bold text-slate-900 dark:text-slate-100 tabular-nums">{formattedAmount}</span>
           </div>
           {(() => {
             const items = e.line_items || [];
@@ -829,7 +830,7 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
                 const costSum = calcItems.reduce((s, li) => s + (Number(li.quantity) || 0) * (Number(li.cost_price) || 0), 0);
                 if (sellSum > 0) {
                   const pct = (((sellSum - costSum) / sellSum) * 100).toFixed(0);
-                  marginText = fileCount > 0 ? `${pct}% mgn` : `${pct}% margin`;
+                  marginText = `${pct}% margin`;
                 }
               }
             }
@@ -837,30 +838,37 @@ export const EnquiryTableRow = React.memo(function EnquiryTableRow({
               itemCount > 0 ? `${itemCount} ${itemCount === 1 ? 'item' : 'items'}` : null,
               fileCount > 0 ? `${fileCount} ${fileCount === 1 ? 'file' : 'files'}` : null,
               marginText
-            ].filter(Boolean);
+            ].filter(Boolean) as string[];
             if (parts.length === 0) return null;
             return (
-              <span
-                className="text-[11px] font-sans tabular-nums text-slate-400 dark:text-slate-500 truncate max-w-full block"
+              <div
+                className="flex flex-wrap items-center justify-end gap-x-1 gap-y-0 text-[10.5px] leading-tight font-sans tabular-nums text-slate-400 dark:text-slate-500"
                 title={parts.join(' · ')}
               >
-                {parts.join(' · ')}
-              </span>
+                {parts.map((part, idx) => (
+                  <React.Fragment key={part}>
+                    {idx > 0 && (
+                      <span className="text-slate-300 dark:text-slate-600 select-none" aria-hidden="true">·</span>
+                    )}
+                    <span className="whitespace-nowrap">{part}</span>
+                  </React.Fragment>
+                ))}
+              </div>
             );
           })()}
         </div>
       </td>
 
-      {/* 8. ACTIONS (Crisp Primary [Open] + Compact w-7 h-7 Icon Buttons) */}
-      <td className="py-3 pl-2 pr-3 text-right whitespace-nowrap overflow-hidden align-middle" onClick={(evt) => evt.stopPropagation()}>
-        <div className="inline-flex items-center justify-end gap-1" onClick={(evt) => evt.stopPropagation()}>
+      {/* 8. ACTIONS (Tight Open + Compact Icon Buttons) */}
+      <td className="py-2.5 pl-1 pr-2.5 text-right whitespace-nowrap overflow-hidden align-middle" onClick={(evt) => evt.stopPropagation()}>
+        <div className="inline-flex items-center justify-end gap-0.5" onClick={(evt) => evt.stopPropagation()}>
           <button
             type="button"
             onClick={(evt) => {
               evt.stopPropagation();
               if (e.id) onSelectEnquiry(e.id);
             }}
-            className="h-7 px-2.5 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center justify-center cursor-pointer shrink-0"
+            className="h-7 px-2 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition inline-flex items-center justify-center cursor-pointer shrink-0"
             title="Open enquiry details"
           >
             Open
@@ -978,6 +986,26 @@ export default function EnquiryList({
   const [showExportModal, setShowExportModal] = useState(false);
   const [showQuickClaimModal, setShowQuickClaimModal] = useState(false);
   const [showReserveGapModal, setShowReserveGapModal] = useState(false);
+  const [showToolsMenu, setShowToolsMenu] = useState(false);
+  const toolsMenuRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!showToolsMenu) return;
+    const handleOutside = (evt: MouseEvent) => {
+      if (toolsMenuRef.current && !toolsMenuRef.current.contains(evt.target as Node)) {
+        setShowToolsMenu(false);
+      }
+    };
+    const handleEsc = (evt: KeyboardEvent) => {
+      if (evt.key === 'Escape') setShowToolsMenu(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('keydown', handleEsc);
+    };
+  }, [showToolsMenu]);
   const [reserveGapSn, setReserveGapSn] = useState('');
   const [reserveGapMemo, setReserveGapMemo] = useState('');
   const [reserveGapDate, setReserveGapDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -2243,174 +2271,269 @@ export default function EnquiryList({
         }
         secondaryActions={[
           {
-            label: isMarkingMode ? 'Exit Marking Mode' : 'Mark / Select',
+            label: isMarkingMode ? 'Done Selecting' : 'Select',
             icon: CheckSquare,
+            active: isMarkingMode,
             onClick: () => {
               const next = !isMarkingMode;
               setIsMarkingMode(next);
               if (!next) setSelectedEnquiryIds([]);
             }
-          },
-          ...(isEditable
-            ? [
-                {
-                  label: 'Reserve Gap',
-                  icon: Plus,
-                  onClick: () => {
-                    setReserveGapSn('');
-                    setReserveGapMemo('');
-                    setReserveGapDate(new Date().toISOString().split('T')[0]);
-                    setShowReserveGapModal(true);
-                  }
-                },
-                {
-                  label: 'Claim Ref',
-                  icon: Hash,
-                  onClick: () => setShowQuickClaimModal(true)
-                }
-              ]
-            : []),
-          ...(isAdmin(user, activeWorkspace)
-            ? [
-                {
-                  label: 'Import',
-                  icon: Upload,
-                  onClick: () => setShowImport(true)
-                }
-              ]
-            : []),
-          ...(canExportData(user, activeWorkspace)
-            ? [
-                {
-                  label: 'Export CSV',
-                  icon: Download,
-                  onClick: handleExportCSV
-                }
-              ]
-            : [])
+          }
         ]}
+        beforePrimaryActions={
+          (isEditable || isAdmin(user, activeWorkspace) || canExportData(user, activeWorkspace)) ? (
+            <div ref={toolsMenuRef} className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowToolsMenu((prev) => !prev)}
+                aria-expanded={showToolsMenu}
+                aria-haspopup="menu"
+                className={`px-3 py-1.5 sm:px-3.5 sm:py-2 text-xs font-semibold rounded-xl border transition cursor-pointer inline-flex items-center gap-1.5 whitespace-nowrap shadow-2xs ${
+                  showToolsMenu
+                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border-slate-400 dark:border-slate-600'
+                    : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/60'
+                }`}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
+                <span>Tools</span>
+                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${showToolsMenu ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showToolsMenu && (
+                <div
+                  role="menu"
+                  className="absolute right-0 mt-1.5 w-52 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-lg py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100"
+                >
+                  {isEditable && (
+                    <>
+                      <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                        Sequence Registry
+                      </div>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setShowToolsMenu(false);
+                          setReserveGapSn('');
+                          setReserveGapMemo('');
+                          setReserveGapDate(new Date().toISOString().split('T')[0]);
+                          setShowReserveGapModal(true);
+                        }}
+                        className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2.5 cursor-pointer transition"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span>Reserve Gap</span>
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setShowToolsMenu(false);
+                          setShowQuickClaimModal(true);
+                        }}
+                        className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2.5 cursor-pointer transition"
+                      >
+                        <Hash className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                        <span>Claim Ref</span>
+                      </button>
+                    </>
+                  )}
+
+                  {isEditable && (isAdmin(user, activeWorkspace) || canExportData(user, activeWorkspace)) && (
+                    <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+                  )}
+
+                  {(isAdmin(user, activeWorkspace) || canExportData(user, activeWorkspace)) && (
+                    <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                      Data Utilities
+                    </div>
+                  )}
+
+                  {isAdmin(user, activeWorkspace) && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setShowToolsMenu(false);
+                        setShowImport(true);
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2.5 cursor-pointer transition"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
+                      <span>Import CSV / Excel</span>
+                    </button>
+                  )}
+
+                  {canExportData(user, activeWorkspace) && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setShowToolsMenu(false);
+                        handleExportCSV();
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2.5 cursor-pointer transition"
+                    >
+                      <Download className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
+                      <span>Export CSV</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : undefined
+        }
       />
 
-      <PageBody>
+      <PageBody className="!py-4 sm:!py-5 !space-y-3.5">
 
-      {/* Top 4-Card KPI Summary Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+      {/* Slim Top 4-Card KPI Summary Strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiStatCard
+          compact
           label="Active Pipeline"
           value={`AED ${lifecycleCounts.activePipelineValueAed.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
           subtext={`${lifecycleCounts.all - lifecycleCounts.won - lifecycleCounts.lost} open enquiries · ${lifecycleCounts.unquoted} unquoted`}
-          icon={<TrendingUp className="w-5 h-5" />}
+          icon={<TrendingUp className="w-4 h-4" />}
           tone="blue"
           onClick={() => setQuoteLifecycleFilter('all')}
           active={quoteLifecycleFilter === 'all'}
         />
 
         <KpiStatCard
+          compact
           label="Actionable Proposals"
           value={`AED ${lifecycleCounts.pendingQuotesValueAed.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
           subtext={`${lifecycleCounts.pending} formal ${lifecycleCounts.pending === 1 ? 'offer' : 'offers'} awaiting client decision`}
-          icon={<FileText className="w-5 h-5" />}
+          icon={<FileText className="w-4 h-4" />}
           tone="indigo"
           onClick={() => setQuoteLifecycleFilter('pending')}
           active={quoteLifecycleFilter === 'pending'}
         />
 
         <KpiStatCard
+          compact
           label="Won Orders"
           value={`AED ${lifecycleCounts.wonValueAed.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
           subtext={`${lifecycleCounts.won} won · ${lifecycleCounts.winRatePct}% conversion rate`}
-          icon={<CheckCircle2 className="w-5 h-5" />}
+          icon={<CheckCircle2 className="w-4 h-4" />}
           tone="emerald"
           onClick={() => setQuoteLifecycleFilter('won')}
           active={quoteLifecycleFilter === 'won'}
         />
 
         <KpiStatCard
+          compact
           label="Conversion & Health"
           value={`${lifecycleCounts.overdueFollowups} Overdue`}
           subtext={urgencyFilter === 'Overdue' ? 'Showing overdue follow-ups (click to reset)' : 'Click to filter overdue follow-ups'}
-          icon={<Activity className="w-5 h-5" />}
+          icon={<Activity className="w-4 h-4" />}
           tone={lifecycleCounts.overdueFollowups > 0 ? 'amber' : 'slate'}
           onClick={() => setUrgencyFilter(urgencyFilter === 'Overdue' ? 'All' : 'Overdue')}
           active={urgencyFilter === 'Overdue'}
         />
       </div>
 
-      {/* Structured Filtering Section */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-4 mb-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
-          <div className="flex items-center space-x-2 text-xs font-mono text-slate-400 uppercase tracking-wider">
-            <Filter className="w-4 h-4" />
-            <span>Faceted Search & Filters</span>
+      {/* Unified Compact Filter Bar */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-xl p-3 shadow-2xs space-y-2.5">
+        {/* Row 1: Quick-View Lifecycle Tabs + Active Overdue Chip & Reset */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
+            {[
+              { id: 'all', label: 'All Enquiries', count: lifecycleCounts.all },
+              { id: 'pending', label: 'Pending Quotes', count: lifecycleCounts.pending },
+              { id: 'won', label: 'Won / Accepted', count: lifecycleCounts.won },
+              { id: 'lost', label: 'Lost / Declined', count: lifecycleCounts.lost },
+              { id: 'unquoted', label: 'Unquoted', count: lifecycleCounts.unquoted }
+            ].map((pill) => {
+              const isActive = quoteLifecycleFilter === pill.id;
+              return (
+                <button
+                  key={pill.id}
+                  type="button"
+                  onClick={() => setQuoteLifecycleFilter(pill.id as QuoteLifecycleFilter)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer whitespace-nowrap ${
+                    isActive
+                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-transparent shadow-2xs'
+                      : 'bg-slate-50/80 dark:bg-slate-950/60 text-slate-600 dark:text-slate-400 border-slate-200/80 dark:border-slate-800 hover:bg-slate-100/70 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <span>{pill.label}</span>
+                  <span
+                    className={`text-[10px] font-mono tabular-nums px-1.5 py-0.2 rounded-full font-bold ${
+                      isActive
+                        ? 'bg-white/20 text-current'
+                        : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700'
+                    }`}
+                  >
+                    {pill.count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
-          {(activeEnquiryFilterLabels.length > 0 || searchInput.trim() !== '') && (
-            <button
-              type="button"
-              onClick={handleClearEnquiryFilters}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition cursor-pointer"
-            >
-              <RotateCcw className="w-3 h-3" />
-              <span>Reset Filters</span>
-            </button>
+
+          {(urgencyFilter === 'Overdue' || activeEnquiryFilterLabels.length > 0 || searchInput.trim() !== '') && (
+            <div className="flex items-center gap-2 shrink-0">
+              {urgencyFilter === 'Overdue' && (
+                <button
+                  type="button"
+                  onClick={() => setUrgencyFilter('All')}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition cursor-pointer whitespace-nowrap"
+                  title="Clear overdue follow-ups filter"
+                >
+                  <Clock className="w-3 h-3 shrink-0" />
+                  <span>Overdue Only</span>
+                  <X className="w-3 h-3 shrink-0" />
+                </button>
+              )}
+
+              {(activeEnquiryFilterLabels.length > 0 || searchInput.trim() !== '') && (
+                <button
+                  type="button"
+                  onClick={handleClearEnquiryFilters}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition cursor-pointer whitespace-nowrap"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Reset Filters</span>
+                </button>
+              )}
+            </div>
           )}
         </div>
 
-        {/* Quotation Lifecycle Filter Bar */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-          {[
-            { id: 'all', label: 'All Enquiries', count: lifecycleCounts.all },
-            { id: 'pending', label: 'Pending Quotes', count: lifecycleCounts.pending },
-            { id: 'won', label: 'Won / Accepted', count: lifecycleCounts.won },
-            { id: 'lost', label: 'Lost / Declined', count: lifecycleCounts.lost },
-            { id: 'unquoted', label: 'Unquoted', count: lifecycleCounts.unquoted }
-          ].map((pill) => {
-            const isActive = quoteLifecycleFilter === pill.id;
-            return (
-              <button
-                key={pill.id}
-                type="button"
-                onClick={() => setQuoteLifecycleFilter(pill.id as QuoteLifecycleFilter)}
-                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer whitespace-nowrap ${
-                  isActive
-                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-transparent shadow-xs ring-2 ring-slate-900/10 dark:ring-white/10'
-                    : 'bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700'
-                }`}
-              >
-                <span>{pill.label}</span>
-                <span
-                  className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
-                    isActive
-                      ? 'bg-white/20 text-current'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
-                  }`}
-                >
-                  {pill.count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
+        {/* Row 2: Generous Search Input + 3 Compact Dropdowns */}
         <div className="flex flex-wrap items-center gap-2 w-full">
           {/* Text search */}
-          <div className="relative flex-[1.6] min-w-[260px]">
-            <Search className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
+          <div className="relative flex-[2.2] min-w-[240px]">
+            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search SN, quote ref, client..."
+              placeholder="Search S/N, quote ref, client, contact..."
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full h-11 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 rounded-xl py-2.5 pl-10 pr-4 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition"
+              className="w-full h-9 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-950 focus:border-blue-500 rounded-lg py-1.5 pl-9 pr-8 text-[13px] text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none transition"
             />
+            {searchInput && (
+              <button
+                type="button"
+                onClick={() => setSearchInput('')}
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                aria-label="Clear search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
           {/* Status selector */}
-          <div className="flex-1 min-w-[140px]">
-            <div className="relative flex items-center bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-xl shadow-xs h-11 w-full transition">
+          <div className="flex-1 min-w-[140px] max-w-[220px]">
+            <div className="relative flex items-center bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-lg h-9 w-full transition">
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as any)}
-                className="appearance-none w-full bg-transparent pl-4 pr-10 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer h-full font-sans"
+                className="appearance-none w-full bg-transparent pl-3 pr-8 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer h-full font-sans"
               >
                 <option value="All" className="font-semibold text-slate-900 dark:text-slate-100">All Statuses</option>
                 {PIPELINE_STATUS_GROUPS.map((group) => (
@@ -2431,17 +2554,17 @@ export default function EnquiryList({
                   </optgroup>
                 ))}
               </select>
-              <ChevronDown className="absolute right-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
+              <ChevronDown className="absolute right-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
             </div>
           </div>
 
           {/* Salesperson selector */}
-          <div className="flex-1 min-w-[140px]">
-            <div className="relative flex items-center bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-xl shadow-xs h-11 w-full transition">
+          <div className="flex-1 min-w-[130px] max-w-[200px]">
+            <div className="relative flex items-center bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-lg h-9 w-full transition">
               <select
                 value={salesPersonFilter}
                 onChange={(e) => setSalesPersonFilter(e.target.value)}
-                className="appearance-none w-full bg-transparent pl-4 pr-10 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer h-full font-sans"
+                className="appearance-none w-full bg-transparent pl-3 pr-8 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer h-full font-sans"
               >
                 <option value="All">All Reps</option>
                 {(availableSalespersons || []).filter(Boolean).map((s, idx) => (
@@ -2450,53 +2573,31 @@ export default function EnquiryList({
                   </option>
                 ))}
               </select>
-              <ChevronDown className="absolute right-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
+              <ChevronDown className="absolute right-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
             </div>
           </div>
 
           {/* Source selector */}
-          <div className="flex-1 min-w-[140px]">
-            <div className="relative flex items-center bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-xl shadow-xs h-11 w-full transition">
+          <div className="flex-1 min-w-[130px] max-w-[190px]">
+            <div className="relative flex items-center bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-lg h-9 w-full transition">
               <select
                 value={sourceFilter}
                 onChange={(e) => setSourceFilter(e.target.value)}
-                className="appearance-none w-full bg-transparent pl-4 pr-10 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer h-full font-sans"
+                className="appearance-none w-full bg-transparent pl-3 pr-8 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer h-full font-sans"
               >
                 <option value="All">All Sources</option>
                 {availableSources.map((src) => (
                   <option key={src} value={src}>{src}</option>
                 ))}
               </select>
-              <ChevronDown className="absolute right-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
+              <ChevronDown className="absolute right-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
             </div>
-          </div>
-
-          {/* Urgency follow-up toggle (Interactive Pill Toggle) */}
-          <div className="flex-1 min-w-[140px]">
-            <button
-              type="button"
-              onClick={() => setUrgencyFilter(urgencyFilter === 'All' ? 'Overdue' : 'All')}
-              className={`w-full flex items-center justify-center space-x-1.5 h-11 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all shadow-xs cursor-pointer ${
-                urgencyFilter === 'Overdue'
-                  ? 'bg-rose-50 dark:bg-rose-950/50 border-rose-300 dark:border-rose-700 text-rose-700 dark:text-rose-300 font-bold ring-2 ring-rose-500/20'
-                  : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900'
-              }`}
-              title="Click to toggle overdue followups filter"
-            >
-              <Clock className={`w-3.5 h-3.5 ${urgencyFilter === 'Overdue' ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400'}`} />
-              <span>{urgencyFilter === 'Overdue' ? 'Overdue Only' : 'Overdue Filter'}</span>
-              {urgencyFilter === 'Overdue' && (
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-600 dark:bg-rose-400 animate-pulse ml-0.5" />
-              )}
-            </button>
           </div>
         </div>
 
-        {/* Redundant SearchResultCounter removed per clean B2B table overhaul */}
-
         {/* Compact, Dismissible Missing S/N Sequence Gap Indicator (hidden when inline gap rows are already rendered in current table view) */}
         {detectedWorkspaceSnGaps.length > 0 && !hasInlineGapRowsInCurrentView && !isSnGapBannerDismissed && (
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/60 text-[11px]">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/60 text-[11px]">
             <div className="flex items-center gap-1.5 text-amber-900 dark:text-amber-200 font-medium min-w-0">
               <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
               <span className="truncate">
@@ -2552,7 +2653,7 @@ export default function EnquiryList({
       </div>
 
       {/* Main Table Layout */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-sm overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-xl shadow-2xs overflow-hidden">
         {filteredEnquiries.length > 0 ? (
           <>
             {/* Mobile Adaptive Quick-Action Card Stack (< 640px) */}
@@ -2706,12 +2807,12 @@ export default function EnquiryList({
               })}
             </div>
 
-            <div className="hidden sm:block w-full overflow-x-auto lg:overflow-x-visible scrollbar-thin relative border-b border-slate-200 dark:border-slate-800">
-            <table className="w-full min-w-[760px] lg:min-w-0 table-fixed text-left border-collapse">
+            <div className="hidden sm:block w-full overflow-x-auto xl:overflow-x-visible scrollbar-thin relative border-b border-slate-200 dark:border-slate-800">
+            <table className="w-full min-w-[1040px] xl:min-w-0 table-fixed text-left border-collapse">
               <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 shadow-[0_1px_0_0_rgba(226,232,240,1)] dark:shadow-[0_1px_0_0_rgba(30,41,59,1)] select-none">
                 <tr>
                   {isMarkingMode && (
-                    <th className="py-2.5 px-2 w-9 text-center bg-slate-50 dark:bg-slate-900">
+                    <th className="py-2 px-2 w-9 text-center bg-slate-50 dark:bg-slate-900">
                       <input
                         type="checkbox"
                         checked={paginatedEnquiries.length > 0 && paginatedEnquiries.every((e) => selectedEnquiryIds.includes(e.id!))}
@@ -2734,30 +2835,30 @@ export default function EnquiryList({
                       />
                     </th>
                   )}
-                  <th onClick={() => handleSort('sn')} className="py-2.5 px-2 w-[5.5%] 2xl:w-[5%] text-center cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition bg-slate-50 dark:bg-slate-900 whitespace-nowrap">
-                    <div className="flex items-center space-x-1 justify-center">
+                  <th onClick={() => handleSort('sn')} className="py-2 px-1.5 w-[52px] text-center cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition bg-slate-50 dark:bg-slate-900 whitespace-nowrap">
+                    <div className="flex items-center space-x-0.5 justify-center">
                       <span>S/N</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-3 w-[22.5%] 2xl:w-[18.5%] truncate bg-slate-50 dark:bg-slate-900">Company Account</th>
-                  <th className="hidden 2xl:table-cell py-2.5 px-2.5 w-[13%] truncate bg-slate-50 dark:bg-slate-900">Contact / Location</th>
-                  <th className="py-2.5 px-2 w-[23%] 2xl:w-[19%] truncate bg-slate-50 dark:bg-slate-900">Quote Ref No</th>
-                  <th className="py-2.5 px-1.5 w-[5.5%] 2xl:w-[5%] text-center truncate bg-slate-50 dark:bg-slate-900">Rep</th>
-                  <th onClick={() => handleSort('enquiry_date')} className="py-2.5 px-2 w-[9.5%] 2xl:w-[8.5%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition whitespace-nowrap bg-slate-50 dark:bg-slate-900">
+                  <th className="py-2 px-3 w-auto truncate bg-slate-50 dark:bg-slate-900">Company Account</th>
+                  <th className="hidden 2xl:table-cell py-2 px-2.5 w-[148px] truncate bg-slate-50 dark:bg-slate-900">Contact / Location</th>
+                  <th className="py-2 px-2 w-[164px] truncate bg-slate-50 dark:bg-slate-900">Quote Ref No</th>
+                  <th className="py-2 px-1 w-[46px] text-center truncate bg-slate-50 dark:bg-slate-900">Rep</th>
+                  <th onClick={() => handleSort('enquiry_date')} className="py-2 px-2 w-[96px] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition whitespace-nowrap bg-slate-50 dark:bg-slate-900">
                     <div className="flex items-center space-x-1">
                       <span>Date</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 px-2 w-[12%] 2xl:w-[11%] truncate bg-slate-50 dark:bg-slate-900">Status</th>
-                  <th onClick={() => handleSort('value_aed')} className="py-2.5 pl-2 pr-5 w-[13%] 2xl:w-[11.5%] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">
+                  <th className="py-2 px-2 w-[172px] truncate bg-slate-50 dark:bg-slate-900">Status</th>
+                  <th onClick={() => handleSort('value_aed')} className="py-2 pl-2 pr-2.5 w-[164px] cursor-pointer hover:text-slate-800 dark:hover:text-slate-200 transition text-right whitespace-nowrap bg-slate-50 dark:bg-slate-900">
                     <div className="flex items-center space-x-1 justify-end">
                       <span>Value</span>
                       <ArrowUpDown className="w-3 h-3 shrink-0 opacity-70" />
                     </div>
                   </th>
-                  <th className="py-2.5 pl-2 pr-3 w-[124px] text-right truncate bg-slate-50 dark:bg-slate-900">Actions</th>
+                  <th className="py-2 pl-1 pr-2.5 w-[104px] text-right truncate bg-slate-50 dark:bg-slate-900">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans">
