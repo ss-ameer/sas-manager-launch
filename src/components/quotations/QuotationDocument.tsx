@@ -328,6 +328,150 @@ export function normalizeQuotationBlockKind(block?: QuotationBlockConfig | null)
   );
 }
 
+export interface CustomPieceVisibilityContext {
+  quotation?: Quotation;
+  enquiry?: any;
+  tokenContext?: QuotationTokenContext;
+  activeLogoUrl?: string;
+  activeSealUrl?: string;
+  activeSignatureUrl?: string;
+}
+
+/**
+ * Evaluates whether a single custom block Lego piece produces visible rendered content
+ * matching renderCustomPiece's runtime visibility rules (for preview, print, and pagination).
+ */
+export function isCustomBlockPieceRenderable(
+  piece?: QuotationBlockPiece | null,
+  ctx?: CustomPieceVisibilityContext
+): boolean {
+  if (!piece || piece.enabled === false) return false;
+
+  if (piece.type === 'heading' || piece.type === 'rich_text') {
+    const rawText = String(piece.text || '').trim();
+    if (!rawText) return false;
+    if (ctx?.tokenContext) {
+      return resolveQuotationTokens(rawText, ctx.tokenContext).trim() !== '';
+    }
+    return true;
+  }
+
+  if (piece.type === 'list') {
+    const rawList = piece.listItems || piece.items || [];
+    return rawList.some((it) => {
+      const trimmed = String(it || '').trim();
+      if (!trimmed) return false;
+      if (ctx?.tokenContext) {
+        return resolveQuotationTokens(trimmed, ctx.tokenContext).trim() !== '';
+      }
+      return true;
+    });
+  }
+
+  if (piece.type === 'field_rows') {
+    const quotation = ctx?.quotation;
+    const enquiry = ctx?.enquiry;
+    const isFrozen = quotation ? isQuotationSnapshotFrozen(quotation) : false;
+    const livePriceBasis = (
+      quotation?.price_basis ||
+      (!isFrozen ? enquiry?.price_basis : '') ||
+      ''
+    ).trim();
+    const liveDeliveryPeriod = (
+      quotation?.delivery_period ||
+      (!isFrozen ? enquiry?.delivery_period : '') ||
+      ''
+    ).trim();
+    const livePaymentTerms = (
+      quotation?.payment_terms ||
+      (!isFrozen ? enquiry?.payment_terms : '') ||
+      ''
+    ).trim();
+
+    return (piece.fieldRows || []).some((r) => {
+      if (!r || r.enabled === false) return false;
+      const rawLabel = ctx?.tokenContext
+        ? resolveQuotationTokens(r.label || '', ctx.tokenContext)
+        : r.label || '';
+      const cleanLbl = rawLabel.replace(/:$/, '').trim().toLowerCase();
+      let rawVal = r.value || '';
+      if (/^(?:price\s*basis|incoterms?)$/i.test(cleanLbl) && livePriceBasis) {
+        rawVal = livePriceBasis;
+      } else if (
+        /^(?:delivery(?:\s*period|\s*time|\s*schedule|\s*terms|\s*lead\s*time)?|lead\s*time)$/i.test(
+          cleanLbl
+        ) &&
+        liveDeliveryPeriod
+      ) {
+        rawVal = liveDeliveryPeriod;
+      } else if (
+        /^(?:payment(?:\s*terms)?|terms\s*of\s*payment)$/i.test(cleanLbl) &&
+        livePaymentTerms
+      ) {
+        rawVal = livePaymentTerms;
+      }
+      const resolvedVal = (
+        ctx?.tokenContext ? resolveQuotationTokens(rawVal, ctx.tokenContext) : rawVal
+      ).trim();
+      const isEmptyOrDash = !resolvedVal || resolvedVal === '—';
+      if (r.hideIfEmpty && isEmptyOrDash) return false;
+      return true;
+    });
+  }
+
+  if (piece.type === 'table') {
+    const headers = piece.tableHeaders || ['Milestone / Item', 'Schedule', 'Amount / Notes'];
+    const hasHeaders = headers.some((h) => String(h || '').trim() !== '');
+    const hasRows = (piece.tableRows || []).some(
+      (r) => Array.isArray(r) && r.some((c) => String(c || '').trim() !== '')
+    );
+    const hasSummary = (piece.tableSummaryRow || []).some(
+      (c) => String(c || '').trim() !== ''
+    );
+    return hasHeaders || hasRows || hasSummary;
+  }
+
+  if (piece.type === 'money_summary') {
+    return (piece.moneyRows || []).some((r) => r && r.enabled !== false);
+  }
+
+  if (piece.type === 'image') {
+    const src =
+      piece.imageSource === 'company_logo'
+        ? ctx?.activeLogoUrl ?? ctx?.quotation?.company_logo_url ?? ''
+        : piece.imageSource === 'company_seal'
+        ? ctx?.activeSealUrl ?? ctx?.quotation?.company_seal_url ?? ''
+        : piece.imageSource === 'signature'
+        ? ctx?.activeSignatureUrl ?? ctx?.quotation?.signature_image_url ?? ''
+        : piece.imageUrl || '';
+    const secondarySrc = piece.imageSecondaryUrl || '';
+    return Boolean(String(src || '').trim() || String(secondarySrc || '').trim());
+  }
+
+  if (piece.type === 'signature_box' || piece.type === 'qr_code') {
+    return true;
+  }
+
+  if (piece.type === 'divider') {
+    const dStyle = piece.dividerStyle || 'solid';
+    return dStyle !== 'space_only' && dStyle !== 'blank';
+  }
+
+  if (piece.type === 'columns') {
+    if (Array.isArray(piece.leftPieces) || Array.isArray(piece.rightPieces)) {
+      return (
+        (piece.leftPieces || []).some((cp) => isCustomBlockPieceRenderable(cp, ctx)) ||
+        (piece.rightPieces || []).some((cp) => isCustomBlockPieceRenderable(cp, ctx))
+      );
+    }
+    return (piece.columnItems || []).some(
+      (col) => Array.isArray(col) && col.some((cp) => isCustomBlockPieceRenderable(cp, ctx))
+    );
+  }
+
+  return false;
+}
+
 /**
  * Determines whether a layout block produces actual visible content on a rendered sheet.
  * Returns false for page_break, spacer, disabled/hidden blocks, blocks excluded by document_type
@@ -335,7 +479,8 @@ export function normalizeQuotationBlockKind(block?: QuotationBlockConfig | null)
  */
 export function isRenderableContentBlock(
   block?: QuotationBlockConfig | null,
-  quotation?: Quotation
+  quotation?: Quotation,
+  customPieceCtx?: CustomPieceVisibilityContext
 ): boolean {
   if (!block || block.enabled === false || block.is_visible === false) return false;
   const rawId = String(block.id || '').trim();
@@ -448,16 +593,14 @@ export function isRenderableContentBlock(
     }
   }
 
-  const isCustomBlock = bType === 'custom' || (Array.isArray(block.pieces) && block.pieces.length > 0);
+  const isCustomBlock =
+    bType === 'custom' ||
+    rawId.startsWith('custom_') ||
+    (Array.isArray(block.pieces) && block.pieces.length > 0);
   if (isCustomBlock) {
-    const hasVisibleHeader =
-      block.showContainerHeader === true &&
-      block.headerStyleOverride !== 'none' &&
-      Boolean((block.titleOverride || block.title || '').trim());
-    const enabledPieces = Array.isArray(block.pieces)
-      ? block.pieces.filter((p) => p && p.enabled !== false)
-      : [];
-    return enabledPieces.length > 0 || hasVisibleHeader;
+    const pieces = Array.isArray(block.pieces) ? block.pieces : [];
+    const effectiveCtx: CustomPieceVisibilityContext = customPieceCtx || { quotation };
+    return pieces.some((p) => isCustomBlockPieceRenderable(p, effectiveCtx));
   }
 
   if (bType === 'terms' || rawId === 'terms') {
@@ -665,8 +808,16 @@ export function estimateBlockHeightMm(
   if (bType === 'acceptance') {
     return 32;
   }
-  if (Array.isArray(block.pieces) && block.pieces.length > 0) {
-    return Math.min(75, 14 + block.pieces.filter((p) => p.enabled !== false).length * 9);
+  if (
+    bType === 'custom' ||
+    String(block.id || '').startsWith('custom_') ||
+    (Array.isArray(block.pieces) && block.pieces.length > 0)
+  ) {
+    const renderablePieces = (Array.isArray(block.pieces) ? block.pieces : []).filter((p) =>
+      isCustomBlockPieceRenderable(p, { quotation })
+    );
+    if (renderablePieces.length === 0) return 0;
+    return Math.min(75, 14 + renderablePieces.length * 9);
   }
   return (block.placement || 'full') === 'full' ? 28 : 24;
 }
@@ -1421,13 +1572,14 @@ export function partitionBlocksIntoSheets(
     columnConfig?: QuotationPresetColumns;
     preTableOverheadMm?: number;
     quotation?: Quotation;
+    customPieceCtx?: CustomPieceVisibilityContext;
   }
 ): QuotationSheetPartition[] {
   const activeBlocks = (blocks || []).filter((b) => {
     if (!b || b.enabled === false || b.is_visible === false) return false;
     const kind = normalizeQuotationBlockKind(b);
     if (kind === 'page_break' || kind === 'spacer') return true;
-    return isRenderableContentBlock(b, options?.quotation);
+    return isRenderableContentBlock(b, options?.quotation, options?.customPieceCtx);
   });
 
   const preTableOverheadMm = options?.preTableOverheadMm ?? 0;
@@ -1481,7 +1633,7 @@ export function partitionBlocksIntoSheets(
     lastTopItem && (lastTopItem.page_break_after === true || lastSubOfLastItem?.page_break_after === true)
   );
   const hasRenderablePostTableBlocks = activeBlocks.some((b) =>
-    isRenderableContentBlock(b, options?.quotation)
+    isRenderableContentBlock(b, options?.quotation, options?.customPieceCtx)
   );
 
   if (hasBreakAfterLastLineItem && hasRenderablePostTableBlocks) {
@@ -1572,7 +1724,9 @@ export function partitionBlocksIntoSheets(
       const candidate = visualRows[j];
       if (
         candidate.kind === 'content_row' &&
-        candidate.blocks.some((rb) => isRenderableContentBlock(rb, options?.quotation))
+        candidate.blocks.some((rb) =>
+          isRenderableContentBlock(rb, options?.quotation, options?.customPieceCtx)
+        )
       ) {
         return true;
       }
@@ -1590,7 +1744,9 @@ export function partitionBlocksIntoSheets(
       const currentSheet = rawSheets[rawSheets.length - 1];
       const isCurrentSheetEmptyContinuation =
         rawSheets.length > 1 &&
-        !currentSheet.blocks.some((rb) => isRenderableContentBlock(rb, options?.quotation)) &&
+        !currentSheet.blocks.some((rb) =>
+          isRenderableContentBlock(rb, options?.quotation, options?.customPieceCtx)
+        ) &&
         (!currentSheet.tableChunk || currentSheet.tableChunk.items.length === 0) &&
         !currentSheet.pageBreakBlock;
 
@@ -1613,7 +1769,9 @@ export function partitionBlocksIntoSheets(
 
     const currentSheet = rawSheets[rawSheets.length - 1];
     const hasContentOnCurrentSheet =
-      currentSheet.blocks.some((rb) => isRenderableContentBlock(rb, options?.quotation)) ||
+      currentSheet.blocks.some((rb) =>
+        isRenderableContentBlock(rb, options?.quotation, options?.customPieceCtx)
+      ) ||
       Boolean(currentSheet.tableChunk && currentSheet.tableChunk.items.length > 0);
     const activeSheetBudgetMm =
       rawSheets.length === 1 ? sheet1TotalBudgetMm : continuationTotalBudgetMm;
@@ -1645,7 +1803,7 @@ export function partitionBlocksIntoSheets(
   const sanitizedSheets = rawSheets.filter((sheet, idx) => {
     if (idx === 0) return true;
     const hasRenderableBlocks = sheet.blocks.some((b) =>
-      isRenderableContentBlock(b, options?.quotation)
+      isRenderableContentBlock(b, options?.quotation, options?.customPieceCtx)
     );
     const hasTableItems = Boolean(sheet.tableChunk && sheet.tableChunk.items.length > 0);
     return hasRenderableBlocks || hasTableItems;
@@ -2054,6 +2212,7 @@ export function resolveDocumentPaginationWithAnnexes(
     columnConfig?: QuotationPresetColumns;
     preTableOverheadMm?: number;
     quotation?: Quotation;
+    customPieceCtx?: CustomPieceVisibilityContext;
     excludedPageIndices?: number[];
     excludedBodyPageIndices?: number[];
   }
@@ -5017,37 +5176,28 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     );
   };
 
+  const customPieceVisibilityCtx = React.useMemo<CustomPieceVisibilityContext>(() => {
+    const overlay = resolveStampSignatureOverlayConfig(resolvedFooterConfig, quotation, profile);
+    return {
+      quotation,
+      enquiry,
+      tokenContext,
+      activeLogoUrl: headerBranding.activeLogoUrl,
+      activeSealUrl: overlay.activeSealUrl,
+      activeSignatureUrl: overlay.activeSignatureUrl
+    };
+  }, [resolvedFooterConfig, quotation, profile, enquiry, tokenContext, headerBranding.activeLogoUrl]);
+
   // Pre-table custom & specialized blocks rendered on Sheet 1 between Top Section and Line Items Table
   const preTableBlocks = React.useMemo(() => {
     return resolvedBlocks.filter((b) => {
       if (b.zone !== 'pre_table') return false;
       if (b.enabled === false || b.is_visible === false) return false;
-      const bType = b.type || b.id;
-      if (bType === 'do_dispatch_party' || bType === 'do_receiving_party') {
-        if (!isDeliveryNote) return false;
-      }
-      if (bType === 'vendor_return_claim' || bType === 'vendor_return_ack') {
-        if (!isMaterialReturnNote && !isDebitNote) return false;
-      }
-      if (
-        bType === 'pv_disbursed_banner' ||
-        bType === 'pv_bill_allocation' ||
-        bType === 'pv_treasury_details' ||
-        bType === 'pv_beneficiary_details' ||
-        bType === 'pv_approval_matrix'
-      ) {
-        if (!isPaymentVoucher) return false;
-      }
-      if (
-        bType === 'rec_amount_banner' ||
-        bType === 'rec_payment_instrument' ||
-        bType === 'rec_balance_statement'
-      ) {
-        if (!isReceiptVoucher) return false;
-      }
-      return true;
+      const bKind = normalizeQuotationBlockKind(b);
+      if (bKind === 'page_break' || bKind === 'spacer') return true;
+      return isRenderableContentBlock(b, quotation, customPieceVisibilityCtx);
     });
-  }, [resolvedBlocks, isDeliveryNote, isMaterialReturnNote, isDebitNote, isPaymentVoucher, isReceiptVoucher]);
+  }, [resolvedBlocks, quotation, customPieceVisibilityCtx]);
 
   const preTableOverheadMm = React.useMemo(() => {
     const blocksOverhead = preTableBlocks.reduce(
@@ -5079,12 +5229,17 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         resolvedFooterConfig.excluded_page_indices ?? quotation.excluded_page_indices
     };
 
+    const paginationCustomPieceCtx: CustomPieceVisibilityContext = {
+      ...customPieceVisibilityCtx,
+      quotation: quotationForPagination
+    };
+
     const activeBlocks = resolvedBlocks.filter((b) => {
       if (b.zone === 'pre_table') return false;
       if (b.enabled === false || b.is_visible === false) return false;
       const bKind = normalizeQuotationBlockKind(b);
       if (bKind === 'page_break' || bKind === 'spacer') return true;
-      return isRenderableContentBlock(b, quotationForPagination);
+      return isRenderableContentBlock(b, quotationForPagination, paginationCustomPieceCtx);
     });
 
     return resolveDocumentPaginationWithAnnexes(
@@ -5097,6 +5252,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
         columnConfig,
         preTableOverheadMm,
         quotation: quotationForPagination,
+        customPieceCtx: paginationCustomPieceCtx,
         excludedBodyPageIndices:
           resolvedFooterConfig.excluded_page_indices ?? quotation.excluded_page_indices
       }
@@ -5120,6 +5276,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
     resolvedRecipientConfig,
     resolvedFooterConfig,
     resolvedBlockStyle,
+    customPieceVisibilityCtx,
     preTableOverheadMm,
     quotation.table_font_scale,
     quotation.font_size_scale,
@@ -8116,7 +8273,14 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
 
     const renderCustomBlock = (blockConfig: QuotationBlockConfig) => {
       const pieces = Array.isArray(blockConfig.pieces) ? blockConfig.pieces : [];
-      const activePieces = pieces.filter((p) => p && p.enabled !== false);
+      const activePieces = pieces.filter((p) =>
+        isCustomBlockPieceRenderable(p, customPieceVisibilityCtx)
+      );
+      if (activePieces.length === 0) return null;
+      const renderedPieces = activePieces
+        .map((piece) => renderCustomPiece(piece))
+        .filter((node) => node !== null && node !== undefined && node !== false);
+      if (renderedPieces.length === 0) return null;
       const hasHeadingPiece = activePieces.some((p) => p.type === 'heading');
       const showContainerHeader =
         blockConfig.showContainerHeader !== undefined
@@ -8146,15 +8310,7 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
                 FileText,
                 blockConfig.subtitleOverride
               )}
-            {activePieces.length > 0 ? (
-              <div className="space-y-2">
-                {activePieces.map((piece) => renderCustomPiece(piece))}
-              </div>
-            ) : (
-              <p className="text-slate-400 italic text-[calc(var(--block-base)*0.92)] py-1">
-                Empty custom block — click to add text, rows, tables, or sign-off pieces in the Right Inspector.
-              </p>
-            )}
+            <div className="space-y-2">{renderedPieces}</div>
           </div>
         </div>
       );
@@ -9381,19 +9537,35 @@ const QuotationDocumentInner: React.FC<QuotationDocumentProps> = ({
       if ((b.id === 'signatory' || b.id === 'signatories') && !showStampAndSignatures) return false;
       if (b.id === 'acceptance' && !customerAcceptanceEnabled) return false;
       const bKind = normalizeQuotationBlockKind(b);
+      const isCustomSlot =
+        bKind === 'custom' ||
+        bType === 'custom' ||
+        String(b.id || '').startsWith('custom_') ||
+        (Array.isArray(b.pieces) && b.pieces.length > 0);
+      if (isCustomSlot) {
+        const pieces = Array.isArray(b.pieces) ? b.pieces : [];
+        const hasVisiblePiece = pieces.some((p) =>
+          isCustomBlockPieceRenderable(p, customPieceVisibilityCtx)
+        );
+        if (!hasVisiblePiece) return false;
+      }
       if (bKind !== 'page_break' && bKind !== 'spacer') {
         if (
-          !isRenderableContentBlock(b, {
-            ...quotation,
-            block_style: resolvedBlockStyle,
-            show_commercial_terms: resolvedShowCommercialTerms,
-            show_bank_details: resolvedShowBankDetails,
-            showBankRemittance: resolvedShowBankDetails,
-            customer_acceptance_enabled: customerAcceptanceEnabled,
-            showCustomerAcceptance: customerAcceptanceEnabled,
-            showSignatories: showStampAndSignatures,
-            footer_config: resolvedFooterConfig
-          })
+          !isRenderableContentBlock(
+            b,
+            {
+              ...quotation,
+              block_style: resolvedBlockStyle,
+              show_commercial_terms: resolvedShowCommercialTerms,
+              show_bank_details: resolvedShowBankDetails,
+              showBankRemittance: resolvedShowBankDetails,
+              customer_acceptance_enabled: customerAcceptanceEnabled,
+              showCustomerAcceptance: customerAcceptanceEnabled,
+              showSignatories: showStampAndSignatures,
+              footer_config: resolvedFooterConfig
+            },
+            customPieceVisibilityCtx
+          )
         ) {
           return false;
         }
