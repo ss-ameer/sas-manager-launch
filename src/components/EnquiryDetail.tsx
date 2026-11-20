@@ -159,6 +159,31 @@ interface EnquiryDetailProps {
   onAutoOpenStudioConsumed?: () => void;
 }
 
+function normalizeEnquiryTaxMode(rawMode?: string | null): QuotationTaxMode {
+  const m = (rawMode || '').trim();
+  if (m === 'vat_included' || m === 'tax_calculated') return 'tax_calculated';
+  if (m === 'no_vat' || m === 'tax_exempt') return 'tax_exempt';
+  if (m === 'vat_excluded_extra') return 'vat_excluded_extra';
+  if (m === 'vat_hidden') return 'vat_hidden';
+  return 'taxes_extra';
+}
+
+function getTaxModeDisplayLabel(mode: QuotationTaxMode): string {
+  switch (mode) {
+    case 'tax_calculated':
+      return '5% VAT Inclusive';
+    case 'tax_exempt':
+      return '0% / Tax Exempt';
+    case 'vat_excluded_extra':
+      return 'VAT Excluded (5% Extra)';
+    case 'vat_hidden':
+      return 'VAT Hidden (Lump Sum)';
+    case 'taxes_extra':
+    default:
+      return '5% Standard VAT (Excl.)';
+  }
+}
+
 export default function EnquiryDetail({
   enquiry,
   companies,
@@ -4010,12 +4035,7 @@ export default function EnquiryDetail({
       return `${Number(val)} Days`;
     }
     if (fieldKey === 'tax_mode' && typeof val === 'string') {
-      const normalized = normalizeEnquiryTaxMode(val);
-      if (normalized === 'taxes_extra') return '5% Standard VAT (Excl.)';
-      if (normalized === 'vat_excluded_extra') return 'VAT Excluded (5% Extra)';
-      if (normalized === 'tax_calculated') return '5% VAT Inclusive';
-      if (normalized === 'tax_exempt') return '0% / Tax Exempt';
-      if (normalized === 'vat_hidden') return 'VAT Hidden (Lump Sum)';
+      return getTaxModeDisplayLabel(normalizeEnquiryTaxMode(val));
     }
     if (typeof val === 'boolean') {
       return val ? 'Yes' : 'No';
@@ -4260,31 +4280,6 @@ export default function EnquiryDetail({
   const [draftDeliveryPeriod, setDraftDeliveryPeriod] = useState<string>('');
   const [draftPaymentTerms, setDraftPaymentTerms] = useState<string>('');
   const [draftTaxMode, setDraftTaxMode] = useState<QuotationTaxMode>('taxes_extra');
-
-  const normalizeEnquiryTaxMode = (rawMode?: string | null): QuotationTaxMode => {
-    const m = (rawMode || '').trim();
-    if (m === 'vat_included' || m === 'tax_calculated') return 'tax_calculated';
-    if (m === 'no_vat' || m === 'tax_exempt') return 'tax_exempt';
-    if (m === 'vat_excluded_extra') return 'vat_excluded_extra';
-    if (m === 'vat_hidden') return 'vat_hidden';
-    return 'taxes_extra';
-  };
-
-  const getTaxModeDisplayLabel = (mode: QuotationTaxMode): string => {
-    switch (mode) {
-      case 'tax_calculated':
-        return '5% VAT Inclusive';
-      case 'tax_exempt':
-        return '0% / Tax Exempt';
-      case 'vat_excluded_extra':
-        return 'VAT Excluded (5% Extra)';
-      case 'vat_hidden':
-        return 'VAT Hidden (Lump Sum)';
-      case 'taxes_extra':
-      default:
-        return '5% Standard VAT (Excl.)';
-    }
-  };
 
   const activeCommercialQuote = useMemo(() => {
     const stdQuotes = unifiedHubDocuments.filter(
